@@ -1,0 +1,15 @@
+[
+  { "name": "Admin", "sidebarMenu": false, "icon": "/icons/admin.svg" },
+  { "name": "Media", "sidebarMenu": true, "icon": "/icons/media-play.svg" },
+  { "name": "Manager", "sidebarMenu": false, "icon": "/icons/settings.svg" },
+  { "name": "Arr Suite", "sidebarMenu": false, "icon": "/icons/app.svg" },
+  { "name": "Indexers", "sidebarMenu": false, "icon": "/icons/indexers.svg" },
+  { "name": "Downloaders", "sidebarMenu": false, "icon": "/icons/download.svg" },
+  { "name": "Games", "sidebarMenu": false, "icon": "/icons/games.svg" },
+  { "name": "Photos", "sidebarMenu": false, "icon": "/icons/photos.svg" },
+  { "name": "System", "sidebarMenu": false, "icon": "/icons/system.svg" },
+  { "name": "Documents", "sidebarMenu": false, "icon": "/icons/documents.svg" },
+  { "name": "Tools", "sidebarMenu": false, "icon": "/icons/tools.svg" },
+  { "name": "Finance", "sidebarMenu": false, "icon": "/icons/finance.svg" },
+  { "name": "Requesters", "sidebarMenu": false, "icon": "/icons/requesters.svg" }
+]

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><%= title %></title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: #0b0e15;
+        color: #e8eef7;
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+      }
+      .wrap {
+        max-width: 520px;
+        padding: 32px;
+        text-align: center;
+      }
+      .title {
+        font-weight: 700;
+        font-size: 20px;
+        margin-bottom: 8px;
+      }
+      .sub {
+        color: rgba(232, 238, 247, 0.7);
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="title">Connecting to Plex…</div>
+      <div class="sub" id="plex-auth-status">Opening Plex login in your browser.</div>
+    </div>
+    <script>
+      (async () => {
+        const callbackBase = "<%= callbackUrl %>";
+        const plexState = "<%= plexState %>";
+        const client = <%- JSON.stringify(client) %>;
+        const headers = {
+          Accept: "application/json",
+          "X-Plex-Client-Identifier": client.id,
+          "X-Plex-Product": client.product,
+          "X-Plex-Platform": client.platform,
+          "X-Plex-Device": client.platform,
+          "X-Plex-Device-Name": client.deviceName
+        };
+
+        const res = await fetch("https://plex.tv/api/v2/pins?strong=true", {
+          method: "POST",
+          headers
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error("PIN request failed (" + res.status + "): " + text.slice(0, 180));
+        }
+        const data = await res.json();
+        if (!data || !data.code) {
+          throw new Error("PIN response missing code.");
+        }
+
+        if (data.id) {
+          try {
+            await fetch("/api/plex/pin", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinId: String(data.id) })
+            });
+          } catch (err) {
+            console.warn("[plex] pin session store failed", err);
+          }
+        }
+
+        const params = new URLSearchParams();
+        params.set("clientID", client.id);
+        params.set("code", data.code);
+        const callbackUrl = new URL(callbackBase);
+        params.set("forwardUrl", callbackUrl.toString());
+        params.set("context[device][product]", client.product);
+        params.set("context[device][platform]", client.platform);
+        params.set("context[device][name]", client.deviceName);
+        const status = document.getElementById("plex-auth-status");
+        if (status) {
+          status.textContent = "Opening Plex login in your browser.";
+        }
+
+        window.location.href = "https://app.plex.tv/auth#?" + params.toString();
+      })().catch((err) => {
+        const msg = err && err.message ? err.message : String(err);
+        document.getElementById("plex-auth-status").textContent = "Plex login failed: " + msg;
+        console.error("[plex] client auth failed:", err);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+services:
+  launcharr:
+    container_name: launcharr
+    image: mickygx/launcharr:latest
+    environment:
+      - CONFIG_PATH=/app/config/config.json
+      - DATA_DIR=/app/data
+      - BASE_URL=https://launcharr.example.com
+      - TRUST_PROXY=true
+      - TRUST_PROXY_HOPS=1
+      # Generate once: openssl rand -hex 32
+      - SESSION_SECRET=replace-this-with-a-random-secret
+      # Optional if only served over HTTPS:
+      # - COOKIE_SECURE=true
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.launcharr.rule=Host(`launcharr.example.com`)
+      - traefik.http.routers.launcharr.entrypoints=websecure
+      - traefik.http.routers.launcharr.tls.certresolver=letsencrypt
+      - traefik.http.services.launcharr.loadbalancer.server.port=3333
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    networks:
+      - proxy
+    restart: unless-stopped
+
+networks:
+  proxy:
+    external: true

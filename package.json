@@ -1,0 +1,20 @@
+{
+  "name": "launcharr",
+  "version": "0.2.45",
+  "description": "Homepage and central hub for Arr suite apps with Plex SSO",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test src/test/*.test.js"
+  },
+  "dependencies": {
+    "cookie-session": "^2.1.0",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "jose": "^5.6.3"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
+  }
+}

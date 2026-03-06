@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="70 92 384 384">
+  <defs>
+    <linearGradient id="houseGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2fe0d7"/>
+      <stop offset="55%" stop-color="#12b2b0"/>
+      <stop offset="100%" stop-color="#0b6b78"/>
+    </linearGradient>
+    <linearGradient id="roofGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#53f0e7"/>
+      <stop offset="100%" stop-color="#118a9b"/>
+    </linearGradient>
+    <linearGradient id="flameGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd468"/>
+      <stop offset="55%" stop-color="#ff9a2f"/>
+      <stop offset="100%" stop-color="#ff5c00"/>
+    </linearGradient>
+    <linearGradient id="flameInner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe889"/>
+      <stop offset="100%" stop-color="#ffb447"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#050a10" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <path d="M128 232 L256 112 L384 232 L384 360 L300 360 L256 420 L212 360 L128 360 Z" fill="url(#houseGrad)" stroke="#ffffff" stroke-width="16" stroke-linejoin="round"/>
+    <path d="M332 150 H382 V230 H332 Z" fill="url(#roofGrad)" stroke="#ffffff" stroke-width="16" stroke-linejoin="round"/>
+  </g>
+
+  <rect x="199" y="230" width="50" height="50" rx="10" fill="#f6dc3f"/>
+  <rect x="263" y="230" width="50" height="50" rx="10" fill="#2f7bff"/>
+  <rect x="199" y="294" width="50" height="50" rx="10" fill="#6ad04a"/>
+  <rect x="263" y="294" width="50" height="50" rx="10" fill="#ef3b3b"/>
+
+  <g filter="url(#softShadow)">
+    <path d="M256 470 C300 440 332 412 330 372 C328 340 308 318 300 296 C292 324 272 336 256 360 C240 330 218 312 214 286 C200 326 180 346 182 380 C184 416 214 444 256 470 Z" fill="url(#flameGrad)" stroke="#ffffff" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M256 454 C280 430 292 408 286 376 C282 354 266 338 256 322 C246 342 232 360 232 384 C232 412 244 436 256 454 Z" fill="url(#flameInner)"/>
+  </g>
+</svg>

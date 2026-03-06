@@ -1,0 +1,3275 @@
+<%- include('partials/head', { pageTitle: 'Launcharr · Dashboard', extraCss: ['/styles-layout.css', '/styles-overview.css', '/table-cards-overrides.css'] }) %>
+<body class="dash-body">
+  <%
+    const multiInstanceBaseIdsList = (Array.isArray(multiInstanceBaseIds) ? multiInstanceBaseIds : [])
+      .map((item) => String(item || '').trim().toLowerCase())
+      .filter(Boolean);
+    const hasDashboardContent = Boolean(
+      Array.isArray(dashboardModules) && dashboardModules.length
+    );
+    const dashboardNavEntries = (Array.isArray(dashboardDefinitions) ? dashboardDefinitions : [])
+      .map((entry) => ({
+        id: String(entry?.id || '').trim() || 'main',
+        name: String(entry?.name || '').trim() || 'Dashboard',
+        icon: String(entry?.icon || '/icons/dashboard.svg').trim() || '/icons/dashboard.svg',
+      }))
+      .filter((entry, index, list) => entry.id && list.findIndex((candidate) => candidate.id === entry.id) === index);
+    const activeDashboardEntry = (() => {
+      const requestedId = String(activeDashboard?.id || 'main').trim() || 'main';
+      return dashboardNavEntries.find((entry) => entry.id === requestedId)
+        || dashboardNavEntries[0]
+        || { id: 'main', name: 'Dashboard', icon: '/icons/dashboard.svg' };
+    })();
+    const mainDashboardNavEntry = dashboardNavEntries.find((entry) => entry.id === 'main')
+      || { id: 'main', name: 'Dashboard', icon: '/icons/dashboard.svg' };
+    const primaryDashboardNavEntry = mainDashboardNavEntry?.id && dashboardNavEntries.some((entry) => entry.id === mainDashboardNavEntry.id)
+      ? mainDashboardNavEntry
+      : (dashboardNavEntries[0] || { id: 'main', name: 'Dashboard', icon: '/icons/dashboard.svg' });
+    const secondaryDashboardNavEntries = dashboardNavEntries.filter((entry) => entry.id !== primaryDashboardNavEntry.id);
+    const resolveAppBaseId = (value) => {
+      const id = String(value || '').trim().toLowerCase();
+      if (!id) return '';
+      const matched = multiInstanceBaseIdsList
+        .slice()
+        .sort((a, b) => b.length - a.length)
+        .find((baseId) => {
+          if (id === baseId) return true;
+          if (!id.startsWith(baseId + '-')) return false;
+          return /^\d+$/.test(id.slice(baseId.length + 1));
+        });
+      return matched || id;
+    };
+    const isArrAppId = (value) => ['sonarr', 'radarr', 'lidarr', 'readarr'].includes(resolveAppBaseId(value));
+    const hasBaseId = (ids, baseId) => Array.isArray(ids) && ids.some((id) => resolveAppBaseId(id) === baseId);
+    const resolveAppIconPath = (appItem) => {
+      const customIcon = String(appItem?.icon || '').trim();
+      if (customIcon) return customIcon;
+      const baseId = resolveAppBaseId(appItem?.id);
+      if (['plex', 'tautulli', 'radarr', 'sonarr', 'lidarr', 'readarr', 'pulsarr', 'seerr', 'prowlarr', 'cleanuparr', 'huntarr', 'transmission', 'qbittorrent', 'sabnzbd', 'jellyfin', 'emby', 'bazarr'].includes(baseId)) {
+        return `/icons/${baseId}.png`;
+      }
+      return `/icons/${baseId || 'app'}.svg`;
+    };
+  %>
+  <div class="dash-frame">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon app-icon" src="/icons/launcharr-icon.png" alt="Launcharr" />
+        </span>
+        <div>
+          <div class="dash-title">Launcharr</div>
+        </div>
+      </div>
+
+      <div class="dash-nav">
+        <% if (dashboardNavEntries.length) { %>
+          <a class="nav-item<%= activeDashboardEntry.id === primaryDashboardNavEntry.id ? ' active' : '' %>" href="/dashboard?dashboard=<%= encodeURIComponent(primaryDashboardNavEntry.id || 'main') %>">
+            <img class="nav-icon" src="<%= primaryDashboardNavEntry.icon || '/icons/dashboard.svg' %>" alt="" onerror="this.src='/icons/dashboard.svg'" />
+            <span class="nav-label"><%= primaryDashboardNavEntry.name || 'Dashboard' %></span>
+          </a>
+          <% if (secondaryDashboardNavEntries.length) { %>
+            <% secondaryDashboardNavEntries.forEach((dashboardLink) => { %>
+              <a class="nav-item nav-item--dashboard-child<%= activeDashboardEntry.id === dashboardLink.id ? ' active' : '' %>" href="/dashboard?dashboard=<%= encodeURIComponent(dashboardLink.id) %>">
+                <img class="nav-icon" src="<%= dashboardLink.icon || '/icons/dashboard.svg' %>" alt="" onerror="this.src='/icons/dashboard.svg'" />
+                <span class="nav-label"><%= dashboardLink.name %></span>
+              </a>
+            <% }) %>
+          <% } %>
+        <% } %>
+        <%- include('partials/nav-categories', { navDashHasEntries: dashboardNavEntries.length > 0, navActiveAppId: null, navActivePage: null }) %>
+      </div>
+
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="<%= activeDashboardEntry.icon || '/icons/dashboard.svg' %>" alt="" onerror="this.src='/icons/dashboard.svg'" />
+          <span class="main-window-app">Launcharr</span>
+          <span class="main-window-rest">| <%= activeDashboardEntry.name || 'Dashboard' %></span>
+        </div>
+        <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
+      </div>
+
+      <% if (hasDashboardContent) { %>
+        <%
+          const hasPlexActive = dashboardModules.some((item) => item.app.id === 'plex' && item.element.id === 'active' && !item.mediaCombined);
+          const hasPlexRecent = dashboardModules.some((item) => item.app.id === 'plex' && item.element.id === 'recent' && !item.mediaCombined);
+          const hasPlexWatchlisted = dashboardModules.some((item) => item.app.id === 'plex' && item.element.id === 'watchlisted');
+          const hasTautulliStats = dashboardModules.some((item) => item.app.id === 'tautulli' && item.element.id === 'watch-stats');
+          const hasMediaCombinedModules = dashboardModules.some((item) => item.mediaCombined && ['active', 'recent'].includes(item.element.id));
+          const hasRequestModules = dashboardModules.some((item) => ['pulsarr', 'seerr'].includes(item.app.id) && (item.element.id === 'recent-requests' || item.element.id === 'most-watchlisted'));
+        %>
+        <div class="plex-overview">
+          <% dashboardModules.forEach((item) => { %>
+            <% if (item.widgetBar) { %>
+              <section class="dashboard-widget-bar"
+                data-widget-bar-id="<%= item.widgetBar.id %>"
+                data-refresh-seconds="<%= item.widgetBar.refreshSeconds ?? 60 %>">
+                <div class="plex-topbar dashboard-widget-bar-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= item.widgetBar.icon || '/icons/dashboard.svg' %>" alt="" onerror="this.src='/icons/dashboard.svg'" />
+                      <span class="plex-titletext"><%= item.widgetBar.name || 'Widget Bar' %></span>
+                    </div>
+                  </div>
+                  <div class="dashboard-widget-bar-topbar-actions">
+                    <button class="plex-iconbtn" type="button" data-widget-bar-scroll-prev aria-label="Previous" title="Previous">
+                      <div class="plex-chev plex-left"></div>
+                    </button>
+                    <button class="plex-iconbtn" type="button" data-widget-bar-scroll-next aria-label="Next" title="Next">
+                      <div class="plex-chev plex-right"></div>
+                    </button>
+                    <button class="plex-iconbtn" type="button" data-widget-bar-collapse-toggle aria-expanded="true" aria-label="Collapse" title="Collapse">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel dashboard-widget-bar-panel">
+                  <% (item.widgetBar.rows || []).forEach(function(row) {
+                    const rowSettings = row.settings || {};
+                    const rowClasses = ['dashboard-widget-bar-row',
+                      rowSettings.fixedWidth ? 'row--fixed-width' : '',
+                      rowSettings.scroll ? 'row--scroll' : '',
+                      rowSettings.fill ? 'row--fill' : '',
+                    ].filter(Boolean).join(' ');
+                    const maxCols = rowSettings.maxCols > 0 ? rowSettings.maxCols : 0;
+                  %>
+                    <div class="<%= rowClasses %>" data-row-id="<%= row.id %>"<% if (maxCols > 0) { %> style="--row-max-cols: <%= maxCols %>"<% } %>>
+                      <% (row.widgets || []).forEach(function(widget) { %>
+                        <%
+                          const dashboardWidgetApp = apps.find(function(appEntry) { return String(appEntry?.id || '') === String(widget.appId || ''); }) || null;
+                          const dashboardWidgetLaunchMode = String(dashboardWidgetApp?.effectiveLaunchMode || '').trim().toLowerCase() || 'disabled';
+                          const dashboardWidgetLaunchEnabled = dashboardWidgetLaunchMode !== 'disabled';
+                          const dashboardWidgetLaunchHref = dashboardWidgetLaunchEnabled ? ('/apps/' + encodeURIComponent(String(widget.appId || '')) + '/launch') : '';
+                          const dashboardWidgetSelectedMetricKeys = Array.isArray(widget.selectedMetricKeys)
+                            ? widget.selectedMetricKeys.map(function(k) { return String(k || '').trim().toLowerCase(); }).filter(Boolean)
+                            : null;
+                          const dashboardWidgetMetricColumns = Number.isFinite(Number(widget.metricColumns)) ? Math.max(1, Math.min(4, Math.round(Number(widget.metricColumns)))) : null;
+                          const dashboardWidgetLibraryKeys = (widget.selectedLibraryKeys && typeof widget.selectedLibraryKeys === 'object' && !Array.isArray(widget.selectedLibraryKeys) && Object.keys(widget.selectedLibraryKeys).length) ? widget.selectedLibraryKeys : null;
+                        %>
+                        <% if (widget.systemType === 'sys-resources') { %>
+                          <div class="dashboard-system-bar"
+                            data-system-type="sys-resources"
+                            data-widget-id="<%= widget.id %>"
+                            data-system-config="<%= JSON.stringify(widget.systemConfig || {}) %>">
+                          </div>
+                        <% } else if (widget.systemType === 'links') { %>
+                          <div class="dashboard-links-widget"
+                            data-system-type="links"
+                            data-widget-id="<%= widget.id %>"
+                            data-system-config="<%= JSON.stringify(widget.systemConfig || {}) %>">
+                          </div>
+                        <% } else if (widget.systemType === 'deployment-summary') { %>
+                          <div class="dashboard-stat-card deployment-summary-stat-card is-loading"
+                            data-system-type="deployment-summary"
+                            data-widget-id="<%= widget.id %>"
+                            data-widget-metric-cols="3"
+                            data-system-config="<%= JSON.stringify(widget.systemConfig || {}) %>">
+                            <div class="stat-card-header">
+                              <img class="stat-card-icon" src="/icons/launcharr-icon.png" alt="" onerror="this.src='/icons/app.svg'" />
+                              <span class="stat-card-name">Launcharr</span>
+                              <span class="stat-card-status is-unknown">Unknown</span>
+                            </div>
+                            <div class="stat-card-metrics">
+                              <span class="stat-card-metric" data-deployment-stat="online"><span class="stat-card-metric-value">0</span><span class="stat-card-metric-label">Online</span></span>
+                              <span class="stat-card-metric" data-deployment-stat="offline"><span class="stat-card-metric-value">0</span><span class="stat-card-metric-label">Offline</span></span>
+                              <span class="stat-card-metric" data-deployment-stat="total"><span class="stat-card-metric-value">0</span><span class="stat-card-metric-label">Total</span></span>
+                            </div>
+                          </div>
+                        <% } else if (!widget.systemType) { %>
+                        <div class="dashboard-stat-card is-loading"
+                          data-app-id="<%= widget.appId %>"
+                          data-widget-id="<%= widget.id %>"
+                          data-launch-mode="<%= dashboardWidgetLaunchMode %>"
+                          <% if (dashboardWidgetLaunchHref) { %>data-launch-href="<%= dashboardWidgetLaunchHref %>" <% } %>
+                          <% if (dashboardWidgetLaunchEnabled) { %>tabindex="0" role="link" aria-label="Open <%= widget.typeName || widget.appId %>" <% } %>
+                          <% if (dashboardWidgetMetricColumns) { %>data-widget-metric-cols="<%= dashboardWidgetMetricColumns %>" <% } %>
+                          <% if (widget.typeId) { %>data-widget-type-id="<%= widget.typeId %>" <% } %>
+                          <% if (dashboardWidgetSelectedMetricKeys !== null) { %>data-has-selected-metric-keys="1" data-selected-metric-keys="<%= dashboardWidgetSelectedMetricKeys.join(',') %>" <% } %>
+                          <% if (dashboardWidgetLibraryKeys) { %>data-selected-library-keys="<%= JSON.stringify(dashboardWidgetLibraryKeys) %>" <% } %>>
+                          <div class="stat-card-header">
+                            <img class="stat-card-icon" src="<%= widget.icon || '/icons/app.svg' %>" alt=""
+                              onerror="this.src='/icons/app.svg'" />
+                            <span class="stat-card-name"><%= widget.typeName || widget.appId %></span>
+                            <span class="stat-card-status">···</span>
+                          </div>
+                          <div class="stat-card-metrics"></div>
+                        </div>
+                        <% } %>
+                      <% }) %>
+                    </div>
+                  <% }) %>
+                </div>
+              </section>
+            <% } else if (item.mediaCombined && item.element.id === 'active') { %>
+              <%
+                const moduleKey = String(item.mediaCombined?.moduleKey || 'mediacombined-active').trim() || 'mediacombined-active';
+                const moduleId = moduleKey;
+                const controlPrefix = moduleKey.replace(/[^a-zA-Z0-9_-]+/g, '') || 'mediacombinedActive';
+                const combinedSourceApps = Array.isArray(item.mediaCombined?.appIds)
+                  ? item.mediaCombined.appIds
+                    .map((appId) => apps.find((entry) => entry.id === appId))
+                    .filter(Boolean)
+                  : [];
+                const defaultLogo = String(item.mediaCombined?.iconPath || '/icons/media-play.svg').trim() || '/icons/media-play.svg';
+                const title = String(item.mediaCombined?.displayName || 'Active Streams').trim() || 'Active Streams';
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img
+                        class="plex-logo"
+                        id="<%= controlPrefix %>Logo"
+                        src="<%= defaultLogo %>"
+                        data-default-icon="<%= defaultLogo %>"
+                        alt="Combined media"
+                        loading="eager"
+                      />
+                      <span><%= title %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (combinedSourceApps.length > 1) { %>
+                      <div class="plex-select plex-icon plex-filter-media" title="Source">
+                        <select id="<%= controlPrefix %>SourceFilter" aria-label="Source">
+                          <option value="all" selected>All</option>
+                          <% combinedSourceApps.forEach((sourceApp) => { %>
+                            <option value="<%= sourceApp.id %>" data-icon="<%= sourceApp.id === 'jellyfin' ? '/icons/jellyfin.png' : (sourceApp.id === 'emby' ? '/icons/emby.png' : '/icons/plex.png') %>"><%= sourceApp.name %></option>
+                          <% }) %>
+                        </select>
+                      </div>
+                    <% } %>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= controlPrefix %>Viewport" class="plex-carousel-viewport">
+                    <div id="<%= controlPrefix %>Track" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.mediaCombined && item.element.id === 'recent') { %>
+              <%
+                const moduleKey = String(item.mediaCombined?.moduleKey || 'mediacombined-recent').trim() || 'mediacombined-recent';
+                const moduleId = moduleKey;
+                const controlPrefix = moduleKey.replace(/[^a-zA-Z0-9_-]+/g, '') || 'mediacombinedRecent';
+                const combinedSourceApps = Array.isArray(item.mediaCombined?.appIds)
+                  ? item.mediaCombined.appIds
+                    .map((appId) => apps.find((entry) => entry.id === appId))
+                    .filter(Boolean)
+                  : [];
+                const defaultLogo = String(item.mediaCombined?.iconPath || '/icons/media-play.svg').trim() || '/icons/media-play.svg';
+                const title = String(item.mediaCombined?.displayName || 'Recently Added').trim() || 'Recently Added';
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img
+                        class="plex-logo"
+                        id="<%= controlPrefix %>Logo"
+                        src="<%= defaultLogo %>"
+                        data-default-icon="<%= defaultLogo %>"
+                        alt="Combined media"
+                        loading="eager"
+                      />
+                      <span><%= title %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (combinedSourceApps.length > 1) { %>
+                      <div class="plex-select plex-icon plex-filter-media" title="Source">
+                        <select id="<%= controlPrefix %>SourceFilter" aria-label="Source">
+                          <option value="all" selected>All</option>
+                          <% combinedSourceApps.forEach((sourceApp) => { %>
+                            <option value="<%= sourceApp.id %>" data-icon="<%= sourceApp.id === 'jellyfin' ? '/icons/jellyfin.png' : (sourceApp.id === 'emby' ? '/icons/emby.png' : '/icons/plex.png') %>"><%= sourceApp.name %></option>
+                          <% }) %>
+                        </select>
+                      </div>
+                    <% } %>
+                    <div class="plex-select plex-icon plex-filter-media" title="Media type">
+                      <select id="<%= controlPrefix %>TypeFilter" aria-label="Media type">
+                        <option value="movie" selected>Movies</option>
+                        <option value="show">TV</option>
+                        <option value="all">All</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Limit">
+                      <select id="<%= controlPrefix %>LimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= controlPrefix %>Viewport" class="plex-carousel-viewport">
+                    <div id="<%= controlPrefix %>Track" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'plex' && item.element.id === 'active' && !item.mediaCombined) { %>
+              <section class="plex-module plex-module--no-subtitle" id="plex-active">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="/icons/plex.png" alt="Plex" loading="eager" />
+                      <span>Active Streams</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <button class="plex-iconbtn" id="plexActivePrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="plexActiveNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="plex-active">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="plexActiveViewport" class="plex-carousel-viewport">
+                    <div id="plexActiveTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'plex' && item.element.id === 'recent' && !item.mediaCombined) { %>
+              <section class="plex-module plex-module--no-subtitle" id="plex-recent">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="/icons/plex.png" alt="Plex" loading="eager" />
+                      <span>Recently Added</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" id="plexRecentTypeWrap" title="Media type">
+                      <select id="plexRecentTypeFilter" aria-label="Media type">
+                        <option value="movie" selected>Movies</option>
+                        <option value="show">TV</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-window" title="Window">
+                      <select id="plexRecentWindowFilter" aria-label="Window">
+                        <option value="today">Today</option>
+                        <option value="week">Week</option>
+                        <option value="month" selected>Month</option>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn" id="plexRecentPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="plexRecentNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="plex-recent">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="plexRecentViewport" class="plex-carousel-viewport">
+                    <div id="plexRecentTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'plex' && item.element.id === 'watchlisted') { %>
+              <section class="plex-module plex-module--no-subtitle" id="plex-watchlisted">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="/icons/plex.png" alt="Plex" loading="eager" />
+                      <span>Most Watchlisted This Week</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" id="plexWatchlistedTypeWrap" title="Media type">
+                      <select id="plexWatchlistedTypeFilter" aria-label="Media type">
+                        <option value="all" selected>All</option>
+                        <option value="movie">Movies</option>
+                        <option value="show">TV</option>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn" id="plexWatchlistedPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="plexWatchlistedNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="plex-watchlisted">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="plexWatchlistedViewport" class="plex-carousel-viewport">
+                    <div id="plexWatchlistedTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (['jellyfin', 'emby'].includes(item.app.id) && item.element.id === 'active' && !item.mediaCombined) { %>
+              <% const mediaPrefix = item.app.id; %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= mediaPrefix %>-active">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= item.app.icon || '/icons/' + item.app.id + '.png' %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Active Streams</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <button class="plex-iconbtn" id="<%= mediaPrefix %>ActivePrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= mediaPrefix %>ActiveNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= mediaPrefix %>-active">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= mediaPrefix %>ActiveViewport" class="plex-carousel-viewport">
+                    <div id="<%= mediaPrefix %>ActiveTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (['jellyfin', 'emby'].includes(item.app.id) && item.element.id === 'recent' && !item.mediaCombined) { %>
+              <% const mediaPrefix = item.app.id; %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= mediaPrefix %>-recent">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= item.app.icon || '/icons/' + item.app.id + '.png' %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Recently Added</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" id="<%= mediaPrefix %>RecentTypeWrap" title="Media type">
+                      <select id="<%= mediaPrefix %>RecentTypeFilter" aria-label="Media type">
+                        <option value="movie" selected>Movies</option>
+                        <option value="show">TV</option>
+                        <option value="all">All</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Limit">
+                      <select id="<%= mediaPrefix %>RecentLimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn" id="<%= mediaPrefix %>RecentPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= mediaPrefix %>RecentNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= mediaPrefix %>-recent">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= mediaPrefix %>RecentViewport" class="plex-carousel-viewport">
+                    <div id="<%= mediaPrefix %>RecentTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'tautulli' && item.element.id === 'watch-stats') { %>
+              <% const tautulliViewMode = item.element?.tautulliStatsView === 'wheel' ? 'wheel' : 'list'; %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= tautulliViewMode === 'wheel' ? 'tautulli-stats-wheel' : 'tautulli-stats' %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="/icons/tautulli.png" alt="Tautulli" loading="eager" />
+                      <span>Watch Statistics</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (tautulliViewMode === 'wheel') { %>
+                      <button class="plex-iconbtn" id="tautulliWheelPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                      <button class="plex-iconbtn" id="tautulliWheelNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <% } else { %>
+                      <button class="plex-iconbtn" id="tautulliStatsPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                      <button class="plex-iconbtn" id="tautulliStatsNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <% } %>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= tautulliViewMode === 'wheel' ? 'tautulli-stats-wheel' : 'tautulli-stats' %>">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <% if (tautulliViewMode === 'wheel') { %>
+                    <div id="tautulliWheelViewport" class="plex-carousel-viewport">
+                      <div id="tautulliWheelTrack" class="plex-carousel-track">
+                        <div class="plex-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } else { %>
+                    <div id="tautulliStatsViewport" class="plex-carousel-viewport">
+                      <div id="tautulliStatsTrack" class="plex-carousel-track">
+                        <div class="plex-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              </section>
+            <% } %>
+            <% if (['prowlarr', 'jackett'].includes(item.app.id) && item.element.id === 'search') { %>
+              <% const searchPrefix = item.app.id; %>
+              <% const searchActionLabel = item.app.id === 'prowlarr' ? 'Action' : 'Open'; %>
+              <% const rawSearchVisibleRows = Number(item.element?.queueVisibleRows); %>
+              <% const searchVisibleRows = Number.isFinite(rawSearchVisibleRows) ? Math.max(5, Math.min(100, rawSearchVisibleRows)) : 25; %>
+              <% const searchPageSizeOptions = [5, 10, 25, 50]; %>
+              <% const searchPageSize = 25; %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= searchPrefix %>-search">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" />
+                      <span>Indexer Search</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <div class="plex-search" title="Search">
+                      <input id="<%= searchPrefix %>SearchInput" type="text" placeholder="Search indexers" aria-label="Search indexers" />
+                      <button class="plex-search-btn" id="<%= searchPrefix %>SearchButton" type="button">Search</button>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-source" title="Indexer type">
+                      <select id="<%= searchPrefix %>SearchTypeFilter" aria-label="Indexer type">
+                        <option value="all" data-icon="/icons/all-type.svg" selected>All indexers</option>
+                        <option value="usenet" data-icon="/icons/download.svg">Usenet</option>
+                        <option value="torrent" data-icon="/icons/download.svg">Torrent</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-source" title="Available indexers">
+                      <select id="<%= searchPrefix %>SearchIndexerFilter" aria-label="Available indexers">
+                        <option value="all" data-icon="/icons/all-type.svg" selected>All available indexers</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-status" title="Top level categories">
+                      <select id="<%= searchPrefix %>SearchCategoryFilter" aria-label="Top level categories">
+                        <option value="all" data-icon="/icons/all-type.svg" selected>All top level categories</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-xsmall" title="Limit">
+                      <select id="<%= searchPrefix %>SearchLimitSelect" aria-label="Limit">
+                        <% searchPageSizeOptions.forEach((limitValue) => { %>
+                          <option value="<%= limitValue %>" <%= limitValue === searchPageSize ? 'selected' : '' %>><%= limitValue %></option>
+                        <% }) %>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= searchPrefix %>-search" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel queue-panel">
+                  <div class="queue-table queue-table--manual queue-hide-timeleft queue-hide-progress indexer-table" style="--queue-visible-rows:<%= searchVisibleRows %>">
+                    <div class="queue-row header indexer-head">
+                      <div class="queue-col-title">Name</div>
+                      <div class="queue-col-detail">Peers</div>
+                      <div class="queue-col-subdetail">Quality</div>
+                      <div class="queue-col-size">Protocol</div>
+                      <div class="queue-col-protocol"><%= searchActionLabel %></div>
+                    </div>
+                    <div id="<%= searchPrefix %>SearchResults" class="queue-body indexer-results">
+                      <div class="queue-row indexer-row indexer-row--empty">
+                        <div class="queue-col-title">Enter a search term to get results.</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="queue-pagination indexer-pagination">
+                    <button class="plex-iconbtn queue-page-prev" id="<%= searchPrefix %>SearchPrevBtn" type="button" aria-label="Previous page"><div class="plex-chev plex-left"></div></button>
+                    <span id="<%= searchPrefix %>SearchPageLabel" class="queue-page-label">Page 1</span>
+                    <button class="plex-iconbtn queue-page-next" id="<%= searchPrefix %>SearchNextBtn" type="button" aria-label="Next page"><div class="plex-chev plex-right"></div></button>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (isArrAppId(item.app.id) && item.element.id === 'downloading-soon') { %>
+              <%
+                const isCombined = Boolean(item.arrCombined);
+                const combinedApps = isCombined ? item.arrCombined.appIds : [];
+                const combinedSourceEntries = isCombined
+                  ? combinedApps
+                    .map((appId) => {
+                      const normalizedId = String(appId || '').trim().toLowerCase();
+                      const sourceApp = (Array.isArray(apps) ? apps : []).find((candidate) => String(candidate?.id || '').trim().toLowerCase() === normalizedId);
+                      return {
+                        id: normalizedId,
+                        name: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                        baseId: resolveAppBaseId(normalizedId),
+                        optionLabel: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                      };
+                    })
+                    .filter((entry) => entry.id)
+                  : [];
+                const combinedBaseCounts = combinedSourceEntries.reduce((acc, entry) => {
+                  if (!entry.baseId) return acc;
+                  acc[entry.baseId] = (acc[entry.baseId] || 0) + 1;
+                  return acc;
+                }, {});
+                const showCombinedMediaFilter = isCombined && Object.keys(combinedBaseCounts).length > 1;
+                const showCombinedInstanceFilter = isCombined && Object.values(combinedBaseCounts).some((count) => count > 1);
+                const combinedModuleKey = isCombined ? String(item.arrCombined?.moduleKey || 'arrcombinedsoon').trim() : String(item.app.id || '').trim();
+                const moduleId = combinedModuleKey + '-downloading-soon';
+                const controlPrefix = combinedModuleKey + 'Soon';
+                const logo = isCombined ? (item.arrCombined?.iconPath || '/icons/app-arr.svg') : resolveAppIconPath(item.app);
+                const title = isCombined ? (item.arrCombined?.displayName || 'Downloading Soon') : 'Downloading Soon';
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= logo %>" alt="<%= isCombined ? 'Combined ARR' : item.app.name %>" loading="eager" />
+                      <span><%= title %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (showCombinedMediaFilter || showCombinedInstanceFilter) { %>
+                      <div
+                        class="arr-filter-popover"
+                        data-media-select-id="<%= showCombinedMediaFilter ? (controlPrefix + 'TypeFilter') : '' %>"
+                        data-source-select-id="<%= showCombinedInstanceFilter ? (controlPrefix + 'SourceFilter') : '' %>"
+                      >
+                        <button class="arr-filter-trigger" type="button" aria-label="Open filters" title="Filters" aria-haspopup="true" aria-expanded="false"></button>
+                        <div class="arr-filter-menu plex-hidden">
+                          <% if (showCombinedMediaFilter) { %>
+                            <div class="arr-filter-section">
+                              <div class="arr-filter-label">Media</div>
+                              <div class="arr-filter-options" data-options-target="media"></div>
+                            </div>
+                            <select id="<%= controlPrefix %>TypeFilter" class="arr-filter-native-select" aria-label="Media type">
+                              <option value="all" data-icon="/icons/all-type.svg" selected>All</option>
+                              <% if (hasBaseId(combinedApps, 'radarr')) { %><option value="movie" data-icon="/icons/movie.svg">Movies</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'sonarr')) { %><option value="tv" data-icon="/icons/tv.svg">TV</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'lidarr')) { %><option value="music" data-icon="/icons/music.svg">Music</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'readarr')) { %><option value="book" data-icon="/icons/book.svg">Books</option><% } %>
+                            </select>
+                          <% } %>
+                          <% if (showCombinedInstanceFilter) { %>
+                            <div class="arr-filter-section">
+                              <div class="arr-filter-label">Instance</div>
+                              <div class="arr-filter-options" data-options-target="source"></div>
+                            </div>
+                            <select id="<%= controlPrefix %>SourceFilter" class="arr-filter-native-select" aria-label="Instance filter">
+                              <option value="all" data-base-id="all" data-icon="/icons/all-type.svg" selected>All instances</option>
+                              <% combinedSourceEntries.forEach((entry) => { %>
+                                <option value="<%= entry.id %>" data-base-id="<%= entry.baseId %>" data-icon="<%= ['radarr', 'sonarr', 'lidarr', 'readarr'].includes(entry.baseId) ? ('/icons/' + entry.baseId + '.png') : '/icons/app-arr.svg' %>"><%= entry.optionLabel %></option>
+                              <% }) %>
+                            </select>
+                          <% } %>
+                        </div>
+                      </div>
+                    <% } %>
+                    <div class="plex-select plex-icon plex-filter-window" title="Window">
+                      <select id="<%= controlPrefix %>WindowFilter" aria-label="Window">
+                        <option value="today">Today</option>
+                        <option value="week">Week</option>
+                        <option value="month" selected>Month</option>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= controlPrefix %>Viewport" class="plex-carousel-viewport">
+                    <div id="<%= controlPrefix %>Track" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (isArrAppId(item.app.id) && item.element.id === 'recently-downloaded') { %>
+              <%
+                const isCombined = Boolean(item.arrCombined);
+                const combinedApps = isCombined ? item.arrCombined.appIds : [];
+                const combinedSourceEntries = isCombined
+                  ? combinedApps
+                    .map((appId) => {
+                      const normalizedId = String(appId || '').trim().toLowerCase();
+                      const sourceApp = (Array.isArray(apps) ? apps : []).find((candidate) => String(candidate?.id || '').trim().toLowerCase() === normalizedId);
+                      return {
+                        id: normalizedId,
+                        name: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                        baseId: resolveAppBaseId(normalizedId),
+                        optionLabel: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                      };
+                    })
+                    .filter((entry) => entry.id)
+                  : [];
+                const combinedBaseCounts = combinedSourceEntries.reduce((acc, entry) => {
+                  if (!entry.baseId) return acc;
+                  acc[entry.baseId] = (acc[entry.baseId] || 0) + 1;
+                  return acc;
+                }, {});
+                const showCombinedMediaFilter = isCombined && Object.keys(combinedBaseCounts).length > 1;
+                const showCombinedInstanceFilter = isCombined && Object.values(combinedBaseCounts).some((count) => count > 1);
+                const combinedModuleKey = isCombined ? String(item.arrCombined?.moduleKey || 'arrcombinedrecent').trim() : String(item.app.id || '').trim();
+                const moduleId = combinedModuleKey + '-recently-downloaded';
+                const controlPrefix = combinedModuleKey + 'Recent';
+                const logo = isCombined ? (item.arrCombined?.iconPath || '/icons/app-arr.svg') : resolveAppIconPath(item.app);
+                const title = isCombined ? (item.arrCombined?.displayName || 'Recently Downloaded') : 'Recently Downloaded';
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= logo %>" alt="<%= isCombined ? 'Combined ARR' : item.app.name %>" loading="eager" />
+                      <span><%= title %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (showCombinedMediaFilter || showCombinedInstanceFilter) { %>
+                      <div
+                        class="arr-filter-popover"
+                        data-media-select-id="<%= showCombinedMediaFilter ? (controlPrefix + 'MediaFilter') : '' %>"
+                        data-source-select-id="<%= showCombinedInstanceFilter ? (controlPrefix + 'SourceFilter') : '' %>"
+                      >
+                        <button class="arr-filter-trigger" type="button" aria-label="Open filters" title="Filters" aria-haspopup="true" aria-expanded="false"></button>
+                        <div class="arr-filter-menu plex-hidden">
+                          <% if (showCombinedMediaFilter) { %>
+                            <div class="arr-filter-section">
+                              <div class="arr-filter-label">Media</div>
+                              <div class="arr-filter-options" data-options-target="media"></div>
+                            </div>
+                            <select id="<%= controlPrefix %>MediaFilter" class="arr-filter-native-select" aria-label="Media type">
+                              <option value="all" data-icon="/icons/all-type.svg" selected>All</option>
+                              <% if (hasBaseId(combinedApps, 'radarr')) { %><option value="movie" data-icon="/icons/movie.svg">Movies</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'sonarr')) { %><option value="tv" data-icon="/icons/tv.svg">TV</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'lidarr')) { %><option value="music" data-icon="/icons/music.svg">Music</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'readarr')) { %><option value="book" data-icon="/icons/book.svg">Books</option><% } %>
+                            </select>
+                          <% } %>
+                          <% if (showCombinedInstanceFilter) { %>
+                            <div class="arr-filter-section">
+                              <div class="arr-filter-label">Instance</div>
+                              <div class="arr-filter-options" data-options-target="source"></div>
+                            </div>
+                            <select id="<%= controlPrefix %>SourceFilter" class="arr-filter-native-select" aria-label="Instance filter">
+                              <option value="all" data-base-id="all" data-icon="/icons/all-type.svg" selected>All instances</option>
+                              <% combinedSourceEntries.forEach((entry) => { %>
+                                <option value="<%= entry.id %>" data-base-id="<%= entry.baseId %>" data-icon="<%= ['radarr', 'sonarr', 'lidarr', 'readarr'].includes(entry.baseId) ? ('/icons/' + entry.baseId + '.png') : '/icons/app-arr.svg' %>"><%= entry.optionLabel %></option>
+                              <% }) %>
+                            </select>
+                          <% } %>
+                        </div>
+                      </div>
+                    <% } %>
+                    <div class="plex-select plex-icon plex-filter-event" title="Event type">
+                      <select id="<%= controlPrefix %>TypeFilter" aria-label="Event type">
+                        <option value="imported" selected>Imported</option>
+                        <option value="grabbed">Grabbed</option>
+                        <option value="failed">Failed</option>
+                        <option value="all">All</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-window" title="Window">
+                      <select id="<%= controlPrefix %>WindowFilter" aria-label="Window">
+                        <option value="today">Today</option>
+                        <option value="week">Week</option>
+                        <option value="month" selected>Month</option>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= controlPrefix %>Viewport" class="plex-carousel-viewport">
+                    <div id="<%= controlPrefix %>Track" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (isArrAppId(item.app.id) && item.element.id === 'activity-queue') { %>
+              <%
+                const isCombined = Boolean(item.arrCombined);
+                const combinedApps = isCombined ? item.arrCombined.appIds : [];
+                const combinedSourceEntries = isCombined
+                  ? combinedApps
+                    .map((appId) => {
+                      const normalizedId = String(appId || '').trim().toLowerCase();
+                      const sourceApp = (Array.isArray(apps) ? apps : []).find((candidate) => String(candidate?.id || '').trim().toLowerCase() === normalizedId);
+                      return {
+                        id: normalizedId,
+                        name: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                        baseId: resolveAppBaseId(normalizedId),
+                        optionLabel: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                      };
+                    })
+                    .filter((entry) => entry.id)
+                  : [];
+                const combinedBaseCounts = combinedSourceEntries.reduce((acc, entry) => {
+                  if (!entry.baseId) return acc;
+                  acc[entry.baseId] = (acc[entry.baseId] || 0) + 1;
+                  return acc;
+                }, {});
+                const showCombinedMediaFilter = isCombined ? Object.keys(combinedBaseCounts).length > 1 : true;
+                const showCombinedInstanceFilter = isCombined && Object.values(combinedBaseCounts).some((count) => count > 1);
+                const combinedModuleKey = isCombined ? String(item.arrCombined?.moduleKey || 'arrcombinedqueue').trim() : String(item.app.id || '').trim();
+                const moduleId = combinedModuleKey + '-activity-queue';
+                const controlPrefix = combinedModuleKey + 'Queue';
+                const logo = isCombined ? (item.arrCombined?.iconPath || '/icons/app-arr.svg') : resolveAppIconPath(item.app);
+                const title = isCombined ? (item.arrCombined?.displayName || 'Activity Queue') : 'Activity Queue';
+                const combinedQueueDisplay = isCombined ? arrCombinedQueueDisplay : null;
+                const queueDisplay = combinedQueueDisplay || item.element || {};
+                const queueClasses = [
+                  queueDisplay.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  queueDisplay.queueShowSubDetail === false ? 'queue-hide-subdetail' : '',
+                  queueDisplay.queueShowSize === false ? 'queue-hide-size' : '',
+                  queueDisplay.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  queueDisplay.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                  queueDisplay.queueShowProgress === false ? 'queue-hide-progress' : '',
+                ].filter(Boolean).join(' ');
+                const queueVisibleRows = queueDisplay.queueVisibleRows || 10;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= logo %>" alt="<%= isCombined ? 'Combined ARR' : item.app.name %>" loading="eager" />
+                      <span><%= title %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (isCombined) { %>
+                      <% if (showCombinedMediaFilter || showCombinedInstanceFilter) { %>
+                        <div
+                          class="arr-filter-popover"
+                          data-media-select-id="<%= showCombinedMediaFilter ? (controlPrefix + 'TypeFilter') : '' %>"
+                          data-source-select-id="<%= showCombinedInstanceFilter ? (controlPrefix + 'SourceFilter') : '' %>"
+                        >
+                          <button class="arr-filter-trigger" type="button" aria-label="Open filters" title="Filters" aria-haspopup="true" aria-expanded="false"></button>
+                          <div class="arr-filter-menu plex-hidden">
+                            <% if (showCombinedMediaFilter) { %>
+                              <div class="arr-filter-section">
+                                <div class="arr-filter-label">Media</div>
+                                <div class="arr-filter-options" data-options-target="media"></div>
+                              </div>
+                              <select id="<%= controlPrefix %>TypeFilter" class="arr-filter-native-select" aria-label="Queue type">
+                                <option value="all" data-icon="/icons/all-type.svg" selected>All</option>
+                                <% if (hasBaseId(combinedApps, 'sonarr')) { %><option value="tv" data-icon="/icons/tv.svg">TV</option><% } %>
+                                <% if (hasBaseId(combinedApps, 'radarr')) { %><option value="movie" data-icon="/icons/movie.svg">Movies</option><% } %>
+                                <% if (hasBaseId(combinedApps, 'lidarr')) { %><option value="music" data-icon="/icons/music.svg">Music</option><% } %>
+                                <% if (hasBaseId(combinedApps, 'readarr')) { %><option value="book" data-icon="/icons/book.svg">Books</option><% } %>
+                              </select>
+                            <% } %>
+                            <% if (showCombinedInstanceFilter) { %>
+                              <div class="arr-filter-section">
+                                <div class="arr-filter-label">Instance</div>
+                                <div class="arr-filter-options" data-options-target="source"></div>
+                              </div>
+                              <select id="<%= controlPrefix %>SourceFilter" class="arr-filter-native-select" aria-label="Instance filter">
+                                <option value="all" data-base-id="all" data-icon="/icons/all-type.svg" selected>All instances</option>
+                                <% combinedSourceEntries.forEach((entry) => { %>
+                                  <option value="<%= entry.id %>" data-base-id="<%= entry.baseId %>" data-icon="<%= ['radarr', 'sonarr', 'lidarr', 'readarr'].includes(entry.baseId) ? ('/icons/' + entry.baseId + '.png') : '/icons/app-arr.svg' %>"><%= entry.optionLabel %></option>
+                                <% }) %>
+                              </select>
+                            <% } %>
+                          </div>
+                        </div>
+                      <% } %>
+                    <% } else { %>
+                      <div class="plex-select plex-icon plex-filter-media" title="Type">
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Queue type">
+                          <option value="all" selected>All</option>
+                          <% if (resolveAppBaseId(item.app.id) === 'sonarr') { %>
+                            <option value="tv">TV</option>
+                          <% } %>
+                          <% if (resolveAppBaseId(item.app.id) === 'radarr') { %>
+                            <option value="movie">Movies</option>
+                          <% } %>
+                          <% if (resolveAppBaseId(item.app.id) === 'lidarr') { %>
+                            <option value="music">Music</option>
+                          <% } %>
+                          <% if (resolveAppBaseId(item.app.id) === 'readarr') { %>
+                            <option value="book">Books</option>
+                          <% } %>
+                        </select>
+                      </div>
+                    <% } %>
+                    <div class="plex-select plex-xsmall" title="Per page">
+                      <select id="<%= controlPrefix %>LimitFilter" aria-label="Items per page">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel queue-panel">
+                  <div class="queue-table <%= queueClasses %>" data-page-size-select-id="<%= controlPrefix %>LimitFilter" style="--queue-visible-rows:<%= queueVisibleRows %>">
+                    <div class="queue-row header">
+                      <div class="queue-col-title">Title</div>
+                      <div class="queue-col-detail"><%= isCombined ? 'Detail' : (resolveAppBaseId(item.app.id) === 'lidarr' ? 'Album' : (resolveAppBaseId(item.app.id) === 'readarr' ? 'Author' : (resolveAppBaseId(item.app.id) === 'radarr' ? 'Year' : 'Episode'))) %></div>
+                      <div class="queue-col-subdetail"><%= isCombined ? 'Sub-detail' : (resolveAppBaseId(item.app.id) === 'lidarr' ? 'Track' : (resolveAppBaseId(item.app.id) === 'readarr' ? 'Book' : (resolveAppBaseId(item.app.id) === 'radarr' ? 'Studio' : 'Episode Title'))) %></div>
+                      <div class="queue-col-size">Quality</div>
+                      <div class="queue-col-protocol">Protocol</div>
+                      <div class="queue-col-time">Time Left</div>
+                      <div class="queue-col-progress">Progress</div>
+                    </div>
+                    <div id="<%= controlPrefix %>Body" class="queue-body">
+                      <div class="queue-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (isArrAppId(item.app.id) && item.element.id === 'calendar') { %>
+              <%
+                const isCombined = Boolean(item.arrCombined);
+                const combinedApps = isCombined ? item.arrCombined.appIds : [];
+                const combinedSourceEntries = isCombined
+                  ? combinedApps
+                    .map((appId) => {
+                      const normalizedId = String(appId || '').trim().toLowerCase();
+                      const sourceApp = (Array.isArray(apps) ? apps : []).find((candidate) => String(candidate?.id || '').trim().toLowerCase() === normalizedId);
+                      return {
+                        id: normalizedId,
+                        name: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                        baseId: resolveAppBaseId(normalizedId),
+                        optionLabel: String(sourceApp?.name || appId || normalizedId || 'Instance').trim(),
+                      };
+                    })
+                    .filter((entry) => entry.id)
+                  : [];
+                const combinedBaseCounts = combinedSourceEntries.reduce((acc, entry) => {
+                  if (!entry.baseId) return acc;
+                  acc[entry.baseId] = (acc[entry.baseId] || 0) + 1;
+                  return acc;
+                }, {});
+                const showCombinedMediaFilter = isCombined && Object.keys(combinedBaseCounts).length > 1;
+                const showCombinedInstanceFilter = isCombined && Object.values(combinedBaseCounts).some((count) => count > 1);
+                const combinedModuleKey = isCombined ? String(item.arrCombined?.moduleKey || 'arrcombinedcalendar').trim() : String(item.app.id || '').trim();
+                const moduleId = combinedModuleKey + '-calendar';
+                const controlPrefix = combinedModuleKey + 'Calendar';
+                const logo = isCombined ? (item.arrCombined?.iconPath || '/icons/app-arr.svg') : resolveAppIconPath(item.app);
+                const title = isCombined ? (item.arrCombined?.displayName || 'Calendar') : 'Calendar';
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= logo %>" alt="<%= isCombined ? 'Combined ARR' : item.app.name %>" loading="eager" />
+                      <span><%= title %></span>
+                      <span class="arr-calendar-title-sep" aria-hidden="true">|</span>
+                      <span id="<%= controlPrefix %>MonthLabel" class="arr-calendar-month-label arr-calendar-month-label--title">Loading…</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (showCombinedMediaFilter || showCombinedInstanceFilter) { %>
+                      <div
+                        class="arr-filter-popover"
+                        data-media-select-id="<%= showCombinedMediaFilter ? (controlPrefix + 'TypeFilter') : '' %>"
+                        data-source-select-id="<%= showCombinedInstanceFilter ? (controlPrefix + 'SourceFilter') : '' %>"
+                      >
+                        <button class="arr-filter-trigger" type="button" aria-label="Open filters" title="Filters" aria-haspopup="true" aria-expanded="false"></button>
+                        <div class="arr-filter-menu plex-hidden">
+                          <% if (showCombinedMediaFilter) { %>
+                            <div class="arr-filter-section">
+                              <div class="arr-filter-label">Media</div>
+                              <div class="arr-filter-options" data-options-target="media"></div>
+                            </div>
+                            <select id="<%= controlPrefix %>TypeFilter" class="arr-filter-native-select" aria-label="Media type">
+                              <option value="all" data-icon="/icons/all-type.svg" selected>All</option>
+                              <% if (hasBaseId(combinedApps, 'radarr')) { %><option value="movie" data-icon="/icons/movie.svg">Movies</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'sonarr')) { %><option value="tv" data-icon="/icons/tv.svg">TV</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'lidarr')) { %><option value="music" data-icon="/icons/music.svg">Music</option><% } %>
+                              <% if (hasBaseId(combinedApps, 'readarr')) { %><option value="book" data-icon="/icons/book.svg">Books</option><% } %>
+                            </select>
+                          <% } %>
+                          <% if (showCombinedInstanceFilter) { %>
+                            <div class="arr-filter-section">
+                              <div class="arr-filter-label">Instance</div>
+                              <div class="arr-filter-options" data-options-target="source"></div>
+                            </div>
+                            <select id="<%= controlPrefix %>SourceFilter" class="arr-filter-native-select" aria-label="Instance filter">
+                              <option value="all" data-base-id="all" data-icon="/icons/all-type.svg" selected>All instances</option>
+                              <% combinedSourceEntries.forEach((entry) => { %>
+                                <option value="<%= entry.id %>" data-base-id="<%= entry.baseId %>" data-icon="<%= ['radarr', 'sonarr', 'lidarr', 'readarr'].includes(entry.baseId) ? ('/icons/' + entry.baseId + '.png') : '/icons/app-arr.svg' %>"><%= entry.optionLabel %></option>
+                              <% }) %>
+                            </select>
+                          <% } %>
+                        </div>
+                      </div>
+                    <% } %>
+                    <button class="arr-calendar-today-btn" id="<%= controlPrefix %>MonthTodayBtn" type="button">Today</button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>MonthPrevBtn" type="button" aria-label="Previous month"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>MonthNextBtn" type="button" aria-label="Next month"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel arr-calendar-panel">
+                  <div class="arr-calendar-layout">
+                    <div class="arr-calendar-pane arr-calendar-pane--grid">
+                      <div class="arr-calendar-weekdays">
+                        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                      </div>
+                      <div id="<%= controlPrefix %>Grid" class="arr-calendar-grid">
+                        <div class="plex-empty">Loading…</div>
+                      </div>
+                    </div>
+                    <div class="arr-calendar-pane arr-calendar-pane--list">
+                      <div id="<%= controlPrefix %>ListLabel" class="arr-calendar-list-label">Select a day</div>
+                      <div id="<%= controlPrefix %>List" class="arr-calendar-list">
+                        <div class="plex-empty">Loading…</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div id="<%= controlPrefix %>Overlay" class="arr-calendar-overlay plex-hidden">
+                  <div class="arr-calendar-overlay-card">
+                    <div class="arr-calendar-overlay-head">
+                      <span id="<%= controlPrefix %>OverlayLabel" class="arr-calendar-list-label">Select a day</span>
+                      <button id="<%= controlPrefix %>OverlayClose" class="arr-calendar-overlay-close" type="button" aria-label="Close day list">✕</button>
+                    </div>
+                    <div id="<%= controlPrefix %>OverlayList" class="arr-calendar-list"></div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'bazarr' && item.element.id === 'subtitle-queue') { %>
+              <%
+                const moduleId = `${item.app.id}-subtitle-queue`;
+                const controlPrefix = `${item.app.id}SubtitleQueue`;
+                const queueDisplay = item.element || {};
+                const queueClasses = [
+                  queueDisplay.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  queueDisplay.queueShowSubDetail === false ? 'queue-hide-subdetail' : '',
+                  queueDisplay.queueShowSize === false ? 'queue-hide-size' : '',
+                  queueDisplay.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  queueDisplay.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                  queueDisplay.queueShowProgress === false ? 'queue-hide-progress' : '',
+                ].filter(Boolean).join(' ');
+                const queueVisibleRows = queueDisplay.queueVisibleRows || 10;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" />
+                      <span>Subtitle Queue</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" title="Type">
+                      <select id="<%= controlPrefix %>TypeFilter" aria-label="Media type">
+                        <option value="all" selected>All</option>
+                        <option value="tv">TV</option>
+                        <option value="movie">Movies</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-icon plex-filter-status" title="Status">
+                      <select id="<%= controlPrefix %>StatusFilter" aria-label="Queue status">
+                        <option value="all" selected>All</option>
+                        <option value="active">Active</option>
+                        <option value="queued">Queued</option>
+                        <option value="completed">Completed</option>
+                        <option value="error">Error</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel queue-panel">
+                  <div class="queue-table <%= queueClasses %>" style="--queue-visible-rows:<%= queueVisibleRows %>">
+                    <div class="queue-row header">
+                      <div class="queue-col-title">Title</div>
+                      <div class="queue-col-detail">Target</div>
+                      <div class="queue-col-subdetail">Subtitle</div>
+                      <div class="queue-col-size">Languages</div>
+                      <div class="queue-col-protocol">Protocol</div>
+                      <div class="queue-col-time">Time Left</div>
+                      <div class="queue-col-progress">Progress</div>
+                    </div>
+                    <div id="<%= controlPrefix %>Body" class="queue-body">
+                      <div class="queue-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'autobrr' && item.element.id === 'recent-matches') { %>
+              <%
+                const isRecentMatches = item.element.id === 'recent-matches';
+                const moduleId = `${item.app.id}-${item.element.id}`;
+                const controlPrefix = `${item.app.id}${isRecentMatches ? 'RecentMatches' : 'DeliveryQueue'}`;
+                const queueDisplay = item.element || {};
+                const queueClasses = [
+                  queueDisplay.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  queueDisplay.queueShowSubDetail === false ? 'queue-hide-subdetail' : '',
+                  queueDisplay.queueShowSize === false ? 'queue-hide-size' : '',
+                  queueDisplay.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  queueDisplay.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                  queueDisplay.queueShowProgress === false ? 'queue-hide-progress' : '',
+                ].filter(Boolean).join(' ');
+                const queueVisibleRows = queueDisplay.queueVisibleRows || 10;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" />
+                      <span><%= isRecentMatches ? 'Releases' : 'Delivery Queue' %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" title="Type">
+                      <select id="<%= controlPrefix %>TypeFilter" aria-label="Release type">
+                        <option value="all" selected>All</option>
+                        <option value="torrent">Torrent</option>
+                        <option value="usenet">Usenet</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-icon plex-filter-status" title="Status">
+                      <select id="<%= controlPrefix %>StatusFilter" aria-label="Status">
+                        <option value="all" selected>All</option>
+                        <option value="active">Active</option>
+                        <option value="queued">Queued</option>
+                        <option value="completed">Completed</option>
+                        <option value="error">Error</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel queue-panel">
+                  <div class="queue-table <%= queueClasses %>" style="--queue-visible-rows:<%= queueVisibleRows %>">
+                    <div class="queue-row header">
+                      <% if (isRecentMatches) { %>
+                        <div class="queue-col-detail">Age</div>
+                        <div class="queue-col-title">Release</div>
+                        <div class="queue-col-links">Links</div>
+                        <div class="queue-col-actions">Actions</div>
+                        <div class="queue-col-size">Indexer</div>
+                      <% } else { %>
+                        <div class="queue-col-title">Title</div>
+                        <div class="queue-col-detail">Destination</div>
+                        <div class="queue-col-subdetail">Release</div>
+                        <div class="queue-col-size">Size</div>
+                        <div class="queue-col-protocol">Protocol</div>
+                        <div class="queue-col-time">Time Left</div>
+                        <div class="queue-col-progress">Progress</div>
+                      <% } %>
+                    </div>
+                    <div id="<%= controlPrefix %>Body" class="queue-body">
+                      <div class="queue-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'romm' && ['recently-added', 'consoles'].includes(item.element.id)) { %>
+              <%
+                const isRecentlyAdded = item.element.id === 'recently-added';
+                const moduleId = `${item.app.id}-${item.element.id}`;
+                const controlPrefix = `${item.app.id}${isRecentlyAdded ? 'RecentlyAdded' : 'Consoles'}`;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span><%= isRecentlyAdded ? 'Recently Added' : 'Consoles' %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" title="Type">
+                      <% if (isRecentlyAdded) { %>
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Rom type">
+                          <option value="all" selected>All</option>
+                          <option value="game">Games</option>
+                          <option value="bios">BIOS</option>
+                          <option value="homebrew">Homebrew</option>
+                        </select>
+                      <% } else { %>
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Console type">
+                          <option value="all" selected>All</option>
+                          <option value="console">Consoles</option>
+                          <option value="handheld">Handhelds</option>
+                        </select>
+                      <% } %>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Limit">
+                      <select id="<%= controlPrefix %>LimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <% if (!isRecentlyAdded) { %>
+                          <option value="all">All</option>
+                        <% } %>
+                      </select>
+                    </div>
+                    <% if (!isRecentlyAdded) { %>
+                      <div class="plex-select plex-xsmall" title="Sort">
+                        <select id="<%= controlPrefix %>SortFilter" aria-label="Sort">
+                          <option value="roms-desc" selected>Most ROMs</option>
+                          <option value="a-z">A to Z</option>
+                          <option value="z-a">Z to A</option>
+                          <option value="roms-asc">Least ROMs</option>
+                        </select>
+                      </div>
+                    <% } %>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel">
+                  <div id="<%= controlPrefix %>Viewport" class="plex-carousel-viewport">
+                    <div id="<%= controlPrefix %>Track" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (item.app.id === 'maintainerr' && ['library-media', 'rules', 'collections-media'].includes(item.element.id)) { %>
+              <%
+                const moduleId = `${item.app.id}-${item.element.id}`;
+                const isLibraryMedia = item.element.id === 'library-media';
+                const isRules = item.element.id === 'rules';
+                const controlPrefix = `${item.app.id}${isLibraryMedia ? 'LibraryMedia' : (isRules ? 'Rules' : 'CollectionsMedia')}`;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span><%= isLibraryMedia ? 'Library Media' : (isRules ? 'Rules' : 'Collections Media') %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <% if (isLibraryMedia) { %>
+                      <div class="plex-select plex-icon plex-filter-media" title="Media type">
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Media type">
+                          <option value="all" selected>All</option>
+                          <option value="movie">Movies</option>
+                          <option value="show">TV</option>
+                        </select>
+                      </div>
+                      <div class="plex-select plex-xsmall" title="Title initial">
+                        <select id="<%= controlPrefix %>LetterFilter" aria-label="Title initial">
+                          <option value="all" selected>All</option>
+                          <option value="#">#</option>
+                          <% 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach((letter) => { %>
+                            <option value="<%= letter %>"><%= letter %></option>
+                          <% }) %>
+                        </select>
+                      </div>
+                      <div class="plex-select plex-xsmall" title="Limit">
+                        <select id="<%= controlPrefix %>LimitSelect" aria-label="Limit">
+                          <option value="20">20</option>
+                          <option value="50" selected>50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </div>
+                      <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                      <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <% } %>
+                    <% if (isRules) { %>
+                      <div class="plex-select plex-icon plex-filter-media" title="Media type">
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Media type">
+                          <option value="all" selected>All</option>
+                          <option value="movie">Movies</option>
+                          <option value="show">TV</option>
+                        </select>
+                      </div>
+                      <div class="plex-select plex-icon plex-filter-status" title="Rule status">
+                        <select id="<%= controlPrefix %>StatusFilter" aria-label="Rule status">
+                          <option value="all" selected>All</option>
+                          <option value="active">Active</option>
+                          <option value="paused">Paused</option>
+                        </select>
+                      </div>
+                      <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                      <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <% } %>
+                    <% if (!isLibraryMedia && !isRules) { %>
+                      <div class="plex-select plex-icon plex-filter-source" title="Collection">
+                        <select id="<%= controlPrefix %>CollectionFilter" aria-label="Collection">
+                          <option value="all" selected>All collections</option>
+                        </select>
+                      </div>
+                      <div class="plex-select plex-icon plex-filter-media" title="Media type">
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Media type">
+                          <option value="all" selected>All</option>
+                          <option value="movie">Movies</option>
+                          <option value="show">TV</option>
+                        </select>
+                      </div>
+                      <div class="plex-select plex-xsmall" title="Limit">
+                        <select id="<%= controlPrefix %>LimitSelect" aria-label="Limit">
+                          <option value="20">20</option>
+                          <option value="50" selected>50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </div>
+                      <button class="plex-iconbtn" id="<%= controlPrefix %>PrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                      <button class="plex-iconbtn" id="<%= controlPrefix %>NextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <% } %>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel">
+                  <div id="<%= controlPrefix %>Viewport" class="plex-carousel-viewport">
+                    <div id="<%= controlPrefix %>Track" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (['transmission', 'nzbget', 'qbittorrent', 'sabnzbd'].includes(resolveAppBaseId(item.app.id)) && item.element.id === 'activity-queue') { %>
+              <%
+                const isCombined = Boolean(item.downloaderCombined);
+                const itemBaseId = resolveAppBaseId(item.app.id);
+                const combinedModuleKey = isCombined ? String(item.downloaderCombined?.moduleKey || 'downloaderscombinedqueue').trim() : String(item.app.id || '').trim();
+                const configPrefix = isCombined
+                  ? (combinedModuleKey.replace(/[^a-zA-Z0-9_-]+/g, '') || 'downloaderscombined')
+                  : item.app.id;
+                const moduleId = configPrefix + '-activity-queue';
+                const controlPrefix = configPrefix + 'Queue';
+                const isTorrentApp = ['transmission', 'qbittorrent'].includes(itemBaseId);
+                const isUsenetApp = ['nzbget', 'sabnzbd'].includes(itemBaseId);
+                const logo = isCombined
+                  ? (item.downloaderCombined?.iconPath || '/icons/download.svg')
+                  : resolveAppIconPath(item.app);
+                const title = isCombined
+                  ? (item.downloaderCombined?.displayName || 'Download Queue')
+                  : 'Download Queue';
+                const detailLabel = isCombined ? 'Source' : (isUsenetApp ? 'Category' : 'Status');
+                const subDetailLabel = isCombined ? 'Detail' : (isUsenetApp ? 'Status' : 'Rate');
+                const combinedQueueDisplay = isCombined ? downloaderCombinedQueueDisplay : null;
+                const queueDisplay = combinedQueueDisplay || item.element || {};
+                const queueClasses = [
+                  queueDisplay.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  queueDisplay.queueShowSubDetail === false ? 'queue-hide-subdetail' : '',
+                  queueDisplay.queueShowSize === false ? 'queue-hide-size' : '',
+                  queueDisplay.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  queueDisplay.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                  queueDisplay.queueShowProgress === false ? 'queue-hide-progress' : '',
+                ].filter(Boolean).join(' ');
+                const queueVisibleRows = queueDisplay.queueVisibleRows || 10;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= moduleId %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img
+                        class="plex-logo"
+                        id="<%= configPrefix %>Logo"
+                        src="<%= logo %>"
+                        data-default-icon="<%= logo %>"
+                        alt="<%= isCombined ? 'Downloaders' : item.app.name %>"
+                        loading="eager"
+                      />
+                      <span><%= title %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <% if (isCombined) { %>
+                      <div class="plex-select plex-icon plex-filter-media" title="Type">
+                        <select id="<%= controlPrefix %>TypeFilter" aria-label="Queue type">
+                          <option value="all" selected>All</option>
+                          <% item.downloaderCombined.appIds.forEach((appId) => { %>
+                            <% const appItem = apps.find((entry) => entry.id === appId); %>
+                            <% if (!appItem) return; %>
+                            <% const optionIcon = resolveAppIconPath(appItem); %>
+                            <option value="<%= appId %>" data-icon="<%= optionIcon %>"><%= appItem.name %></option>
+                          <% }) %>
+                        </select>
+                      </div>
+                    <% } %>
+                    <div class="plex-select plex-icon plex-filter-status" title="Status">
+                      <select id="<%= controlPrefix %>StatusFilter" aria-label="Queue status">
+                        <option value="all" selected>All</option>
+                        <% if (isCombined || isTorrentApp) { %>
+                          <option value="active">Active</option>
+                          <option value="downloading">Downloading</option>
+                          <option value="queued">Queued</option>
+                          <option value="seeding">Seeding</option>
+                          <option value="paused">Paused</option>
+                          <option value="completed">Completed</option>
+                          <option value="error">Error</option>
+                        <% } else { %>
+                          <option value="downloading">Downloading</option>
+                          <option value="queued">Queued</option>
+                          <option value="paused">Paused</option>
+                          <option value="completed">Completed</option>
+                          <option value="error">Error</option>
+                        <% } %>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Per page">
+                      <select id="<%= controlPrefix %>LimitFilter" aria-label="Items per page">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= moduleId %>" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel queue-panel">
+                  <div class="queue-table <%= queueClasses %>" data-page-size-select-id="<%= controlPrefix %>LimitFilter" style="--queue-visible-rows:<%= queueVisibleRows %>">
+                    <div class="queue-row header">
+                      <div class="queue-col-title">Title</div>
+                      <div class="queue-col-detail"><%= detailLabel %></div>
+                      <div class="queue-col-subdetail"><%= subDetailLabel %></div>
+                      <div class="queue-col-size">Size</div>
+                      <div class="queue-col-protocol">Protocol</div>
+                      <div class="queue-col-time">Time Left</div>
+                      <div class="queue-col-progress">Progress</div>
+                    </div>
+                    <div id="<%= controlPrefix %>Body" class="queue-body">
+                      <div class="queue-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (['pulsarr', 'seerr'].includes(item.app.id) && item.element.id === 'recent-requests') { %>
+              <% const requestPrefix = item.app.id; %>
+              <% const requestAppLogo = resolveAppIconPath(item.app); %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= requestPrefix %>-recent-requests">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= requestAppLogo %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Recent Requests</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-status" title="Status">
+                      <select id="<%= requestPrefix %>RequestsStatusFilter" aria-label="Status">
+                        <option value="all" selected>All</option>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="available">Available</option>
+                        <option value="declined">Declined</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-window" title="Limit">
+                      <select id="<%= requestPrefix %>RequestsLimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn" id="<%= requestPrefix %>RequestsPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= requestPrefix %>RequestsNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= requestPrefix %>-recent-requests" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= requestPrefix %>RequestsViewport" class="plex-carousel-viewport">
+                    <div id="<%= requestPrefix %>RequestsTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+            <% if (['pulsarr', 'seerr'].includes(item.app.id) && item.element.id === 'most-watchlisted') { %>
+              <% const requestPrefix = item.app.id; %>
+              <% const requestAppLogo = resolveAppIconPath(item.app); %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= requestPrefix %>-most-watchlisted">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= requestAppLogo %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Most Watchlisted</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+
+                  <div class="plex-spacer"></div>
+
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" title="Media type">
+                      <select id="<%= requestPrefix %>WatchlistedTypeFilter" aria-label="Media type">
+                        <option value="all" selected>All</option>
+                        <option value="movie">Movies</option>
+                        <option value="show">TV</option>
+                      </select>
+                    </div>
+
+                    <div class="plex-select plex-icon plex-filter-window" title="Limit">
+                      <select id="<%= requestPrefix %>WatchlistedLimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+
+                    <button class="plex-iconbtn" id="<%= requestPrefix %>WatchlistedPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="<%= requestPrefix %>WatchlistedNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= requestPrefix %>-most-watchlisted" data-collapse-global="true">
+                      <div class="plex-doublechev">
+                        <div class="plex-chev plex-up"></div>
+                        <div class="plex-chev plex-down"></div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="plex-panel">
+                  <div id="<%= requestPrefix %>WatchlistedViewport" class="plex-carousel-viewport">
+                    <div id="<%= requestPrefix %>WatchlistedTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Immich ──────────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'immich' && item.element.id === 'recent') { %>
+              <section class="plex-module plex-module--no-subtitle" id="immich-recent">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Recently Added</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" title="Type">
+                      <select id="immichRecentTypeFilter" aria-label="Asset type">
+                        <option value="all" selected>All</option>
+                        <option value="photo">Photos</option>
+                        <option value="video">Videos</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Limit">
+                      <select id="immichRecentLimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn" id="immichRecentPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="immichRecentNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="immich-recent" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel">
+                  <div id="immichRecentViewport" class="plex-carousel-viewport">
+                    <div id="immichRecentTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Audiobookshelf ──────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'audiobookshelf' && item.element.id === 'recently-added') { %>
+              <section class="plex-module plex-module--no-subtitle" id="audiobookshelf-recent">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Recently Added</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-media" title="Type">
+                      <select id="absRecentTypeFilter" aria-label="Media type">
+                        <option value="all" selected>All</option>
+                        <option value="book">Books</option>
+                        <option value="podcast">Podcasts</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Limit">
+                      <select id="absRecentLimitSelect" aria-label="Limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn" id="absRecentPrevBtn" type="button" aria-label="Previous"><div class="plex-chev plex-left"></div></button>
+                    <button class="plex-iconbtn" id="absRecentNextBtn" type="button" aria-label="Next"><div class="plex-chev plex-right"></div></button>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="audiobookshelf-recent" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel">
+                  <div id="absRecentViewport" class="plex-carousel-viewport">
+                    <div id="absRecentTrack" class="plex-carousel-track">
+                      <div class="plex-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── MeTube ──────────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'metube' && item.element.id === 'queue') { %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= item.app.id %>-queue">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Download Queue</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-status" title="Status">
+                      <select id="<%= item.app.id %>QueueStatusFilter" aria-label="Status">
+                        <option value="all" selected>All</option>
+                        <option value="downloading">Downloading</option>
+                        <option value="queued">Queued</option>
+                        <option value="done">Completed</option>
+                        <option value="error">Error</option>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Per page">
+                      <select id="<%= item.app.id %>QueueLimitFilter" aria-label="Per page">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= item.app.id %>-queue" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <%
+                  const mtDashRows = item.element.queueVisibleRows || 10;
+                  const mtDashCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-size', 'queue-hide-protocol',
+                    item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                    item.element.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                    item.element.queueShowProgress === false ? 'queue-hide-progress' : '',
+                  ].filter(Boolean).join(' ');
+                %>
+                <div class="plex-panel queue-panel">
+                  <div class="<%= mtDashCls %>" data-page-size-select-id="<%= item.app.id %>QueueLimitFilter" style="--queue-visible-rows:<%= mtDashRows %>">
+                    <div class="queue-row header">
+                      <div class="queue-col-title">Title</div>
+                      <div class="queue-col-detail">Status</div>
+                      <div class="queue-col-time">ETA</div>
+                      <div class="queue-col-progress">Progress</div>
+                    </div>
+                    <div id="<%= item.app.id %>QueueBody" class="queue-body">
+                      <div class="queue-empty">Loading…</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Tdarr ───────────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'tdarr' && item.element.id === 'stats') { %>
+              <section class="plex-module plex-module--no-subtitle" id="tdarr-stats">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Statistics</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="tdarr-stats" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel">
+                  <div id="tdarrStatsContainer" class="dashboard-widget-bar" style="padding:12px 16px; flex-wrap:wrap; gap:12px; min-height:80px; align-items:center;">
+                    <div class="plex-empty">Loading…</div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Uptime Kuma ─────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'uptime-kuma' && item.element.id === 'status') { %>
+              <section class="plex-module plex-module--no-subtitle" id="uptime-kuma-status">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span>Status Page</span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="uptime-kuma-status" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel">
+                  <div id="uptimeKumaStatusContainer">
+                    <div class="plex-empty">Loading…</div>
+                  </div>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Wizarr ──────────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'wizarr' && (item.element.id === 'users' || item.element.id === 'invitations')) { %>
+              <%
+                const isWizDashUsers = item.element.id === 'users';
+                const wizDashPrefix = `${item.app.id}${isWizDashUsers ? 'Users' : 'Invitations'}`;
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= item.app.id %>-<%= item.element.id %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span><%= isWizDashUsers ? 'Users' : 'Invitations' %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <div class="plex-select plex-icon plex-filter-status" title="Status">
+                      <select id="<%= wizDashPrefix %>StatusFilter" aria-label="Status">
+                        <option value="all" selected>All</option>
+                        <% if (isWizDashUsers) { %>
+                          <option value="active">Active</option>
+                          <option value="expired">Expired</option>
+                          <option value="disabled">Disabled</option>
+                        <% } else { %>
+                          <option value="active">Active</option>
+                          <option value="expired">Expired</option>
+                          <option value="used">Used</option>
+                        <% } %>
+                      </select>
+                    </div>
+                    <div class="plex-select plex-xsmall" title="Per page">
+                      <select id="<%= wizDashPrefix %>LimitFilter" aria-label="Per page">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                      </select>
+                    </div>
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= item.app.id %>-<%= item.element.id %>" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <%
+                  const wizDashRows = item.element.queueVisibleRows || 10;
+                  const wizUsersCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-protocol', 'queue-hide-progress',
+                    item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                    item.element.queueShowSize === false ? 'queue-hide-size' : '',
+                    item.element.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                  ].filter(Boolean).join(' ');
+                  const wizInvCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-size', 'queue-hide-progress',
+                    item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                    item.element.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                    item.element.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                  ].filter(Boolean).join(' ');
+                %>
+                <div class="plex-panel queue-panel">
+                  <% if (isWizDashUsers) { %>
+                    <div class="<%= wizUsersCls %>" data-page-size-select-id="<%= wizDashPrefix %>LimitFilter" style="--queue-visible-rows:<%= wizDashRows %>">
+                      <div class="queue-row header">
+                        <div class="queue-col-title">Email</div>
+                        <div class="queue-col-detail">Role</div>
+                        <div class="queue-col-size">Created</div>
+                        <div class="queue-col-time">Expires</div>
+                      </div>
+                      <div id="<%= wizDashPrefix %>Body" class="queue-body">
+                        <div class="queue-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } else { %>
+                    <div class="<%= wizInvCls %>" data-page-size-select-id="<%= wizDashPrefix %>LimitFilter" style="--queue-visible-rows:<%= wizDashRows %>">
+                      <div class="queue-row header">
+                        <div class="queue-col-title">Code</div>
+                        <div class="queue-col-detail">Uses</div>
+                        <div class="queue-col-protocol">Expires</div>
+                        <div class="queue-col-time">Created</div>
+                      </div>
+                      <div id="<%= wizDashPrefix %>Body" class="queue-body">
+                        <div class="queue-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Guacamole ─────────────────────────────────────────────── %>
+            <%# ─── Guacamole ─────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'guacamole' && (item.element.id === 'active-sessions' || item.element.id === 'connections')) { %>
+              <%
+                const isGuacActive = item.element.id === 'active-sessions';
+                const guacDashRows = item.element.queueVisibleRows || 10;
+                const guacActiveCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-size', 'queue-hide-progress',
+                  item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  item.element.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  item.element.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                ].filter(Boolean).join(' ');
+                const guacConnCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-protocol', 'queue-hide-timeleft', 'queue-hide-progress',
+                  item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  item.element.queueShowSize === false ? 'queue-hide-size' : '',
+                ].filter(Boolean).join(' ');
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= item.app.id %>-<%= item.element.id %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span><%= isGuacActive ? 'Active Sessions' : 'Connections' %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= item.app.id %>-<%= item.element.id %>" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel queue-panel">
+                  <% if (isGuacActive) { %>
+                    <div class="<%= guacActiveCls %>" style="--queue-visible-rows:<%= guacDashRows %>">
+                      <div class="queue-row header">
+                        <div class="queue-col-title">Connection</div>
+                        <div class="queue-col-detail">User</div>
+                        <div class="queue-col-protocol">Protocol</div>
+                        <div class="queue-col-time">Started</div>
+                      </div>
+                      <div id="<%= item.app.id %>ActiveSessionsBody" class="queue-body">
+                        <div class="queue-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } else { %>
+                    <div class="<%= guacConnCls %>" style="--queue-visible-rows:<%= guacDashRows %>">
+                      <div class="queue-row header">
+                        <div class="queue-col-title">Name</div>
+                        <div class="queue-col-detail">Protocol</div>
+                        <div class="queue-col-size">Active</div>
+                      </div>
+                      <div id="<%= item.app.id %>ConnectionsBody" class="queue-body">
+                        <div class="queue-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              </section>
+            <% } %>
+
+            <%# ─── Traefik ────────────────────────────────────────────────── %>
+            <% if (resolveAppBaseId(item.app.id) === 'traefik' && (item.element.id === 'routers' || item.element.id === 'services')) { %>
+              <%
+                const isTraefikRouters = item.element.id === 'routers';
+                const traefikDashRows = item.element.queueVisibleRows || 10;
+                const traefikRoutersCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-size', 'queue-hide-progress',
+                  item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  item.element.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  item.element.queueShowTimeLeft === false ? 'queue-hide-timeleft' : '',
+                ].filter(Boolean).join(' ');
+                const traefikServicesCls = ['queue-table', 'queue-hide-subdetail', 'queue-hide-timeleft', 'queue-hide-progress',
+                  item.element.queueShowDetail === false ? 'queue-hide-detail' : '',
+                  item.element.queueShowProtocol === false ? 'queue-hide-protocol' : '',
+                  item.element.queueShowSize === false ? 'queue-hide-size' : '',
+                ].filter(Boolean).join(' ');
+              %>
+              <section class="plex-module plex-module--no-subtitle" id="<%= item.app.id %>-<%= item.element.id %>">
+                <div class="plex-topbar">
+                  <div class="plex-title-wrap">
+                    <div class="plex-title">
+                      <img class="plex-logo" src="<%= resolveAppIconPath(item.app) %>" alt="<%= item.app.name %>" loading="eager" onerror="this.src='/icons/app.svg'" />
+                      <span><%= isTraefikRouters ? 'Routers' : 'Services' %></span>
+                    </div>
+                    <div class="plex-subtitle"></div>
+                  </div>
+                  <div class="plex-spacer"></div>
+                  <div class="plex-controls-right">
+                    <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="<%= item.app.id %>-<%= item.element.id %>" data-collapse-global="true">
+                      <div class="plex-doublechev"><div class="plex-chev plex-up"></div><div class="plex-chev plex-down"></div></div>
+                    </button>
+                  </div>
+                </div>
+                <div class="plex-panel queue-panel">
+                  <% if (isTraefikRouters) { %>
+                    <div class="<%= traefikRoutersCls %>" style="--queue-visible-rows:<%= traefikDashRows %>">
+                      <div class="queue-row header">
+                        <div class="queue-col-title">Name</div>
+                        <div class="queue-col-detail">Status</div>
+                        <div class="queue-col-protocol">Entrypoints</div>
+                        <div class="queue-col-time">Service</div>
+                      </div>
+                      <div id="<%= item.app.id %>RoutersBody" class="queue-body">
+                        <div class="queue-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } else { %>
+                    <div class="<%= traefikServicesCls %>" style="--queue-visible-rows:<%= traefikDashRows %>">
+                      <div class="queue-row header">
+                        <div class="queue-col-title">Name</div>
+                        <div class="queue-col-detail">Status</div>
+                        <div class="queue-col-protocol">Type</div>
+                        <div class="queue-col-size">Servers</div>
+                      </div>
+                      <div id="<%= item.app.id %>ServicesBody" class="queue-body">
+                        <div class="queue-empty">Loading…</div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              </section>
+            <% } %>
+
+          <% }) %>
+
+          <% if (hasPlexActive) { %>
+            <div id="plexActiveModalBackdrop" class="plex-modal-backdrop plex-hidden">
+              <div class="plex-modal">
+                <button id="plexActiveModalClose" class="plex-modal-close" aria-label="Close">✕</button>
+                <div class="plex-modal-header">
+                  <div class="plex-modal-title">
+                    <span id="plexActiveModalTypeIcon" class="plex-mini-icon"></span>
+                    <span id="plexActiveModalTitle">Loading…</span>
+                  </div>
+                  <div id="plexActiveModalSubtitle" class="plex-modal-subtitle"></div>
+                </div>
+                <div id="plexActiveModalBody" class="plex-modal-body"></div>
+              </div>
+            </div>
+          <% } %>
+
+          <% if (hasPlexRecent) { %>
+            <div id="plexRecentModalBackdrop" class="plex-modal-backdrop plex-hidden">
+              <div class="plex-modal">
+                <button id="plexRecentModalClose" class="plex-modal-close" aria-label="Close">✕</button>
+                <div class="plex-modal-header">
+                  <div class="plex-modal-title">
+                    <span id="plexRecentModalTypeIcon" class="plex-mini-icon"></span>
+                    <span id="plexRecentModalTitle">Loading…</span>
+                  </div>
+                  <div id="plexRecentModalSubtitle" class="plex-modal-subtitle"></div>
+                </div>
+                <div id="plexRecentModalBody" class="plex-modal-body"></div>
+              </div>
+            </div>
+          <% } %>
+          <% if (hasPlexWatchlisted) { %>
+            <div id="plexWatchlistedModalBackdrop" class="plex-modal-backdrop plex-hidden">
+              <div class="plex-modal">
+                <button id="plexWatchlistedModalClose" class="plex-modal-close" aria-label="Close">✕</button>
+                <div class="plex-modal-header">
+                  <div class="plex-modal-title">
+                    <span id="plexWatchlistedModalTypeIcon" class="plex-mini-icon"></span>
+                    <span id="plexWatchlistedModalTitle">Loading…</span>
+                  </div>
+                  <div id="plexWatchlistedModalSubtitle" class="plex-modal-subtitle"></div>
+                </div>
+                <div id="plexWatchlistedModalBody" class="plex-modal-body"></div>
+              </div>
+            </div>
+          <% } %>
+          <% if (hasTautulliStats) { %>
+            <div id="tautulliModalBackdrop" class="plex-modal-backdrop plex-hidden">
+              <div class="plex-modal">
+                <button id="tautulliModalClose" class="plex-modal-close" aria-label="Close">✕</button>
+                <div class="plex-modal-header">
+                  <div class="plex-modal-title">
+                    <span id="tautulliModalTypeIcon" class="plex-mini-icon"></span>
+                    <span id="tautulliModalTitle">Loading…</span>
+                  </div>
+                  <div id="tautulliModalSubtitle" class="plex-modal-subtitle"></div>
+                </div>
+                <div id="tautulliModalBody" class="plex-modal-body"></div>
+              </div>
+            </div>
+          <% } %>
+          <% if (hasRequestModules) { %>
+            <%
+              const requestAppIds = Array.from(new Set(
+                dashboardModules
+                  .filter((entry) => ['pulsarr', 'seerr'].includes(entry.app.id) && ['recent-requests', 'most-watchlisted'].includes(entry.element.id))
+                  .map((entry) => entry.app.id)
+              ));
+            %>
+            <% requestAppIds.forEach((requestAppId) => { %>
+              <div id="<%= requestAppId %>ModalBackdrop" class="plex-modal-backdrop plex-hidden">
+                <div class="plex-modal">
+                  <button id="<%= requestAppId %>ModalClose" class="plex-modal-close" aria-label="Close">✕</button>
+                  <div class="plex-modal-header">
+                    <div class="plex-modal-title">
+                      <span id="<%= requestAppId %>ModalTypeIcon" class="plex-mini-icon"></span>
+                      <span id="<%= requestAppId %>ModalTitle">Loading…</span>
+                    </div>
+                    <div id="<%= requestAppId %>ModalSubtitle" class="plex-modal-subtitle"></div>
+                  </div>
+                  <div id="<%= requestAppId %>ModalBody" class="plex-modal-body"></div>
+                </div>
+              </div>
+            <% }) %>
+          <% } %>
+          <% if (hasMediaCombinedModules) { %>
+            <div id="mediaCombinedModalBackdrop" class="plex-modal-backdrop plex-hidden">
+              <div class="plex-modal">
+                <button id="mediaCombinedModalClose" class="plex-modal-close" aria-label="Close">✕</button>
+                <div class="plex-modal-header">
+                  <div class="plex-modal-title">
+                    <span id="mediaCombinedModalTypeIcon" class="plex-mini-icon"></span>
+                    <span id="mediaCombinedModalTitle">Loading…</span>
+                  </div>
+                  <div id="mediaCombinedModalSubtitle" class="plex-modal-subtitle"></div>
+                </div>
+                <div id="mediaCombinedModalBody" class="plex-modal-body"></div>
+              </div>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+    </section>
+  </div>
+  <script>
+    const dashFrame = document.querySelector('.dash-frame');
+    const toggle = document.querySelector('.sidebar-toggle');
+    const toggleIcon = toggle?.querySelector('img');
+    const mobileQuery = window.matchMedia('(max-width: 980px)');
+    const isMobile = () => mobileQuery.matches;
+    const mainContent = document.querySelector('.dash-main');
+    const sidebar = document.querySelector('.dash-sidebar');
+    const dashNav = document.querySelector('.dash-nav');
+    const userMenus = document.querySelectorAll('[data-user-menu]');
+    const safeStorage = {
+      get(key) {
+        try {
+          return localStorage.getItem(key);
+        } catch (err) {
+          return null;
+        }
+      },
+      set(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch (err) {
+          return;
+        }
+      },
+    };
+
+    function setToggleIcon() {
+      if (!toggleIcon) return;
+      toggleIcon.src = '/icons/sidebar-toggle.svg';
+    }
+
+    function applySidebarState() {
+      if (!dashFrame) return;
+      if (isMobile()) {
+        dashFrame.classList.remove('sidebar-collapsed');
+        dashFrame.classList.remove('mobile-nav-open');
+        document.body.classList.remove('mobile-nav-open');
+        if (dashNav) dashNav.scrollTop = 0;
+        setToggleIcon(false);
+      } else {
+        const collapsed = safeStorage.get('sidebarCollapsed') === 'true';
+        dashFrame.classList.toggle('sidebar-collapsed', collapsed);
+        dashFrame.classList.remove('mobile-nav-open');
+        document.body.classList.remove('mobile-nav-open');
+        if (dashNav) dashNav.scrollTop = 0;
+        setToggleIcon(!collapsed);
+      }
+    }
+
+    function closeMobileNav() {
+      if (!dashFrame || !isMobile()) return;
+      if (!dashFrame.classList.contains('mobile-nav-open')) return;
+      dashFrame.classList.remove('mobile-nav-open');
+      document.body.classList.remove('mobile-nav-open');
+      setToggleIcon(false);
+    }
+
+    applySidebarState();
+    mobileQuery.addEventListener('change', applySidebarState);
+    const autoOpenSingleAppMenuItem = <%= autoOpenSingleAppMenuItem ? 'true' : 'false' %>;
+    const sidebarButtonPressActions = <%- JSON.stringify(sidebarButtonPressActions || {}) %>;
+    const currentSidebarRole = String('<%= role || 'user' %>').trim().toLowerCase();
+    const normalizeSidebarRole = (value) => {
+      const raw = String(value || '').trim().toLowerCase();
+      if (raw === 'guest' || raw === 'user' || raw === 'co-admin' || raw === 'admin') return raw;
+      return 'user';
+    };
+    const normalizePressAction = (value, fallback = 'default') => {
+      const raw = String(value || '').trim().toLowerCase();
+      if (raw === 'default' || raw === 'launch' || raw === 'settings' || raw === 'activity') return raw;
+      return fallback;
+    };
+    const rolePressConfig = (sidebarButtonPressActions && typeof sidebarButtonPressActions === 'object')
+      ? (sidebarButtonPressActions[normalizeSidebarRole(currentSidebarRole)] || sidebarButtonPressActions.user || {})
+      : {};
+    const shortPressAction = normalizePressAction(rolePressConfig.short, 'default');
+    const longPressAction = normalizePressAction(rolePressConfig.long, 'default');
+    const LONG_PRESS_DELAY_MS = 450;
+    const openSubmenuLink = (link) => {
+      if (!link) return false;
+      const rawHref = typeof link.getAttribute === 'function'
+        ? (link.getAttribute('href') || link.href || '')
+        : (link.href || '');
+      const href = String(rawHref || '').trim();
+      if (!href) return false;
+      const rawTargetAttr = typeof link.getAttribute === 'function'
+        ? (link.getAttribute('target') || '')
+        : (link.target || '');
+      const targetAttr = String(rawTargetAttr || '').trim().toLowerCase();
+      const targetProp = String(link.target || '').trim().toLowerCase();
+      const launchMode = String((link.dataset && link.dataset.launchMode) || link.launchMode || '').trim().toLowerCase();
+      const isLaunchRoute = /\/apps\/[^/?#]+\/launch(?:$|[/?#])/i.test(href);
+      const shouldOpenBlank = targetAttr === '_blank'
+        || targetProp === '_blank'
+        || (isLaunchRoute && launchMode === 'new-tab');
+      if (shouldOpenBlank) {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      } else {
+        window.location.href = href;
+      }
+      return true;
+    };
+    const getDirectLinks = (item) => {
+      const panel = Array.from(item.children).find((child) => child.classList && child.classList.contains('nav-accordion-panel'));
+      return panel
+        ? Array.from(panel.children).filter((child) => typeof child.matches === 'function' && child.matches('a.nav-subitem[href]'))
+        : [];
+    };
+    const resolveAppIdFromItem = (item, links = []) => {
+      const pool = Array.isArray(links) && links.length ? links : getDirectLinks(item);
+      for (let index = 0; index < pool.length; index += 1) {
+        const href = String((pool[index] && pool[index].getAttribute && pool[index].getAttribute('href')) || '').trim();
+        const match = href.match(/\/apps\/([^/?#]+)/i);
+        if (match && match[1]) return decodeURIComponent(String(match[1]));
+      }
+      return '';
+    };
+    const buildVirtualActionLink = (appId, action, links = []) => {
+      const normalizedId = String(appId || '').trim();
+      if (!normalizedId) return null;
+      const encodedId = encodeURIComponent(normalizedId);
+      if (action === 'launch') {
+        const launchLink = links.find((link) => /\/launch(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
+        const launchMode = String((launchLink?.dataset && launchLink.dataset.launchMode) || '').trim().toLowerCase();
+        return {
+          href: '/apps/' + encodedId + '/launch',
+          target: launchMode === 'new-tab' ? '_blank' : '',
+          launchMode,
+        };
+      }
+      if (action === 'settings') return { href: '/apps/' + encodedId + '/settings', target: '', launchMode: '' };
+      if (action === 'activity') return { href: '/apps/' + encodedId + '/activity', target: '', launchMode: '' };
+      return null;
+    };
+    const getActionLink = (item, action) => {
+      const links = getDirectLinks(item);
+      if (action === 'launch') {
+        const direct = links.find((link) => /\/launch(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
+        return direct || buildVirtualActionLink(resolveAppIdFromItem(item, links), action, links);
+      }
+      if (action === 'settings') {
+        const direct = links.find((link) => /\/settings(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
+        return direct || buildVirtualActionLink(resolveAppIdFromItem(item, links), action, links);
+      }
+      if (action === 'activity') {
+        const direct = links.find((link) => /\/activity(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
+        return direct || buildVirtualActionLink(resolveAppIdFromItem(item, links), action, links);
+      }
+      return null;
+    };
+    const toggleAccordionItem = (item) => {
+      const parentAccordion = item.closest('.nav-accordion');
+      const siblings = parentAccordion
+        ? Array.from(parentAccordion.children).filter((child) => child.classList.contains('nav-accordion-item'))
+        : [];
+      siblings.forEach((other) => {
+        if (other !== item) other.classList.remove('open');
+      });
+      item.classList.toggle('open');
+    };
+    const handleDefaultPress = (item, isCategoryTrigger) => {
+      if (autoOpenSingleAppMenuItem && !isCategoryTrigger) {
+        const links = getDirectLinks(item);
+        if (links.length === 1 && openSubmenuLink(links[0])) return;
+      }
+      toggleAccordionItem(item);
+    };
+    const handlePressAction = (item, action, isCategoryTrigger) => {
+      if (isCategoryTrigger) {
+        toggleAccordionItem(item);
+        return;
+      }
+      const resolvedAction = normalizePressAction(action, 'default');
+      if (resolvedAction === 'default') {
+        handleDefaultPress(item, false);
+        return;
+      }
+      const link = getActionLink(item, resolvedAction);
+      if (openSubmenuLink(link)) return;
+      handleDefaultPress(item, false);
+    };
+    const accordion = document.querySelectorAll('.nav-accordion-item');
+    accordion.forEach((item) => {
+      const trigger = item.querySelector('.nav-accordion-trigger');
+      if (!trigger) return;
+      const isCategoryTrigger = trigger.classList.contains('nav-accordion-trigger--category');
+      let longPressTimer = null;
+      let longPressTriggered = false;
+      const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
+      const clearLongPressTimer = () => {
+        if (longPressTimer) {
+          window.clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      };
+      const startLongPressTimer = () => {
+        longPressTriggered = false;
+        clearLongPressTimer();
+        longPressTimer = window.setTimeout(() => {
+          longPressTriggered = true;
+          handlePressAction(item, longPressAction, false);
+        }, LONG_PRESS_DELAY_MS);
+      };
+      if (supportsPointerEvents) {
+        trigger.addEventListener('pointerdown', (event) => {
+          if (isCategoryTrigger) return;
+          if (event.button !== undefined && event.button !== 0) return;
+          startLongPressTimer();
+        });
+        ['pointerup', 'pointerleave', 'pointercancel'].forEach((eventName) => {
+          trigger.addEventListener(eventName, clearLongPressTimer);
+        });
+      } else {
+        trigger.addEventListener('touchstart', () => {
+          if (isCategoryTrigger) return;
+          startLongPressTimer();
+        }, { passive: true });
+        ['touchend', 'touchcancel', 'touchmove'].forEach((eventName) => {
+          trigger.addEventListener(eventName, clearLongPressTimer, { passive: true });
+        });
+      }
+      trigger.addEventListener('contextmenu', (event) => {
+        if (longPressTriggered) event.preventDefault();
+      });
+      trigger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        clearLongPressTimer();
+        if (longPressTriggered) {
+          event.preventDefault();
+          longPressTriggered = false;
+          return;
+        }
+        handlePressAction(item, shortPressAction, isCategoryTrigger);
+      });
+    });
+    function handleSidebarToggle() {
+      if (!dashFrame) return;
+      if (isMobile()) {
+        dashFrame.classList.remove('sidebar-collapsed');
+        const isOpen = dashFrame.classList.toggle('mobile-nav-open');
+        document.body.classList.toggle('mobile-nav-open', isOpen);
+        if (dashNav) dashNav.scrollTop = 0;
+        setToggleIcon(isOpen);
+        return;
+      }
+      const isCollapsed = dashFrame.classList.toggle('sidebar-collapsed');
+      safeStorage.set('sidebarCollapsed', isCollapsed ? 'true' : 'false');
+      if (dashNav) dashNav.scrollTop = 0;
+      setToggleIcon(!isCollapsed);
+    }
+
+    toggle?.addEventListener('click', handleSidebarToggle);
+
+    mainContent?.addEventListener('click', (event) => {
+      if (event.target.closest('.sidebar-toggle')) return;
+      if (event.target.closest('.main-window-bar')) return;
+      closeMobileNav();
+    });
+
+    sidebar?.addEventListener('click', (event) => {
+      if (!isMobile() || !dashFrame?.classList.contains('mobile-nav-open')) return;
+      const link = event.target.closest('a');
+      if (!link || !link.classList.contains('active')) return;
+      event.preventDefault();
+      closeMobileNav();
+    });
+
+    function closeUserMenus(except) {
+      userMenus.forEach((menu) => {
+        if (menu === except) return;
+        menu.querySelectorAll('[data-user-role-picker][open]').forEach((picker) => { picker.open = false; });
+        menu.classList.remove('user-pill--open');
+        menu.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    userMenus.forEach((menu) => {
+      menu.setAttribute('aria-expanded', 'false');
+      menu.addEventListener('click', (event) => {
+        if (event.target.closest('.user-menu')) return;
+        event.preventDefault();
+        const isOpen = menu.classList.contains('user-pill--open');
+        closeUserMenus(menu);
+        menu.classList.toggle('user-pill--open', !isOpen);
+        menu.setAttribute('aria-expanded', !isOpen ? 'true' : 'false');
+      });
+      menu.addEventListener('keydown', (event) => {
+        if (event.target.closest('.user-menu')) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        menu.click();
+      });
+    });
+
+    document.addEventListener('click', (event) => {
+      if (event.target.closest('[data-user-menu]')) return;
+      closeUserMenus();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      closeUserMenus();
+    });
+
+    document.querySelectorAll('.plex-select.plex-filter-media, .plex-select.plex-filter-source').forEach((wrap) => {
+      const select = wrap.querySelector('select');
+      if (!select) return;
+      const sync = () => {
+        if (wrap.classList.contains('plex-filter-source')) {
+          const selectedOption = select.options[select.selectedIndex];
+          const baseId = String(selectedOption?.dataset?.baseId || '').trim().toLowerCase();
+          wrap.dataset.filterValue = baseId || 'all';
+          return;
+        }
+        wrap.dataset.filterValue = String(select.value || 'all').toLowerCase();
+      };
+      select.addEventListener('change', sync);
+      sync();
+    });
+
+    function initArrFilterPopovers() {
+      const ensureModulePopovers = () => {
+        const controlsRows = Array.from(document.querySelectorAll('.plex-module .plex-controls-right'));
+        controlsRows.forEach((controls) => {
+          const selectWraps = Array.from(controls.children).filter((child) => child.classList?.contains('plex-select'));
+          if (!selectWraps.length) return;
+          let popover = Array.from(controls.children).find((child) => child.classList?.contains('arr-filter-popover'));
+          if (popover) return;
+          popover = document.createElement('div');
+          popover.className = 'arr-filter-popover';
+          popover.innerHTML =
+            '<button class="arr-filter-trigger" type="button" aria-label="Open filters" title="Filters" aria-haspopup="true" aria-expanded="false"></button>' +
+            '<div class="arr-filter-menu plex-hidden"></div>';
+          controls.insertBefore(popover, selectWraps[0]);
+        });
+      };
+
+      ensureModulePopovers();
+
+      const popovers = Array.from(document.querySelectorAll('.arr-filter-popover'));
+      if (!popovers.length) return;
+
+      const closeAll = (except) => {
+        popovers.forEach((popover) => {
+          if (except && popover === except) return;
+          const trigger = popover.querySelector('.arr-filter-trigger');
+          const menu = popover.querySelector('.arr-filter-menu');
+          if (!trigger || !menu) return;
+          trigger.setAttribute('aria-expanded', 'false');
+          menu.classList.add('plex-hidden');
+        });
+      };
+
+      const ensureOptionIcon = (kind, optionDef) => {
+        const value = String(optionDef?.value || '').trim().toLowerCase();
+        const baseId = String(optionDef?.baseId || '').trim().toLowerCase();
+        if (optionDef?.icon) return optionDef.icon;
+        if (kind === 'media') {
+          if (value === 'movie') return '/icons/movie.svg';
+          if (value === 'tv' || value === 'show') return '/icons/tv.svg';
+          if (value === 'music') return '/icons/music.svg';
+          if (value === 'book') return '/icons/book.svg';
+          return '/icons/all-type.svg';
+        }
+        if (kind === 'window') return '/icons/window.svg';
+        if (kind === 'event') return '/icons/activity-queue.svg';
+        if (kind === 'status') return '/icons/status.svg';
+        if (baseId && ['radarr', 'sonarr', 'lidarr', 'readarr'].includes(baseId)) {
+          return '/icons/' + baseId + '.png';
+        }
+        return '/icons/all-type.svg';
+      };
+
+      const inferOptionKind = (wrap) => {
+        if (!wrap) return 'generic';
+        if (wrap.classList.contains('plex-filter-media')) return 'media';
+        if (wrap.classList.contains('plex-filter-source')) return 'source';
+        if (wrap.classList.contains('plex-filter-window')) return 'window';
+        if (wrap.classList.contains('plex-filter-event')) return 'event';
+        if (wrap.classList.contains('plex-filter-status')) return 'status';
+        return 'generic';
+      };
+
+      const escapeHtml = (value) => String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+      const readOptions = (select) => {
+        if (!select) return [];
+        return Array.from(select.options || []).map((option) => ({
+          value: String(option?.value || '').trim(),
+          label: String(option?.textContent || option?.label || option?.value || '').trim(),
+          baseId: String(option?.dataset?.baseId || '').trim(),
+          icon: String(option?.dataset?.icon || '').trim(),
+        }));
+      };
+
+      const renderOptionButtons = (select, container, kind) => {
+        if (!select || !container) return;
+        const selectedValue = String(select.value || '').trim();
+        const options = readOptions(select);
+        container.innerHTML = options.map((option, index) => {
+          const icon = ensureOptionIcon(kind, option);
+          const isSelected = selectedValue === option.value;
+          return (
+            '<button class="arr-filter-option' + (isSelected ? ' is-selected' : '') + '" type="button" data-index="' + index + '">' +
+              '<img class="arr-filter-option-icon" src="' + icon + '" alt="" />' +
+              '<span class="arr-filter-option-label">' + escapeHtml(option.label) + '</span>' +
+            '</button>'
+          );
+        }).join('');
+
+        container.querySelectorAll('.arr-filter-option').forEach((button) => {
+          button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const index = Number(button.dataset.index);
+            if (!Number.isFinite(index) || !options[index]) return;
+            const value = String(options[index].value || '').trim();
+            if (select.value === value) return;
+            select.value = value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+        });
+      };
+
+      popovers.forEach((popover) => {
+        const trigger = popover.querySelector('.arr-filter-trigger');
+        const menu = popover.querySelector('.arr-filter-menu');
+        if (!trigger || !menu) return;
+        const controls = popover.closest('.plex-controls-right');
+        const sections = [];
+        const addSection = (select, container, kind) => {
+          if (!select || !container) return;
+          if (sections.some((entry) => entry.select === select)) return;
+          sections.push({ select, container, kind: kind || 'generic' });
+        };
+
+        const mediaSelectId = String(popover.dataset.mediaSelectId || '').trim();
+        const sourceSelectId = String(popover.dataset.sourceSelectId || '').trim();
+        const mediaSelect = mediaSelectId ? document.getElementById(mediaSelectId) : null;
+        const sourceSelect = sourceSelectId ? document.getElementById(sourceSelectId) : null;
+        const mediaContainer = menu.querySelector('[data-options-target="media"]');
+        const sourceContainer = menu.querySelector('[data-options-target="source"]');
+        addSection(mediaSelect, mediaContainer, 'media');
+        addSection(sourceSelect, sourceContainer, 'source');
+
+        const wrappers = controls
+          ? Array.from(controls.children).filter((child) => child.classList?.contains('plex-select'))
+          : [];
+        const isIndexerSearchPopover = wrappers.some((wrap) => {
+          const select = wrap.querySelector('select');
+          const selectId = String(select?.id || '');
+          return selectId.includes('SearchIndexerFilter');
+        });
+        if (isIndexerSearchPopover) {
+          menu.classList.add('arr-filter-menu--full-list');
+        }
+        wrappers.forEach((wrap, index) => {
+          const select = wrap.querySelector('select');
+          if (!select) return;
+          if (sections.some((entry) => entry.select === select)) {
+            wrap.classList.add('arr-filter-select-hidden');
+            return;
+          }
+          const labelRaw = String(wrap.getAttribute('title') || select.getAttribute('aria-label') || `Filter ${index + 1}`).trim();
+          const section = document.createElement('div');
+          section.className = 'arr-filter-section';
+          section.innerHTML =
+            '<div class="arr-filter-label">' + escapeHtml(labelRaw) + '</div>' +
+            '<div class="arr-filter-options"></div>';
+          menu.appendChild(section);
+          const container = section.querySelector('.arr-filter-options');
+          addSection(select, container, inferOptionKind(wrap));
+          wrap.classList.add('arr-filter-select-hidden');
+        });
+
+        if (!sections.length) return;
+
+        let needsSync = true;
+        const positionMenu = () => {
+          menu.style.top = 'calc(100% + 8px)';
+          menu.style.bottom = 'auto';
+          menu.style.maxHeight = '';
+        };
+        const sync = ({ force = false } = {}) => {
+          if (!force && menu.classList.contains('plex-hidden')) {
+            needsSync = true;
+            return;
+          }
+          sections.forEach((entry) => {
+            renderOptionButtons(entry.select, entry.container, entry.kind);
+          });
+          if (!menu.classList.contains('plex-hidden')) positionMenu();
+          needsSync = false;
+        };
+
+        trigger.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const isOpen = trigger.getAttribute('aria-expanded') === 'true';
+          closeAll(isOpen ? null : popover);
+          trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+          menu.classList.toggle('plex-hidden', isOpen);
+          if (!isOpen && needsSync) sync({ force: true });
+          if (!isOpen) positionMenu();
+        });
+
+        sections.forEach((entry) => {
+          entry.select?.addEventListener('change', sync);
+          entry.select?.addEventListener('arr:options-updated', sync);
+        });
+        sync();
+      });
+
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (target && target.closest && target.closest('.arr-filter-popover')) return;
+        closeAll();
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        closeAll();
+      });
+    }
+
+    initArrFilterPopovers();
+
+    document.querySelectorAll('.plex-collapse-btn').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        const section = button.closest('.plex-module');
+        if (!section) return;
+        section.classList.toggle('plex-collapsed');
+      });
+    });
+  </script>
+  <% if (dashboardModules.some((item) => item.app.id === 'plex' && !item.mediaCombined)) { %>
+    <% const plexApp = dashboardModules.find((item) => item.app.id === 'plex' && !item.mediaCombined)?.app; %>
+    <% if (plexApp) { %>
+      <script>
+        window.PLEX_OVERVIEW_CONFIG = <%- JSON.stringify({
+          baseUrl: (appBaseUrls && appBaseUrls[plexApp.id]) || plexApp.localUrl || plexApp.remoteUrl || '',
+          host: plexApp.plexHost || '',
+          token: plexApp.plexToken || '',
+          displaySettings: dashboardModules
+            .filter((item) => item.app.id === 'plex' && !item.mediaCombined)
+            .reduce((acc, item) => {
+              if (!item?.element?.id) return acc;
+              acc[item.element.id] = {
+                showSubtitle: item.element.showSubtitle !== false,
+                showMeta: item.element.showMeta !== false,
+                showPill: item.element.showPill !== false,
+                showTypeIcon: item.element.showTypeIcon !== false,
+                showViewIcon: item.element.showViewIcon !== false,
+                showUsername: item.element.showUsername !== false,
+              };
+              return acc;
+            }, {})
+        }) %>;
+      </script>
+      <script src="/plex-overview.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% ['jellyfin', 'emby'].forEach((mediaServerId) => { %>
+    <% if (dashboardModules.some((item) => item.app.id === mediaServerId && !item.mediaCombined && ['active', 'recent'].includes(item.element.id))) { %>
+      <% const mediaServerApp = dashboardModules.find((item) => item.app.id === mediaServerId && !item.mediaCombined)?.app; %>
+      <% if (mediaServerApp) { %>
+        <script>
+          window.<%= mediaServerId === 'emby' ? 'EMBY_OVERVIEW_CONFIG' : 'JELLYFIN_OVERVIEW_CONFIG' %> = <%- JSON.stringify({
+            baseUrl: (appBaseUrls && appBaseUrls[mediaServerApp.id]) || mediaServerApp.localUrl || mediaServerApp.remoteUrl || mediaServerApp.url || '',
+            apiKey: mediaServerApp.apiKey || '',
+            displaySettings: dashboardModules
+              .filter((item) => item.app.id === mediaServerId && !item.mediaCombined)
+              .reduce((acc, item) => {
+                if (!item?.element?.id) return acc;
+                acc[item.element.id] = {
+                  showSubtitle: item.element.showSubtitle !== false,
+                  showMeta: item.element.showMeta !== false,
+                  showPill: item.element.showPill !== false,
+                  showTypeIcon: item.element.showTypeIcon !== false,
+                  showViewIcon: item.element.showViewIcon !== false,
+                  showUsername: item.element.showUsername !== false,
+                };
+                return acc;
+              }, {})
+          }) %>;
+        </script>
+        <script src="/<%= mediaServerId %>-overview.js?v=<%= assetVersion %>"></script>
+      <% } %>
+    <% } %>
+  <% }) %>
+  <% if (dashboardModules.some((item) => item.app.id === 'tautulli')) { %>
+    <% const tautulliApp = dashboardModules.find((item) => item.app.id === 'tautulli')?.app; %>
+    <% const tautulliStatsModule = dashboardModules.find((item) => item.app.id === 'tautulli' && item.element.id === 'watch-stats'); %>
+    <% const tautulliStatsView = tautulliStatsModule?.element?.tautulliStatsView === 'wheel' ? 'wheel' : 'list'; %>
+    <% const plexAppForTautulli = dashboardModules.find((item) => item.app.id === 'plex')?.app || apps.find((appItem) => appItem.id === 'plex'); %>
+    <% const activeTautulliCards = (Array.isArray(tautulliCards) ? tautulliCards : []).filter((item) => item.enable).sort((a, b) => (a.order || 0) - (b.order || 0)).map((item) => item.id); %>
+    <% if (tautulliApp) { %>
+      <script>
+        window.TAUTULLI_OVERVIEW_CONFIG = <%- JSON.stringify({
+          baseUrl: (appBaseUrls && appBaseUrls[tautulliApp.id]) || tautulliApp.localUrl || tautulliApp.remoteUrl || tautulliApp.url || '',
+          apiKey: tautulliApp.apiKey || '',
+          plexBaseUrl: (plexAppForTautulli && ((appBaseUrls && appBaseUrls[plexAppForTautulli.id]) || plexAppForTautulli.localUrl || plexAppForTautulli.remoteUrl || plexAppForTautulli.url)) || '',
+          statsCards: activeTautulliCards,
+          statsView: tautulliStatsView
+        }) %>;
+      </script>
+      <script src="/tautulli-overview.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => isArrAppId(item.app.id) && (item.element.id === 'downloading-soon' || item.element.id === 'recently-downloaded' || item.element.id === 'activity-queue' || item.element.id === 'calendar'))) { %>
+    <%
+      const arrOverviewApps = [];
+      const arrSourceApps = [];
+      const addArrSourceApp = (candidate) => {
+        if (!candidate || !isArrAppId(candidate.id)) return;
+        if (arrSourceApps.some((appItem) => appItem.id === candidate.id)) return;
+        arrSourceApps.push(candidate);
+      };
+      (Array.isArray(apps) ? apps : []).forEach(addArrSourceApp);
+      const arrCombinedConfigs = [];
+      dashboardModules
+        .filter((item) => isArrAppId(item.app.id))
+        .forEach((item) => {
+          if (!arrOverviewApps.some((appItem) => appItem.id === item.app.id)) arrOverviewApps.push(item.app);
+          addArrSourceApp(item.app);
+          if (item.arrCombined) {
+            const includeSoon = item.arrCombined.elementId === 'downloading-soon';
+            const includeRecent = item.arrCombined.elementId === 'recently-downloaded';
+            const includeQueue = item.arrCombined.elementId === 'activity-queue';
+            const includeCalendar = item.arrCombined.elementId === 'calendar';
+            const moduleKey = String(item.arrCombined.moduleKey || '').trim();
+            if (!moduleKey) return;
+            arrCombinedConfigs.push({
+              appId: moduleKey,
+              appName: item.arrCombined.displayName || item.arrCombined.appNames.join(' + '),
+              appIds: item.arrCombined.appIds,
+              includeSoon,
+              includeRecent,
+              includeQueue,
+              includeCalendar,
+              displaySettings: {
+                [item.arrCombined.elementId]: {
+                  showSubtitle: item.element.showSubtitle !== false,
+                  showMeta: item.element.showMeta !== false,
+                  showPill: item.element.showPill !== false,
+                  showTypeIcon: item.element.showTypeIcon !== false,
+                  showViewIcon: item.element.showViewIcon !== false,
+                  showUsername: item.element.showUsername !== false,
+                },
+              },
+              sources: item.arrCombined.appIds
+                .map((appId) => arrSourceApps.find((appItem) => appItem.id === appId))
+                .filter(Boolean)
+                .map((arrApp) => ({
+                  appId: arrApp.id,
+                  appName: arrApp.name,
+                  baseUrl: (appBaseUrls && appBaseUrls[arrApp.id]) || arrApp.localUrl || arrApp.remoteUrl || arrApp.url || '',
+                  baseUrls: [
+                    (appBaseUrls && appBaseUrls[arrApp.id]) || '',
+                    arrApp.localUrl || '',
+                    arrApp.remoteUrl || '',
+                    arrApp.url || '',
+                  ],
+                  apiKey: arrApp.apiKey || '',
+                })),
+            });
+          }
+        });
+    %>
+    <% if (arrOverviewApps.length) { %>
+      <script>
+        window.ARR_OVERVIEW_CONFIGS = <%- JSON.stringify(
+          arrOverviewApps.map((arrApp) => ({
+            appId: arrApp.id,
+            appName: arrApp.name,
+            baseUrl: (appBaseUrls && appBaseUrls[arrApp.id]) || arrApp.localUrl || arrApp.remoteUrl || arrApp.url || '',
+            apiKey: arrApp.apiKey || '',
+            displaySettings: dashboardModules
+              .filter((item) => item.app.id === arrApp.id)
+              .reduce((acc, item) => {
+                if (!item?.element?.id) return acc;
+                acc[item.element.id] = {
+                  showSubtitle: item.element.showSubtitle !== false,
+                  showMeta: item.element.showMeta !== false,
+                  showPill: item.element.showPill !== false,
+                  showTypeIcon: item.element.showTypeIcon !== false,
+                  showViewIcon: item.element.showViewIcon !== false,
+                  showUsername: item.element.showUsername !== false,
+                };
+                return acc;
+              }, {})
+          }))
+        ) %>;
+        window.ARR_OVERVIEW_COMBINED_CONFIGS = <%- JSON.stringify(arrCombinedConfigs) %>;
+      </script>
+      <script src="/arr-overview.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => ['transmission', 'nzbget', 'qbittorrent', 'sabnzbd'].includes(resolveAppBaseId(item.app.id)) && item.element.id === 'activity-queue')) { %>
+    <%
+      const downloaderQueueApps = [];
+      dashboardModules
+        .filter((item) => ['transmission', 'nzbget', 'qbittorrent', 'sabnzbd'].includes(resolveAppBaseId(item.app.id)) && item.element.id === 'activity-queue')
+        .forEach((item) => {
+          if (downloaderQueueApps.some((entry) => entry.appId === item.app.id)) return;
+          downloaderQueueApps.push({
+            appId: item.app.id,
+            appName: item.app.name,
+            prefix: item.app.id,
+          });
+        });
+    %>
+    <% dashboardModules.forEach((item) => { %>
+      <% if (item.downloaderCombined && item.element.id === 'activity-queue') { %>
+        <% const sources = (item.downloaderCombined.appIds || []).map((id) => apps.find((appItem) => appItem.id === id)).filter(Boolean); %>
+        <% if (sources.length) { %>
+          <% const moduleKey = String(item.downloaderCombined?.moduleKey || 'downloaderscombinedqueue').trim() || 'downloaderscombinedqueue'; %>
+          <% const prefix = moduleKey.replace(/[^a-zA-Z0-9_-]+/g, '') || 'downloaderscombined'; %>
+          <% downloaderQueueApps.push({
+            appId: moduleKey,
+            appName: item.downloaderCombined.displayName || item.downloaderCombined.appNames.join(' + ') || 'Download Queue',
+            prefix,
+            sources: sources.map((appItem) => ({ appId: appItem.id, appName: appItem.name })),
+          }); %>
+        <% } %>
+      <% } %>
+    <% }) %>
+    <% if (downloaderQueueApps.length) { %>
+      <script>
+        window.DOWNLOADER_QUEUE_CONFIGS = <%- JSON.stringify(downloaderQueueApps) %>;
+      </script>
+      <script src="/downloaders-queue.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => item.mediaCombined && ['active', 'recent'].includes(item.element.id))) { %>
+    <% const mediaCombinedModules = dashboardModules.filter((item) => item.mediaCombined && ['active', 'recent'].includes(item.element.id)); %>
+    <% if (mediaCombinedModules.length) { %>
+      <script>
+        window.MEDIA_OVERVIEW_COMBINED_CONFIGS = <%- JSON.stringify(
+          mediaCombinedModules.map((item) => {
+            const isActive = item.element.id === 'active';
+            const moduleKey = String(item.mediaCombined?.moduleKey || (isActive ? 'mediacombined-active' : 'mediacombined-recent')).trim()
+              || (isActive ? 'mediacombined-active' : 'mediacombined-recent');
+            const controlPrefix = moduleKey.replace(/[^a-zA-Z0-9_-]+/g, '') || (isActive ? 'mediacombinedActive' : 'mediacombinedRecent');
+            const moduleId = moduleKey;
+            return {
+              section: isActive ? 'active' : 'recent',
+              moduleId,
+              controlPrefix,
+              displaySettings: {
+                showSubtitle: item.element.showSubtitle !== false,
+                showMeta: item.element.showMeta !== false,
+                showPill: item.element.showPill !== false,
+                showTypeIcon: item.element.showTypeIcon !== false,
+                showViewIcon: item.element.showViewIcon !== false,
+                showUsername: item.element.showUsername !== false,
+              },
+              sources: (Array.isArray(item.mediaCombined?.appIds) ? item.mediaCombined.appIds : [])
+                .map((appId) => apps.find((appItem) => appItem.id === appId))
+                .filter(Boolean)
+                .map((appItem) => ({
+                  appId: appItem.id,
+                  appName: appItem.name,
+                  type: appItem.id === 'plex'
+                    ? 'plex'
+                    : (appItem.id === 'jellyfin'
+                      ? 'jellyfin'
+                      : (appItem.id === 'emby' ? 'emby' : appItem.id)),
+                  baseUrl: (appBaseUrls && appBaseUrls[appItem.id]) || appItem.localUrl || appItem.remoteUrl || appItem.url || '',
+                  token: appItem.plexToken || '',
+                })),
+            };
+          })
+        ) %>;
+      </script>
+      <script src="/media-overview.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => ['pulsarr', 'seerr'].includes(item.app.id) && (item.element.id === 'recent-requests' || item.element.id === 'most-watchlisted'))) { %>
+    <% const requestOverviewApps = Array.from(new Set(
+      dashboardModules
+        .filter((item) => ['pulsarr', 'seerr'].includes(item.app.id) && (item.element.id === 'recent-requests' || item.element.id === 'most-watchlisted'))
+        .map((item) => item.app.id)
+    )).map((id) => dashboardModules.find((entry) => entry.app.id === id)?.app).filter(Boolean); %>
+    <% requestOverviewApps.forEach((requestApp) => { %>
+      <script>
+        window.PULSARR_OVERVIEW_CONFIG = <%- JSON.stringify({
+          appId: requestApp.id,
+          domPrefix: requestApp.id,
+          appName: requestApp.name,
+          baseUrl: (appBaseUrls && appBaseUrls[requestApp.id]) || requestApp.localUrl || requestApp.remoteUrl || requestApp.url || '',
+          apiKey: requestApp.apiKey || '',
+          displaySettings: dashboardModules
+            .filter((item) => item.app.id === requestApp.id)
+            .reduce((acc, item) => {
+              if (!item?.element?.id) return acc;
+              acc[item.element.id] = {
+                showSubtitle: item.element.showSubtitle !== false,
+                showMeta: item.element.showMeta !== false,
+                showPill: item.element.showPill !== false,
+                showTypeIcon: item.element.showTypeIcon !== false,
+                showViewIcon: item.element.showViewIcon !== false,
+                showUsername: item.element.showUsername !== false,
+              };
+              return acc;
+            }, {})
+        }) %>;
+      </script>
+      <script src="/pulsarr-overview.js?v=<%= assetVersion %>"></script>
+    <% }) %>
+  <% } %>
+  <% if (dashboardModules.some((item) => ['prowlarr', 'jackett'].includes(resolveAppBaseId(item.app.id)) && item.element.id === 'search')) { %>
+    <%
+      const indexerSearchApps = Array.from(new Set(
+        dashboardModules
+          .filter((item) => ['prowlarr', 'jackett'].includes(resolveAppBaseId(item.app.id)) && item.element.id === 'search')
+          .map((item) => item.app.id)
+      )).map((id) => dashboardModules.find((entry) => entry.app.id === id)?.app).filter(Boolean);
+      const indexerSearchConfigs = indexerSearchApps.map((searchApp) => {
+        const baseId = resolveAppBaseId(searchApp.id);
+        const isJackett = baseId === 'jackett';
+        return {
+          appId: searchApp.id,
+          appName: searchApp.name,
+          prefix: isJackett ? 'jackett' : 'prowlarr',
+          endpoint: isJackett ? '/api/jackett/search' : '/api/prowlarr/search',
+          filtersEndpoint: isJackett ? '/api/jackett/search/filters' : '/api/prowlarr/search/filters',
+          canDownload: !isJackett,
+          downloadEndpoint: '/api/prowlarr/download',
+        };
+      });
+    %>
+    <% if (indexerSearchConfigs.length) { %>
+      <script>
+        window.INDEXER_SEARCH_CONFIGS = <%- JSON.stringify(indexerSearchConfigs) %>;
+      </script>
+      <script src="/indexer-search.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => item.app.id === 'romm' && ['recently-added', 'consoles'].includes(item.element.id))) { %>
+    <%
+      const rommOverviewConfigs = dashboardModules
+        .filter((item) => item.app.id === 'romm' && ['recently-added', 'consoles'].includes(item.element.id))
+        .map((item) => {
+          const isRecentlyAdded = item.element.id === 'recently-added';
+          return {
+            appId: item.app.id,
+            appName: item.app.name || 'Romm',
+            sectionId: item.element.id,
+            controlPrefix: `${item.app.id}${isRecentlyAdded ? 'RecentlyAdded' : 'Consoles'}`,
+            endpoint: isRecentlyAdded ? '/api/romm/recently-added' : '/api/romm/consoles?limit=all',
+            displaySettings: {
+              showSubtitle: item.element.showSubtitle !== false,
+              showMeta: item.element.showMeta !== false,
+              showPill: item.element.showPill !== false,
+              showTypeIcon: item.element.showTypeIcon !== false,
+              showViewIcon: item.element.showViewIcon !== false,
+              showUsername: item.element.showUsername !== false,
+            },
+          };
+        });
+    %>
+    <% if (rommOverviewConfigs.length) { %>
+      <script>
+        window.ROMM_OVERVIEW_CONFIGS = <%- JSON.stringify(rommOverviewConfigs) %>;
+      </script>
+      <script src="/romm-overview.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => item.app.id === 'maintainerr' && ['library-media', 'rules', 'collections-media'].includes(item.element.id))) { %>
+    <%
+      const maintainerrOverviewConfigs = dashboardModules
+        .filter((item) => item.app.id === 'maintainerr' && ['library-media', 'rules', 'collections-media'].includes(item.element.id))
+        .map((item) => {
+          const isLibraryMedia = item.element.id === 'library-media';
+          const isRules = item.element.id === 'rules';
+          return {
+            appId: item.app.id,
+            appName: item.app.name || 'Maintainerr',
+            sectionId: item.element.id,
+            controlPrefix: `${item.app.id}${isLibraryMedia ? 'LibraryMedia' : (isRules ? 'Rules' : 'CollectionsMedia')}`,
+            endpoint: isLibraryMedia
+              ? '/api/maintainerr/library-media?limit=all'
+              : (isRules ? '/api/maintainerr/rules' : '/api/maintainerr/collections-media?limit=200'),
+            displaySettings: {
+              showSubtitle: item.element.showSubtitle !== false,
+              showMeta: item.element.showMeta !== false,
+              showPill: item.element.showPill !== false,
+              showTypeIcon: item.element.showTypeIcon !== false,
+              showViewIcon: item.element.showViewIcon !== false,
+              showUsername: item.element.showUsername !== false,
+            },
+          };
+        });
+    %>
+    <% if (maintainerrOverviewConfigs.length) { %>
+      <script>
+        window.MAINTAINERR_OVERVIEW_CONFIGS = <%- JSON.stringify(maintainerrOverviewConfigs) %>;
+      </script>
+      <script src="/maintainerr-overview.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => (item.app.id === 'bazarr' && item.element.id === 'subtitle-queue') || (item.app.id === 'autobrr' && item.element.id === 'recent-matches'))) { %>
+    <%
+      const queueCardConfigs = dashboardModules
+        .filter((item) => (item.app.id === 'bazarr' && item.element.id === 'subtitle-queue') || (item.app.id === 'autobrr' && item.element.id === 'recent-matches'))
+        .map((item) => {
+          if (item.app.id === 'bazarr') {
+            const controlPrefix = `${item.app.id}SubtitleQueue`;
+            return {
+              moduleId: `${item.app.id}-subtitle-queue`,
+              bodyId: `${controlPrefix}Body`,
+              typeFilterId: `${controlPrefix}TypeFilter`,
+              statusFilterId: `${controlPrefix}StatusFilter`,
+              endpoint: '/api/bazarr/subtitle-queue',
+              appName: item.app.name || 'Bazarr',
+            };
+          }
+          const isRecentMatches = item.element.id === 'recent-matches';
+          const controlPrefix = `${item.app.id}${isRecentMatches ? 'RecentMatches' : 'DeliveryQueue'}`;
+          return {
+            moduleId: `${item.app.id}-${item.element.id}`,
+            bodyId: `${controlPrefix}Body`,
+            typeFilterId: `${controlPrefix}TypeFilter`,
+            statusFilterId: `${controlPrefix}StatusFilter`,
+            endpoint: `/api/autobrr/${item.element.id}`,
+            appName: item.app.name || 'Autobrr',
+            mode: isRecentMatches ? 'releases' : '',
+          };
+        });
+    %>
+    <% if (queueCardConfigs.length) { %>
+      <script>
+        window.QUEUE_CARD_CONFIGS = <%- JSON.stringify(queueCardConfigs) %>;
+      </script>
+      <script src="/queue-cards.js?v=<%= assetVersion %>"></script>
+    <% } %>
+  <% } %>
+  <% if (dashboardModules.some((item) => ['prowlarr', 'jackett'].includes(item.app.id) && item.element.id === 'search')) { %>
+    <script src="/indexer-table-sort.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => item.widgetBar)) { %>
+    <script src="/widgets-stat-cards.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'immich' && item.element.id === 'recent')) { %>
+    <%
+      const immichDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'immich' && item.element.id === 'recent')?.app;
+    %>
+    <script>window.IMMICH_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: immichDashApp.id, appName: immichDashApp.name }) %>;</script>
+    <script src="/immich-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'audiobookshelf' && item.element.id === 'recently-added')) { %>
+    <%
+      const absDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'audiobookshelf' && item.element.id === 'recently-added')?.app;
+    %>
+    <script>window.ABS_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: absDashApp.id, appName: absDashApp.name }) %>;</script>
+    <script src="/audiobookshelf-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'metube' && item.element.id === 'queue')) { %>
+    <%
+      const metubeDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'metube' && item.element.id === 'queue')?.app;
+    %>
+    <script>window.METUBE_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: metubeDashApp.id, appName: metubeDashApp.name }) %>;</script>
+    <script src="/metube-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'tdarr' && item.element.id === 'stats')) { %>
+    <%
+      const tdarrDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'tdarr' && item.element.id === 'stats')?.app;
+    %>
+    <script>window.TDARR_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: tdarrDashApp.id, appName: tdarrDashApp.name }) %>;</script>
+    <script src="/tdarr-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'uptime-kuma' && item.element.id === 'status')) { %>
+    <%
+      const ukDashItem = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'uptime-kuma' && item.element.id === 'status');
+      const ukDashApp = ukDashItem?.app;
+      const ukDashEl = ukDashItem?.element || {};
+    %>
+    <script>window.UPTIME_KUMA_OVERVIEW_CONFIG = <%- JSON.stringify({
+      appId: ukDashApp.id,
+      appName: ukDashApp.name,
+      queueVisibleRows: ukDashEl.queueVisibleRows || 10,
+      queueShowDetail: ukDashEl.queueShowDetail !== false,
+      queueShowTimeLeft: ukDashEl.queueShowTimeLeft !== false,
+      queueShowProgress: ukDashEl.queueShowProgress !== false,
+    }) %>;</script>
+    <script src="/uptime-kuma-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'wizarr' && (item.element.id === 'users' || item.element.id === 'invitations'))) { %>
+    <%
+      const wizDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'wizarr')?.app;
+    %>
+    <script>window.WIZARR_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: wizDashApp.id, appName: wizDashApp.name }) %>;</script>
+    <script src="/wizarr-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'guacamole' && (item.element.id === 'active-sessions' || item.element.id === 'connections'))) { %>
+    <%
+      const guacDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'guacamole')?.app;
+    %>
+    <script>window.GUACAMOLE_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: guacDashApp.id, appName: guacDashApp.name }) %>;</script>
+    <script src="/guacamole-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <% if (dashboardModules.some((item) => resolveAppBaseId(item.app.id) === 'traefik' && (item.element.id === 'routers' || item.element.id === 'services'))) { %>
+    <%
+      const traefikDashApp = dashboardModules.find((item) => resolveAppBaseId(item.app.id) === 'traefik')?.app;
+    %>
+    <script>window.TRAEFIK_OVERVIEW_CONFIG = <%- JSON.stringify({ appId: traefikDashApp.id, appName: traefikDashApp.name }) %>;</script>
+    <script src="/traefik-overview.js?v=<%= assetVersion %>"></script>
+  <% } %>
+  <script src="/table-pagination.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
+  <script src="/pwa.js?v=<%= assetVersion %>"></script>
+</body>
+</html>

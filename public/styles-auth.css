@@ -1,0 +1,299 @@
+/* Login */
+.login-body{
+  background:
+    radial-gradient(circle at 12% 12%, rgba(var(--brand-rgb),.18), transparent 42%),
+    radial-gradient(circle at 84% 18%, rgba(54,160,200,.18), transparent 45%),
+    linear-gradient(180deg, #070d13 0%, #0a121b 50%, #0d1620 100%);
+  overflow:hidden;
+  position:relative;
+  color:#eaf2fb;
+  font-family:"Space Grotesk","Poppins","JetBrains Mono",sans-serif;
+}
+
+.login-body::before{
+  content:"";
+  position:fixed;
+  inset:-20% -10%;
+  background:
+    linear-gradient(115deg, transparent 40%, rgba(var(--brand-rgb),.12) 46%, transparent 52%),
+    linear-gradient(115deg, transparent 58%, rgba(var(--brand-rgb),.12) 64%, transparent 70%);
+  opacity:.65;
+  transform:skewY(-3deg);
+  pointer-events:none;
+}
+
+.login-stars{
+  position:fixed;
+  inset:0;
+  background-image:
+    radial-gradient(rgba(255,255,255,.4) 1px, transparent 1px),
+    radial-gradient(rgba(255,255,255,.2) 1px, transparent 1px);
+  background-size: 160px 160px, 90px 90px;
+  background-position: 0 0, 40px 30px;
+  opacity:.14;
+  pointer-events:none;
+}
+
+.login-planet{
+  position:fixed;
+  width:600px;
+  height:600px;
+  border-radius:50%;
+  right:-120px;
+  top:-120px;
+  background:radial-gradient(circle at 30% 30%, rgba(var(--brand-rgb),.35), rgba(6,12,18,0) 60%);
+  filter:blur(10px);
+  opacity:.7;
+  pointer-events:none;
+}
+
+.login-brand{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:12px;
+  text-align:center;
+  color:#eaf2fb;
+}
+
+.login-brand-mark{
+  display:grid;
+  place-items:center;
+  background:transparent;
+  border:0;
+  box-shadow:none;
+}
+
+.login-brand-mark img{
+  width:72px;
+  height:72px;
+  display:block;
+  filter:drop-shadow(0 6px 14px rgba(var(--brand-rgb),.45));
+}
+
+.login-brand-title{
+  font-size:clamp(22px, 4.5vw, 36px);
+  font-weight:700;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  font-family:"Space Grotesk", system-ui, -apple-system, sans-serif;
+}
+
+.login-brand-subtitle{
+  font-size:13px;
+  letter-spacing:.3em;
+  text-transform:uppercase;
+  color:rgba(234,242,251,.7);
+}
+
+.login-wrap{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:48px 20px;
+  position:relative;
+  z-index:1;
+}
+
+.login-hero{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:20px;
+  width:min(460px, 92vw);
+}
+
+.login-card{
+  background:rgba(12,18,26,.82);
+  color:#eaf2fb;
+  padding:26px;
+  border-radius:20px;
+  width:100%;
+  text-align:left;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 26px 60px rgba(0,0,0,.55);
+  backdrop-filter: blur(8px);
+}
+
+.login-card-title{
+  font-weight:600;
+  font-size:18px;
+  margin-bottom:4px;
+  text-transform:uppercase;
+  letter-spacing:.12em;
+}
+
+.login-card-sub{
+  color:rgba(234,242,251,.7);
+  font-size:12px;
+  margin-bottom:16px;
+}
+
+.login-card p{margin:0 0 20px;font-size:13px}
+.login-sub{margin-top:12px;font-size:12px;opacity:.75;text-align:center}
+.login-form{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  margin:14px 0 12px;
+}
+
+.login-field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  text-align:left;
+  font-size:12px;
+  color:rgba(234,242,251,.9);
+}
+
+.login-input{
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.2);
+  background:rgba(8,12,18,.72);
+  color:#eaf2fb;
+  font-size:13px;
+}
+
+.login-input:focus{
+  outline:none;
+  border-color:rgba(var(--brand-rgb),.6);
+  box-shadow:0 0 0 2px rgba(var(--brand-rgb),.2);
+}
+
+.login-error{
+  background:rgba(255,88,88,.12);
+  color:#ffb4b4;
+  border:1px solid rgba(255,88,88,.4);
+  padding:10px 12px;
+  border-radius:10px;
+  font-size:12px;
+  margin:12px 0;
+}
+
+.login-divider{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  opacity:.65;
+  margin:12px 0 14px;
+}
+
+.login-divider::before,
+.login-divider::after{
+  content:"";
+  flex:1;
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.2));
+}
+
+.field-with-action .field-action-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.field-with-action .field-action-row input{
+  flex:1 1 auto;
+}
+
+.field-with-action .icon-button{
+  width:32px;
+  height:32px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.15);
+  background:rgba(10,14,18,.45);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  cursor:pointer;
+}
+
+.field-with-action .icon-button img{
+  width:16px;
+  height:16px;
+}
+
+.field-with-action .icon-button:hover{
+  border-color:rgba(var(--brand-rgb),.4);
+  box-shadow:inset 0 0 0 1px rgba(var(--brand-rgb),.2);
+}
+
+.plex-settings-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+
+.ghost-button{
+  padding:8px 14px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.2);
+  background:rgba(10,14,18,.4);
+  color:#eaf6f5;
+  font-size:12px;
+  cursor:pointer;
+}
+
+.ghost-button:hover{
+  border-color:rgba(var(--brand-rgb),.5);
+  box-shadow:inset 0 0 0 1px rgba(var(--brand-rgb),.2);
+}
+
+.login-card .primary-button{
+  background:linear-gradient(135deg, var(--brand-btn-start), var(--teal-dark));
+  color:var(--on-brand);
+  border:2px solid var(--teal-dark);
+  box-shadow:0 10px 26px rgba(var(--brand-rgb),.35), inset 0 0 0 2px rgba(255,255,255,.18);
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:12px;
+}
+
+.login-card .primary-button:hover{
+  transform:translateY(-1px);
+  box-shadow:0 14px 32px rgba(var(--brand-rgb),.45), inset 0 0 0 2px rgba(255,255,255,.2);
+}
+
+.login-card .primary-button:focus-visible{
+  outline:2px solid rgba(var(--brand-rgb),.8);
+  outline-offset:2px;
+}
+
+.plex-button{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  width:100%;
+  padding:10px 14px;
+  border-radius:12px;
+  border:1px solid rgba(var(--brand-rgb),.6);
+  background:rgba(10,14,18,.6);
+  color:#f2fbfb;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-size:11px;
+  cursor:pointer;
+  text-decoration:none;
+  box-shadow:0 10px 20px rgba(0,0,0,.35);
+}
+
+.plex-button img{
+  width:46px;
+  height:22px;
+  object-fit:contain;
+  filter:brightness(1.05);
+}
+
+.plex-button:hover{
+  border-color:rgba(var(--brand-rgb),.85);
+  box-shadow:0 12px 24px rgba(0,0,0,.45);
+}

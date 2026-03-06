@@ -1,0 +1,2300 @@
+[
+  {
+    "id": "plex",
+    "name": "Plex",
+    "url": "http://localhost:32400/web",
+    "description": "Media library",
+    "category": "Media",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "localUrl": "http://localhost:32400/web",
+    "remoteUrl": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "plexHost": "",
+    "plexToken": "",
+    "order": 1,
+    "favourite": false,
+    "overviewElements": [
+      {
+        "id": "active",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 1
+      },
+      {
+        "id": "recent",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 2
+      },
+      {
+        "id": "watchlisted",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 3
+      }
+    ],
+    "launchMode": "iframe",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "jellyfin",
+    "name": "Jellyfin",
+    "icon": "/icons/jellyfin.png",
+    "url": "http://localhost:8096/web/index.html",
+    "description": "Media server",
+    "category": "Media",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "localUrl": "http://localhost:8096/web/index.html",
+    "remoteUrl": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 2,
+    "favourite": false,
+    "overviewElements": [
+      {
+        "id": "active",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 1
+      },
+      {
+        "id": "recent",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 2
+      }
+    ],
+    "launchMode": "iframe",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "emby",
+    "name": "Emby",
+    "icon": "/icons/emby.png",
+    "url": "http://localhost:8096/web/index.html",
+    "description": "Media server",
+    "category": "Media",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "localUrl": "http://localhost:8096/web/index.html",
+    "remoteUrl": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 3,
+    "favourite": false,
+    "overviewElements": [
+      {
+        "id": "active",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 1
+      },
+      {
+        "id": "recent",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 2
+      }
+    ],
+    "launchMode": "iframe",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "tautulli",
+    "name": "Tautulli",
+    "url": "http://localhost:8181",
+    "description": "Plex activity",
+    "category": "Manager",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "localUrl": "http://localhost:8181",
+    "remoteUrl": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "plexToken": "",
+    "tautulliCards": [
+      {
+        "id": "top_movies",
+        "enable": true,
+        "order": 1
+      },
+      {
+        "id": "popular_movies",
+        "enable": true,
+        "order": 2
+      },
+      {
+        "id": "top_tv",
+        "enable": true,
+        "order": 3
+      },
+      {
+        "id": "popular_tv",
+        "enable": true,
+        "order": 4
+      },
+      {
+        "id": "top_music",
+        "enable": true,
+        "order": 5
+      },
+      {
+        "id": "popular_music",
+        "enable": true,
+        "order": 6
+      },
+      {
+        "id": "top_libraries",
+        "enable": false,
+        "order": 9
+      },
+      {
+        "id": "top_users",
+        "enable": true,
+        "order": 8
+      },
+      {
+        "id": "top_platforms",
+        "enable": false,
+        "order": 10
+      },
+      {
+        "id": "last_watched",
+        "enable": true,
+        "order": 7
+      },
+      {
+        "id": "most_concurrent",
+        "enable": false,
+        "order": 11
+      }
+    ],
+    "overviewElements": [
+      {
+        "id": "watch-stats",
+        "enable": true,
+        "dashboard": false,
+        "tautulliStatsView": "list",
+        "favourite": false,
+        "order": 1
+      }
+    ],
+    "launchMode": "iframe",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "radarr",
+    "name": "Radarr",
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "...",
+    "url": "http://localhost:7878",
+    "description": "Movies manager",
+    "category": "Arr Suite",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 2,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:7878",
+    "remoteUrl": "",
+    "plexToken": "",
+    "overviewElements": [
+      {
+        "id": "downloading-soon",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 1
+      },
+      {
+        "id": "recently-downloaded",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 2
+      },
+      {
+        "id": "activity-queue",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 3
+      },
+      {
+        "id": "calendar",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 4
+      }
+    ],
+    "removed": true
+  },
+  {
+    "id": "sonarr",
+    "name": "Sonarr",
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "...",
+    "url": "http://localhost:8989",
+    "description": "Series manager",
+    "category": "Arr Suite",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 3,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8989",
+    "remoteUrl": "",
+    "plexToken": "",
+    "overviewElements": [
+      {
+        "id": "downloading-soon",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      },
+      {
+        "id": "recently-downloaded",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 2
+      },
+      {
+        "id": "calendar",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 4
+      }
+    ],
+    "removed": true
+  },
+  {
+    "id": "lidarr",
+    "name": "Lidarr",
+    "url": "http://localhost:8686",
+    "description": "Music manager",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 4,
+    "favourite": false,
+    "launchMode": "iframe",
+    "overviewElements": [
+      {
+        "id": "downloading-soon",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      },
+      {
+        "id": "recently-downloaded",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 2
+      },
+      {
+        "id": "calendar",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 4
+      }
+    ],
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "readarr",
+    "name": "Readarr",
+    "url": "http://localhost:8787",
+    "description": "Books manager",
+    "category": "Arr Suite",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 5,
+    "favourite": false,
+    "launchMode": "iframe",
+    "overviewElements": [
+      {
+        "id": "downloading-soon",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      },
+      {
+        "id": "recently-downloaded",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 2
+      },
+      {
+        "id": "activity-queue",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 3
+      },
+      {
+        "id": "calendar",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 4
+      }
+    ],
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "bazarr",
+    "name": "Bazarr",
+    "icon": "/icons/bazarr.png",
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "...",
+    "url": "http://localhost:6767",
+    "description": "Subtitle manager",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 9,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:6767",
+    "remoteUrl": "",
+    "overviewElements": [
+      {
+        "id": "subtitle-queue",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      }
+    ],
+    "plexToken": "",
+    "removed": true
+  },
+  {
+    "id": "prowlarr",
+    "name": "Prowlarr",
+    "url": "http://localhost:9696",
+    "description": "Indexer manager",
+    "category": "Indexers",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 8,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:9696",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "pulsarr",
+    "name": "Pulsarr",
+    "url": "http://localhost:3030",
+    "description": "Requests and watchlists",
+    "category": "Requesters",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "overviewElements": [
+      {
+        "id": "recent-requests",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 1
+      },
+      {
+        "id": "most-watchlisted",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 2
+      }
+    ],
+    "localUrl": "http://localhost:3030",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "seerr",
+    "name": "Seerr",
+    "url": "http://localhost:5055",
+    "description": "Overseerr/Jellyseerr requests",
+    "category": "Requesters",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 2,
+    "favourite": false,
+    "launchMode": "iframe",
+    "overviewElements": [
+      {
+        "id": "recent-requests",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 1
+      },
+      {
+        "id": "most-watchlisted",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "showSubtitle": true,
+        "showMeta": true,
+        "showPill": true,
+        "showTypeIcon": true,
+        "showViewIcon": true,
+        "showUsername": true,
+        "order": 2
+      }
+    ],
+    "localUrl": "http://localhost:5055",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "cleanuparr",
+    "name": "Cleanuparr",
+    "url": "http://localhost:11011",
+    "description": "Library cleanup",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 6,
+    "favourite": false,
+    "launchMode": "iframe",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "huntarr",
+    "name": "Huntarr",
+    "url": "http://localhost:9705",
+    "description": "Indexer hunting",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 7,
+    "favourite": false,
+    "launchMode": "iframe",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "transmission",
+    "name": "Transmission",
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "...",
+    "url": "http://localhost:9091",
+    "description": "Torrent client",
+    "category": "Downloaders",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 2,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:9091",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true
+  },
+  {
+    "id": "qbittorrent",
+    "name": "qBittorrent",
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "...",
+    "url": "http://localhost:8080",
+    "description": "Torrent client",
+    "category": "Downloaders",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 3,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8080",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true
+  },
+  {
+    "id": "sabnzbd",
+    "name": "SABnzbd",
+    "url": "http://localhost:8085",
+    "description": "Usenet client",
+    "category": "Downloaders",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 4,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8085",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "nzbget",
+    "name": "NZBGet",
+    "url": "http://localhost:6789",
+    "description": "Usenet client",
+    "category": "Downloaders",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:6789",
+    "remoteUrl": "",
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "jackett",
+    "name": "Jackett",
+    "icon": "/icons/jackett.png",
+    "url": "http://localhost:9117",
+    "description": "Indexer manager",
+    "category": "Indexers",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 10,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:9117",
+    "remoteUrl": "",
+    "overviewElements": [
+      {
+        "id": "search",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      }
+    ],
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "autobrr",
+    "name": "Autobrr",
+    "icon": "/icons/autobrr.png",
+    "url": "http://localhost:7474",
+    "description": "Automation and release matching",
+    "category": "Arr Suite",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 3,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:7474",
+    "remoteUrl": "",
+    "overviewElements": [
+      {
+        "id": "recent-matches",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      },
+      {
+        "id": "delivery-queue",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 2
+      }
+    ],
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "maintainerr",
+    "name": "Maintainerr",
+    "icon": "/icons/maintainerr.svg",
+    "url": "http://localhost:6246",
+    "description": "Library cleanup automation",
+    "category": "Arr Suite",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 4,
+    "removed": true,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:6246",
+    "remoteUrl": "",
+    "overviewElements": [
+      {
+        "id": "library-media",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      },
+      {
+        "id": "rules",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 2
+      },
+      {
+        "id": "collections-media",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 3
+      }
+    ],
+    "plexToken": "",
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "romm",
+    "name": "Romm",
+    "icon": "/icons/romm.svg",
+    "url": "http://localhost:8080",
+    "description": "Retro game library manager",
+    "category": "Games",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "viewerUsername": "",
+    "viewerPassword": "",
+    "rommRecentProbeLimit": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8080",
+    "remoteUrl": "",
+    "overviewElements": [
+      {
+        "id": "recently-added",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 1
+      },
+      {
+        "id": "consoles",
+        "enable": true,
+        "dashboard": false,
+        "favourite": false,
+        "order": 2
+      }
+    ],
+    "plexToken": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "immich",
+    "name": "Immich",
+    "url": "http://localhost:2283",
+    "description": "Photo and video management",
+    "category": "Photos",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:2283",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "portainer",
+    "name": "Portainer",
+    "url": "http://localhost:9000",
+    "description": "Docker container management",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:9000",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "glances",
+    "name": "Glances",
+    "url": "http://localhost:61208",
+    "description": "System monitoring",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 2,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:61208",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "uptime-kuma",
+    "name": "Uptime Kuma",
+    "url": "http://localhost:3001",
+    "description": "Uptime monitoring",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "uptimeKumaSlug": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 3,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:3001",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "speedtest-tracker",
+    "name": "Speedtest Tracker",
+    "url": "http://localhost:8765",
+    "description": "Internet speed monitoring",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 4,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8765",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "gluetun",
+    "name": "Gluetun",
+    "url": "http://localhost:8000",
+    "description": "VPN client",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 5,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8000",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "paperless-ngx",
+    "name": "Paperless-ngx",
+    "url": "http://localhost:8010",
+    "description": "Document management",
+    "category": "Documents",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8010",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "metube",
+    "name": "MeTube",
+    "url": "http://localhost:8081",
+    "description": "YouTube and media downloader",
+    "category": "Downloaders",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 5,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8081",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "deemix",
+    "name": "Deemix",
+    "url": "http://localhost:6595",
+    "description": "Music downloader",
+    "category": "Downloaders",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 6,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:6595",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "profilarr",
+    "name": "Profilarr",
+    "url": "http://localhost:6868",
+    "description": "Quality profile manager",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 11,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:6868",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "sortarr",
+    "name": "Sortarr",
+    "url": "http://localhost:8787",
+    "description": "Arr library organiser",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 12,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8787",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "agregarr",
+    "name": "Agregarr",
+    "url": "http://localhost:5055",
+    "description": "RSS aggregator for Arr apps",
+    "category": "Arr Suite",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 13,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:5055",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "kometa",
+    "name": "Kometa",
+    "icon": "/icons/kometa.png",
+    "url": "http://localhost:4242",
+    "description": "Plex metadata manager",
+    "category": "Media",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 4,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:4242",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "ersatztv",
+    "name": "ErsatzTV",
+    "icon": "/icons/ersatztv.png",
+    "url": "http://localhost:8409",
+    "description": "DIY live TV streaming",
+    "category": "Media",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 5,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8409",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "pikaraoke",
+    "name": "Pikaraoke",
+    "icon": "/icons/pikaraoke.png",
+    "url": "http://localhost:5555",
+    "description": "Browser-based karaoke",
+    "category": "Media",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 6,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:5555",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "guacamole",
+    "name": "Guacamole",
+    "url": "http://localhost:8090",
+    "description": "Remote desktop gateway",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8090",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "code-server",
+    "name": "Code Server",
+    "url": "http://localhost:8443",
+    "description": "VS Code in the browser",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 2,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8443",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "termix",
+    "name": "Termix",
+    "url": "http://localhost:9090",
+    "description": "Terminal in the browser",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 3,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:9090",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "thelounge",
+    "name": "The Lounge",
+    "url": "http://localhost:9001",
+    "description": "Web IRC client",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 4,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:9001",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "phpmyadmin",
+    "name": "phpMyAdmin",
+    "url": "http://localhost:1977",
+    "description": "MySQL database administration",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 5,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:1977",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "apprise",
+    "name": "Apprise",
+    "icon": "/icons/apprise.png",
+    "url": "http://localhost:8000",
+    "description": "Notification service",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 6,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8000",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "actual-budget",
+    "name": "Actual Budget",
+    "url": "http://localhost:5006",
+    "description": "Personal finance and budgeting",
+    "category": "Finance",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 1,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:5006",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "audiobookshelf",
+    "name": "Audiobookshelf",
+    "url": "http://localhost:13378",
+    "description": "Audiobook and podcast server",
+    "category": "Media",
+    "roles": [
+      "admin",
+      "user"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": true,
+        "admin": true
+      },
+      "launch": {
+        "user": true,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 8,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:13378",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "tdarr",
+    "name": "Tdarr",
+    "url": "http://localhost:8265",
+    "description": "Distributed video transcoding",
+    "category": "Media",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "icon": "/icons/tdarr.png",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 9,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8265",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "guardian",
+    "name": "Guardian",
+    "url": "http://localhost:3005",
+    "description": "Plex device access control",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 7,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:3005",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "wizarr",
+    "name": "Wizarr",
+    "url": "http://localhost:5690",
+    "description": "Media server invite management",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 7,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:5690",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "traefik",
+    "name": "Traefik",
+    "url": "http://localhost:8080",
+    "description": "Reverse proxy & load balancer",
+    "category": "Tools",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 8,
+    "favourite": false,
+    "launchMode": "iframe",
+    "localUrl": "http://localhost:8080",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "dozzle",
+    "name": "Dozzle",
+    "url": "http://localhost:8080",
+    "description": "Real-time Docker log viewer",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": false
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 9,
+    "favourite": false,
+    "launchMode": "newTab",
+    "localUrl": "http://localhost:8080",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "..."
+  },
+  {
+    "id": "qnap",
+    "name": "QNAP",
+    "url": "http://localhost:8080",
+    "description": "QNAP NAS management",
+    "category": "System",
+    "roles": [
+      "hidden"
+    ],
+    "apiKey": "",
+    "username": "",
+    "password": "",
+    "menu": {
+      "overview": {
+        "user": false,
+        "admin": true
+      },
+      "launch": {
+        "user": false,
+        "admin": true
+      },
+      "settings": {
+        "user": false,
+        "admin": true
+      }
+    },
+    "order": 10,
+    "favourite": false,
+    "launchMode": "newTab",
+    "localUrl": "http://localhost:8080",
+    "remoteUrl": "",
+    "removed": true,
+    "supportsInstances": true,
+    "maxInstances": 5,
+    "instanceNamePlaceholder": "NAS (e.g. Main)"
+  }
+]

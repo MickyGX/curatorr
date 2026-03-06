@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= locals.pageTitle || 'Launcharr' %></title>
+  <%- include('./theme-init') %>
+  <link rel="stylesheet" href="/styles.css?v=<%= assetVersion %>" />
+  <% (locals.extraCss || []).forEach(function(href) { %>
+    <link rel="stylesheet" href="<%= href %>?v=<%= assetVersion %>" />
+  <% }); %>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="/icons/launcharr-icon.png" />
+  <meta name="theme-color" content="#1cc6c2" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/icons/launcharr-icon.png" />
+</head>

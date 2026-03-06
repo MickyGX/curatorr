@@ -1,0 +1,77 @@
+      <div class="dash-user">
+        <div class="user-pill user-pill--menu" data-user-menu role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">
+          <img class="user-avatar" src="<%= user.avatar || user.avatarFallback || '/icons/user-profile.svg' %>" alt="" onerror="this.onerror=null;this.src='<%= user.avatarFallback || '/icons/user-profile.svg' %>';" />
+          <div class="user-meta">
+            <span class="role"><%= role %></span>
+            <div class="username"><%= user.username %></div>
+            <% if (user.email) { %>
+              <div class="email"><%= user.email %></div>
+            <% } %>
+          </div>
+          <span class="user-pill-caret" aria-hidden="true"></span>
+          <div class="user-menu" role="menu">
+            <% if (actualRole === 'admin') { %>
+              <details class="user-menu-role-picker" data-user-role-picker>
+                <summary class="user-menu-item user-menu-role-trigger">
+                  <img class="user-menu-icon" src="/icons/view.svg" alt="" />
+                  <span class="user-menu-text">Role view</span>
+                  <span class="user-menu-role-caret" aria-hidden="true"></span>
+                </summary>
+                <div class="user-menu-role-options" role="group" aria-label="Role view options">
+                  <% const roleViewDashboardMap = (roleViewDashboardAvailability && typeof roleViewDashboardAvailability === 'object') ? roleViewDashboardAvailability : {}; %>
+                  <form class="user-menu-inline-form" method="post" action="/switch-view">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+                    <input type="hidden" name="role" value="guest" />
+                    <button class="user-menu-item user-menu-item--button user-menu-role-option<%= role === 'guest' ? ' is-active' : '' %>" type="submit" data-role-value="guest">
+                      <span class="user-menu-role-state" aria-hidden="true"><% if (roleViewDashboardMap.guest?.hasDashboard) { %><img class="user-menu-role-state-icon" src="/icons/dashboard.svg" alt="" /><% } else { %><span class="user-menu-role-state-x">x</span><% } %></span>
+                      <span class="user-menu-role-name">Guest</span>
+                    </button>
+                  </form>
+                  <form class="user-menu-inline-form" method="post" action="/switch-view">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+                    <input type="hidden" name="role" value="user" />
+                    <button class="user-menu-item user-menu-item--button user-menu-role-option<%= role === 'user' ? ' is-active' : '' %>" type="submit" data-role-value="user">
+                      <span class="user-menu-role-state" aria-hidden="true"><% if (roleViewDashboardMap.user?.hasDashboard) { %><img class="user-menu-role-state-icon" src="/icons/dashboard.svg" alt="" /><% } else { %><span class="user-menu-role-state-x">x</span><% } %></span>
+                      <span class="user-menu-role-name">User</span>
+                    </button>
+                  </form>
+                  <form class="user-menu-inline-form" method="post" action="/switch-view">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+                    <input type="hidden" name="role" value="co-admin" />
+                    <button class="user-menu-item user-menu-item--button user-menu-role-option<%= role === 'co-admin' ? ' is-active' : '' %>" type="submit" data-role-value="co-admin">
+                      <span class="user-menu-role-state" aria-hidden="true"><% if (roleViewDashboardMap['co-admin']?.hasDashboard) { %><img class="user-menu-role-state-icon" src="/icons/dashboard.svg" alt="" /><% } else { %><span class="user-menu-role-state-x">x</span><% } %></span>
+                      <span class="user-menu-role-name">Co-admin</span>
+                    </button>
+                  </form>
+                  <form class="user-menu-inline-form" method="post" action="/switch-view">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+                    <input type="hidden" name="role" value="admin" />
+                    <button class="user-menu-item user-menu-item--button user-menu-role-option<%= role === 'admin' ? ' is-active' : '' %>" type="submit" data-role-value="admin">
+                      <span class="user-menu-role-state" aria-hidden="true"><% if (roleViewDashboardMap.admin?.hasDashboard) { %><img class="user-menu-role-state-icon" src="/icons/dashboard.svg" alt="" /><% } else { %><span class="user-menu-role-state-x">x</span><% } %></span>
+                      <span class="user-menu-role-name">Admin</span>
+                    </button>
+                  </form>
+                </div>
+              </details>
+            <% } %>
+            <a class="user-menu-item" href="/user-settings">
+              <img class="user-menu-icon" src="/icons/user-profile.svg" alt="" />
+              <span class="user-menu-text">User profile</span>
+            </a>
+            <div class="user-menu-divider"></div>
+            <form class="user-menu-inline-form" method="post" action="/logout">
+              <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+              <button class="user-menu-item user-menu-item--button" type="submit">
+                <img class="user-menu-icon" src="/icons/logout.svg" alt="" />
+                <span class="user-menu-text">Sign out</span>
+              </button>
+            </form>
+            <% if (actualRole === 'admin') { %>
+              <a class="user-menu-item" href="/settings">
+                <img class="user-menu-icon" src="/icons/settings.svg" alt="" />
+                <span class="user-menu-text">Settings</span>
+              </a>
+            <% } %>
+          </div>
+        </div>
+      </div>

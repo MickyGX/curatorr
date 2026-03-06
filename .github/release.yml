@@ -1,0 +1,15 @@
+changelog:
+  categories:
+    - title: Features
+      labels:
+        - feature
+        - enhancement
+    - title: Fixes
+      labels:
+        - bug
+        - fix
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot[bot]

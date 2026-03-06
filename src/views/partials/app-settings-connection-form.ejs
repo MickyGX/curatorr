@@ -1,0 +1,317 @@
+<%
+  const renderedApp = appItem || {};
+  const renderedAppId = String(renderedApp.id || '').trim();
+  const renderedAppName = String(renderedApp.name || 'App').trim() || 'App';
+  const renderedAppBaseId = String(appBaseId || '').trim().toLowerCase();
+  const renderedFormAction = String(formAction || '').trim() || `/apps/${encodeURIComponent(renderedAppId)}/settings`;
+  const renderedFormUid = String(formUid || renderedAppId || 'app').trim().replace(/[^a-zA-Z0-9_-]+/g, '-') || 'app';
+  const renderedSupportsInstances = Boolean(supportsInstances);
+  const renderedInstancePlaceholder = String(instancePlaceholder || 'Instance (e.g. Main)');
+  const renderedRequiresApiKey = Boolean(requiresApiKey);
+  const renderedAdmins = Array.isArray(admins) ? admins : [];
+  const visibilityRoleOrder = ['guest', 'user', 'co-admin', 'admin'];
+  const visibilityRoleLabels = {
+    guest: 'Guest',
+    user: 'User',
+    'co-admin': 'Co-admin',
+    admin: 'Admin',
+  };
+  const parseVisibilityRole = (value) => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    if (raw === 'coadmin' || raw === 'co_admin') return 'co-admin';
+    return visibilityRoleOrder.includes(raw) ? raw : '';
+  };
+  const visibilityRolesFromMinRole = (minRole) => {
+    const parsed = parseVisibilityRole(minRole);
+    if (!parsed) return [];
+    const minIndex = visibilityRoleOrder.indexOf(parsed);
+    if (minIndex < 0) return [];
+    return visibilityRoleOrder.slice(minIndex);
+  };
+  const normalizeVisibilityRoles = (value, fallback = undefined) => {
+    const hasArray = Array.isArray(value);
+    const inputList = hasArray
+      ? value
+      : (typeof value === 'string' && value.includes(','))
+        ? value.split(',')
+        : (value === undefined ? [] : [value]);
+    const parsed = Array.from(
+      new Set(
+        inputList
+          .map((entry) => parseVisibilityRole(entry))
+          .filter((entry) => entry && visibilityRoleOrder.includes(entry))
+      )
+    );
+    if (parsed.length) return visibilityRoleOrder.filter((role) => parsed.includes(role));
+    if (hasArray) return [];
+    if (fallback === undefined) return [];
+    if (Array.isArray(fallback)) return normalizeVisibilityRoles(fallback);
+    return visibilityRolesFromMinRole(fallback);
+  };
+  const renderedMenu = renderedApp.menu && typeof renderedApp.menu === 'object' ? renderedApp.menu : {};
+  const isCustomApp = Boolean(renderedApp.custom || renderedApp.isCustomApp || renderedAppId.toLowerCase().startsWith('custom-'));
+  const launchVisibilityRoles = normalizeVisibilityRoles(renderedMenu?.launch?.visibilityRoles, renderedMenu?.launch?.minRole || 'disabled');
+  const overviewVisibilityRoles = isCustomApp
+    ? []
+    : normalizeVisibilityRoles(renderedMenu?.overview?.visibilityRoles, renderedMenu?.overview?.minRole || 'disabled');
+  const appSettingsVisibilityRoles = normalizeVisibilityRoles(
+    renderedMenu?.sidebarSettings?.visibilityRoles,
+    renderedMenu?.sidebarSettings?.minRole || renderedMenu?.settings?.minRole || 'admin'
+  );
+  const activityVisibilityRoles = normalizeVisibilityRoles(renderedMenu?.sidebarActivity?.visibilityRoles, renderedMenu?.sidebarActivity?.minRole || 'admin');
+  const restrictedSidebarRoles = new Set(['co-admin', 'admin']);
+  const appSettingsVisibilityRolesFiltered = appSettingsVisibilityRoles.filter((role) => restrictedSidebarRoles.has(role));
+  const activityVisibilityRolesFiltered = activityVisibilityRoles.filter((role) => restrictedSidebarRoles.has(role));
+%>
+<form method="post" action="<%= renderedFormAction %>" class="settings-form <%= renderedAppBaseId === 'plex' ? 'plex-settings-form' : '' %>">
+  <% if (renderedSupportsInstances) { %>
+    <label class="field">
+      <span>Instance Name</span>
+      <input type="text" name="instanceName" value="<%= renderedApp.instanceName || '' %>" placeholder="<%= renderedInstancePlaceholder %>" />
+    </label>
+  <% } %>
+  <div class="settings-card">
+    <% if (renderedAppId === 'plex') { %>
+      <div class="settings-card-title">App URLs</div>
+      <div class="settings-card-sub">Base URLs and credentials for local or remote access.</div>
+    <% } %>
+    <label class="field">
+      <span>Local URL</span>
+      <input type="text" name="localUrl" value="<%= renderedApp.localUrl || '' %>" placeholder="http://192.168.x.x:port" />
+    </label>
+    <label class="field">
+      <span>Remote URL</span>
+      <input type="text" name="remoteUrl" value="<%= renderedApp.remoteUrl || '' %>" placeholder="https://app.example.com" />
+    </label>
+  </div>
+  <% if (renderedAppId === 'plex') { %>
+    <% const adminOwner = renderedAdmins.length ? renderedAdmins[0] : ''; %>
+    <div class="settings-card plex-settings-card">
+      <div class="settings-card-title">Plex Access</div>
+      <div class="settings-card-sub">Uses the Local URL first, then the External URL.</div>
+      <div class="plex-settings-fields">
+        <label class="field field-with-action">
+          <span>Plex Token</span>
+          <div class="field-action-row">
+            <input id="<%= renderedFormUid %>-plex-token" type="password" name="plexToken" value="<%= renderedApp.plexToken || '' %>" placeholder="Plex token" data-plex-field="token" />
+            <button class="icon-button" type="button" aria-label="Show Plex token" data-visibility-toggle="<%= renderedFormUid %>-plex-token" data-visibility-state="hidden">
+              <img src="/icons/view-off.svg" alt="" />
+            </button>
+          </div>
+        </label>
+        <label class="field field-with-action">
+          <span>Plex Machine</span>
+          <div class="field-action-row">
+            <input id="<%= renderedFormUid %>-plex-machine" type="password" name="plexMachine" value="<%= renderedApp.plexMachine || '' %>" placeholder="Machine identifier" data-plex-field="machine" />
+            <button class="icon-button" type="button" aria-label="Show Plex machine" data-visibility-toggle="<%= renderedFormUid %>-plex-machine" data-visibility-state="hidden">
+              <img src="/icons/view-off.svg" alt="" />
+            </button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Plex Admin User</span>
+          <input type="text" name="plexAdminUser" value="<%= adminOwner %>" placeholder="admin@plex.tv" />
+        </label>
+        <div class="plex-settings-actions">
+          <button class="ghost-button" type="button" data-plex-action="token">Get Plex Token</button>
+          <button class="ghost-button" type="button" data-plex-action="machine">Get Plex Machine</button>
+        </div>
+      </div>
+      <div class="plex-settings-note">Tip: Local URL is preferred when set.</div>
+    </div>
+  <% } %>
+  <% if (renderedRequiresApiKey) { %>
+    <div class="settings-card plex-settings-card">
+      <div class="settings-card-title"><%= renderedAppName %> Access</div>
+      <div class="settings-card-sub">
+        <% if (renderedAppId === 'tautulli') { %>
+          Use the API key from Tautulli Settings -> Web Interface.
+        <% } else if (renderedAppId === 'jellyfin') { %>
+          Use the API key from Jellyfin Dashboard -> API Keys.
+        <% } else if (renderedAppId === 'emby') { %>
+          Use the API key from Emby Dashboard -> API Keys.
+        <% } else if (renderedAppId === 'prowlarr') { %>
+          Use the API key from Prowlarr Settings -> General.
+        <% } else if (renderedAppId === 'sabnzbd') { %>
+          Use the API key from SABnzbd Config -> General.
+        <% } else if (renderedAppBaseId === 'maintainerr') { %>
+          Optional: Use the API key from Maintainerr Settings -> Generate API key.
+        <% } else if (renderedAppBaseId === 'immich') { %>
+          Use the API key from Immich Account Settings -> API Keys.
+        <% } else if (renderedAppBaseId === 'portainer') { %>
+          Use an API key from Portainer Account Settings -> Access Tokens.
+        <% } else if (renderedAppBaseId === 'speedtest-tracker') { %>
+          Use the API key from Speedtest Tracker Settings -> API.
+        <% } else if (renderedAppBaseId === 'paperless-ngx') { %>
+          Use an API token from Paperless-ngx -> Profile -> API Tokens. Username/Password also accepted.
+        <% } else if (renderedAppBaseId === 'audiobookshelf') { %>
+          Use the API token from Audiobookshelf Settings -> Users -> your account.
+        <% } else if (renderedAppBaseId === 'tdarr') { %>
+          Optional: API key if auth is enabled in Tdarr Settings.
+        <% } else if (renderedAppBaseId === 'wizarr') { %>
+          Use an API key from Wizarr Settings -> API Keys.
+        <% } else if (renderedAppBaseId === 'profilarr') { %>
+          Use the API key from Profilarr Settings -> General.
+        <% } else { %>
+          Use the API key from <%= renderedAppName %> settings.
+        <% } %>
+      </div>
+      <div class="plex-settings-fields">
+        <label class="field field-with-action">
+          <span>API Key</span>
+          <div class="field-action-row">
+            <input id="<%= renderedFormUid %>-api-key" type="password" name="apiKey" value="<%= renderedApp.apiKey || '' %>" placeholder="<%= renderedAppName %> API key" />
+            <button class="icon-button" type="button" aria-label="Show API key" data-visibility-toggle="<%= renderedFormUid %>-api-key" data-visibility-state="hidden">
+              <img src="/icons/view-off.svg" alt="" />
+            </button>
+          </div>
+        </label>
+      </div>
+      <div class="plex-settings-note">Tip: Keep this key private.</div>
+    </div>
+  <% } %>
+  <% if (renderedAppBaseId === 'uptime-kuma') { %>
+    <div class="settings-card plex-settings-card">
+      <div class="settings-card-title">Uptime Kuma Access</div>
+      <div class="settings-card-sub">Status page slug from Uptime Kuma &rsaquo; Status Page.</div>
+      <div class="plex-settings-fields">
+        <label class="field">
+          <span>Status Page Slug</span>
+          <input type="text" name="uptimeKumaSlug" value="<%= renderedApp.uptimeKumaSlug || '' %>" placeholder="my-status-page" />
+        </label>
+      </div>
+    </div>
+  <% } %>
+  <% if (['nzbget', 'transmission', 'qbittorrent', 'sabnzbd', 'romm', 'maintainerr', 'glances', 'paperless-ngx', 'guacamole', 'traefik', 'dozzle', 'ersatztv', 'apprise', 'qnap'].includes(renderedAppBaseId)) { %>
+    <div class="settings-card plex-settings-card">
+      <div class="settings-card-title"><%= renderedAppName %> Access</div>
+      <div class="settings-card-sub">Credentials for local or remote access.</div>
+      <div class="plex-settings-fields">
+        <label class="field">
+          <span>Username</span>
+          <input type="text" name="username" value="<%= renderedApp.username || '' %>" placeholder="<%= renderedAppName %> username" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" name="password" value="<%= renderedApp.password || '' %>" placeholder="<%= renderedAppName %> password" />
+        </label>
+        <% if (renderedAppBaseId === 'romm') { %>
+          <label class="field">
+            <span>Recently Added Probe Limit</span>
+            <input
+              type="number"
+              name="rommRecentProbeLimit"
+              value="<%= renderedApp.rommRecentProbeLimit ?? '' %>"
+              min="50"
+              max="200"
+              step="1"
+              placeholder="50"
+            />
+          </label>
+        <% } %>
+        <% if (renderedAppBaseId === 'romm') { %>
+          <div class="plex-settings-actions">
+            <button class="ghost-button" type="button" data-romm-test-session="admin">Test Admin Session</button>
+          </div>
+        <% } %>
+      </div>
+      <div class="plex-settings-note">Tip: Leave blank if authentication is disabled.</div>
+      <% if (renderedAppBaseId === 'romm') { %>
+        <div class="plex-settings-note">Optional: controls Romm recently-added API probe size for Launcharr retrieval. Allowed range: 50-200. Leave blank to use 50.</div>
+        <div class="plex-settings-note">This can potentially fix Romm login loops when launching from Launcharr through a reverse proxy by priming Romm session cookies before opening the app.</div>
+        <div class="plex-settings-note" data-romm-test-status="admin" hidden aria-live="polite"></div>
+      <% } %>
+    </div>
+  <% } %>
+  <% if (renderedAppBaseId === 'romm') { %>
+    <div class="settings-card plex-settings-card">
+      <div class="settings-card-title">Romm Viewer Access (Launcharr User + Co-admin Roles)</div>
+      <div class="settings-card-sub">Optional: used when a Launcharr user or co-admin launches Romm.</div>
+      <div class="plex-settings-fields">
+        <label class="field">
+          <span>Viewer Username</span>
+          <input type="text" name="viewerUsername" value="<%= renderedApp.viewerUsername || '' %>" placeholder="viewer" />
+        </label>
+        <label class="field">
+          <span>Viewer Password</span>
+          <input type="password" name="viewerPassword" value="<%= renderedApp.viewerPassword || '' %>" placeholder="Romm viewer password" />
+        </label>
+        <div class="plex-settings-actions">
+          <button class="ghost-button" type="button" data-romm-test-session="viewer">Test Viewer Session</button>
+        </div>
+      </div>
+      <div class="plex-settings-note">User and co-admin roles use these viewer credentials. Admin launches use the main Username/Password fields above. Leave viewer fields blank to disable role-based viewer login injection.</div>
+      <div class="plex-settings-note" data-romm-test-status="viewer" hidden aria-live="polite"></div>
+    </div>
+  <% } %>
+  <div class="settings-card">
+    <div class="settings-card-title">Sidebar Visibility</div>
+    <div class="settings-grid">
+      <div class="field">
+        <span>Launch</span>
+        <input type="hidden" name="app_visibility_roles_launch_present" value="1" />
+        <div class="settings-dashboard-role-filter-list">
+          <% visibilityRoleOrder.forEach((roleValue) => { %>
+            <label class="settings-dashboard-role-filter-option">
+              <input type="checkbox" name="app_visibility_roles_launch" value="<%= roleValue %>" <%= launchVisibilityRoles.includes(roleValue) ? 'checked' : '' %> />
+              <span class="settings-dashboard-role-filter-option-label"><%= visibilityRoleLabels[roleValue] %></span>
+            </label>
+          <% }) %>
+        </div>
+      </div>
+      <div class="field">
+        <span>Overview</span>
+        <input type="hidden" name="app_visibility_roles_overview_present" value="1" />
+        <div class="settings-dashboard-role-filter-list">
+          <% visibilityRoleOrder.forEach((roleValue) => { %>
+            <label class="settings-dashboard-role-filter-option">
+              <input type="checkbox" name="app_visibility_roles_overview" value="<%= roleValue %>" <%= overviewVisibilityRoles.includes(roleValue) ? 'checked' : '' %> <%= isCustomApp ? 'disabled' : '' %> />
+              <span class="settings-dashboard-role-filter-option-label"><%= visibilityRoleLabels[roleValue] %></span>
+            </label>
+          <% }) %>
+        </div>
+        <% if (isCustomApp) { %>
+          <span class="settings-users-note">Overview is unavailable for custom apps.</span>
+        <% } %>
+      </div>
+      <div class="field">
+        <span>App Settings</span>
+        <input type="hidden" name="app_visibility_roles_settings_present" value="1" />
+        <div class="settings-dashboard-role-filter-list">
+          <% visibilityRoleOrder.forEach((roleValue) => { %>
+            <label class="settings-dashboard-role-filter-option">
+              <input
+                type="checkbox"
+                name="app_visibility_roles_settings"
+                value="<%= roleValue %>"
+                <%= appSettingsVisibilityRolesFiltered.includes(roleValue) ? 'checked' : '' %>
+                <%= restrictedSidebarRoles.has(roleValue) ? '' : 'disabled' %>
+              />
+              <span class="settings-dashboard-role-filter-option-label"><%= visibilityRoleLabels[roleValue] %></span>
+            </label>
+          <% }) %>
+        </div>
+      </div>
+      <div class="field">
+        <span>Activity</span>
+        <input type="hidden" name="app_visibility_roles_activity_present" value="1" />
+        <div class="settings-dashboard-role-filter-list">
+          <% visibilityRoleOrder.forEach((roleValue) => { %>
+            <label class="settings-dashboard-role-filter-option">
+              <input
+                type="checkbox"
+                name="app_visibility_roles_activity"
+                value="<%= roleValue %>"
+                <%= activityVisibilityRolesFiltered.includes(roleValue) ? 'checked' : '' %>
+                <%= restrictedSidebarRoles.has(roleValue) ? '' : 'disabled' %>
+              />
+              <span class="settings-dashboard-role-filter-option-label"><%= visibilityRoleLabels[roleValue] %></span>
+            </label>
+          <% }) %>
+        </div>
+      </div>
+    </div>
+  </div>
+  <button class="primary-button" type="submit">Save <%= renderedAppName %> settings</button>
+</form>

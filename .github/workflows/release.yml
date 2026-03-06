@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release notes file
+        id: notes
+        run: |
+          NOTES_FILE="docs/release/releases/${GITHUB_REF_NAME}.md"
+          if [[ -f "$NOTES_FILE" ]]; then
+            echo "has_notes=true" >> "$GITHUB_OUTPUT"
+            echo "notes_file=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_notes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release from curated notes
+        if: steps.notes.outputs.has_notes == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
+          make_latest: true
+
+      - name: Create release with auto notes fallback
+        if: steps.notes.outputs.has_notes != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          make_latest: true

@@ -1,0 +1,3053 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Launcharr | Sweeparr</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles-layout.css" />
+  <link rel="stylesheet" href="/styles-overview.css" />
+  <link rel="stylesheet" href="/styles-settings.css" />
+  <script>
+    (function () {
+      try {
+        const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        const parseStoredBool = function (key, fallback) {
+          const raw = localStorage.getItem(key);
+          if (raw === null || raw === undefined) return Boolean(fallback);
+          return raw === '1' || raw === 'true';
+        };
+        const mode = localStorage.getItem('launcharr-theme') || (prefersLight ? 'day' : 'night');
+        const brandTheme = String(localStorage.getItem('launcharr-brand-theme') || 'pulsarr').trim().toLowerCase() || 'pulsarr';
+        const squareCorners = parseStoredBool('launcharr-square-corners', false);
+        const bgMotion = parseStoredBool('launcharr-bg-motion', true);
+        const hideScrollbars = parseStoredBool('launcharr-hide-scrollbars', false);
+
+        document.documentElement.dataset.theme = mode;
+        document.documentElement.dataset.brandTheme = brandTheme;
+        document.documentElement.dataset.squareCorners = squareCorners ? '1' : '0';
+        document.documentElement.dataset.bgMotion = bgMotion ? '1' : '0';
+        document.documentElement.dataset.hideScrollbars = hideScrollbars ? '1' : '0';
+
+        if (brandTheme === 'custom') {
+          const customHex = localStorage.getItem('launcharr-custom-color') || '#1cc6c2';
+          const normalizedHex = /^#?[0-9a-fA-F]{6}$/.test(customHex)
+            ? (customHex.charAt(0) === '#' ? customHex : '#' + customHex)
+            : '#1cc6c2';
+          const r = parseInt(normalizedHex.slice(1, 3), 16);
+          const g = parseInt(normalizedHex.slice(3, 5), 16);
+          const b = parseInt(normalizedHex.slice(5, 7), 16);
+          const mix = function (base, target, amount) {
+            return Math.round(base + (target - base) * amount);
+          };
+          const toHex = function (value) {
+            const clamped = Math.max(0, Math.min(255, value));
+            return clamped.toString(16).padStart(2, '0');
+          };
+          const dark = '#' + toHex(mix(r, 0, 0.4)) + toHex(mix(g, 0, 0.4)) + toHex(mix(b, 0, 0.4));
+          document.documentElement.style.setProperty('--teal', normalizedHex.toLowerCase());
+          document.documentElement.style.setProperty('--teal-dark', dark);
+          document.documentElement.style.setProperty('--brand-rgb', `${r},${g},${b}`);
+        }
+      } catch (_err) {
+        // ignore
+      }
+    }());
+  </script>
+  <script>
+    (function () {
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        const embed = String(params.get('embed') || '').trim().toLowerCase();
+        const modeRaw = String(params.get('mode') || '').trim().toLowerCase();
+        const mode = modeRaw === 'settings' ? 'settings' : 'overview';
+        document.documentElement.setAttribute('data-sweeparr-mode', mode);
+        if (embed === '1' || embed === 'true' || embed === 'yes') {
+          document.documentElement.setAttribute('data-sweeparr-embed', '1');
+        }
+      } catch (_err) {
+        // ignore
+      }
+    }());
+  </script>
+  <style>
+    :root {
+      --sweeparr-radius: 10px;
+      --sweeparr-radius-sm: 8px;
+      --sweeparr-border: rgba(255, 255, 255, 0.08);
+      --sweeparr-panel: rgba(11, 18, 28, 0.78);
+      --sweeparr-panel-2: rgba(17, 25, 37, 0.9);
+      --sweeparr-ok: #4fd18f;
+      --sweeparr-warn: #d9b45a;
+      --sweeparr-bad: #e57979;
+    }
+
+    html[data-square-corners="1"] {
+      --sweeparr-radius: 0px;
+      --sweeparr-radius-sm: 0px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    html[data-sweeparr-embed="1"] body {
+      background: transparent;
+      min-height: 0;
+      overflow: visible;
+    }
+
+    html[data-sweeparr-embed="1"] {
+      height: auto;
+      min-height: 100%;
+    }
+
+    html[data-sweeparr-embed="1"][data-sweeparr-mode="settings"],
+    html[data-sweeparr-embed="1"][data-sweeparr-mode="settings"] body {
+      height: 100%;
+      min-height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    html[data-sweeparr-embed="1"] .dash-body::before,
+    html[data-sweeparr-embed="1"] .dash-body::after {
+      display: none;
+    }
+
+    /* Shell wrapper */
+    .sweeparr-shell {
+      width: min(1520px, 96vw);
+      margin: 10px auto 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--sweeparr-radius);
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.12);
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+
+    html[data-sweeparr-embed="1"] .sweeparr-shell {
+      width: 100%;
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+
+    .sweeparr-shell .main-window-bar {
+      margin: 0;
+      border-left: 0;
+      border-right: 0;
+      border-top: 0;
+      border-radius: 0;
+      position: static;
+    }
+
+    html[data-sweeparr-embed="1"] .sweeparr-shell .main-window-bar { display: none; }
+
+    .sweeparr-shell .main-window-status .status-dot { display: inline-block; }
+
+    /* Inherit font for all form elements */
+    .sweeparr-shell button,
+    .sweeparr-shell input,
+    .sweeparr-shell select,
+    .sweeparr-shell textarea { font: inherit; }
+
+    /* Main content area */
+    .sweeparr-main {
+      padding: 6px;
+      display: grid;
+      gap: 6px;
+      min-height: 0;
+      max-height: calc(100vh - 30px);
+      overflow: auto;
+    }
+
+    html[data-sweeparr-embed="1"] .sweeparr-main {
+      padding: 0;
+      min-height: 0;
+      max-height: none;
+      overflow: visible;
+    }
+
+    html[data-sweeparr-embed="1"][data-sweeparr-mode="settings"] .sweeparr-shell,
+    html[data-sweeparr-embed="1"][data-sweeparr-mode="settings"] .sweeparr-main {
+      min-height: 100%;
+    }
+
+    .sweeparr-overview { gap: 6px; padding-bottom: 0; }
+
+    .sweeparr-shell .plex-topbar {
+      border-radius: var(--sweeparr-radius) var(--sweeparr-radius) 0 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .sweeparr-shell .plex-panel {
+      border-radius: 0 0 var(--sweeparr-radius) var(--sweeparr-radius);
+      border-top: 0;
+    }
+
+    .sweeparr-shell .plex-controls-right { gap: 12px; }
+
+    .sweeparr-shell .plex-module {
+      display: grid;
+      gap: 0;
+    }
+
+    .sweeparr-shell .plex-module.plex-collapsed .plex-topbar {
+      border-radius: var(--sweeparr-radius);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.45);
+    }
+
+    .sweeparr-shell .plex-doublechev {
+      transition: transform 0.18s ease;
+    }
+
+    .sweeparr-shell .plex-collapse-btn[aria-expanded="false"] .plex-doublechev {
+      transform: rotate(180deg);
+    }
+
+    /* Mode visibility */
+    html[data-sweeparr-mode="overview"] #sweeparr-settings,
+    html[data-sweeparr-mode="overview"] #sweeparr-diagnostics { display: none; }
+
+    html[data-sweeparr-mode="settings"] #sweeparr-summary,
+    html[data-sweeparr-mode="settings"] #sweeparr-actions,
+    html[data-sweeparr-mode="settings"] #sweeparr-arr-summary,
+    html[data-sweeparr-mode="settings"] #sweeparr-items,
+    html[data-sweeparr-mode="settings"] #sweeparr-removals { display: none; }
+
+    /* Status section header label */
+    .sweeparr-sub {
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      line-height: 1.35;
+    }
+
+    /* Status pill tags */
+    .sweeparr-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .sweeparr-metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .sweeparr-metric-card {
+      padding: 12px 14px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(12, 19, 28, 0.94), rgba(10, 15, 24, 0.9));
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .sweeparr-metric-label {
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .sweeparr-metric-value {
+      color: var(--text, #f0f6ff);
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    .sweeparr-metric-copy {
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .sweeparr-helper-note {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .sweeparr-field-note {
+      margin-top: 6px;
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .sweeparr-strike-summary {
+      display: block;
+      white-space: normal;
+      line-height: 1.45;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text, #dce5f3);
+      letter-spacing: 0.03em;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag.ok  { color: #bdf6d4; border-color: rgba(79, 209, 143, 0.42); background: rgba(28, 95, 63, 0.28); }
+    .tag.warn{ color: #f4dfa9; border-color: rgba(217, 180, 90, 0.42); background: rgba(104, 84, 38, 0.28); }
+    .tag.bad { color: #ffd7d7; border-color: rgba(229, 121, 121, 0.44); background: rgba(110, 46, 46, 0.28); }
+
+    /* Actions + controls layout */
+    .sweeparr-controls {
+      display: grid;
+      gap: 10px;
+    }
+
+    .sweeparr-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .sweeparr-row + .sweeparr-row {
+      margin-top: 2px;
+    }
+
+    .sweeparr-events-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 8px;
+      height: 34px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(0, 0, 0, 0.25);
+    }
+
+    .sweeparr-events-group .sweeparr-inline-label {
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .sweeparr-monitor-copy {
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .sweeparr-toggle-plain.settings-toggle-text {
+      text-transform: none;
+      letter-spacing: normal;
+      font-size: 12px;
+      color: var(--text, #dbe8f9);
+    }
+
+    .sweeparr-setting-toggle {
+      padding: 6px 8px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .sweeparr-setting-toggle code {
+      font-size: 11px;
+      color: var(--muted, #aab6c8);
+    }
+
+    /* Status message bar */
+    .sweeparr-msg {
+      margin: 2px 0 0;
+      padding: 6px 10px;
+      border-radius: var(--sweeparr-radius-sm);
+      color: var(--muted, #aab6c8);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 12px;
+      font-weight: 600;
+      min-height: 28px;
+      transition: color 0.2s, background 0.2s, border-color 0.2s;
+    }
+
+    .sweeparr-msg.is-error {
+      color: #ffd7d7;
+      border-color: rgba(229, 121, 121, 0.3);
+      background: rgba(110, 46, 46, 0.18);
+    }
+
+    /* Secondary action buttons */
+    .sweeparr-shell button:not(.primary-button):not(.plex-iconbtn) {
+      height: 34px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(9, 18, 24, 0.65);
+      color: var(--text, #d8e9f7);
+      padding: 0 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+    }
+
+    .sweeparr-shell button:not(.primary-button):not(.plex-iconbtn):hover {
+      border-color: rgba(var(--brand-rgb, 28, 198, 194), 0.45);
+      background: rgba(15, 35, 44, 0.82);
+      box-shadow: 0 0 0 1px rgba(var(--brand-rgb, 28, 198, 194), 0.2) inset;
+    }
+
+    .sweeparr-shell button:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+
+    /* Primary save button uses Launcharr .primary-button from styles.css */
+    .sweeparr-form-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      margin-top: 4px;
+    }
+
+    .sweeparr-form-actions .sweeparr-msg {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Number inputs and selects */
+    .sweeparr-shell input[type="number"],
+    .sweeparr-shell select {
+      height: 34px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.25);
+      color: var(--text, #dbe8f9);
+      padding: 0 10px;
+      font-size: 13px;
+      transition: border-color 0.15s;
+    }
+
+    .sweeparr-shell input[type="number"]:focus,
+    .sweeparr-shell select:focus {
+      outline: none;
+      border-color: rgba(var(--brand-rgb, 28, 198, 194), 0.48);
+    }
+
+    .sweeparr-inline-input { width: 74px; min-width: 74px; }
+    .sweeparr-num-input   { width: 100%; }
+
+    /* Data table */
+    .sweeparr-table-wrap {
+      border: 1px solid var(--sweeparr-border);
+      border-radius: var(--sweeparr-radius);
+      overflow: auto;
+      background: linear-gradient(180deg, var(--sweeparr-panel-2), var(--sweeparr-panel));
+    }
+
+    .sweeparr-removals-wrap { max-height: 360px; }
+    .sweeparr-removals-table { min-width: 940px; table-layout: fixed; }
+
+    .sweeparr-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1220px;
+      table-layout: fixed;
+    }
+
+    .sweeparr-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(20, 30, 45, 0.98);
+      color: var(--text, #d9e8f9);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 10px;
+      font-weight: 800;
+      text-align: left;
+      padding: 11px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .sweeparr-table tbody td {
+      font-size: 12px;
+      color: var(--text, #dfe7f3);
+      padding: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      vertical-align: top;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .sweeparr-table tbody tr:nth-child(2n) td {
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .sweeparr-table tbody tr:last-child td { border-bottom: none; }
+
+    .sweeparr-table td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .sweeparr-table td.mono {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .sweeparr-table td.ok { color: var(--sweeparr-ok); font-weight: 700; }
+    .sweeparr-table td.warn { color: var(--sweeparr-warn); font-weight: 700; }
+    .sweeparr-table td.bad { color: var(--sweeparr-bad); font-weight: 700; }
+
+    .sweeparr-item-title {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .sweeparr-item-name {
+      color: var(--text, #eef4ff);
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .sweeparr-item-meta {
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .sweeparr-cell-stack {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .sweeparr-cell-main {
+      color: var(--text, #edf3fb);
+      font-weight: 600;
+    }
+
+    .sweeparr-cell-sub {
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .sweeparr-outcome {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .sweeparr-outcome.ok { color: #bdf6d4; border-color: rgba(79, 209, 143, 0.32); background: rgba(28, 95, 63, 0.22); }
+    .sweeparr-outcome.warn { color: #f4dfa9; border-color: rgba(217, 180, 90, 0.34); background: rgba(104, 84, 38, 0.2); }
+    .sweeparr-outcome.bad { color: #ffd7d7; border-color: rgba(229, 121, 121, 0.34); background: rgba(110, 46, 46, 0.22); }
+
+    /* Settings section layout */
+    .sweeparr-level-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      margin-bottom: 14px;
+    }
+
+    .sweeparr-desc-text {
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      font-style: normal;
+      line-height: 1.4;
+    }
+
+    .sweeparr-general-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .sweeparr-settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+      gap: 10px;
+    }
+
+    .sweeparr-client-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .sweeparr-client-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(12, 19, 28, 0.94), rgba(10, 15, 24, 0.9));
+    }
+
+    .sweeparr-client-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .sweeparr-client-name {
+      color: var(--text, #e2eaf8);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .sweeparr-client-meta {
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .sweeparr-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .sweeparr-mini-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--muted, #aab6c8);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .sweeparr-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sweeparr-text-input {
+      min-width: min(320px, 100%);
+      height: 34px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.25);
+      color: var(--text, #dbe8f9);
+      padding: 0 10px;
+      font-size: 13px;
+      transition: border-color 0.15s;
+    }
+
+    .sweeparr-text-input:focus {
+      outline: none;
+      border-color: rgba(var(--brand-rgb, 28, 198, 194), 0.48);
+    }
+
+    .sweeparr-override-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .sweeparr-override-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(120px, 180px) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .sweeparr-override-host {
+      min-width: 0;
+    }
+
+    .sweeparr-override-host strong {
+      display: block;
+      color: var(--text, #e2eaf8);
+      font-size: 13px;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .sweeparr-override-host span {
+      display: block;
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      line-height: 1.35;
+      margin-top: 3px;
+    }
+
+    .sweeparr-empty-card {
+      padding: 12px 14px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.12);
+      color: var(--muted, #aab6c8);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .sweeparr-rule-grid {
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    }
+
+    .sweeparr-field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .sweeparr-field > label:not(.settings-toggle),
+    .sweeparr-field > .sweeparr-field-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted, #aab6c8);
+    }
+
+    /* Rule cards — harmonized with Launcharr settings-card */
+    .sweeparr-rule-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--sweeparr-radius-sm);
+      padding: 12px 14px;
+      background: rgba(0, 0, 0, 0.2);
+      display: grid;
+      gap: 10px;
+    }
+
+    .sweeparr-rule-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .sweeparr-rule-title {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text, #e2eaf8);
+    }
+
+    .sweeparr-settings-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .sweeparr-settings-form .settings-card {
+      gap: 10px;
+    }
+
+    .sweeparr-settings-form .settings-card .settings-card-sub {
+      margin-top: -2px;
+    }
+
+    .sweeparr-diagnostics-card {
+      display: grid;
+      gap: 10px;
+    }
+
+    /* Diagnostics */
+    .sweeparr-pre-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 8px;
+      align-items: start;
+    }
+
+    .sweeparr-pre {
+      margin: 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--sweeparr-radius-sm);
+      background: rgba(0, 0, 0, 0.22);
+      color: var(--text, #d8e4f4);
+      min-height: 110px;
+      max-height: 240px;
+      overflow: auto;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .sweeparr-pill-count {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: var(--sweeparr-radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted, #aab6c8);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tone-ok   { color: var(--sweeparr-ok);   font-weight: 700; }
+    .tone-warn { color: var(--sweeparr-warn);  font-weight: 700; }
+    .tone-bad  { color: var(--sweeparr-bad);   font-weight: 700; }
+
+    html[data-sweeparr-mode="overview"] .sweeparr-table-wrap {
+      background: linear-gradient(180deg, rgba(18, 26, 38, 0.96), rgba(13, 19, 29, 0.96));
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    html[data-sweeparr-mode="overview"] .sweeparr-table thead th {
+      background: rgba(24, 31, 44, 0.98);
+    }
+
+    html[data-sweeparr-mode="overview"] .sweeparr-table tbody tr:nth-child(2n) td {
+      background: rgba(255, 255, 255, 0.012);
+    }
+
+    html[data-sweeparr-mode="overview"] .sweeparr-pills {
+      margin-top: 0;
+    }
+
+    html[data-theme="day"] .sweeparr-shell .plex-topbar,
+    html[data-theme="day"] .sweeparr-shell .plex-panel,
+    html[data-theme="day"] .sweeparr-table-wrap,
+    html[data-theme="day"] .sweeparr-metric-card,
+    html[data-theme="day"] .sweeparr-helper-note,
+    html[data-theme="day"] .sweeparr-client-card,
+    html[data-theme="day"] .sweeparr-override-row,
+    html[data-theme="day"] .sweeparr-rule-card,
+    html[data-theme="day"] .sweeparr-empty-card,
+    html[data-theme="day"] .sweeparr-pre {
+      background: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(236, 242, 249, 0.98));
+      border-color: rgba(58, 74, 95, 0.16);
+    }
+
+    html[data-theme="day"] .sweeparr-table thead th {
+      background: rgba(232, 238, 246, 0.98);
+      color: #314252;
+      border-bottom-color: rgba(58, 74, 95, 0.12);
+    }
+
+    html[data-theme="day"] .sweeparr-table tbody td,
+    html[data-theme="day"] .sweeparr-item-name,
+    html[data-theme="day"] .sweeparr-cell-main,
+    html[data-theme="day"] .sweeparr-rule-title,
+    html[data-theme="day"] .sweeparr-client-name,
+    html[data-theme="day"] .sweeparr-override-host strong {
+      color: #213241;
+    }
+
+    html[data-theme="day"] .sweeparr-item-meta,
+    html[data-theme="day"] .sweeparr-cell-sub,
+    html[data-theme="day"] .sweeparr-pill-count,
+    html[data-theme="day"] .sweeparr-msg,
+    html[data-theme="day"] .sweeparr-sub,
+    html[data-theme="day"] .sweeparr-client-meta,
+    html[data-theme="day"] .sweeparr-override-host span,
+    html[data-theme="day"] .sweeparr-empty-card {
+      color: #5d6d7f;
+    }
+
+    html[data-theme="day"] .sweeparr-shell button:not(.primary-button):not(.plex-iconbtn),
+    html[data-theme="day"] .sweeparr-shell input[type="number"],
+    html[data-theme="day"] .sweeparr-shell select,
+    html[data-theme="day"] .sweeparr-text-input,
+    html[data-theme="day"] .sweeparr-events-group,
+    html[data-theme="day"] .sweeparr-setting-toggle,
+    html[data-theme="day"] .sweeparr-pill-count,
+    html[data-theme="day"] .sweeparr-msg {
+      background: rgba(255, 255, 255, 0.75);
+      border-color: rgba(58, 74, 95, 0.14);
+      color: #314252;
+    }
+
+    html[data-sweeparr-mode="settings"] #sweeparr-settings .plex-topbar,
+    html[data-sweeparr-mode="settings"] #sweeparr-diagnostics .plex-topbar {
+      display: none;
+    }
+
+    html[data-sweeparr-mode="settings"] .sweeparr-main {
+      max-height: none;
+      overflow: visible;
+    }
+
+    html[data-sweeparr-embed="1"][data-sweeparr-mode="settings"] .sweeparr-main {
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    @media (max-width: 900px) {
+      .sweeparr-shell { width: calc(100vw - 16px); margin: 8px auto; border-radius: var(--sweeparr-radius); }
+      .sweeparr-main  { max-height: none; min-height: 0; }
+      .sweeparr-shell .main-window-title { font-size: 12px; padding: 0 10px; }
+      .sweeparr-events-group {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .sweeparr-override-row {
+        grid-template-columns: 1fr;
+      }
+      .sweeparr-text-input {
+        min-width: 0;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body class="dash-body">
+  <main class="sweeparr-shell">
+    <div class="main-window-bar">
+      <div class="main-window-title">
+        <img class="main-window-icon" src="/icons/cleanuparr.svg" alt="Sweeparr" />
+        <span class="main-window-app">Sweeparr</span>
+        <span class="main-window-rest">| Local Module</span>
+      </div>
+      <div class="main-window-spacer"></div>
+      <div class="main-window-status">
+        <span class="status-dot status-dot--ok"></span>
+      </div>
+    </div>
+
+    <div class="sweeparr-main">
+      <div class="plex-overview sweeparr-overview">
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-summary">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/cleanuparr.svg" alt="Sweeparr" loading="eager" />
+                <span>Overview</span>
+              </div>
+              <div class="plex-subtitle">Queue health, scheduler state, and recent sweep results.</div>
+            </div>
+            <div class="plex-spacer"></div>
+            <div class="plex-controls-right">
+              <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="sweeparr-summary">
+                <div class="plex-doublechev">
+                  <div class="plex-chev plex-up"></div>
+                  <div class="plex-chev plex-down"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="sweeparr-pills">
+              <span id="tagScheduler" class="tag warn">scheduler: unknown</span>
+              <span id="tagNextRun" class="tag warn">next run: unknown</span>
+              <span id="tagGlobalMode" class="tag warn">mode: unknown</span>
+              <span id="tagResult" class="tag warn">last result: unknown</span>
+            </div>
+            <div class="sweeparr-metric-grid" aria-label="Sweeparr metrics">
+              <article class="sweeparr-metric-card">
+                <div class="sweeparr-metric-label">Arr Apps</div>
+                <div id="metricArrClients" class="sweeparr-metric-value">0</div>
+                <div class="sweeparr-metric-copy">Connected apps available for queue decisions.</div>
+              </article>
+              <article class="sweeparr-metric-card">
+                <div class="sweeparr-metric-label">Downloaders</div>
+                <div id="metricDownloaderClients" class="sweeparr-metric-value">0</div>
+                <div class="sweeparr-metric-copy">Downloader clients currently in scope.</div>
+              </article>
+              <article class="sweeparr-metric-card">
+                <div class="sweeparr-metric-label">Queue Items</div>
+                <div id="metricQueueItems" class="sweeparr-metric-value">0</div>
+                <div id="metricQueueItemsCopy" class="sweeparr-metric-copy">No sweep summary yet.</div>
+              </article>
+              <article class="sweeparr-metric-card">
+                <div class="sweeparr-metric-label">Flagged Removals</div>
+                <div id="metricRemovalsFlagged" class="sweeparr-metric-value">0</div>
+                <div id="metricRemovalsCopy" class="sweeparr-metric-copy">Waiting for the next sweep.</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-actions">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/activity-queue.svg" alt="Actions" loading="eager" />
+                <span>Controls</span>
+              </div>
+              <div class="plex-subtitle">Run a sweep, refresh state, and adjust monitor behavior.</div>
+            </div>
+            <div class="plex-spacer"></div>
+            <div class="plex-controls-right">
+              <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="sweeparr-actions">
+                <div class="plex-doublechev">
+                  <div class="plex-chev plex-up"></div>
+                  <div class="plex-chev plex-down"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="sweeparr-controls">
+              <div class="sweeparr-row">
+                <button id="btnRunOnce" class="primary-button" type="button">Run Sweep Now</button>
+                <button id="btnRefresh">Refresh Status</button>
+                <label class="settings-toggle sweeparr-setting-toggle">
+                  <input id="toggleEnabled" type="checkbox" />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text sweeparr-toggle-plain">Enable Sweeparr</span>
+                </label>
+                <label class="settings-toggle sweeparr-setting-toggle">
+                  <input id="toggleLiveMode" type="checkbox" />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text sweeparr-toggle-plain">Live Mode (off = Dry Run)</span>
+                </label>
+                <label class="settings-toggle sweeparr-setting-toggle">
+                  <input id="toggleSeedCriteria" type="checkbox" />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text sweeparr-toggle-plain">Include Seed-Criteria Items</span>
+                </label>
+                <div class="sweeparr-events-group">
+                  <label class="sweeparr-inline-label" for="eventsLimit">Events</label>
+                  <input id="eventsLimit" class="sweeparr-inline-input" type="number" min="1" max="500" value="50" title="Event limit" />
+                </div>
+                <button id="btnEvents">Refresh Events</button>
+              </div>
+              <div class="sweeparr-row">
+                <label class="settings-toggle sweeparr-setting-toggle">
+                  <input id="autoRefreshEnabled" type="checkbox" />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text sweeparr-toggle-plain">Auto-refresh monitor</span>
+                </label>
+                <span class="sweeparr-monitor-copy">every</span>
+                <input id="autoRefreshSeconds" class="sweeparr-inline-input" type="number" min="5" max="300" value="20" />
+                <span class="sweeparr-monitor-copy">sec</span>
+                <button id="btnAutoRefreshApply">Apply</button>
+              </div>
+              <p id="msg" class="sweeparr-msg">Ready.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-arr-summary">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/radarr.svg" alt="Arr Signals" loading="eager" />
+                <span>Arr signals</span>
+              </div>
+              <div class="plex-subtitle">Radarr and Sonarr queue signals that power the new cleanup rules.</div>
+            </div>
+            <div class="plex-spacer"></div>
+            <div class="plex-controls-right">
+              <span id="arrSummaryStatus" class="sweeparr-pill-count">arr apps: 0</span>
+              <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="sweeparr-arr-summary">
+                <div class="plex-doublechev">
+                  <div class="plex-chev plex-up"></div>
+                  <div class="plex-chev plex-down"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="sweeparr-table-wrap">
+              <table class="sweeparr-table">
+                <colgroup>
+                  <col style="width: 22%;" />
+                  <col style="width: 13%;" />
+                  <col style="width: 13%;" />
+                  <col style="width: 13%;" />
+                  <col style="width: 13%;" />
+                  <col style="width: 13%;" />
+                  <col style="width: 13%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>App</th>
+                    <th>Queue</th>
+                    <th>Failed Imports</th>
+                    <th>Bad Files</th>
+                    <th>Unmonitored</th>
+                    <th>Wanted Missing</th>
+                    <th>Cutoff Wanted</th>
+                  </tr>
+                </thead>
+                <tbody id="arrSummaryBody">
+                  <tr>
+                    <td colspan="7">Loading Arr signals...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-items">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/download.svg" alt="Downloader Items" loading="eager" />
+                <span>Queue items</span>
+              </div>
+              <div class="plex-subtitle">Live item state and strike counters across selected clients.</div>
+            </div>
+            <div class="plex-spacer"></div>
+            <div class="plex-controls-right">
+              <button id="btnItems">Refresh Items</button>
+              <span id="itemsSummary" class="sweeparr-pill-count">items: 0</span>
+              <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="sweeparr-items">
+                <div class="plex-doublechev">
+                  <div class="plex-chev plex-up"></div>
+                  <div class="plex-chev plex-down"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="sweeparr-table-wrap">
+              <table class="sweeparr-table">
+                <colgroup>
+                  <col style="width: 22%;" />
+                  <col style="width: 12%;" />
+                  <col style="width: 12%;" />
+                  <col style="width: 16%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 8%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 15%;" />
+                  <col style="width: 15%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Client</th>
+                    <th>Queue State</th>
+                    <th>Arr Match</th>
+                    <th>Tracker</th>
+                    <th>Privacy</th>
+                    <th>Ratio / Seed</th>
+                    <th>Flags</th>
+                    <th>Strikes</th>
+                  </tr>
+                </thead>
+                <tbody id="itemsBody">
+                  <tr>
+                    <td colspan="9">Loading items...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-removals">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/overview.svg" alt="Removed Torrents" loading="eager" />
+                <span>Removal history</span>
+              </div>
+              <div class="plex-subtitle">Recent removals and flagged outcomes.</div>
+            </div>
+            <div class="plex-spacer"></div>
+            <div class="plex-controls-right">
+              <button id="btnRemovals">Refresh History</button>
+              <span id="removalsSummary" class="sweeparr-pill-count">removed: 0</span>
+              <button class="plex-iconbtn plex-collapse-btn" type="button" aria-label="Collapse" data-target="sweeparr-removals">
+                <div class="plex-doublechev">
+                  <div class="plex-chev plex-up"></div>
+                  <div class="plex-chev plex-down"></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="sweeparr-table-wrap sweeparr-removals-wrap">
+              <table class="sweeparr-table sweeparr-removals-table">
+                <colgroup>
+                  <col style="width: 18%;" />
+                  <col style="width: 36%;" />
+                  <col style="width: 12%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 24%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Item</th>
+                    <th>Client</th>
+                    <th>Outcome</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="removalsBody">
+                  <tr>
+                    <td colspan="5">Loading removals...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-settings">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/settings.svg" alt="Settings" loading="eager" />
+                <span>Settings</span>
+              </div>
+              <div class="plex-subtitle">Choose aggression defaults, then fine-tune rule behavior.</div>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="settings-form sweeparr-settings-form">
+              <div class="settings-card">
+                <div class="settings-card-title">Runtime Defaults</div>
+                <div class="settings-card-sub">Choose a preset, set polling cadence, then override any rule below.</div>
+                <div class="sweeparr-level-row">
+                  <select id="aggressionLevel"></select>
+                  <button id="btnApplyLevel">Apply Level Defaults</button>
+                  <span id="aggressionDesc" class="sweeparr-desc-text"></span>
+                </div>
+                <div class="sweeparr-helper-note">
+                  <strong>Preset comparison:</strong> <code>patient</code> follows the guide's 10-minute sweep cadence with 10-minute stalled checks, 30-minute slow checks, and 60-minute failed-import cleanup. <code>low</code> is intentionally gentler: 5-minute polling, 90-minute stalled waits, and most ARR cleanup rules stay warn-first or off until you tune them.
+                </div>
+
+                <div class="sweeparr-general-grid">
+                  <div class="sweeparr-field">
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="cfgEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Module Enabled</span>
+                    </label>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="cfgDryRun" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Global Dry-Run</span>
+                    </label>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="cfgRunOnStartup" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Run On Startup</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field">
+                    <label class="sweeparr-field-label" for="cfgPollInterval">Poll Interval Seconds</label>
+                    <input id="cfgPollInterval" type="number" min="30" max="3600" />
+                    <label class="sweeparr-field-label" for="cfgMaxEvents">Max Events</label>
+                    <input id="cfgMaxEvents" type="number" min="50" max="5000" />
+                    <label class="sweeparr-field-label" for="cfgRetention">State Retention Hours</label>
+                    <input id="cfgRetention" type="number" min="1" max="720" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-card-title">Coverage</div>
+                <div class="settings-card-sub">Choose which downloader queues and Arr apps Sweeparr scans. Leaving everything unselected means all supported apps are included.</div>
+                <div class="sweeparr-toolbar">
+                  <button id="btnSelectAllDownloaders" type="button">Select All Downloaders</button>
+                  <button id="btnClearDownloaders" type="button">Use All Downloaders</button>
+                  <span id="clientScopeSummary" class="sweeparr-desc-text">Loading downloader clients...</span>
+                </div>
+                <div id="downloaderClientList" class="sweeparr-client-grid"></div>
+                <div>
+                  <div class="sweeparr-toolbar">
+                    <span class="sweeparr-sub">Radarr / Sonarr sources</span>
+                    <button id="btnSelectAllArrs" type="button">Select All Arrs</button>
+                    <button id="btnClearArrs" type="button">Use All Arrs</button>
+                    <span id="arrScopeSummary" class="sweeparr-desc-text">Loading Arr apps...</span>
+                  </div>
+                  <div id="arrClientList" class="sweeparr-client-grid" aria-label="Detected Arr clients"></div>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-card-title">Tracker Privacy</div>
+                <div class="settings-card-sub">Override public/private detection for specific tracker hosts. This affects seed-criteria handling and any rule that depends on tracker privacy.</div>
+                <div class="sweeparr-toolbar">
+                  <input id="trackerOverrideInput" class="sweeparr-text-input" type="text" placeholder="tracker.example.org or full tracker URL" />
+                  <button id="btnAddTrackerOverride" type="button">Add Tracker Override</button>
+                </div>
+                <div id="trackerOverridesList" class="sweeparr-override-list"></div>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-card-title">Safety</div>
+                <div class="settings-card-sub">These controls cover the safety decisions most people make before moving cleanup fully live.</div>
+                <div class="sweeparr-general-grid">
+                  <div class="sweeparr-field">
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="safetyAllowPrivateTrackerRemovals" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Allow destructive cleanup on private trackers</span>
+                    </label>
+                    <div class="sweeparr-field-note">Off by default. When off, private-tracker removals are blocked even if a rule would normally delete them.</div>
+                  </div>
+                  <div class="sweeparr-field">
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="safetyDeleteLocalData" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Delete local data when removing from the downloader</span>
+                    </label>
+                    <div class="sweeparr-field-note">Leave this off until you trust your rules. When enabled, qBittorrent and Transmission remove actions also delete local payload data.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sweeparr-settings-grid sweeparr-rule-grid">
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Slow Speed Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="slowSpeedEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowSpeedMinBps">Min Speed (B/s)</label><input id="slowSpeedMinBps" type="number" min="0" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowSpeedGrace">Grace Minutes</label><input id="slowSpeedGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowSpeedStrikes">Max Strikes</label><input id="slowSpeedStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowSpeedCooldown">Cooldown Minutes</label><input id="slowSpeedCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowSpeedAction">Action</label><select id="slowSpeedAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Slow Time Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="slowTimeEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowTimeMinEta">Min ETA (minutes)</label><input id="slowTimeMinEta" type="number" min="1" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowTimeGrace">Grace Minutes</label><input id="slowTimeGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowTimeStrikes">Max Strikes</label><input id="slowTimeStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowTimeCooldown">Cooldown Minutes</label><input id="slowTimeCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="slowTimeAction">Action</label><select id="slowTimeAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Stalled Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="stalledEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field">
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="stalledMetadlTimeBasedStrikes" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Use elapsed-time strikes for qBittorrent <code>metadl</code> items</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="stalledNoProgress">No Progress Minutes</label><input id="stalledNoProgress" type="number" min="1" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="stalledGrace">Grace Minutes</label><input id="stalledGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="stalledStrikes">Max Strikes</label><input id="stalledStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="stalledCooldown">Cooldown Minutes</label><input id="stalledCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="stalledAction">Action</label><select id="stalledAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Seed Criteria Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="seedCriteriaEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field">
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="seedCriteriaRequireBoth" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Require both ratio and seed-time targets before removal</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="seedCriteriaGrace">Grace Minutes</label><input id="seedCriteriaGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="seedCriteriaStrikes">Max Strikes</label><input id="seedCriteriaStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="seedCriteriaCooldown">Cooldown Minutes</label><input id="seedCriteriaCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="seedCriteriaAction">Action</label><select id="seedCriteriaAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Failed Import Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="failedImportEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field-note">Watches Radarr and Sonarr queue warnings for releases that downloaded but never imported cleanly.</div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="failedImportGrace">Grace Minutes</label><input id="failedImportGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="failedImportStrikes">Max Strikes</label><input id="failedImportStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="failedImportCooldown">Cooldown Minutes</label><input id="failedImportCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="failedImportAction">Action</label><select id="failedImportAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Bad Files Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="badFilesEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field-note">Looks for Arr warnings that usually mean samples, corrupt files, passworded archives, or invalid releases.</div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="badFilesGrace">Grace Minutes</label><input id="badFilesGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="badFilesStrikes">Max Strikes</label><input id="badFilesStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="badFilesCooldown">Cooldown Minutes</label><input id="badFilesCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="badFilesAction">Action</label><select id="badFilesAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Unmonitored Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="unmonitoredEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field-note">Flags releases that are still in a downloader even though Radarr or Sonarr no longer monitors the underlying movie or series.</div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="unmonitoredGrace">Grace Minutes</label><input id="unmonitoredGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="unmonitoredStrikes">Max Strikes</label><input id="unmonitoredStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="unmonitoredCooldown">Cooldown Minutes</label><input id="unmonitoredCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="unmonitoredAction">Action</label><select id="unmonitoredAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+
+                <div class="settings-card sweeparr-rule-card">
+                  <div class="sweeparr-rule-head">
+                    <h3 class="sweeparr-rule-title">Orphaned Rule</h3>
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="orphanedEnabled" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Enabled</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field">
+                    <label class="settings-toggle sweeparr-setting-toggle">
+                      <input id="orphanedOnlyCompleted" type="checkbox" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text sweeparr-toggle-plain">Only treat completed / non-active items as orphaned</span>
+                    </label>
+                  </div>
+                  <div class="sweeparr-field-note">Best-effort delete detection. It warns when a downloader item no longer has a matching Radarr or Sonarr queue entry.</div>
+                  <div class="sweeparr-settings-grid">
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="orphanedGrace">Grace Minutes</label><input id="orphanedGrace" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="orphanedStrikes">Max Strikes</label><input id="orphanedStrikes" type="number" min="1" max="10" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="orphanedCooldown">Cooldown Minutes</label><input id="orphanedCooldown" type="number" min="0" max="1440" /></div>
+                    <div class="sweeparr-field"><label class="sweeparr-field-label" for="orphanedAction">Action</label><select id="orphanedAction"><option value="warn">warn</option><option value="pause">pause</option><option value="remove">remove</option></select></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-card-actions">
+                  <button id="btnSaveSettings" class="primary-button" type="button">Save Settings</button>
+                  <button id="btnSetDry" type="button">Set Global Dry-Run ON</button>
+                  <button id="btnSetLive" type="button">Set Global Dry-Run OFF</button>
+                </div>
+                <p id="msgSettings" class="sweeparr-msg">Ready.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="plex-module plex-module--no-subtitle" id="sweeparr-diagnostics">
+          <div class="plex-topbar">
+            <div class="plex-title-wrap">
+              <div class="plex-title">
+                <img class="plex-logo" src="/icons/system.svg" alt="Diagnostics" loading="eager" />
+                <span>Diagnostics</span>
+              </div>
+              <div class="plex-subtitle">Raw status, run summary, config response, and event payloads.</div>
+            </div>
+          </div>
+          <div class="plex-panel">
+            <div class="settings-card sweeparr-diagnostics-card">
+              <div class="settings-card-title">Diagnostics</div>
+              <div class="settings-card-sub">Raw status, summary, config response, and event payloads.</div>
+              <div class="sweeparr-pre-grid">
+                <div>
+                  <div class="sweeparr-sub">Status</div>
+                  <pre id="outStatus" class="sweeparr-pre">{}</pre>
+                </div>
+                <div>
+                  <div class="sweeparr-sub">Last Run Output</div>
+                  <pre id="outRun" class="sweeparr-pre">{}</pre>
+                </div>
+                <div>
+                  <div class="sweeparr-sub">Config Response</div>
+                  <pre id="outConfig" class="sweeparr-pre">{}</pre>
+                </div>
+                <div>
+                  <div class="sweeparr-sub">Events</div>
+                  <pre id="outEvents" class="sweeparr-pre">{}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <script>
+    (function () {
+      const el = {
+        tagRunning: document.getElementById('tagRunning'),
+        tagScheduler: document.getElementById('tagScheduler'),
+        tagNextRun: document.getElementById('tagNextRun'),
+        tagGlobalMode: document.getElementById('tagGlobalMode'),
+        tagSeedCriteria: document.getElementById('tagSeedCriteria'),
+        tagLevel: document.getElementById('tagLevel'),
+        tagResult: document.getElementById('tagResult'),
+        metricArrClients: document.getElementById('metricArrClients'),
+        metricDownloaderClients: document.getElementById('metricDownloaderClients'),
+        metricQueueItems: document.getElementById('metricQueueItems'),
+        metricQueueItemsCopy: document.getElementById('metricQueueItemsCopy'),
+        metricRemovalsFlagged: document.getElementById('metricRemovalsFlagged'),
+        metricRemovalsCopy: document.getElementById('metricRemovalsCopy'),
+        msg: document.getElementById('msg'),
+        msgSettings: document.getElementById('msgSettings'),
+        outStatus: document.getElementById('outStatus'),
+        outRun: document.getElementById('outRun'),
+        outConfig: document.getElementById('outConfig'),
+        outEvents: document.getElementById('outEvents'),
+        arrSummaryBody: document.getElementById('arrSummaryBody'),
+        arrSummaryStatus: document.getElementById('arrSummaryStatus'),
+        itemsBody: document.getElementById('itemsBody'),
+        itemsSummary: document.getElementById('itemsSummary'),
+        removalsBody: document.getElementById('removalsBody'),
+        removalsSummary: document.getElementById('removalsSummary'),
+        eventsLimit: document.getElementById('eventsLimit'),
+        toggleEnabled: document.getElementById('toggleEnabled'),
+        toggleLiveMode: document.getElementById('toggleLiveMode'),
+        toggleSeedCriteria: document.getElementById('toggleSeedCriteria'),
+        autoRefreshEnabled: document.getElementById('autoRefreshEnabled'),
+        autoRefreshSeconds: document.getElementById('autoRefreshSeconds'),
+        aggressionLevel: document.getElementById('aggressionLevel'),
+        aggressionDesc: document.getElementById('aggressionDesc'),
+        clientScopeSummary: document.getElementById('clientScopeSummary'),
+        arrScopeSummary: document.getElementById('arrScopeSummary'),
+        downloaderClientList: document.getElementById('downloaderClientList'),
+        arrClientList: document.getElementById('arrClientList'),
+        trackerOverrideInput: document.getElementById('trackerOverrideInput'),
+        trackerOverridesList: document.getElementById('trackerOverridesList'),
+        btnRunOnce: document.getElementById('btnRunOnce'),
+        btnRefresh: document.getElementById('btnRefresh'),
+        btnEvents: document.getElementById('btnEvents'),
+        btnAutoRefreshApply: document.getElementById('btnAutoRefreshApply'),
+        btnItems: document.getElementById('btnItems'),
+        btnRemovals: document.getElementById('btnRemovals'),
+        btnApplyLevel: document.getElementById('btnApplyLevel'),
+        btnSelectAllDownloaders: document.getElementById('btnSelectAllDownloaders'),
+        btnClearDownloaders: document.getElementById('btnClearDownloaders'),
+        btnSelectAllArrs: document.getElementById('btnSelectAllArrs'),
+        btnClearArrs: document.getElementById('btnClearArrs'),
+        btnAddTrackerOverride: document.getElementById('btnAddTrackerOverride'),
+        btnSaveSettings: document.getElementById('btnSaveSettings'),
+        btnSetDry: document.getElementById('btnSetDry'),
+        btnSetLive: document.getElementById('btnSetLive'),
+
+        cfgEnabled: document.getElementById('cfgEnabled'),
+        cfgDryRun: document.getElementById('cfgDryRun'),
+        cfgRunOnStartup: document.getElementById('cfgRunOnStartup'),
+        cfgPollInterval: document.getElementById('cfgPollInterval'),
+        cfgMaxEvents: document.getElementById('cfgMaxEvents'),
+        cfgRetention: document.getElementById('cfgRetention'),
+        safetyAllowPrivateTrackerRemovals: document.getElementById('safetyAllowPrivateTrackerRemovals'),
+        safetyDeleteLocalData: document.getElementById('safetyDeleteLocalData'),
+
+        slowSpeedEnabled: document.getElementById('slowSpeedEnabled'),
+        slowSpeedMinBps: document.getElementById('slowSpeedMinBps'),
+        slowSpeedGrace: document.getElementById('slowSpeedGrace'),
+        slowSpeedStrikes: document.getElementById('slowSpeedStrikes'),
+        slowSpeedCooldown: document.getElementById('slowSpeedCooldown'),
+        slowSpeedAction: document.getElementById('slowSpeedAction'),
+
+        slowTimeEnabled: document.getElementById('slowTimeEnabled'),
+        slowTimeMinEta: document.getElementById('slowTimeMinEta'),
+        slowTimeGrace: document.getElementById('slowTimeGrace'),
+        slowTimeStrikes: document.getElementById('slowTimeStrikes'),
+        slowTimeCooldown: document.getElementById('slowTimeCooldown'),
+        slowTimeAction: document.getElementById('slowTimeAction'),
+
+        stalledEnabled: document.getElementById('stalledEnabled'),
+        stalledMetadlTimeBasedStrikes: document.getElementById('stalledMetadlTimeBasedStrikes'),
+        stalledNoProgress: document.getElementById('stalledNoProgress'),
+        stalledGrace: document.getElementById('stalledGrace'),
+        stalledStrikes: document.getElementById('stalledStrikes'),
+        stalledCooldown: document.getElementById('stalledCooldown'),
+        stalledAction: document.getElementById('stalledAction'),
+
+        seedCriteriaEnabled: document.getElementById('seedCriteriaEnabled'),
+        seedCriteriaRequireBoth: document.getElementById('seedCriteriaRequireBoth'),
+        seedCriteriaGrace: document.getElementById('seedCriteriaGrace'),
+        seedCriteriaStrikes: document.getElementById('seedCriteriaStrikes'),
+        seedCriteriaCooldown: document.getElementById('seedCriteriaCooldown'),
+        seedCriteriaAction: document.getElementById('seedCriteriaAction'),
+
+        failedImportEnabled: document.getElementById('failedImportEnabled'),
+        failedImportGrace: document.getElementById('failedImportGrace'),
+        failedImportStrikes: document.getElementById('failedImportStrikes'),
+        failedImportCooldown: document.getElementById('failedImportCooldown'),
+        failedImportAction: document.getElementById('failedImportAction'),
+
+        badFilesEnabled: document.getElementById('badFilesEnabled'),
+        badFilesGrace: document.getElementById('badFilesGrace'),
+        badFilesStrikes: document.getElementById('badFilesStrikes'),
+        badFilesCooldown: document.getElementById('badFilesCooldown'),
+        badFilesAction: document.getElementById('badFilesAction'),
+
+        unmonitoredEnabled: document.getElementById('unmonitoredEnabled'),
+        unmonitoredGrace: document.getElementById('unmonitoredGrace'),
+        unmonitoredStrikes: document.getElementById('unmonitoredStrikes'),
+        unmonitoredCooldown: document.getElementById('unmonitoredCooldown'),
+        unmonitoredAction: document.getElementById('unmonitoredAction'),
+
+        orphanedEnabled: document.getElementById('orphanedEnabled'),
+        orphanedOnlyCompleted: document.getElementById('orphanedOnlyCompleted'),
+        orphanedGrace: document.getElementById('orphanedGrace'),
+        orphanedStrikes: document.getElementById('orphanedStrikes'),
+        orphanedCooldown: document.getElementById('orphanedCooldown'),
+        orphanedAction: document.getElementById('orphanedAction'),
+      };
+
+      let aggressionInfo = { levels: [], presets: {}, currentLevel: 'medium' };
+      let autoRefreshTimer = null;
+      let autoRefreshInFlight = false;
+      let schedulerCountdownTimer = null;
+      let schedulerActive = false;
+      let schedulerNextRunAtMs = 0;
+      let currentRunId = '';
+      let currentConfig = {};
+      let clientInventory = { arrClients: [], downloaderClients: [] };
+      let trackerOverrideState = {};
+      let discoveredTrackerHosts = [];
+      const isEmbed = document.documentElement.getAttribute('data-sweeparr-embed') === '1';
+      const pageMode = String(document.documentElement.getAttribute('data-sweeparr-mode') || 'overview').trim().toLowerCase();
+      const isSettingsMode = pageMode === 'settings';
+      const collapseStorageKey = (sectionId) => `launcharr-sweeparr-${pageMode}-collapsed:${String(sectionId || '').trim()}`;
+      let embedHeightRaf = 0;
+
+      const safeStorage = {
+        get(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (_err) {
+            return null;
+          }
+        },
+        set(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch (_err) {
+            return;
+          }
+        },
+      };
+
+      function measureEmbedHeight() {
+        const shell = document.querySelector('.sweeparr-shell');
+        const main = document.querySelector('.sweeparr-main');
+        if (!shell) return 1;
+
+        const shellRect = shell.getBoundingClientRect();
+        const visibleSections = Array.from(document.querySelectorAll('.plex-module'))
+          .filter((section) => section && section.offsetParent !== null);
+        const sectionBottoms = visibleSections
+          .map((section) => {
+            const rect = section.getBoundingClientRect();
+            return Number(rect.bottom - shellRect.top);
+          })
+          .filter((value) => Number.isFinite(value) && value > 0);
+
+        const heights = [
+          Number(shell.scrollHeight),
+          Number(shell.offsetHeight),
+          main && Number(main.scrollHeight),
+          main && Number(main.offsetHeight),
+          ...sectionBottoms,
+        ].filter((value) => Number.isFinite(value) && value > 0);
+
+        return Math.max(1, Math.ceil(Math.max(...heights, 0) + 2));
+      }
+
+      function notifyEmbedHeight() {
+        if (!isEmbed || window.parent === window) return;
+        if (embedHeightRaf) return;
+        embedHeightRaf = window.requestAnimationFrame(function () {
+          embedHeightRaf = 0;
+          const height = measureEmbedHeight();
+          if (!Number.isFinite(height) || height <= 0) return;
+          try {
+            window.parent.postMessage({ type: 'sweeparr:height', height: Math.ceil(height) }, '*');
+          } catch (_err) {
+            // ignore
+          }
+        });
+      }
+
+      function setTag(node, text, tone) {
+        if (!node) return;
+        node.textContent = text;
+        node.className = 'tag ' + (tone || 'warn');
+        notifyEmbedHeight();
+      }
+
+      function show(node, payload) {
+        node.textContent = JSON.stringify(payload, null, 2);
+        notifyEmbedHeight();
+      }
+
+      function setMessage(text, isError) {
+        const value = String(text || '');
+        [el.msg, el.msgSettings].forEach((target) => {
+          if (!target) return;
+          target.textContent = value;
+          target.classList.toggle('is-error', Boolean(isError));
+        });
+        notifyEmbedHeight();
+      }
+
+      function formatCountdown(totalSeconds) {
+        const secs = Math.max(0, Math.round(Number(totalSeconds) || 0));
+        const mins = Math.floor(secs / 60);
+        const rem = secs % 60;
+        if (mins > 0) return String(mins) + 'm ' + String(rem) + 's';
+        return String(rem) + 's';
+      }
+
+      function asInt(value, fallback, min, max) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return fallback;
+        const rounded = Math.round(n);
+        const low = Number.isFinite(min) ? min : Number.MIN_SAFE_INTEGER;
+        const high = Number.isFinite(max) ? max : Number.MAX_SAFE_INTEGER;
+        return Math.max(low, Math.min(high, rounded));
+      }
+
+      function setBusy(flag) {
+        const busy = Boolean(flag);
+        [
+          el.btnRunOnce,
+          el.btnRefresh,
+          el.btnEvents,
+          el.btnAutoRefreshApply,
+          el.btnItems,
+          el.btnRemovals,
+          el.btnApplyLevel,
+          el.btnSelectAllArrs,
+          el.btnClearArrs,
+          el.btnSaveSettings,
+          el.btnSetDry,
+          el.btnSetLive,
+        ].forEach((btn) => { btn.disabled = busy; });
+        el.toggleEnabled.disabled = busy;
+        el.toggleLiveMode.disabled = busy;
+        el.toggleSeedCriteria.disabled = busy;
+      }
+
+      function renderNextRunCountdown() {
+        if (!schedulerActive) {
+          setTag(el.tagScheduler, 'scheduler: off', 'warn');
+          setTag(el.tagNextRun, 'next run: off', 'warn');
+          return;
+        }
+
+        setTag(el.tagScheduler, 'scheduler: on', 'ok');
+        if (!Number.isFinite(schedulerNextRunAtMs) || schedulerNextRunAtMs <= 0) {
+          setTag(el.tagNextRun, 'next run: pending', 'warn');
+          return;
+        }
+
+        const remainingSeconds = Math.ceil((schedulerNextRunAtMs - Date.now()) / 1000);
+        if (remainingSeconds <= 0) {
+          setTag(el.tagNextRun, 'next run: due', 'warn');
+          return;
+        }
+        setTag(el.tagNextRun, 'next run: ' + formatCountdown(remainingSeconds), 'ok');
+      }
+
+      async function api(path, options) {
+        const opts = options || {};
+        const headers = Object.assign({}, opts.headers || {});
+        if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+        const res = await fetch(path, Object.assign({}, opts, { headers }));
+        const text = await res.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch (_err) {
+          data = { raw: text };
+        }
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status + ' ' + JSON.stringify(data));
+        }
+        return data;
+      }
+
+      function clearNode(node) {
+        while (node.firstChild) node.removeChild(node.firstChild);
+      }
+
+      function normalizeTrackerInput(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        if (!raw) return '';
+        try {
+          const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+          const host = String(parsed.hostname || '').trim().toLowerCase();
+          return host.replace(/\.+$/, '');
+        } catch (_err) {
+          const compact = raw
+            .replace(/^[a-z]+:\/\//i, '')
+            .split('/')[0]
+            .split('?')[0]
+            .split('#')[0]
+            .trim()
+            .toLowerCase();
+          return compact.replace(/:\d+$/, '').replace(/\.+$/, '');
+        }
+      }
+
+      function setDiscoveredTrackerHosts(items) {
+        const hosts = Array.isArray(items)
+          ? items
+            .map((item) => normalizeTrackerInput(item && (item.trackerHost || item.tracker)))
+            .filter(Boolean)
+          : [];
+        discoveredTrackerHosts = Array.from(new Set([
+          ...discoveredTrackerHosts,
+          ...hosts,
+        ])).sort((a, b) => a.localeCompare(b));
+      }
+
+      function collectSelectedDownloaderIds() {
+        const checkboxes = Array.from(document.querySelectorAll('[data-downloader-client-checkbox]'));
+        const allIds = checkboxes.map((input) => String(input.value || '').trim()).filter(Boolean);
+        const checkedIds = checkboxes
+          .filter((input) => input.checked)
+          .map((input) => String(input.value || '').trim())
+          .filter(Boolean);
+        if (!allIds.length) return [];
+        if (checkedIds.length === allIds.length) return [];
+        return checkedIds;
+      }
+
+      function collectSelectedArrIds() {
+        const checkboxes = Array.from(document.querySelectorAll('[data-arr-client-checkbox]'));
+        const allIds = checkboxes.map((input) => String(input.value || '').trim()).filter(Boolean);
+        const checkedIds = checkboxes
+          .filter((input) => input.checked)
+          .map((input) => String(input.value || '').trim())
+          .filter(Boolean);
+        if (!allIds.length) return [];
+        if (checkedIds.length === allIds.length) return [];
+        return checkedIds;
+      }
+
+      function renderClientInventory(config) {
+        const cfg = config && typeof config === 'object' ? config : {};
+        const downloaderClients = Array.isArray(clientInventory.downloaderClients) ? clientInventory.downloaderClients : [];
+        const arrClients = Array.isArray(clientInventory.arrClients)
+          ? clientInventory.arrClients.filter((client) => ['radarr', 'sonarr'].includes(String(client.baseId || '').trim().toLowerCase()))
+          : [];
+        const selectedDownloaderIds = Array.isArray(cfg.selectedDownloaderIds) ? cfg.selectedDownloaderIds.map((item) => String(item || '').trim()) : [];
+        const selectedArrIds = Array.isArray(cfg.selectedArrIds) ? cfg.selectedArrIds.map((item) => String(item || '').trim()) : [];
+        const selectedDownloaderSet = new Set(selectedDownloaderIds);
+        const selectedArrSet = new Set(selectedArrIds);
+        const useAllDownloaders = selectedDownloaderIds.length === 0;
+        const useAllArrs = selectedArrIds.length === 0;
+
+        clearNode(el.downloaderClientList);
+        clearNode(el.arrClientList);
+
+        if (!downloaderClients.length) {
+          const empty = document.createElement('div');
+          empty.className = 'sweeparr-empty-card';
+          empty.textContent = 'No supported downloader clients were detected in Launcharr. Add Transmission, qBittorrent, NZBGet, or SABnzbd first.';
+          el.downloaderClientList.appendChild(empty);
+          el.clientScopeSummary.textContent = 'No downloader clients available.';
+        } else {
+          downloaderClients.forEach((client) => {
+            const card = document.createElement('label');
+            card.className = 'sweeparr-client-card';
+
+            const head = document.createElement('div');
+            head.className = 'sweeparr-client-card-head';
+
+            const copy = document.createElement('div');
+            const name = document.createElement('div');
+            name.className = 'sweeparr-client-name';
+            name.textContent = String(client.name || client.id || 'Downloader');
+            const meta = document.createElement('div');
+            meta.className = 'sweeparr-client-meta';
+            meta.textContent = `${String(client.baseId || 'unknown').toUpperCase()} · ${String(client.url || 'No API URL').trim() || 'No API URL'}`;
+            copy.appendChild(name);
+            copy.appendChild(meta);
+
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.value = String(client.id || '').trim();
+            input.checked = useAllDownloaders || selectedDownloaderSet.has(String(client.id || '').trim());
+            input.setAttribute('data-downloader-client-checkbox', '1');
+            input.addEventListener('change', () => {
+              const ids = collectSelectedDownloaderIds();
+              const effectiveCount = ids.length || downloaderClients.length;
+              el.clientScopeSummary.textContent = ids.length
+                ? `Selected ${effectiveCount} of ${downloaderClients.length} downloader clients.`
+                : `All ${downloaderClients.length} downloader clients are included.`;
+            });
+
+            head.appendChild(copy);
+            head.appendChild(input);
+            card.appendChild(head);
+            el.downloaderClientList.appendChild(card);
+          });
+
+          el.clientScopeSummary.textContent = useAllDownloaders
+            ? `All ${downloaderClients.length} downloader clients are included.`
+            : `Selected ${selectedDownloaderIds.length} of ${downloaderClients.length} downloader clients.`;
+        }
+
+        if (!arrClients.length) {
+          const empty = document.createElement('div');
+          empty.className = 'sweeparr-empty-card';
+          empty.textContent = 'No supported Radarr or Sonarr apps were detected in Launcharr.';
+          el.arrClientList.appendChild(empty);
+          el.arrScopeSummary.textContent = 'No Arr apps available.';
+        } else {
+          arrClients.forEach((client) => {
+            const card = document.createElement('label');
+            card.className = 'sweeparr-client-card';
+
+            const head = document.createElement('div');
+            head.className = 'sweeparr-client-card-head';
+
+            const copy = document.createElement('div');
+            const name = document.createElement('div');
+            name.className = 'sweeparr-client-name';
+            name.textContent = String(client.name || client.id || 'Arr');
+            const meta = document.createElement('div');
+            meta.className = 'sweeparr-client-meta';
+            meta.textContent = `${String(client.baseId || 'arr').toUpperCase()} · ${String(client.url || 'No API URL').trim() || 'No API URL'}`;
+            copy.appendChild(name);
+            copy.appendChild(meta);
+
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.value = String(client.id || '').trim();
+            input.checked = useAllArrs || selectedArrSet.has(String(client.id || '').trim());
+            input.setAttribute('data-arr-client-checkbox', '1');
+            input.addEventListener('change', () => {
+              const ids = collectSelectedArrIds();
+              const effectiveCount = ids.length || arrClients.length;
+              el.arrScopeSummary.textContent = ids.length
+                ? `Selected ${effectiveCount} of ${arrClients.length} Arr apps.`
+                : `All ${arrClients.length} Arr apps are included.`;
+            });
+
+            head.appendChild(copy);
+            head.appendChild(input);
+            card.appendChild(head);
+            el.arrClientList.appendChild(card);
+          });
+
+          el.arrScopeSummary.textContent = useAllArrs
+            ? `All ${arrClients.length} Arr apps are included.`
+            : `Selected ${selectedArrIds.length} of ${arrClients.length} Arr apps.`;
+        }
+
+        notifyEmbedHeight();
+      }
+
+      function renderTrackerOverrides(config) {
+        const cfg = config && typeof config === 'object' ? config : {};
+        const mergedHosts = Array.from(new Set([
+          ...Object.keys(cfg.trackerPrivacyOverrides || {}),
+          ...Object.keys(trackerOverrideState || {}),
+          ...discoveredTrackerHosts,
+        ]))
+          .map((host) => normalizeTrackerInput(host))
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b));
+
+        clearNode(el.trackerOverridesList);
+
+        if (!mergedHosts.length) {
+          const empty = document.createElement('div');
+          empty.className = 'sweeparr-empty-card';
+          empty.textContent = 'No tracker hosts discovered yet. Load downloader items or add a tracker host manually to create an override.';
+          el.trackerOverridesList.appendChild(empty);
+          notifyEmbedHeight();
+          return;
+        }
+
+        mergedHosts.forEach((host) => {
+          const row = document.createElement('div');
+          row.className = 'sweeparr-override-row';
+
+          const hostCopy = document.createElement('div');
+          hostCopy.className = 'sweeparr-override-host';
+          const hostTitle = document.createElement('strong');
+          hostTitle.textContent = host;
+          const hostSub = document.createElement('span');
+          hostSub.textContent = trackerOverrideState[host]
+            ? 'Manual override saved for this tracker.'
+            : 'Using automatic privacy detection.';
+          hostCopy.appendChild(hostTitle);
+          hostCopy.appendChild(hostSub);
+
+          const select = document.createElement('select');
+          ['auto', 'private', 'public'].forEach((value) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            select.appendChild(option);
+          });
+          select.value = String(trackerOverrideState[host] || '').trim().toLowerCase() || 'auto';
+          select.addEventListener('change', () => {
+            const nextValue = String(select.value || 'auto').trim().toLowerCase();
+            if (nextValue === 'public' || nextValue === 'private') trackerOverrideState[host] = nextValue;
+            else delete trackerOverrideState[host];
+            renderTrackerOverrides(currentConfig);
+          });
+
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.textContent = 'Remove';
+          remove.addEventListener('click', () => {
+            delete trackerOverrideState[host];
+            discoveredTrackerHosts = discoveredTrackerHosts.filter((entry) => entry !== host);
+            renderTrackerOverrides(currentConfig);
+          });
+
+          row.appendChild(hostCopy);
+          row.appendChild(select);
+          row.appendChild(remove);
+          el.trackerOverridesList.appendChild(row);
+        });
+
+        notifyEmbedHeight();
+      }
+
+      function appendEmptyItemsRow(message) {
+        clearNode(el.itemsBody);
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 9;
+        cell.className = 'muted';
+        cell.textContent = message;
+        row.appendChild(cell);
+        el.itemsBody.appendChild(row);
+        notifyEmbedHeight();
+      }
+
+      function appendEmptyArrSummaryRow(message) {
+        clearNode(el.arrSummaryBody);
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 7;
+        cell.className = 'muted';
+        cell.textContent = message;
+        row.appendChild(cell);
+        el.arrSummaryBody.appendChild(row);
+        notifyEmbedHeight();
+      }
+
+      function appendEmptyRemovalsRow(message) {
+        clearNode(el.removalsBody);
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 5;
+        cell.className = 'muted';
+        cell.textContent = message;
+        row.appendChild(cell);
+        el.removalsBody.appendChild(row);
+        notifyEmbedHeight();
+      }
+
+      function formatTimestamp(value) {
+        const parsed = Date.parse(String(value || '').trim());
+        if (!Number.isFinite(parsed)) return 'n/a';
+        const d = new Date(parsed);
+        return d.toLocaleString();
+      }
+
+      function formatTracker(value) {
+        const raw = String(value || '').trim();
+        return raw || 'n/a';
+      }
+
+      function formatPrivacy(value) {
+        const raw = String(value || '').trim().toLowerCase();
+        if (raw === 'private') return 'private';
+        if (raw === 'public') return 'public';
+        return 'n/a';
+      }
+
+      function formatRatio(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return 'n/a';
+        return numeric.toFixed(2).replace(/\.?0+$/, '');
+      }
+
+      function formatDuration(seconds) {
+        const numeric = Number(seconds);
+        if (!Number.isFinite(numeric)) return 'n/a';
+        const total = Math.max(0, Math.round(numeric));
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        if (hours > 0) return String(hours) + 'h ' + String(minutes) + 'm';
+        if (minutes > 0) return String(minutes) + 'm';
+        return String(total) + 's';
+      }
+
+      function formatRatioLimit(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return 'n/a';
+        if (numeric === -2) return 'global';
+        if (numeric === -1) return 'none';
+        return formatRatio(numeric);
+      }
+
+      function formatSeedTimeLimit(item) {
+        const numeric = Number(item && item.seedTimeLimit);
+        if (!Number.isFinite(numeric)) return 'n/a';
+        if (numeric === -2) return 'global';
+        if (numeric === -1) return 'none';
+        if (String(item && item.clientBaseId) === 'transmission') {
+          return String(Math.max(0, Math.round(numeric))) + 'm';
+        }
+        return formatDuration(numeric);
+      }
+
+      function renderArrSummary(payload) {
+        const rows = Array.isArray(payload && payload.arrSummary) ? payload.arrSummary : [];
+        if (!rows.length) {
+          appendEmptyArrSummaryRow('No Radarr or Sonarr apps are in scope.');
+          el.arrSummaryStatus.textContent = 'arr apps: 0';
+          return;
+        }
+
+        clearNode(el.arrSummaryBody);
+        rows.forEach((entry) => {
+          const row = document.createElement('tr');
+          [
+            String(entry.appName || entry.appId || 'Arr'),
+            String(asInt(entry.queueItems, 0, 0, 100000)),
+            String(asInt(entry.failedImport, 0, 0, 100000)),
+            String(asInt(entry.badFiles, 0, 0, 100000)),
+            String(asInt(entry.unmonitored, 0, 0, 100000)),
+            entry.missingWanted === null || entry.missingWanted === undefined ? 'n/a' : String(asInt(entry.missingWanted, 0, 0, 100000)),
+            entry.cutoffWanted === null || entry.cutoffWanted === undefined ? 'n/a' : String(asInt(entry.cutoffWanted, 0, 0, 100000)),
+          ].forEach((value, index) => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            if (index > 0) cell.className = 'mono num';
+            row.appendChild(cell);
+          });
+          el.arrSummaryBody.appendChild(row);
+        });
+        el.arrSummaryStatus.textContent = 'arr apps: ' + String(asInt(rows.length, 0, 0, 1000));
+        notifyEmbedHeight();
+      }
+
+      function appendItemRow(item) {
+        const row = document.createElement('tr');
+        const itemCell = document.createElement('td');
+        const clientCell = document.createElement('td');
+        const statusCell = document.createElement('td');
+        const arrCell = document.createElement('td');
+        const trackerCell = document.createElement('td');
+        const privacyCell = document.createElement('td');
+        const ratioSeedCell = document.createElement('td');
+        const flagsCell = document.createElement('td');
+        const strikesCell = document.createElement('td');
+
+        const progress = asInt((Number(item.progress) || 0) * 100, 0, 0, 100);
+        const strikes = item.strikes || {};
+        const arr = item.arr || {};
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'sweeparr-item-title';
+        const titleMain = document.createElement('div');
+        titleMain.className = 'sweeparr-item-name';
+        titleMain.textContent = String(item.name || item.key || 'Unknown');
+        const titleMeta = document.createElement('div');
+        titleMeta.className = 'sweeparr-item-meta';
+        titleMeta.textContent = String(item.downloadId || '').trim()
+          ? `Download ID: ${String(item.downloadId).slice(0, 16)}`
+          : `Tracker: ${formatTracker(item.tracker)}`;
+        titleWrap.appendChild(titleMain);
+        titleWrap.appendChild(titleMeta);
+        itemCell.appendChild(titleWrap);
+
+        const clientWrap = document.createElement('div');
+        clientWrap.className = 'sweeparr-cell-stack';
+        const clientMain = document.createElement('div');
+        clientMain.className = 'sweeparr-cell-main';
+        clientMain.textContent = String(item.clientName || item.clientId || 'Unknown');
+        const clientSub = document.createElement('div');
+        clientSub.className = 'sweeparr-cell-sub';
+        clientSub.textContent = String(item.clientBaseId || 'client').trim().toUpperCase();
+        clientWrap.appendChild(clientMain);
+        clientWrap.appendChild(clientSub);
+        clientCell.appendChild(clientWrap);
+
+        const statusWrap = document.createElement('div');
+        statusWrap.className = 'sweeparr-cell-stack';
+        const statusMain = document.createElement('div');
+        statusMain.className = 'sweeparr-cell-main';
+        statusMain.textContent = String(item.status || 'unknown');
+        const statusSub = document.createElement('div');
+        statusSub.className = 'sweeparr-cell-sub';
+        statusSub.textContent = `Progress ${progress}% · ETA ${formatDuration(item.etaSeconds)}`;
+        statusWrap.appendChild(statusMain);
+        statusWrap.appendChild(statusSub);
+        statusCell.appendChild(statusWrap);
+
+        const arrWrap = document.createElement('div');
+        arrWrap.className = 'sweeparr-cell-stack';
+        const arrMain = document.createElement('div');
+        arrMain.className = 'sweeparr-cell-main';
+        arrMain.textContent = arr.matched ? String(arr.appName || 'Arr') : 'No match';
+        const arrSub = document.createElement('div');
+        arrSub.className = 'sweeparr-cell-sub';
+        arrSub.textContent = arr.matched
+          ? `${String((arr.statuses || []).join(', ') || 'queue').trim()}${arr.monitored === false ? ' · unmonitored' : ''}`
+          : 'Best-effort orphan candidate if rule enabled';
+        arrWrap.appendChild(arrMain);
+        arrWrap.appendChild(arrSub);
+        arrCell.appendChild(arrWrap);
+
+        trackerCell.textContent = formatTracker(item.tracker);
+        privacyCell.textContent = formatPrivacy(item.privacy);
+        trackerCell.className = 'mono';
+        privacyCell.className = 'mono';
+        ratioSeedCell.className = 'mono';
+        ratioSeedCell.innerHTML = `ratio ${formatRatio(item.ratio)}<br />seed ${formatDuration(item.seedTimeSeconds)} / ${formatSeedTimeLimit(item)}`;
+
+        const flagParts = [];
+        if (arr.failedImport) flagParts.push('failed import');
+        if (arr.badFiles) flagParts.push('bad files');
+        if (arr.matched && arr.monitored === false) flagParts.push('unmonitored');
+        if (!arr.matched) flagParts.push('orphaned');
+        if (item.privacy === 'private') flagParts.push('private tracker');
+        flagsCell.textContent = flagParts.join(' | ') || 'none';
+
+        const strikeSummary = [
+          ['slow', strikes.slowSpeed],
+          ['eta', strikes.slowTime],
+          ['stall', strikes.stalled],
+          ['seed', strikes.seedCriteria],
+          ['import', strikes.failedImport],
+          ['bad', strikes.badFiles],
+          ['unmon', strikes.unmonitored],
+          ['orph', strikes.orphaned],
+        ]
+          .filter((entry) => asInt(entry[1], 0, 0, 999) > 0)
+          .map((entry) => `${entry[0]}:${asInt(entry[1], 0, 0, 999)}`);
+        strikesCell.className = 'mono';
+        strikesCell.innerHTML = `<span class="sweeparr-strike-summary">${strikeSummary.join(' | ') || 'none'}</span>`;
+
+        row.appendChild(itemCell);
+        row.appendChild(clientCell);
+        row.appendChild(statusCell);
+        row.appendChild(arrCell);
+        row.appendChild(trackerCell);
+        row.appendChild(privacyCell);
+        row.appendChild(ratioSeedCell);
+        row.appendChild(flagsCell);
+        row.appendChild(strikesCell);
+        el.itemsBody.appendChild(row);
+      }
+
+      function renderItems(payload) {
+        const data = payload || {};
+        const items = Array.isArray(data.items) ? data.items : [];
+        const counts = data.counts || {};
+        const errors = Array.isArray(data.errors) ? data.errors : [];
+        renderArrSummary(data);
+
+        if (!items.length) {
+          appendEmptyItemsRow('No downloader items found.');
+        } else {
+          clearNode(el.itemsBody);
+          items.forEach(appendItemRow);
+        }
+
+        const summary = [
+          'items: ' + String(asInt(counts.items, items.length, 0, 100000)),
+          'downloading: ' + String(asInt(counts.downloading, 0, 0, 100000)),
+          'arr matched: ' + String(asInt(counts.arrMatchedItems, 0, 0, 100000)),
+          'failed imports: ' + String(asInt(counts.failedImportCandidates, 0, 0, 100000)),
+          'bad files: ' + String(asInt(counts.badFileCandidates, 0, 0, 100000)),
+          'unmonitored: ' + String(asInt(counts.unmonitoredCandidates, 0, 0, 100000)),
+          'errors: ' + String(asInt(counts.erroredClients, errors.length, 0, 100000)),
+        ];
+        el.itemsSummary.textContent = summary.join(' | ');
+        notifyEmbedHeight();
+      }
+
+      function appendRemovalRow(rowData) {
+        const row = document.createElement('tr');
+        const tsCell = document.createElement('td');
+        const itemCell = document.createElement('td');
+        const clientCell = document.createElement('td');
+        const outcomeCell = document.createElement('td');
+        const reasonCell = document.createElement('td');
+
+        const outcome = String(rowData.outcome || 'flagged').trim().toLowerCase();
+        tsCell.className = 'mono';
+        tsCell.textContent = formatTimestamp(rowData.ts);
+
+        const itemWrap = document.createElement('div');
+        itemWrap.className = 'sweeparr-item-title';
+        const itemMain = document.createElement('div');
+        itemMain.className = 'sweeparr-item-name';
+        itemMain.textContent = String(rowData.itemName || rowData.itemKey || 'Unknown');
+        const itemMeta = document.createElement('div');
+        itemMeta.className = 'sweeparr-item-meta';
+        itemMeta.textContent = String(rowData.itemKey || '').trim() || 'Removal event';
+        itemWrap.appendChild(itemMain);
+        itemWrap.appendChild(itemMeta);
+        itemCell.appendChild(itemWrap);
+
+        clientCell.textContent = String(rowData.clientId || rowData.clientBaseId || 'Unknown');
+        clientCell.className = 'mono';
+
+        const outcomeBadge = document.createElement('span');
+        outcomeBadge.className = 'sweeparr-outcome';
+        outcomeBadge.textContent = outcome;
+        if (outcome === 'removed') outcomeBadge.classList.add('ok');
+        if (outcome === 'failed') outcomeBadge.classList.add('bad');
+        if (outcome === 'dry-run' || outcome === 'flagged') outcomeBadge.classList.add('warn');
+        outcomeCell.appendChild(outcomeBadge);
+
+        const reasonWrap = document.createElement('div');
+        reasonWrap.className = 'sweeparr-cell-stack';
+        const reasonMain = document.createElement('div');
+        reasonMain.className = 'sweeparr-cell-main';
+        reasonMain.textContent = String(rowData.reason || rowData.error || 'n/a');
+        reasonWrap.appendChild(reasonMain);
+        reasonCell.appendChild(reasonWrap);
+
+        row.appendChild(tsCell);
+        row.appendChild(itemCell);
+        row.appendChild(clientCell);
+        row.appendChild(outcomeCell);
+        row.appendChild(reasonCell);
+        el.removalsBody.appendChild(row);
+      }
+
+      function renderRemovals(payload) {
+        const rows = Array.isArray(payload && payload.removals) ? payload.removals : [];
+        if (!rows.length) {
+          appendEmptyRemovalsRow('No removed/flagged torrents yet.');
+        } else {
+          clearNode(el.removalsBody);
+          rows.forEach(appendRemovalRow);
+        }
+        el.removalsSummary.textContent = 'removed: ' + String(asInt(rows.length, 0, 0, 100000));
+        notifyEmbedHeight();
+      }
+
+      async function loadClients() {
+        const payload = await api('/api/sweeparr/clients');
+        clientInventory = {
+          arrClients: Array.isArray(payload.arrClients) ? payload.arrClients : [],
+          downloaderClients: Array.isArray(payload.downloaderClients) ? payload.downloaderClients : [],
+        };
+        renderClientInventory(currentConfig);
+        return payload;
+      }
+
+      function autoRefreshIntervalMs() {
+        const seconds = asInt(el.autoRefreshSeconds.value, 20, 5, 300);
+        el.autoRefreshSeconds.value = String(seconds);
+        return seconds * 1000;
+      }
+
+      async function runMonitorTick() {
+        if (autoRefreshInFlight) return;
+        autoRefreshInFlight = true;
+        try {
+          await refreshStatus();
+          await loadEvents();
+          await loadItems();
+          if (!isSettingsMode) await loadRemovals();
+        } catch (_err) {
+          // Keep monitor running even when one tick fails.
+        } finally {
+          autoRefreshInFlight = false;
+        }
+      }
+
+      function applyAutoRefresh() {
+        if (autoRefreshTimer) {
+          clearInterval(autoRefreshTimer);
+          autoRefreshTimer = null;
+        }
+
+        const enabled = Boolean(el.autoRefreshEnabled.checked);
+        if (!enabled) {
+          setMessage('Auto-refresh monitor disabled.', false);
+          return;
+        }
+
+        const intervalMs = autoRefreshIntervalMs();
+        autoRefreshTimer = setInterval(runMonitorTick, intervalMs);
+        runMonitorTick();
+        setMessage('Auto-refresh monitor enabled.', false);
+      }
+
+      function fillAggressionSelect() {
+        el.aggressionLevel.innerHTML = '';
+        const levels = Array.isArray(aggressionInfo.levels) ? aggressionInfo.levels : [];
+        levels.forEach((row) => {
+          const option = document.createElement('option');
+          option.value = String(row.id || '');
+          option.textContent = (row.label || row.id || '').trim() || row.id;
+          el.aggressionLevel.appendChild(option);
+        });
+      }
+
+      function updateAggressionDescription() {
+        const selected = String(el.aggressionLevel.value || '').trim().toLowerCase();
+        const match = (aggressionInfo.levels || []).find((row) => String(row.id || '').trim().toLowerCase() === selected);
+        el.aggressionDesc.textContent = match && match.description ? match.description : '';
+      }
+
+      function fillForm(config) {
+        const cfg = config || {};
+        const rules = cfg.rules || {};
+        const seedCriteria = rules.seedCriteria || {};
+        const slowSpeed = rules.slowSpeed || {};
+        const slowTime = rules.slowTime || {};
+        const stalled = rules.stalled || {};
+        const failedImport = rules.failedImport || {};
+        const badFiles = rules.badFiles || {};
+        const unmonitored = rules.unmonitored || {};
+        const orphaned = rules.orphaned || {};
+        const safety = cfg.safety || {};
+        currentConfig = cfg;
+        trackerOverrideState = { ...(cfg.trackerPrivacyOverrides || {}) };
+
+        el.cfgEnabled.checked = Boolean(cfg.enabled);
+        el.cfgDryRun.checked = Boolean(cfg.dryRun);
+        el.cfgRunOnStartup.checked = Boolean(cfg.runOnStartup);
+        el.toggleEnabled.checked = Boolean(cfg.enabled);
+        el.toggleLiveMode.checked = !Boolean(cfg.dryRun);
+        el.toggleSeedCriteria.checked = Boolean(seedCriteria.enabled);
+        el.cfgPollInterval.value = String(asInt(cfg.pollIntervalSeconds, 180, 30, 3600));
+        el.cfgMaxEvents.value = String(asInt(cfg.maxEvents, 300, 50, 5000));
+        el.cfgRetention.value = String(asInt(cfg.stateRetentionHours, 72, 1, 720));
+        el.safetyAllowPrivateTrackerRemovals.checked = Boolean(safety.allowPrivateTrackerRemovals);
+        el.safetyDeleteLocalData.checked = Boolean(safety.deleteLocalData);
+
+        el.slowSpeedEnabled.checked = Boolean(slowSpeed.enabled);
+        el.slowSpeedMinBps.value = String(asInt(slowSpeed.minBps, 131072, 0, 1000000000));
+        el.slowSpeedGrace.value = String(asInt(slowSpeed.graceMinutes, 15, 0, 1440));
+        el.slowSpeedStrikes.value = String(asInt(slowSpeed.maxStrikes, 3, 1, 10));
+        el.slowSpeedCooldown.value = String(asInt(slowSpeed.cooldownMinutes, 30, 0, 1440));
+        el.slowSpeedAction.value = String(slowSpeed.action || 'warn');
+
+        el.slowTimeEnabled.checked = Boolean(slowTime.enabled);
+        el.slowTimeMinEta.value = String(asInt(slowTime.minEtaMinutes, 120, 1, 1440));
+        el.slowTimeGrace.value = String(asInt(slowTime.graceMinutes, 20, 0, 1440));
+        el.slowTimeStrikes.value = String(asInt(slowTime.maxStrikes, 3, 1, 10));
+        el.slowTimeCooldown.value = String(asInt(slowTime.cooldownMinutes, 30, 0, 1440));
+        el.slowTimeAction.value = String(slowTime.action || 'warn');
+
+        el.stalledEnabled.checked = Boolean(stalled.enabled);
+        el.stalledMetadlTimeBasedStrikes.checked = Boolean(stalled.metadlTimeBasedStrikes);
+        el.stalledNoProgress.value = String(asInt(stalled.noProgressMinutes, 30, 1, 1440));
+        el.stalledGrace.value = String(asInt(stalled.graceMinutes, 20, 0, 1440));
+        el.stalledStrikes.value = String(asInt(stalled.maxStrikes, 3, 1, 10));
+        el.stalledCooldown.value = String(asInt(stalled.cooldownMinutes, 30, 0, 1440));
+        el.stalledAction.value = String(stalled.action || 'warn');
+
+        el.seedCriteriaEnabled.checked = Boolean(seedCriteria.enabled);
+        el.seedCriteriaRequireBoth.checked = Boolean(seedCriteria.requireBoth);
+        el.seedCriteriaGrace.value = String(asInt(seedCriteria.graceMinutes, 0, 0, 1440));
+        el.seedCriteriaStrikes.value = String(asInt(seedCriteria.maxStrikes, 1, 1, 10));
+        el.seedCriteriaCooldown.value = String(asInt(seedCriteria.cooldownMinutes, 60, 0, 1440));
+        el.seedCriteriaAction.value = String(seedCriteria.action || 'remove');
+
+        el.failedImportEnabled.checked = Boolean(failedImport.enabled);
+        el.failedImportGrace.value = String(asInt(failedImport.graceMinutes, 60, 0, 1440));
+        el.failedImportStrikes.value = String(asInt(failedImport.maxStrikes, 1, 1, 10));
+        el.failedImportCooldown.value = String(asInt(failedImport.cooldownMinutes, 120, 0, 1440));
+        el.failedImportAction.value = String(failedImport.action || 'warn');
+
+        el.badFilesEnabled.checked = Boolean(badFiles.enabled);
+        el.badFilesGrace.value = String(asInt(badFiles.graceMinutes, 45, 0, 1440));
+        el.badFilesStrikes.value = String(asInt(badFiles.maxStrikes, 1, 1, 10));
+        el.badFilesCooldown.value = String(asInt(badFiles.cooldownMinutes, 120, 0, 1440));
+        el.badFilesAction.value = String(badFiles.action || 'warn');
+
+        el.unmonitoredEnabled.checked = Boolean(unmonitored.enabled);
+        el.unmonitoredGrace.value = String(asInt(unmonitored.graceMinutes, 20, 0, 1440));
+        el.unmonitoredStrikes.value = String(asInt(unmonitored.maxStrikes, 1, 1, 10));
+        el.unmonitoredCooldown.value = String(asInt(unmonitored.cooldownMinutes, 120, 0, 1440));
+        el.unmonitoredAction.value = String(unmonitored.action || 'warn');
+
+        el.orphanedEnabled.checked = Boolean(orphaned.enabled);
+        el.orphanedOnlyCompleted.checked = orphaned.onlyCompleted !== false;
+        el.orphanedGrace.value = String(asInt(orphaned.graceMinutes, 120, 0, 1440));
+        el.orphanedStrikes.value = String(asInt(orphaned.maxStrikes, 1, 1, 10));
+        el.orphanedCooldown.value = String(asInt(orphaned.cooldownMinutes, 180, 0, 1440));
+        el.orphanedAction.value = String(orphaned.action || 'warn');
+
+        const cfgLevel = String(cfg.aggressionLevel || '').trim().toLowerCase();
+        if (cfgLevel) {
+          el.aggressionLevel.value = cfgLevel;
+          updateAggressionDescription();
+        }
+
+        renderClientInventory(cfg);
+        renderTrackerOverrides(cfg);
+      }
+
+      function collectPatchFromForm() {
+        return {
+          enabled: Boolean(el.cfgEnabled.checked),
+          dryRun: Boolean(el.cfgDryRun.checked),
+          runOnStartup: Boolean(el.cfgRunOnStartup.checked),
+          aggressionLevel: String(el.aggressionLevel.value || 'medium').trim().toLowerCase(),
+          pollIntervalSeconds: asInt(el.cfgPollInterval.value, 180, 30, 3600),
+          maxEvents: asInt(el.cfgMaxEvents.value, 300, 50, 5000),
+          stateRetentionHours: asInt(el.cfgRetention.value, 72, 1, 720),
+          selectedDownloaderIds: collectSelectedDownloaderIds(),
+          selectedArrIds: collectSelectedArrIds(),
+          trackerPrivacyOverrides: { ...trackerOverrideState },
+          safety: {
+            allowPrivateTrackerRemovals: Boolean(el.safetyAllowPrivateTrackerRemovals.checked),
+            deleteLocalData: Boolean(el.safetyDeleteLocalData.checked),
+          },
+          rules: {
+            slowSpeed: {
+              enabled: Boolean(el.slowSpeedEnabled.checked),
+              minBps: asInt(el.slowSpeedMinBps.value, 131072, 0, 1000000000),
+              graceMinutes: asInt(el.slowSpeedGrace.value, 15, 0, 1440),
+              maxStrikes: asInt(el.slowSpeedStrikes.value, 3, 1, 10),
+              cooldownMinutes: asInt(el.slowSpeedCooldown.value, 30, 0, 1440),
+              action: String(el.slowSpeedAction.value || 'warn'),
+            },
+            slowTime: {
+              enabled: Boolean(el.slowTimeEnabled.checked),
+              minEtaMinutes: asInt(el.slowTimeMinEta.value, 120, 1, 1440),
+              graceMinutes: asInt(el.slowTimeGrace.value, 20, 0, 1440),
+              maxStrikes: asInt(el.slowTimeStrikes.value, 3, 1, 10),
+              cooldownMinutes: asInt(el.slowTimeCooldown.value, 30, 0, 1440),
+              action: String(el.slowTimeAction.value || 'warn'),
+            },
+            stalled: {
+              enabled: Boolean(el.stalledEnabled.checked),
+              metadlTimeBasedStrikes: Boolean(el.stalledMetadlTimeBasedStrikes.checked),
+              noProgressMinutes: asInt(el.stalledNoProgress.value, 30, 1, 1440),
+              graceMinutes: asInt(el.stalledGrace.value, 20, 0, 1440),
+              maxStrikes: asInt(el.stalledStrikes.value, 3, 1, 10),
+              cooldownMinutes: asInt(el.stalledCooldown.value, 30, 0, 1440),
+              action: String(el.stalledAction.value || 'warn'),
+            },
+            seedCriteria: {
+              enabled: Boolean(el.seedCriteriaEnabled.checked),
+              requireBoth: Boolean(el.seedCriteriaRequireBoth.checked),
+              graceMinutes: asInt(el.seedCriteriaGrace.value, 0, 0, 1440),
+              maxStrikes: asInt(el.seedCriteriaStrikes.value, 1, 1, 10),
+              cooldownMinutes: asInt(el.seedCriteriaCooldown.value, 60, 0, 1440),
+              action: String(el.seedCriteriaAction.value || 'remove'),
+            },
+            failedImport: {
+              enabled: Boolean(el.failedImportEnabled.checked),
+              graceMinutes: asInt(el.failedImportGrace.value, 60, 0, 1440),
+              maxStrikes: asInt(el.failedImportStrikes.value, 1, 1, 10),
+              cooldownMinutes: asInt(el.failedImportCooldown.value, 120, 0, 1440),
+              action: String(el.failedImportAction.value || 'warn'),
+            },
+            badFiles: {
+              enabled: Boolean(el.badFilesEnabled.checked),
+              graceMinutes: asInt(el.badFilesGrace.value, 45, 0, 1440),
+              maxStrikes: asInt(el.badFilesStrikes.value, 1, 1, 10),
+              cooldownMinutes: asInt(el.badFilesCooldown.value, 120, 0, 1440),
+              action: String(el.badFilesAction.value || 'warn'),
+            },
+            unmonitored: {
+              enabled: Boolean(el.unmonitoredEnabled.checked),
+              graceMinutes: asInt(el.unmonitoredGrace.value, 20, 0, 1440),
+              maxStrikes: asInt(el.unmonitoredStrikes.value, 1, 1, 10),
+              cooldownMinutes: asInt(el.unmonitoredCooldown.value, 120, 0, 1440),
+              action: String(el.unmonitoredAction.value || 'warn'),
+            },
+            orphaned: {
+              enabled: Boolean(el.orphanedEnabled.checked),
+              onlyCompleted: Boolean(el.orphanedOnlyCompleted.checked),
+              graceMinutes: asInt(el.orphanedGrace.value, 120, 0, 1440),
+              maxStrikes: asInt(el.orphanedStrikes.value, 1, 1, 10),
+              cooldownMinutes: asInt(el.orphanedCooldown.value, 180, 0, 1440),
+              action: String(el.orphanedAction.value || 'warn'),
+            },
+          },
+        };
+      }
+
+      async function loadAggressionLevels() {
+        const payload = await api('/api/sweeparr/aggression-levels');
+        aggressionInfo = payload || {};
+        fillAggressionSelect();
+        if (payload && payload.currentLevel) {
+          el.aggressionLevel.value = String(payload.currentLevel);
+        }
+        updateAggressionDescription();
+      }
+
+      async function refreshStatus() {
+        const status = await api('/api/sweeparr/status');
+        show(el.outStatus, status);
+
+        const running = Boolean(status.running);
+        const config = status.config || {};
+        const scheduler = status.scheduler || {};
+        const level = String(config.aggressionLevel || 'unknown');
+        const modeDry = Boolean(config.dryRun);
+        const seedCriteriaEnabled = Boolean(config.rules && config.rules.seedCriteria && config.rules.seedCriteria.enabled);
+        const lastSummary = status.lastSummary || {};
+        const hasLastSummary = lastSummary && typeof lastSummary === 'object' && Object.keys(lastSummary).length > 0;
+        const lastOk = hasLastSummary ? Boolean(lastSummary.ok) : null;
+        const lastTotals = hasLastSummary && lastSummary.totals && typeof lastSummary.totals === 'object'
+          ? lastSummary.totals
+          : {};
+        const lastClients = hasLastSummary && lastSummary.clients && typeof lastSummary.clients === 'object'
+          ? lastSummary.clients
+          : {};
+        currentRunId = hasLastSummary ? String(lastSummary.runId || '').trim() : '';
+        show(el.outRun, hasLastSummary
+          ? lastSummary
+          : { message: 'No run summary yet. Start scheduler (State=Run) and wait for next cycle.' });
+
+        setTag(el.tagRunning, 'running: ' + (running ? 'yes' : 'no'), running ? 'warn' : 'ok');
+        setTag(el.tagGlobalMode, 'mode: ' + (modeDry ? 'dry-run' : 'live'), modeDry ? 'ok' : 'bad');
+        setTag(el.tagSeedCriteria, 'seed criteria: ' + (seedCriteriaEnabled ? 'included' : 'excluded'), seedCriteriaEnabled ? 'ok' : 'warn');
+        setTag(el.tagLevel, 'level: ' + level, level === 'high' ? 'bad' : (level === 'medium' ? 'warn' : 'ok'));
+        setTag(el.tagResult,
+          'last result: ' + (lastOk === null ? 'none' : (lastOk ? 'ok' : 'error')),
+          lastOk === null ? 'warn' : (lastOk ? 'ok' : 'bad'));
+        el.metricArrClients.textContent = String(asInt(lastClients.arr, status.counts && status.counts.arrClients, 0, 999));
+        el.metricDownloaderClients.textContent = String(asInt(lastClients.downloaders, status.counts && status.counts.downloaderClients, 0, 999));
+        el.metricQueueItems.textContent = String(asInt(lastTotals.queueItems, 0, 0, 100000));
+        el.metricQueueItemsCopy.textContent = hasLastSummary
+          ? ('Active downloads: ' + String(asInt(lastTotals.activeDownloads, 0, 0, 100000)) + ' · Arr matched: ' + String(asInt(lastTotals.arrMatchedItems, 0, 0, 100000)))
+          : 'No sweep summary yet.';
+        el.metricRemovalsFlagged.textContent = String(asInt(lastTotals.removalsFlagged, 0, 0, 100000));
+        el.metricRemovalsCopy.textContent = hasLastSummary
+          ? ('Actions performed: ' + String(asInt(lastTotals.actionsPerformed, 0, 0, 100000)) + ' · Private blocked: ' + String(asInt(lastTotals.blockedPrivateActions, 0, 0, 100000)))
+          : 'Waiting for the next sweep.';
+
+        schedulerActive = Boolean(scheduler.active);
+        schedulerNextRunAtMs = Date.parse(String(scheduler.nextRunAt || '').trim());
+        renderNextRunCountdown();
+        if (!schedulerCountdownTimer) {
+          schedulerCountdownTimer = setInterval(renderNextRunCountdown, 1000);
+        }
+
+        fillForm(config);
+        return status;
+      }
+
+      async function loadEvents() {
+        const limit = asInt(el.eventsLimit.value, 50, 1, 500);
+        el.eventsLimit.value = String(limit);
+        const params = new URLSearchParams();
+        params.set('limit', String(limit));
+        if (currentRunId) params.set('runId', currentRunId);
+        const events = await api('/api/sweeparr/events?' + params.toString());
+        show(el.outEvents, events);
+        return events;
+      }
+
+      async function loadItems() {
+        const items = await api('/api/sweeparr/items');
+        setDiscoveredTrackerHosts(items && items.items);
+        renderTrackerOverrides(currentConfig);
+        renderItems(items);
+        return items;
+      }
+
+      async function loadRemovals() {
+        const params = new URLSearchParams();
+        params.set('limit', '200');
+        const removals = await api('/api/sweeparr/removals?' + params.toString());
+        renderRemovals(removals);
+        return removals;
+      }
+
+      async function saveConfigPatch(patch, successMessage) {
+        setBusy(true);
+        try {
+          const out = await api('/api/sweeparr/config', {
+            method: 'POST',
+            body: JSON.stringify(patch),
+          });
+          show(el.outConfig, out);
+          fillForm(out.config || {});
+          await refreshStatus();
+          setMessage(successMessage || 'Config updated.', false);
+        } catch (err) {
+          setMessage('Config update failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      el.aggressionLevel.addEventListener('change', updateAggressionDescription);
+
+      el.btnSelectAllDownloaders.addEventListener('click', function () {
+        document.querySelectorAll('[data-downloader-client-checkbox]').forEach((input) => {
+          input.checked = true;
+        });
+        const total = Array.from(document.querySelectorAll('[data-downloader-client-checkbox]')).length;
+        el.clientScopeSummary.textContent = total
+          ? `All ${total} downloader clients are included.`
+          : 'No downloader clients available.';
+      });
+
+      el.btnClearDownloaders.addEventListener('click', function () {
+        document.querySelectorAll('[data-downloader-client-checkbox]').forEach((input) => {
+          input.checked = true;
+        });
+        const total = Array.from(document.querySelectorAll('[data-downloader-client-checkbox]')).length;
+        el.clientScopeSummary.textContent = total
+          ? `All ${total} downloader clients are included.`
+          : 'No downloader clients available.';
+      });
+
+      el.btnSelectAllArrs.addEventListener('click', function () {
+        document.querySelectorAll('[data-arr-client-checkbox]').forEach((input) => {
+          input.checked = true;
+        });
+        const total = Array.from(document.querySelectorAll('[data-arr-client-checkbox]')).length;
+        el.arrScopeSummary.textContent = total
+          ? `All ${total} Arr apps are included.`
+          : 'No Arr apps available.';
+      });
+
+      el.btnClearArrs.addEventListener('click', function () {
+        document.querySelectorAll('[data-arr-client-checkbox]').forEach((input) => {
+          input.checked = true;
+        });
+        const total = Array.from(document.querySelectorAll('[data-arr-client-checkbox]')).length;
+        el.arrScopeSummary.textContent = total
+          ? `All ${total} Arr apps are included.`
+          : 'No Arr apps available.';
+      });
+
+      el.btnAddTrackerOverride.addEventListener('click', function () {
+        const host = normalizeTrackerInput(el.trackerOverrideInput.value);
+        if (!host) {
+          setMessage('Enter a tracker host or full tracker URL first.', true);
+          return;
+        }
+        discoveredTrackerHosts = Array.from(new Set([...discoveredTrackerHosts, host])).sort((a, b) => a.localeCompare(b));
+        el.trackerOverrideInput.value = '';
+        renderTrackerOverrides(currentConfig);
+        setMessage(`Added tracker override row for ${host}. Choose public, private, or leave it on auto.`, false);
+      });
+
+      el.trackerOverrideInput.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        el.btnAddTrackerOverride.click();
+      });
+
+      el.btnRunOnce.addEventListener('click', async function () {
+        setBusy(true);
+        try {
+          const liveMode = Boolean(el.toggleLiveMode.checked);
+          setMessage(liveMode ? 'Running live sweep...' : 'Running dry-run sweep...', false);
+          const summary = await api('/api/sweeparr/run-once', {
+            method: 'POST',
+            body: JSON.stringify({ mode: liveMode ? 'live' : 'dry' }),
+          });
+          show(el.outRun, summary);
+          await refreshStatus();
+          await loadEvents();
+          await loadItems();
+          if (!isSettingsMode) await loadRemovals();
+          setMessage(summary && summary.ok === false
+            ? 'Sweep completed with errors. Review diagnostics below.'
+            : 'Sweep completed.', Boolean(summary && summary.ok === false));
+        } catch (err) {
+          setMessage('Run failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      el.btnRefresh.addEventListener('click', async function () {
+        setBusy(true);
+        try {
+          setMessage('Refreshing status...', false);
+          await loadClients();
+          await refreshStatus();
+          await loadEvents();
+          await loadItems();
+          if (!isSettingsMode) await loadRemovals();
+          setMessage('Status refreshed.', false);
+        } catch (err) {
+          setMessage('Status refresh failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      el.btnItems.addEventListener('click', async function () {
+        setBusy(true);
+        try {
+          setMessage('Loading downloader items...', false);
+          await loadItems();
+          setMessage('Downloader items loaded.', false);
+        } catch (err) {
+          setMessage('Items load failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      el.btnAutoRefreshApply.addEventListener('click', function () {
+        applyAutoRefresh();
+      });
+
+      el.toggleEnabled.addEventListener('change', function () {
+        saveConfigPatch({ enabled: Boolean(el.toggleEnabled.checked) }, 'Sweeparr enabled state updated.');
+      });
+
+      el.toggleLiveMode.addEventListener('change', function () {
+        const liveMode = Boolean(el.toggleLiveMode.checked);
+        saveConfigPatch({ dryRun: !liveMode }, liveMode ? 'Live mode enabled.' : 'Dry-run mode enabled.');
+      });
+
+      el.toggleSeedCriteria.addEventListener('change', function () {
+        const includeSeedCriteria = Boolean(el.toggleSeedCriteria.checked);
+        if (includeSeedCriteria) {
+          saveConfigPatch({
+            rules: {
+              seedCriteria: {
+                enabled: true,
+                action: 'remove',
+                maxStrikes: 1,
+              },
+            },
+          }, 'Seed-criteria items are now included.');
+          return;
+        }
+        saveConfigPatch({
+          rules: {
+            seedCriteria: {
+              enabled: false,
+            },
+          },
+        }, 'Seed-criteria items are now excluded.');
+      });
+
+      el.btnEvents.addEventListener('click', async function () {
+        setBusy(true);
+        try {
+          setMessage('Loading events...', false);
+          await loadEvents();
+          await loadRemovals();
+          setMessage('Events loaded.', false);
+        } catch (err) {
+          setMessage('Events load failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      el.btnRemovals.addEventListener('click', async function () {
+        setBusy(true);
+        try {
+          setMessage('Loading removed torrents...', false);
+          await loadRemovals();
+          setMessage('Removed torrents loaded.', false);
+        } catch (err) {
+          setMessage('Removed torrents load failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      el.btnSetDry.addEventListener('click', function () {
+        saveConfigPatch({ dryRun: true }, 'Global dry-run enabled.');
+      });
+
+      el.btnSetLive.addEventListener('click', function () {
+        saveConfigPatch({ dryRun: false }, 'Global dry-run disabled.');
+      });
+
+      el.btnApplyLevel.addEventListener('click', function () {
+        const level = String(el.aggressionLevel.value || '').trim().toLowerCase();
+        if (!level) {
+          setMessage('Select an aggression level first.', true);
+          return;
+        }
+        saveConfigPatch({ aggressionLevel: level, applyAggressionDefaults: true }, 'Applied ' + level + ' defaults. You can now override fields below and save.');
+      });
+
+      el.btnSaveSettings.addEventListener('click', function () {
+        const patch = collectPatchFromForm();
+        saveConfigPatch(patch, 'Manual settings saved.');
+      });
+
+      function applySectionCollapsedState(section, button, collapsed) {
+        if (!section) return;
+        const isCollapsed = Boolean(collapsed);
+        section.classList.toggle('plex-collapsed', isCollapsed);
+        if (button) {
+          button.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+          button.setAttribute('aria-label', isCollapsed ? 'Expand' : 'Collapse');
+          button.setAttribute('title', isCollapsed ? 'Expand' : 'Collapse');
+        }
+      }
+
+      document.querySelectorAll('.plex-collapse-btn').forEach((button) => {
+        const targetId = String(button.dataset.target || '').trim();
+        const section = targetId ? document.getElementById(targetId) : button.closest('.plex-module');
+        if (!section) return;
+        const stored = safeStorage.get(collapseStorageKey(section.id || targetId));
+        applySectionCollapsedState(section, button, stored === '1');
+
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const nextCollapsed = !section.classList.contains('plex-collapsed');
+          applySectionCollapsedState(section, button, nextCollapsed);
+          safeStorage.set(collapseStorageKey(section.id || targetId), nextCollapsed ? '1' : '0');
+          notifyEmbedHeight();
+        });
+      });
+
+      window.addEventListener('beforeunload', function () {
+        if (autoRefreshTimer) {
+          clearInterval(autoRefreshTimer);
+          autoRefreshTimer = null;
+        }
+        if (schedulerCountdownTimer) {
+          clearInterval(schedulerCountdownTimer);
+          schedulerCountdownTimer = null;
+        }
+      });
+
+      window.addEventListener('resize', notifyEmbedHeight);
+      window.addEventListener('message', function (event) {
+        const data = event && event.data && typeof event.data === 'object' ? event.data : null;
+        if (!data) return;
+        if (String(data.type || '') !== 'sweeparr:request-height') return;
+        notifyEmbedHeight();
+      });
+
+      if (isEmbed && typeof MutationObserver === 'function') {
+        const observer = new MutationObserver(function () {
+          notifyEmbedHeight();
+        });
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+      }
+
+      (async function init() {
+        setBusy(true);
+        try {
+          await loadClients();
+          await loadAggressionLevels();
+          await refreshStatus();
+          await loadEvents();
+          await loadItems();
+          if (!isSettingsMode) await loadRemovals();
+          else setMessage('Settings mode ready.', false);
+          if (!isSettingsMode) setMessage('Ready.', false);
+        } catch (err) {
+          setMessage('Initial load failed: ' + String(err && err.message ? err.message : err), true);
+        } finally {
+          setBusy(false);
+          notifyEmbedHeight();
+        }
+      }());
+    }());
+  </script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+services:
+  launcharr:
+    container_name: launcharr
+    image: mickygx/launcharr:latest #use :development for edge/dev builds
+    ports:
+      - "3333:3333"
+    environment:
+      - CONFIG_PATH=/app/config/config.json
+      - DATA_DIR=/app/data
+      - BASE_URL=http://localhost:3333
+      - TRUST_PROXY=true
+      - TRUST_PROXY_HOPS=1
+      # Generate once: openssl rand -hex 32
+      - SESSION_SECRET=replace-this-with-a-random-secret
+      # optional but recommended if you only use HTTPS on domain:
+      # - COOKIE_SECURE=true
+      # - PUID=${PUID}
+      # - PGID=${PGID}
+      # - TZ=${TZ}
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./data/icons/custom:/app/public/icons/custom
+    restart: unless-stopped

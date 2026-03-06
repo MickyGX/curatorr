@@ -1,0 +1,55 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+build/
+.DS_Store
+Thumbs.db
+
+# QNAP / NAS metadata
+@eaDir/
+.AppleDouble/
+.TemporaryItems/
+.Trash-*/
+.qsync/
+
+# Runtime logs
+data/*
+!data/.gitkeep
+
+# Local configuration (copy from config/config.example.json)
+config/config.json
+reference/config.json
+reference/
+
+# Local compose overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Local custom app icons
+public/icons/custom/
+
+# Seekarr staging area
+seekarr/
+
+# Local private files
+private/
+
+# Local maintenance binaries
+bfg.jar
+
+# Local helper scripts
+scripts/
+
+# Local AI assistant settings
+.claude/
+.Claude/
+
+config/config.quickstart-backup.json
+launcharr-test-build.tar
