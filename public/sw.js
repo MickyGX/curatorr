@@ -1,8 +1,8 @@
-const CACHE_NAME = 'launcharr-static-v36';
+const CACHE_NAME = 'curatorr-static-v1';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/styles.css',
-  '/icons/launcharr-icon.png',
+  '/icons/curatorr-icon.svg',
   '/icons/app.svg',
   '/icons/app-arr.svg',
   '/icons/prowlarr.png',

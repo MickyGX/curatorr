@@ -1,121 +1,33 @@
 <%
-  const _navActiveAppId = locals.navActiveAppId || null;
-  const _navActivePage = locals.navActivePage || null;
-  const _navDashHasEntries = Boolean(locals.navDashHasEntries);
-  const _navMultiInstanceBaseIdsList = (Array.isArray(locals.multiInstanceBaseIds) ? locals.multiInstanceBaseIds : [])
-    .map((item) => String(item || '').trim().toLowerCase())
-    .filter(Boolean);
-  const _navResolveAppBaseId = (value) => {
-    const id = String(value || '').trim().toLowerCase();
-    if (!id) return '';
-    const matched = _navMultiInstanceBaseIdsList
-      .slice()
-      .sort((a, b) => b.length - a.length)
-      .find((baseId) => {
-        if (id === baseId) return true;
-        if (!id.startsWith(baseId + '-')) return false;
-        return /^\d+$/.test(id.slice(baseId.length + 1));
-      });
-    return matched || id;
-  };
-  const _navResolveAppIconPath = (appItem) => {
-    const customIcon = String(appItem?.icon || '').trim();
-    if (customIcon) return customIcon;
-    const baseId = _navResolveAppBaseId(appItem?.id);
-    if (['plex', 'tautulli', 'radarr', 'sonarr', 'lidarr', 'readarr', 'pulsarr', 'seerr', 'prowlarr', 'cleanuparr', 'huntarr', 'transmission', 'nzbget', 'qbittorrent', 'sabnzbd', 'jellyfin', 'emby', 'bazarr'].includes(baseId)) {
-      return `/icons/${baseId}.png`;
-    }
-    return `/icons/${baseId || 'app'}.svg`;
-  };
+  const _navActivePage = locals.navActivePage || '';
+  const _navRole = locals.role || '';
+  const _navIsAdmin = _navRole === 'admin' || _navRole === 'co-admin';
 %>
-<% if (navCategories && navCategories.length) { %>
-  <% if (_navDashHasEntries) { %><div class="nav-divider"></div><% } %>
-  <div class="nav-accordion">
-    <% navCategories.forEach((category) => { %>
-      <% if (category.sidebarMenu) { %>
-        <% const _navCategoryOpen = _navActiveAppId ? category.apps.some((item) => item.id === _navActiveAppId && !item.navFavourite && !((item.favourite || item.favorite))) : false; %>
-        <div class="nav-accordion-item nav-accordion-item--category<%= _navCategoryOpen ? ' open' : '' %>">
-          <button class="nav-accordion-trigger nav-accordion-trigger--category" type="button">
-            <img class="nav-icon" src="<%= category.icon || '/icons/category.svg' %>" alt="" onerror="this.src='/icons/category.svg'" />
-            <span class="nav-label"><%= category.name %></span>
-          </button>
-          <div class="nav-accordion-panel nav-accordion-panel--category">
-            <div class="nav-accordion nav-accordion--nested">
-              <% category.apps.forEach((appItem) => { %>
-                <% const _navAppOpen = _navActiveAppId ? (appItem.id === _navActiveAppId && (!((appItem.favourite || appItem.favorite)) || appItem.navFavourite)) : false; %>
-                <div class="nav-accordion-item<%= _navAppOpen ? ' open' : '' %>">
-                  <button class="nav-accordion-trigger" type="button">
-                    <img class="nav-icon app-icon" src="<%= _navResolveAppIconPath(appItem) %>" alt="" onerror="this.src='/icons/app.svg'" />
-                    <span class="nav-label"><%= appItem.name %></span>
-                  </button>
-                  <div class="nav-accordion-panel">
-                    <% if (appItem.menuAccess.overview) { %>
-                      <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'overview' ? ' active' : '' %>" href="/apps/<%= appItem.id %>">
-                        <img class="nav-subicon" src="/icons/overview.svg" alt="" />
-                        <span>Overview</span>
-                      </a>
-                    <% } %>
-                    <% if (appItem.menuAccess.launch) { %>
-                      <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'launch' ? ' active' : '' %>" href="/apps/<%= appItem.id %>/launch" data-launch-mode="<%= appItem.effectiveLaunchMode %>" <%= appItem.effectiveLaunchMode === 'new-tab' ? 'target="_blank" rel="noreferrer"' : '' %>>
-                        <img class="nav-subicon" src="/icons/launch.svg" alt="" />
-                        <span>Launch</span>
-                      </a>
-                    <% } %>
-                    <% if (appItem.menuAccess.settings) { %>
-                      <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'settings' ? ' active' : '' %>" href="/apps/<%= appItem.id %>/settings">
-                        <img class="nav-subicon" src="/icons/settings.svg" alt="" />
-                        <span>App settings</span>
-                      </a>
-                    <% } %>
-                    <% if (appItem.menuAccess.activity) { %>
-                      <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'activity' ? ' active' : '' %>" href="/apps/<%= appItem.id %>/activity">
-                        <img class="nav-subicon" src="/icons/activity-queue.svg" alt="" />
-                        <span>Activity</span>
-                      </a>
-                    <% } %>
-                  </div>
-                </div>
-              <% }) %>
-            </div>
-          </div>
-        </div>
-      <% } else { %>
-        <% category.apps.forEach((appItem) => { %>
-          <% const _navAppOpen = _navActiveAppId ? (appItem.id === _navActiveAppId && (!((appItem.favourite || appItem.favorite)) || appItem.navFavourite)) : false; %>
-          <div class="nav-accordion-item<%= _navAppOpen ? ' open' : '' %>">
-            <button class="nav-accordion-trigger" type="button">
-              <img class="nav-icon app-icon" src="<%= _navResolveAppIconPath(appItem) %>" alt="" onerror="this.src='/icons/app.svg'" />
-              <span class="nav-label"><%= appItem.name %></span>
-            </button>
-            <div class="nav-accordion-panel">
-              <% if (appItem.menuAccess.overview) { %>
-                <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'overview' ? ' active' : '' %>" href="/apps/<%= appItem.id %>">
-                  <img class="nav-subicon" src="/icons/overview.svg" alt="" />
-                  <span>Overview</span>
-                </a>
-              <% } %>
-              <% if (appItem.menuAccess.launch) { %>
-                <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'launch' ? ' active' : '' %>" href="/apps/<%= appItem.id %>/launch" data-launch-mode="<%= appItem.effectiveLaunchMode %>" <%= appItem.effectiveLaunchMode === 'new-tab' ? 'target="_blank" rel="noreferrer"' : '' %>>
-                  <img class="nav-subicon" src="/icons/launch.svg" alt="" />
-                  <span>Launch</span>
-                </a>
-              <% } %>
-              <% if (appItem.menuAccess.settings) { %>
-                <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'settings' ? ' active' : '' %>" href="/apps/<%= appItem.id %>/settings">
-                  <img class="nav-subicon" src="/icons/settings.svg" alt="" />
-                  <span>App settings</span>
-                </a>
-              <% } %>
-              <% if (appItem.menuAccess.activity) { %>
-                <a class="nav-subitem<%= _navActiveAppId && appItem.id === _navActiveAppId && _navActivePage === 'activity' ? ' active' : '' %>" href="/apps/<%= appItem.id %>/activity">
-                  <img class="nav-subicon" src="/icons/activity-queue.svg" alt="" />
-                  <span>Activity</span>
-                </a>
-              <% } %>
-            </div>
-          </div>
-        <% }) %>
-      <% } %>
-    <% }) %>
-  </div>
+<div class="nav-divider"></div>
+<a class="nav-item<%= _navActivePage === 'dashboard' ? ' active' : '' %>" href="/dashboard">
+  <img class="nav-icon" src="/icons/dashboard.svg" alt="" />
+  <span class="nav-label">Dashboard</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'history' ? ' active' : '' %>" href="/history">
+  <img class="nav-icon" src="/icons/activity-queue.svg" alt="" />
+  <span class="nav-label">History</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'artists' ? ' active' : '' %>" href="/artists">
+  <img class="nav-icon" src="/icons/user-profile.svg" alt="" />
+  <span class="nav-label">Artists</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'tracks' ? ' active' : '' %>" href="/tracks">
+  <img class="nav-icon" src="/icons/overview.svg" alt="" />
+  <span class="nav-label">Tracks</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'playlists' ? ' active' : '' %>" href="/playlists">
+  <img class="nav-icon" src="/icons/category.svg" alt="" />
+  <span class="nav-label">Playlists</span>
+</a>
+<% if (_navIsAdmin) { %>
+<div class="nav-divider"></div>
+<a class="nav-item<%= _navActivePage === 'settings' ? ' active' : '' %>" href="/settings">
+  <img class="nav-icon" src="/icons/settings.svg" alt="" />
+  <span class="nav-label">Settings</span>
+</a>
 <% } %>

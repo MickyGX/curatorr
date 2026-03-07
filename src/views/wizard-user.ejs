@@ -1,0 +1,192 @@
+<%- include('partials/head', { pageTitle: title || 'Personalise Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="login-body">
+  <%- include('partials/theme-init') %>
+
+  <div class="wizard-shell">
+    <div class="wizard-card">
+      <div class="wizard-header">
+        <div class="wizard-brand">
+          <img src="/icons/curatorr-icon.svg" alt="Curatorr" class="wizard-logo" onerror="this.style.display='none'" />
+          <span class="wizard-brand-name">Curatorr</span>
+        </div>
+        <div class="wizard-steps">
+          <% for (var i = 1; i <= totalSteps; i++) { %>
+            <div class="wizard-step-dot<%= i === step ? ' wizard-step-dot--active' : (i < step ? ' wizard-step-dot--done' : '') %>"></div>
+          <% } %>
+        </div>
+        <div class="wizard-step-label">Step <%= step %> of <%= totalSteps %></div>
+      </div>
+
+      <% if (error) { %>
+        <div class="wizard-error"><%= error %></div>
+      <% } %>
+
+      <%# ── Step 1: Genres you like ─────────────────────────────────────────── %>
+      <% if (step === 1) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Welcome, <%= user.username %>!</h2>
+          <p class="wizard-desc">Let's set up your personal playlist. First, pick your favourite genres — artists from these will be offered next.</p>
+          <form method="post" action="/wizard/user/genres-like" id="wuf1">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-check-grid">
+              <% (extra.genres || []).forEach(function(genre) { %>
+                <label class="wizard-check-item">
+                  <input type="checkbox" name="genres" value="<%= genre %>" />
+                  <span class="wizard-check-label"><%= genre %></span>
+                </label>
+              <% }) %>
+              <% if (!(extra.genres || []).length) { %>
+                <p class="wizard-hint">No genres found yet — the master track cache may still be building. <a href="/wizard/user">Refresh</a> in a moment.</p>
+              <% } %>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <span class="wizard-hint">Skip any step with no selections to include everything.</span>
+            <button type="submit" form="wuf1" class="btn btn-primary">Next →</button>
+          </div>
+        </div>
+
+      <%# ── Step 2: Artists you like ────────────────────────────────────────── %>
+      <% } else if (step === 2) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Artists you love</h2>
+          <p class="wizard-desc">These artists will always stay in your playlist regardless of skip count.</p>
+          <% if ((extra.artists || []).length) { %>
+            <div class="wizard-search-wrap">
+              <input type="search" id="artistSearch1" class="wizard-input wizard-search" placeholder="Search artists…" />
+            </div>
+          <% } %>
+          <form method="post" action="/wizard/user/artists-like" id="wuf2">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-check-grid" id="artistLikeGrid">
+              <% (extra.artists || []).forEach(function(artist) { %>
+                <label class="wizard-check-item">
+                  <input type="checkbox" name="artists" value="<%= artist %>" />
+                  <span class="wizard-check-label"><%= artist %></span>
+                </label>
+              <% }) %>
+              <% if (!(extra.artists || []).length) { %>
+                <p class="wizard-hint">No artists found for your selected genres.</p>
+              <% } %>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/user/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="2" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wuf2" class="btn btn-primary">Next →</button>
+          </div>
+        </div>
+
+      <%# ── Step 3: Least favourite genres (to build the exclusion artist list) %>
+      <% } else if (step === 3) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Least favourite genres</h2>
+          <p class="wizard-desc">Pick genres you're least keen on. We'll use this to show you which artists to exclude in the next step — the genres themselves won't be filtered.</p>
+          <form method="post" action="/wizard/user/genres-ignore" id="wuf3">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-check-grid">
+              <% (extra.genres || []).forEach(function(genre) { %>
+                <label class="wizard-check-item">
+                  <input type="checkbox" name="genres" value="<%= genre %>" />
+                  <span class="wizard-check-label"><%= genre %></span>
+                </label>
+              <% }) %>
+              <% if (!(extra.genres || []).length) { %>
+                <p class="wizard-hint">No remaining genres available.</p>
+              <% } %>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/user/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="3" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wuf3" class="btn btn-primary">Next →</button>
+          </div>
+        </div>
+
+      <%# ── Step 4: Artists to exclude ─────────────────────────────────────── %>
+      <% } else if (step === 4) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Artists to exclude</h2>
+          <p class="wizard-desc">These artists won't appear in your playlist from the start. The list is filtered from your least favourite genres.</p>
+          <% if ((extra.artists || []).length) { %>
+            <div class="wizard-search-wrap">
+              <input type="search" id="artistSearch2" class="wizard-input wizard-search" placeholder="Search artists…" />
+            </div>
+          <% } %>
+          <form method="post" action="/wizard/user/artists-ignore" id="wuf4">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-check-grid" id="artistIgnoreGrid">
+              <% (extra.artists || []).forEach(function(artist) { %>
+                <label class="wizard-check-item">
+                  <input type="checkbox" name="artists" value="<%= artist %>" />
+                  <span class="wizard-check-label"><%= artist %></span>
+                </label>
+              <% }) %>
+              <% if (!(extra.artists || []).length) { %>
+                <p class="wizard-hint">No additional artists to exclude.</p>
+              <% } %>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/user/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="4" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wuf4" class="btn btn-primary">Next →</button>
+          </div>
+        </div>
+
+      <%# ── Step 5: Create playlist ─────────────────────────────────────────── %>
+      <% } else if (step === 5) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">All set!</h2>
+          <p class="wizard-desc">Curatorr will now create <strong>"<%= user.username %>'s Curatorred Playlist"</strong> in Plex, starting with all qualifying tracks from your library (<%= extra.masterCount || 'thousands of' %> tracks, minus your exclusions).</p>
+          <p class="wizard-desc">As you listen, tracks and artists you skip too often are automatically removed. Your liked artists are protected and stay in forever.</p>
+          <form method="post" action="/wizard/user/create-playlist" id="wuf5">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/user/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="5" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wuf5" class="btn btn-primary" id="createBtn">Create my playlist →</button>
+          </div>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <script>
+    // Artist search filter
+    ['artistSearch1', 'artistSearch2'].forEach(function(id) {
+      var input = document.getElementById(id);
+      if (!input) return;
+      var gridId = id === 'artistSearch1' ? 'artistLikeGrid' : 'artistIgnoreGrid';
+      input.addEventListener('input', function() {
+        var q = this.value.toLowerCase();
+        document.querySelectorAll('#' + gridId + ' .wizard-check-item').forEach(function(el) {
+          el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+    });
+
+    // Disable create button on submit to prevent double-click
+    var createBtn = document.getElementById('createBtn');
+    if (createBtn) {
+      document.getElementById('wuf5').addEventListener('submit', function() {
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating playlist…';
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<%- include('partials/head', { pageTitle: title || 'Playlists — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body">
+  <div class="dash-frame">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div><div class="dash-title">Curatorr</div></div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'playlists', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/category.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Playlists</span>
+        </div>
+        <div class="main-window-spacer"></div>
+      </div>
+
+      <%
+        const _lastSync = lastSync || null;
+        function fmtDate(ts) {
+          if (!ts) return '—';
+          return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+      %>
+
+      <%# ── Playlist header (direct child of dash-main so sticky works) ── %>
+      <div class="cur-playlist-hero" id="playlistHero" style="display:none">
+        <div class="cur-playlist-hero-inner">
+          <div class="cur-playlist-hero-art" id="heroArt">
+            <img id="heroThumb" src="" alt="" onerror="this.style.display='none'" />
+            <div class="cur-playlist-hero-icon">♫</div>
+          </div>
+          <div class="cur-playlist-hero-info">
+            <div class="cur-playlist-hero-label">Playlist</div>
+            <h2 class="cur-playlist-hero-name" id="heroName">Loading…</h2>
+            <div class="cur-playlist-hero-meta" id="heroMeta"></div>
+            <div class="cur-playlist-hero-actions">
+              <button class="btn btn-primary" id="syncBtn" onclick="syncPlaylist()">⟳ Sync now</button>
+              <span class="cur-sync-status" id="syncStatus"></span>
+              <% if (_lastSync) { %>
+                <span class="cur-playlist-hero-sync">Last synced <strong><%= fmtDate(_lastSync.synced_at) %></strong> · <%= _lastSync.track_count %> tracks</span>
+              <% } %>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-content">
+        <%# ── Track list ───────────────────────────────────────────────── %>
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Tracks</h3>
+            <span class="cur-panel-meta" id="trackCountLabel"></span>
+          </div>
+
+          <div class="cur-pl-table">
+            <div class="cur-pl-head">
+              <span class="cur-pl-col-num">#</span>
+              <span class="cur-pl-col-art"></span>
+              <span class="cur-pl-col-title">Title</span>
+              <span class="cur-pl-col-dur">Duration</span>
+            </div>
+            <div id="trackList"></div>
+          </div>
+
+          <div id="loadMoreWrap" style="display:none; text-align:center; padding:16px">
+            <button class="btn btn-ghost" id="loadMoreBtn" onclick="loadMore()">Load more</button>
+          </div>
+          <div id="trackListEmpty" class="cur-empty" style="display:none">No tracks found.</div>
+          <div id="trackListLoading" class="cur-empty">Loading playlist…</div>
+        </div>
+
+        <%# ── Excluded tracks & artists ───────────────────────────────── %>
+        <div class="cur-two-col">
+          <div class="cur-panel">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Excluded tracks</h3>
+              <a href="/tracks" class="cur-panel-link">Manage</a>
+            </div>
+            <div id="excludedTracksPanel"><div class="cur-empty">Loading…</div></div>
+          </div>
+          <div class="cur-panel">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Excluded artists</h3>
+              <a href="/artists" class="cur-panel-link">Manage</a>
+            </div>
+            <div id="excludedArtistsPanel"><div class="cur-empty">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script>
+    var _offset = 0;
+    var _total = 0;
+    var _pageSize = 100;
+    var _loading = false;
+
+    function fmtDuration(ms) {
+      if (!ms) return '';
+      var s = Math.round(ms / 1000);
+      var m = Math.floor(s / 60);
+      var sec = s % 60;
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function fmtTotalTime(ms) {
+      var h = Math.floor(ms / 3600000);
+      var m = Math.floor((ms % 3600000) / 60000);
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + ' min';
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function renderTracks(tracks, offset) {
+      var list = document.getElementById('trackList');
+      var frag = document.createDocumentFragment();
+      tracks.forEach(function(t, i) {
+        var row = document.createElement('div');
+        row.className = 'cur-pl-row';
+        var thumbHtml = t.thumb
+          ? '<img src="/api/plex/art?path=' + encodeURIComponent(t.thumb) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" />'
+          : '<div class="cur-pl-no-art">♫</div>';
+        row.innerHTML =
+          '<span class="cur-pl-col-num">' + (offset + i + 1) + '</span>' +
+          '<span class="cur-pl-col-art">' + thumbHtml + '</span>' +
+          '<span class="cur-pl-col-title">' +
+            '<span class="cur-pl-track-name">' + escHtml(t.title) + '</span>' +
+            '<span class="cur-pl-track-sub">' + escHtml(t.artistName) + (t.albumName ? ' · ' + escHtml(t.albumName) : '') + '</span>' +
+          '</span>' +
+          '<span class="cur-pl-col-dur">' + fmtDuration(t.duration) + '</span>';
+        frag.appendChild(row);
+      });
+      list.appendChild(frag);
+    }
+
+    function loadTracks(offset) {
+      if (_loading) return;
+      _loading = true;
+      fetch('/api/music/playlist/tracks?offset=' + offset + '&limit=' + _pageSize)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          _loading = false;
+          document.getElementById('trackListLoading').style.display = 'none';
+
+          if (!data.ok || !data.playlistTitle) {
+            var emptyEl = document.getElementById('trackListEmpty');
+            emptyEl.style.display = '';
+            emptyEl.innerHTML = 'No playlist found. <a href="/wizard/user">Complete your personal setup</a> to create your playlist.';
+            return;
+          }
+
+          _total = data.total;
+          _offset = offset + data.tracks.length;
+
+          // Update hero
+          var hero = document.getElementById('playlistHero');
+          hero.style.display = '';
+          document.getElementById('heroName').textContent = data.playlistTitle;
+          document.getElementById('trackCountLabel').textContent = _total.toLocaleString() + ' tracks';
+          document.getElementById('heroMeta').textContent = _total.toLocaleString() + ' tracks';
+
+          // Set hero art from first track with thumb
+          var firstThumb = data.tracks.find(function(t) { return t.thumb; });
+          if (firstThumb) {
+            var img = document.getElementById('heroThumb');
+            img.src = '/api/plex/art?path=' + encodeURIComponent(firstThumb.thumb);
+            img.style.display = '';
+            document.querySelector('.cur-playlist-hero-icon').style.display = 'none';
+          }
+
+          if (data.tracks.length === 0 && offset === 0) {
+            document.getElementById('trackListEmpty').style.display = '';
+            return;
+          }
+
+          renderTracks(data.tracks, offset);
+
+          // Show/hide load more
+          var wrap = document.getElementById('loadMoreWrap');
+          if (_offset < _total) {
+            wrap.style.display = '';
+            document.getElementById('loadMoreBtn').textContent = 'Load more (' + (_total - _offset).toLocaleString() + ' remaining)';
+          } else {
+            wrap.style.display = 'none';
+          }
+        })
+        .catch(function() {
+          _loading = false;
+          document.getElementById('trackListLoading').style.display = 'none';
+          document.getElementById('trackListEmpty').style.display = '';
+          document.getElementById('trackListEmpty').textContent = 'Failed to load tracks.';
+        });
+    }
+
+    function loadMore() {
+      loadTracks(_offset);
+    }
+
+    function syncPlaylist() {
+      var btn = document.getElementById('syncBtn');
+      var status = document.getElementById('syncStatus');
+      btn.disabled = true;
+      status.textContent = 'Syncing…';
+      fetch('/api/music/playlist/sync', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok) {
+            status.textContent = 'Synced!';
+            // Reload track list
+            document.getElementById('trackList').innerHTML = '';
+            _offset = 0;
+            document.getElementById('trackListLoading').style.display = '';
+            loadTracks(0);
+            setTimeout(function() { status.textContent = ''; btn.disabled = false; }, 3000);
+          } else {
+            status.textContent = 'Error: ' + (data.error || 'Unknown');
+            btn.disabled = false;
+          }
+        })
+        .catch(function() { status.textContent = 'Network error.'; btn.disabled = false; });
+    }
+
+    // Load excluded lists
+    fetch('/api/music/playlist/excluded')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var tracksEl = document.getElementById('excludedTracksPanel');
+        var artistsEl = document.getElementById('excludedArtistsPanel');
+        if (data.excludedTracks && data.excludedTracks.length) {
+          tracksEl.innerHTML = '<div class="cur-excluded-list">' + data.excludedTracks.length + ' track(s) excluded. <a href="/tracks">Manage on Tracks page.</a></div>';
+        } else {
+          tracksEl.innerHTML = '<div class="cur-empty">No tracks excluded.</div>';
+        }
+        if (data.excludedArtists && data.excludedArtists.length) {
+          artistsEl.innerHTML = '<ul class="cur-list">' + data.excludedArtists.map(function(a) {
+            return '<li class="cur-list-item"><span class="cur-list-name">' + escHtml(a) + '</span><span class="cur-badge cur-badge--skip">excluded</span></li>';
+          }).join('') + '</ul>';
+        } else {
+          artistsEl.innerHTML = '<div class="cur-empty">No artists excluded.</div>';
+        }
+      });
+
+    // Initial load
+    loadTracks(0);
+  </script>
+</body>
+</html>

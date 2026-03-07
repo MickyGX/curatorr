@@ -1,17 +1,17 @@
 {
-  "name": "Launcharr",
-  "short_name": "Launcharr",
-  "description": "Homepage and central hub for Arr suite apps with Plex SSO",
+  "name": "Curatorr",
+  "short_name": "Curatorr",
+  "description": "Smart playlist curator for Plex — automatic skip detection and playlist management",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0b1118",
-  "theme_color": "#1cc6c2",
+  "background_color": "#0b0e15",
+  "theme_color": "#8b5cf6",
   "icons": [
     {
-      "src": "/icons/launcharr-icon.png",
+      "src": "/icons/curatorr-icon.svg",
       "sizes": "any",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

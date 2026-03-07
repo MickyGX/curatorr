@@ -184,7 +184,7 @@ export function registerAuth(app, ctx) {
     const config = loadConfig();
     if (!hasLocalAdmin(config)) return res.redirect('/setup');
     res.render('login', {
-      title: 'Launcharr',
+      title: 'Curatorr',
       product: PRODUCT,
       allowLocalLogin: true,
       error: null,
@@ -202,7 +202,7 @@ export function registerAuth(app, ctx) {
     if (blockedMinutes !== null) {
       pushLog({ level: 'warn', app: 'system', action: 'login.ratelimit', message: `Rate limit reached from ${ip}.` });
       return res.status(429).render('login', {
-        title: 'Launcharr',
+        title: 'Curatorr',
         product: PRODUCT,
         allowLocalLogin: true,
         error: `Too many failed login attempts. Try again in ${blockedMinutes} minute${blockedMinutes === 1 ? '' : 's'}.`,
@@ -229,7 +229,7 @@ export function registerAuth(app, ctx) {
         ? ` Too many failed attempts — try again in ${nowBlocked} minute${nowBlocked === 1 ? '' : 's'}.`
         : '';
       return res.status(401).render('login', {
-        title: 'Launcharr',
+        title: 'Curatorr',
         product: PRODUCT,
         allowLocalLogin: true,
         error: `Invalid username/email or password.${suffix}`,
@@ -241,7 +241,7 @@ export function registerAuth(app, ctx) {
     setSessionUser(req, match, 'local');
     const loginConfig = updateUserLogins(config, {
       identifier: match.email || match.username,
-      launcharr: true,
+      curatorr: true,
     });
     if (loginConfig !== config) saveConfig(loginConfig);
     return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
@@ -253,7 +253,7 @@ export function registerAuth(app, ctx) {
     const config = loadConfig();
     if (hasLocalAdmin(config)) return res.redirect('/login');
     res.render('setup', {
-      title: 'Launcharr Setup',
+      title: 'Curatorr Setup',
       minPassword: LOCAL_AUTH_MIN_PASSWORD,
       error: null,
       values: {
@@ -273,7 +273,7 @@ export function registerAuth(app, ctx) {
     const setupBlocked = checkSetupRateLimit(ip);
     if (setupBlocked !== null) {
       return res.status(429).render('setup', {
-        title: 'Launcharr Setup',
+        title: 'Curatorr Setup',
         minPassword: LOCAL_AUTH_MIN_PASSWORD,
         error: `Too many failed attempts. Try again in ${setupBlocked} minute${setupBlocked === 1 ? '' : 's'}.`,
         values: { username: '', email: '' },
@@ -289,7 +289,7 @@ export function registerAuth(app, ctx) {
     if (!username) {
       recordSetupFailure(ip);
       return res.status(400).render('setup', {
-        title: 'Launcharr Setup',
+        title: 'Curatorr Setup',
         minPassword: LOCAL_AUTH_MIN_PASSWORD,
         error: 'Username is required.',
         values,
@@ -298,7 +298,7 @@ export function registerAuth(app, ctx) {
     if (!email || !email.includes('@')) {
       recordSetupFailure(ip);
       return res.status(400).render('setup', {
-        title: 'Launcharr Setup',
+        title: 'Curatorr Setup',
         minPassword: LOCAL_AUTH_MIN_PASSWORD,
         error: 'A valid email is required.',
         values,
@@ -308,7 +308,7 @@ export function registerAuth(app, ctx) {
     if (passwordStrengthError) {
       recordSetupFailure(ip);
       return res.status(400).render('setup', {
-        title: 'Launcharr Setup',
+        title: 'Curatorr Setup',
         minPassword: LOCAL_AUTH_MIN_PASSWORD,
         error: passwordStrengthError,
         values,
@@ -317,7 +317,7 @@ export function registerAuth(app, ctx) {
     if (password !== confirm) {
       recordSetupFailure(ip);
       return res.status(400).render('setup', {
-        title: 'Launcharr Setup',
+        title: 'Curatorr Setup',
         minPassword: LOCAL_AUTH_MIN_PASSWORD,
         error: 'Passwords do not match.',
         values,
@@ -329,7 +329,7 @@ export function registerAuth(app, ctx) {
     if (exists) {
       recordSetupFailure(ip);
       return res.status(400).render('setup', {
-        title: 'Launcharr Setup',
+        title: 'Curatorr Setup',
         minPassword: LOCAL_AUTH_MIN_PASSWORD,
         error: 'Username already exists.',
         values,

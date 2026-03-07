@@ -1,0 +1,129 @@
+<%- include('partials/head', { pageTitle: title || 'Artists — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body">
+  <div class="dash-frame">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div><div class="dash-title">Curatorr</div></div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'artists', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Artists</span>
+        </div>
+        <div class="main-window-spacer"></div>
+      </div>
+
+      <div class="dash-content">
+        <%
+          const _artists = Array.isArray(artists) ? artists : [];
+        %>
+
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Artists <span class="cur-count"><%= _artists.length %></span></h3>
+            <div class="cur-search-wrap">
+              <input type="search" class="cur-search" id="artistSearch" placeholder="Filter artists…" />
+            </div>
+          </div>
+
+          <% if (_artists.length) { %>
+            <div class="cur-artist-table" id="artistTable">
+              <div class="cur-table-head">
+                <span></span>
+                <span>Artist</span>
+                <span>Plays</span>
+                <span>Skips</span>
+                <span>Skip streak</span>
+                <span>Status</span>
+                <span>Actions</span>
+              </div>
+              <% _artists.forEach(function(a) { %>
+                <div class="cur-table-row<%= a.excluded ? ' cur-row--excluded' : '' %>" data-artist-name="<%= a.artist_name.toLowerCase() %>">
+                  <span class="cur-cell-thumb"><img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
+                  <span class="cur-cell-name"><%= a.artist_name %></span>
+                  <span class="cur-cell"><%= a.total_plays %></span>
+                  <span class="cur-cell"><%= a.total_skips %></span>
+                  <span class="cur-cell">
+                    <% if (a.skip_streak > 0) { %>
+                      <span class="cur-skip-streak<%= a.skip_streak >= 3 ? ' cur-skip-streak--danger' : ' cur-skip-streak--warn' %>"><%= a.skip_streak %></span>
+                    <% } else { %>
+                      <span class="cur-cell-muted">0</span>
+                    <% } %>
+                  </span>
+                  <span class="cur-cell">
+                    <% if (a.excluded) { %>
+                      <span class="cur-badge cur-badge--skip">Excluded</span>
+                    <% } else if (a.total_plays > 0 && a.total_skips === 0) { %>
+                      <span class="cur-badge cur-badge--belter">Belter</span>
+                    <% } else if (a.total_plays > 0 && a.total_skips > 0) { %>
+                      <span class="cur-badge cur-badge--decent">Decent</span>
+                    <% } else { %>
+                      <span class="cur-badge cur-badge--ok">Active</span>
+                    <% } %>
+                  </span>
+                  <span class="cur-cell-actions">
+                    <button class="btn btn-sm<%= a.excluded ? ' btn-primary' : ' btn-ghost-danger' %>"
+                      onclick="toggleArtistExclusion('<%= encodeURIComponent(a.artist_name) %>', <%= !a.excluded %>, this)">
+                      <%= a.excluded ? 'Re-include' : 'Exclude' %>
+                    </button>
+                    <% if (a.skip_streak > 0) { %>
+                      <button class="btn btn-sm btn-ghost" onclick="resetArtistSkips('<%= encodeURIComponent(a.artist_name) %>', this)">Reset skips</button>
+                    <% } %>
+                  </span>
+                </div>
+              <% }) %>
+            </div>
+          <% } else { %>
+            <div class="cur-empty">No artist data yet. Plays will appear once Tautulli or Plex webhooks start sending events.</div>
+          <% } %>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script>
+    // Client-side artist search
+    const artistSearch = document.getElementById('artistSearch');
+    if (artistSearch) {
+      artistSearch.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#artistTable .cur-table-row').forEach(function(row) {
+          const name = row.dataset.artistName || '';
+          row.style.display = name.includes(q) ? '' : 'none';
+        });
+      });
+    }
+
+    function toggleArtistExclusion(encodedName, exclude, btn) {
+      fetch('/api/music/artists/' + encodedName + '/exclude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+        body: JSON.stringify({ excluded: exclude }),
+      }).then(function(r) { if (r.ok) location.reload(); });
+    }
+
+    function resetArtistSkips(encodedName, btn) {
+      fetch('/api/music/artists/' + encodedName + '/reset-skips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+      }).then(function(r) { if (r.ok) location.reload(); });
+    }
+  </script>
+</body>
+</html>

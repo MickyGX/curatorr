@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Set env vars BEFORE importing the app — must happen before any dynamic import
-const testDir = join(tmpdir(), `launcharr-test-${process.pid}`);
+const testDir = join(tmpdir(), `curatorr-test-${process.pid}`);
 process.env.CONFIG_PATH = join(testDir, 'config.json');
 process.env.DATA_DIR = join(testDir, 'data');
 process.env.SESSION_SECRET = 'test-secret-do-not-use-in-prod';
@@ -67,7 +67,7 @@ describe('auth routes', () => {
   before(async () => {
     await request.post('/setup').type('form').send({
       username: 'testadmin',
-      email: 'test@launcharr.test',
+      email: 'test@curatorr.test',
       password: 'TestPassword1!',
       confirmPassword: 'TestPassword1!',
     });

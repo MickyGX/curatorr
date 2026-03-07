@@ -1,0 +1,18 @@
+<%- include('partials/head', { pageTitle: 'Error — Curatorr', extraCss: [] }) %>
+<body class="login-body">
+  <%- include('partials/theme-init') %>
+  <div class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <img src="/icons/curatorr-icon.svg" alt="Curatorr" class="auth-logo" onerror="this.style.display='none'" />
+        <span class="auth-brand-name">Curatorr</span>
+      </div>
+      <div class="auth-error-block">
+        <div class="auth-error-code"><%= status || 500 %></div>
+        <div class="auth-error-message"><%= message || 'An unexpected error occurred.' %></div>
+        <a href="/" class="primary-button" style="margin-top:20px;display:inline-flex;">Go home</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

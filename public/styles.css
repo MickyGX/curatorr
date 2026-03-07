@@ -69,6 +69,19 @@ a{color:inherit}
   box-shadow:0 16px 36px rgba(var(--brand-btn-shadow),.34), inset 0 0 0 1px rgba(255,255,255,.2);
 }
 
+html[data-brand-theme="curatorr"]{
+  --teal:#8b5cf6;
+  --teal-dark:#6d28d9;
+  --brand-rgb:139,92,246;
+  --brand-btn-start:#a78bfa;
+  --brand-btn-mid:#8b5cf6;
+  --brand-btn-end:#7c3aed;
+  --brand-btn-shadow:139,92,246;
+  --on-brand:#ffffff;
+  --on-brand-muted:rgba(255,255,255,.75);
+  --on-brand-icon-filter:brightness(0) saturate(100%) invert(1);
+}
+
 html[data-brand-theme="pulsarr"]{
   --teal:#1cc6c2;
   --teal-dark:#0c8b88;

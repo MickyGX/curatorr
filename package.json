@@ -1,7 +1,7 @@
 {
-  "name": "launcharr",
-  "version": "0.2.45",
-  "description": "Homepage and central hub for Arr suite apps with Plex SSO",
+  "name": "curatorr",
+  "version": "0.1.0",
+  "description": "Automatic smart playlist generator and music taste tracker for Plex / Plexamp",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "test": "node --test src/test/*.test.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.6.0",
     "cookie-session": "^2.1.0",
     "ejs": "^3.1.10",
     "express": "^4.19.2",

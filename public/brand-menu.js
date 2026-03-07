@@ -21,9 +21,9 @@
   };
 
   const storageKeys = {
-    theme: 'launcharr-theme',
-    bgMotion: 'launcharr-bg-motion',
-    maximized: 'launcharr-maximized-window',
+    theme: 'curatorr-theme',
+    bgMotion: 'curatorr-bg-motion',
+    maximized: 'curatorr-maximized-window',
   };
   const mobileMotionQuery = window.matchMedia
     ? window.matchMedia('(max-width: 980px)')

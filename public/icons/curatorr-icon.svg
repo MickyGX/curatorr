@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Vinyl record outer ring -->
+  <circle cx="32" cy="32" r="30" fill="#1a1040" stroke="#8b5cf6" stroke-width="2"/>
+  <!-- Record grooves -->
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#2d1b69" stroke-width="1"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#2d1b69" stroke-width="1"/>
+  <circle cx="32" cy="32" r="16" fill="none" stroke="#2d1b69" stroke-width="1"/>
+  <!-- Center label -->
+  <circle cx="32" cy="32" r="10" fill="#8b5cf6"/>
+  <!-- Waveform on center label -->
+  <path d="M24 32 Q26 26 28 32 Q30 38 32 32 Q34 26 36 32 Q38 38 40 32" stroke="white" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  <!-- Center hole -->
+  <circle cx="32" cy="32" r="2.5" fill="#1a1040"/>
+</svg>

@@ -1,0 +1,135 @@
+<%- include('partials/head', { pageTitle: title || 'Tracks — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body">
+  <div class="dash-frame">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div><div class="dash-title">Curatorr</div></div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'tracks', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/overview.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Tracks</span>
+        </div>
+        <div class="main-window-spacer"></div>
+      </div>
+
+      <div class="dash-content">
+        <%
+          const _tracks = Array.isArray(tracks) ? tracks : [];
+          const _completedKeys = new Set(Array.isArray(completedKeys) ? completedKeys : []);
+        %>
+
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Tracks <span class="cur-count"><%= _tracks.length %></span></h3>
+            <div class="cur-search-wrap">
+              <input type="search" class="cur-search" id="trackSearch" placeholder="Filter tracks…" />
+            </div>
+          </div>
+
+          <% if (_tracks.length) { %>
+            <div class="cur-artist-table cur-table--tracks" id="trackTable">
+              <div class="cur-table-head">
+                <span></span>
+                <span>Track</span>
+                <span>Artist</span>
+                <span>Album</span>
+                <span>Plays</span>
+                <span>Skips</span>
+                <span>Streak</span>
+                <span>Status</span>
+                <span>Actions</span>
+              </div>
+              <% _tracks.forEach(function(t) { %>
+                <div class="cur-table-row<%= t.excluded ? ' cur-row--excluded' : '' %>" data-track-name="<%= (t.track_title + ' ' + t.artist_name).toLowerCase() %>">
+                  <span class="cur-cell-thumb"><img src="/api/music/thumb/track/<%= encodeURIComponent(t.rating_key) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
+                  <span class="cur-cell-name"><%= t.track_title %></span>
+                  <span class="cur-cell"><%= t.artist_name %></span>
+                  <span class="cur-cell cur-cell-muted"><%= t.album_name || '—' %></span>
+                  <span class="cur-cell"><%= t.total_plays %></span>
+                  <span class="cur-cell"><%= t.total_skips %></span>
+                  <span class="cur-cell">
+                    <% if (t.skip_streak > 0) { %>
+                      <span class="cur-skip-streak<%= t.skip_streak >= 3 ? ' cur-skip-streak--danger' : ' cur-skip-streak--warn' %>"><%= t.skip_streak %></span>
+                    <% } else { %>
+                      <span class="cur-cell-muted">0</span>
+                    <% } %>
+                  </span>
+                  <span class="cur-cell">
+                    <% if (t.excluded) { %>
+                      <span class="cur-badge cur-badge--skip">Excluded</span>
+                    <% } else if (t.force_included) { %>
+                      <span class="cur-badge cur-badge--ok">Pinned</span>
+                    <% } else if (_completedKeys.has(t.rating_key)) { %>
+                      <span class="cur-badge cur-badge--belter">Belter</span>
+                    <% } else if (t.total_plays > 0) { %>
+                      <span class="cur-badge cur-badge--decent">Decent</span>
+                    <% } else { %>
+                      <span class="cur-badge cur-badge--neutral">Active</span>
+                    <% } %>
+                  </span>
+                  <span class="cur-cell-actions">
+                    <% if (t.excluded) { %>
+                      <button class="btn btn-sm btn-primary" onclick="toggleTrackExclusion('<%= encodeURIComponent(t.rating_key) %>', false, this)">Re-include</button>
+                    <% } else { %>
+                      <button class="btn btn-sm btn-ghost-danger" onclick="toggleTrackExclusion('<%= encodeURIComponent(t.rating_key) %>', true, this)">Exclude</button>
+                    <% } %>
+                    <% if (t.skip_streak > 0) { %>
+                      <button class="btn btn-sm btn-ghost" onclick="resetTrackSkips('<%= encodeURIComponent(t.rating_key) %>', this)">Reset</button>
+                    <% } %>
+                  </span>
+                </div>
+              <% }) %>
+            </div>
+          <% } else { %>
+            <div class="cur-empty">No track data yet. Plays will appear once Tautulli or Plex webhooks start sending events.</div>
+          <% } %>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script>
+    const trackSearch = document.getElementById('trackSearch');
+    if (trackSearch) {
+      trackSearch.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#trackTable .cur-table-row').forEach(function(row) {
+          row.style.display = (row.dataset.trackName || '').includes(q) ? '' : 'none';
+        });
+      });
+    }
+
+    function toggleTrackExclusion(key, exclude, btn) {
+      fetch('/api/music/tracks/' + key + '/exclude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+        body: JSON.stringify({ excluded: exclude }),
+      }).then(function(r) { if (r.ok) location.reload(); });
+    }
+
+    function resetTrackSkips(key, btn) {
+      fetch('/api/music/tracks/' + key + '/reset-skips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+      }).then(function(r) { if (r.ok) location.reload(); });
+    }
+  </script>
+</body>
+</html>

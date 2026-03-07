@@ -1,0 +1,92 @@
+<%- include('partials/head', { pageTitle: title || 'Play History — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body">
+  <div class="dash-frame">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div><div class="dash-title">Curatorr</div></div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'history', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/activity-queue.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| History</span>
+        </div>
+        <div class="main-window-spacer"></div>
+      </div>
+
+      <div class="dash-content">
+        <%
+          const _history = Array.isArray(history) ? history : [];
+          function fmtTime(ms) {
+            if (!ms) return '—';
+            const s = Math.floor(ms / 1000);
+            const m = Math.floor(s / 60);
+            const h = Math.floor(m / 60);
+            if (h) return h + 'h ' + (m % 60) + 'm';
+            if (m) return m + 'm ' + (s % 60) + 's';
+            return s + 's';
+          }
+          function fmtDate(ts) {
+            if (!ts) return '—';
+            return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          }
+        %>
+
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Play history</h3>
+            <div class="cur-panel-actions">
+              <% if (page > 0) { %><a href="/history?page=<%= page - 1 %>" class="btn btn-secondary btn-sm">Previous</a><% } %>
+              <% if (_history.length >= limit) { %><a href="/history?page=<%= page + 1 %>" class="btn btn-secondary btn-sm">Next</a><% } %>
+            </div>
+          </div>
+
+          <% if (_history.length) { %>
+            <div class="cur-history-table cur-history-table--full">
+              <div class="cur-history-head">
+                <span>Track</span>
+                <span>Artist</span>
+                <span>Album</span>
+                <span>Listened</span>
+                <span>When</span>
+                <span>Source</span>
+              </div>
+              <% _history.forEach(function(h) { %>
+                <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
+                  <span class="cur-history-track">
+                    <%= h.track_title || '—' %>
+                    <% if (h.is_skip) { %><span class="cur-badge cur-badge--skip">skip</span><% } %>
+                  </span>
+                  <span class="cur-history-artist"><%= h.artist_name || '—' %></span>
+                  <span class="cur-history-album"><%= h.album_name || '—' %></span>
+                  <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
+                  <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
+                  <span class="cur-history-source cur-source-badge"><%= h.event_source || '—' %></span>
+                </div>
+              <% }) %>
+            </div>
+          <% } else { %>
+            <div class="cur-empty">No play history yet. Configure Tautulli or Plex webhooks to start tracking.</div>
+          <% } %>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+</body>
+</html>

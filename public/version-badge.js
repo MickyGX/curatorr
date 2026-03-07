@@ -2,10 +2,10 @@
   const status = document.querySelector('.main-window-status');
   if (!status) return;
   const root = document.documentElement;
-  const releaseBase = 'https://github.com/MickyGX/launcharr/releases/tag/';
+  const releaseBase = 'https://github.com/MickyGX/curatorr/releases/tag/';
   const supportUrl = 'https://buymeacoffee.com/mickygx';
   const dot = status.querySelector('.status-dot');
-  const themeStorageKey = 'launcharr-theme';
+  const themeStorageKey = 'curatorr-theme';
   const getThemeMode = () => root.dataset.theme === 'day' ? 'day' : 'night';
   const applyThemeMode = (value) => {
     const next = value === 'day' ? 'day' : 'night';
@@ -73,7 +73,7 @@
     const versionTag = normalizeVersionTag(current);
     if (!versionTag) return;
     if (document.getElementById('releaseWelcomeBackdrop')) return;
-    const storageKey = 'launcharr-release-welcome-seen';
+    const storageKey = 'curatorr-release-welcome-seen';
     let seenVersion = '';
     try {
       seenVersion = String(localStorage.getItem(storageKey) || '').trim();
@@ -115,7 +115,7 @@
             '<div class="plex-modal-hero release-welcome-hero">' +
               '<div class="release-welcome-content">' +
                 '<div class="release-welcome-brand">' +
-                  '<img class="release-welcome-icon" src="/icons/launcharr-icon.png" alt="Launcharr" loading="eager" />' +
+                  '<img class="release-welcome-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="eager" />' +
                   '<div class="plex-pills release-welcome-pills">' +
                     `<span class="plex-pill2 release-welcome-pill">${escapeHtml(versionTag)}</span>` +
                   '</div>' +
@@ -221,7 +221,7 @@
               '<div class="plex-modal-hero quick-start-hero">' +
                 '<div class="quick-start-content">' +
                   '<div class="quick-start-brand">' +
-                    '<img class="quick-start-icon" src="/icons/launcharr-icon.png" alt="Launcharr" loading="eager" />' +
+                    '<img class="quick-start-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="eager" />' +
                     '<div class="quick-start-summary">Recommended first steps:</div>' +
                   '</div>' +
                   '<ol class="quick-start-list">' +

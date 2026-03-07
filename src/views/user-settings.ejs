@@ -1,55 +1,16 @@
-<%- include('partials/head', { pageTitle: 'Launcharr · User Profile', extraCss: ['/styles-layout.css', '/styles-settings.css'] }) %>
+<%- include('partials/head', { pageTitle: title || 'My Settings — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-settings.css'] }) %>
 <body class="dash-body">
-  <%
-    const dashboardNavEntries = (Array.isArray(dashboardDefinitions) ? dashboardDefinitions : [])
-      .map((entry) => ({
-        id: String(entry?.id || '').trim() || 'main',
-        name: String(entry?.name || '').trim() || 'Dashboard',
-        icon: String(entry?.icon || '/icons/dashboard.svg').trim() || '/icons/dashboard.svg',
-      }))
-      .filter((entry, index, list) => entry.id && list.findIndex((candidate) => candidate.id === entry.id) === index);
-    const activeDashboardEntry = (() => {
-      const requestedId = String(activeDashboard?.id || 'main').trim() || 'main';
-      return dashboardNavEntries.find((entry) => entry.id === requestedId)
-        || dashboardNavEntries[0]
-        || { id: 'main', name: 'Dashboard', icon: '/icons/dashboard.svg' };
-    })();
-    const mainDashboardNavEntry = dashboardNavEntries.find((entry) => entry.id === 'main')
-      || { id: 'main', name: 'Dashboard', icon: '/icons/dashboard.svg' };
-    const primaryDashboardNavEntry = mainDashboardNavEntry?.id && dashboardNavEntries.some((entry) => entry.id === mainDashboardNavEntry.id)
-      ? mainDashboardNavEntry
-      : (dashboardNavEntries[0] || { id: 'main', name: 'Dashboard', icon: '/icons/dashboard.svg' });
-    const secondaryDashboardNavEntries = dashboardNavEntries.filter((entry) => entry.id !== primaryDashboardNavEntry.id);
-  %>
   <div class="dash-frame">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon app-icon" src="/icons/launcharr-icon.png" alt="Launcharr" />
+          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
-        <div>
-          <div class="dash-title">Launcharr</div>
-        </div>
+        <div><div class="dash-title">Curatorr</div></div>
       </div>
-
       <div class="dash-nav">
-        <% if (dashboardNavEntries.length) { %>
-          <a class="nav-item" href="/dashboard?dashboard=<%= encodeURIComponent(primaryDashboardNavEntry.id || 'main') %>">
-            <img class="nav-icon" src="<%= primaryDashboardNavEntry.icon || '/icons/dashboard.svg' %>" alt="" onerror="this.src='/icons/dashboard.svg'" />
-            <span class="nav-label"><%= primaryDashboardNavEntry.name || 'Dashboard' %></span>
-          </a>
-          <% if (secondaryDashboardNavEntries.length) { %>
-            <% secondaryDashboardNavEntries.forEach((dashboardLink) => { %>
-              <a class="nav-item nav-item--dashboard-child" href="/dashboard?dashboard=<%= encodeURIComponent(dashboardLink.id) %>">
-                <img class="nav-icon" src="<%= dashboardLink.icon || '/icons/dashboard.svg' %>" alt="" onerror="this.src='/icons/dashboard.svg'" />
-                <span class="nav-label"><%= dashboardLink.name %></span>
-              </a>
-            <% }) %>
-          <% } %>
-        <% } %>
-        <%- include('partials/nav-categories', { navDashHasEntries: dashboardNavEntries.length > 0, navActiveAppId: null, navActivePage: null }) %>
+        <%- include('partials/nav-categories', { navActivePage: '', role: role }) %>
       </div>
-
       <%- include('partials/user-menu') %>
     </aside>
 
@@ -60,840 +21,112 @@
         </button>
         <div class="main-window-title">
           <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
-          <span class="main-window-app">User Profile</span>
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| My Profile</span>
         </div>
         <div class="main-window-spacer"></div>
-        <div class="main-window-status">
-          <span class="status-dot"></span>
-        </div>
       </div>
 
-      <div class="dash-panel">
-        <div class="panel-header">
-          <h2>User Profile</h2>
-          <span class="panel-sub">Profile and view mode</span>
-        </div>
-        <%
-          const profileResultMap = {
-            saved: 'Profile details updated.',
-          };
-          const profileNote = profileError
-            ? profileError
-            : (profileResultMap[profileResult] || (isLocalUser
-              ? 'Update your Launcharr account details.'
-              : 'This profile is managed by your Plex account.'));
-          const profileRole = isLocalUser
-            ? (localProfile?.role || actualRole)
-            : role;
-        %>
-        <div class="settings-form">
-          <div class="settings-card">
-            <div class="settings-profile-head">
-              <div class="settings-profile-head-copy">
-                <div class="settings-card-title">Profile</div>
-                <div class="settings-card-sub"><%= isLocalUser ? 'Launcharr account details' : 'Plex account details' %></div>
-              </div>
-              <strong class="settings-role-pill settings-role-pill--profile">
-                <img class="settings-role-pill-icon" src="/icons/role.svg" alt="" />
-                <%= profileRole %>
-              </strong>
-            </div>
-            <%
-              const profileAvatarFallback = user.avatarFallback || '/icons/user-profile.svg';
-              const profileAvatarSrc = (localProfile?.avatar || user.avatar || profileAvatarFallback);
-            %>
-            <div class="settings-profile-avatar">
-              <img
-                class="settings-profile-avatar-image"
-                id="profileAvatarPreview"
-                src="<%= profileAvatarSrc %>"
-                alt="Current avatar"
-                onerror="this.onerror=null;this.src='<%= profileAvatarFallback %>';"
-              />
-              <div class="settings-profile-avatar-meta">
-                <strong class="settings-profile-avatar-label">Current avatar</strong>
-                <span class="settings-profile-avatar-help">PNG, JPG, or WEBP up to 2 MB.</span>
+      <div class="dash-content">
+        <% if (success) { %>
+          <div class="settings-success">
+            <% if (success === 'password-changed') { %>Password changed successfully.<% } else if (success === 'avatar-updated') { %>Avatar updated.<% } else if (success === 'theme-updated') { %>Theme saved.<% } else { %>Saved.<% } %>
+          </div>
+        <% } %>
+        <% if (error) { %>
+          <div class="settings-error"><%= error %></div>
+        <% } %>
+
+        <div class="settings-layout">
+          <div class="settings-panels">
+
+            <%# ── Avatar ──────────────────────────────────────────────── %>
+            <div class="settings-panel">
+              <h2 class="settings-panel-title">Avatar</h2>
+              <div class="settings-avatar-wrap">
+                <img class="settings-avatar-preview" id="avatarPreview"
+                  src="<%= user.avatar || user.avatarFallback || '/icons/user-profile.svg' %>"
+                  alt="Your avatar" onerror="this.src='/icons/user-profile.svg'" />
+                <div class="settings-avatar-controls">
+                  <label class="btn btn-secondary" for="avatarFile">Choose image</label>
+                  <input type="file" id="avatarFile" accept="image/*" style="display:none" onchange="previewAvatar(this)" />
+                  <form method="post" action="/user-settings/avatar" id="avatarForm">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                    <input type="hidden" name="avatarData" id="avatarData" />
+                    <button type="submit" id="avatarSaveBtn" class="btn btn-primary" style="display:none">Save avatar</button>
+                  </form>
+                </div>
               </div>
             </div>
-            <span class="settings-users-note<%= profileError ? ' settings-users-note--error' : '' %>"><%= profileNote %></span>
-            <% if (isLocalUser) { %>
-              <form method="post" action="/user-settings/profile" class="settings-form" id="profileDetailsForm">
-                <input type="hidden" name="avatarDataUrl" id="avatarDataUrl" value="" />
-                <label class="field">
-                  <span>Username</span>
-                  <input type="text" name="username" value="<%= localProfile?.username || user.username || '' %>" required />
-                </label>
-                <label class="field">
-                  <span>Email (optional)</span>
-                  <input type="email" name="email" value="<%= localProfile?.email || user.email || '' %>" />
-                </label>
-                <label class="field">
-                  <span>New password (optional)</span>
-                  <input type="password" name="newPassword" placeholder="Leave blank, or use min 12 with upper/lower/number/symbol" />
-                </label>
-                <label class="field">
-                  <span>Confirm new password</span>
-                  <input type="password" name="confirmPassword" placeholder="Repeat new password" />
-                </label>
-                <label class="field">
-                  <span>Avatar image (optional)</span>
-                  <input class="settings-icon-file" type="file" id="avatarUploadInput" accept="image/png,image/jpeg,image/webp" />
-                </label>
-                <span class="settings-users-note settings-users-note--error" id="avatarUploadError" hidden></span>
-                <button class="primary-button" type="submit">Save profile details</button>
-              </form>
-            <% } else { %>
-              <div class="settings-card-lines">
-                <div class="settings-card-line"><span>Username</span><strong><%= user.username %></strong></div>
-                <% if (user.email) { %>
-                  <div class="settings-card-line"><span>Email</span><strong><%= user.email %></strong></div>
-                <% } %>
+
+            <%# ── Change password (local auth only) ──────────────────── %>
+            <% if (String(user.source || '').toLowerCase() === 'local') { %>
+              <div class="settings-panel">
+                <h2 class="settings-panel-title">Change password</h2>
+                <form method="post" action="/user-settings/password" class="settings-form">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <div class="settings-field">
+                    <label class="settings-label" for="currentPassword">Current password</label>
+                    <input class="settings-input" type="password" id="currentPassword" name="currentPassword" required autocomplete="current-password" />
+                  </div>
+                  <div class="settings-field">
+                    <label class="settings-label" for="newPassword">New password</label>
+                    <input class="settings-input" type="password" id="newPassword" name="newPassword" required autocomplete="new-password" />
+                  </div>
+                  <div class="settings-field">
+                    <label class="settings-label" for="confirmPassword">Confirm new password</label>
+                    <input class="settings-input" type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" />
+                  </div>
+                  <div class="settings-actions">
+                    <button type="submit" class="btn btn-primary">Change password</button>
+                  </div>
+                </form>
               </div>
             <% } %>
-          </div>
 
-          <%
-            const themeResultMap = {
-              saved: 'Theme preference saved.',
-            };
-            const themeNote = themeError
-              ? themeError
-              : (themeResultMap[themeResult] || '');
-          %>
-          <div class="settings-card settings-card--themes">
-            <div class="settings-card-title">Theme</div>
-            <div class="settings-card-sub">Customize your personal Launcharr appearance.</div>
-            <div class="theme-presets" id="profileThemePresets">
-              <button class="theme-preset-card" type="button" data-brand-theme="launcharr">
-                <span class="theme-preset-chip" style="--theme-color:#6d7a86;"></span>
-                <span class="theme-preset-name">Launcharr</span>
-                <span class="theme-preset-meta">Gunmetal</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="rocketship">
-                <span class="theme-preset-chip" style="--theme-color:#b8c1ca;"></span>
-                <span class="theme-preset-name">Rocketship</span>
-                <span class="theme-preset-meta">Silver</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="pulsarr">
-                <span class="theme-preset-chip" style="--theme-color:#1cc6c2;"></span>
-                <span class="theme-preset-name">Pulsarr</span>
-                <span class="theme-preset-meta">Pulsarr teal</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="plex">
-                <span class="theme-preset-chip" style="--theme-color:#f9ad2f;"></span>
-                <span class="theme-preset-name">Plex</span>
-                <span class="theme-preset-meta">Plex orange</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="radarr">
-                <span class="theme-preset-chip" style="--theme-color:#f4c542;"></span>
-                <span class="theme-preset-name">Radarr</span>
-                <span class="theme-preset-meta">Radarr yellow</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="sonarr">
-                <span class="theme-preset-chip" style="--theme-color:#3d7bfd;"></span>
-                <span class="theme-preset-name">Sonarr</span>
-                <span class="theme-preset-meta">Sonarr blue</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="lidarr">
-                <span class="theme-preset-chip" style="--theme-color:#53b86a;"></span>
-                <span class="theme-preset-name">Lidarr</span>
-                <span class="theme-preset-meta">Lidarr green</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="readarr">
-                <span class="theme-preset-chip" style="--theme-color:#d84a4a;"></span>
-                <span class="theme-preset-name">Readarr</span>
-                <span class="theme-preset-meta">Readarr red</span>
-              </button>
-              <button class="theme-preset-card" type="button" data-brand-theme="custom">
-                <span class="theme-preset-chip theme-preset-chip--custom" data-custom-chip style="--theme-color:#1cc6c2;">
-                  <input class="theme-chip-picker" id="profileCustomThemeColor" type="color" value="#1cc6c2" aria-label="Choose custom theme color" />
-                </span>
-                <span class="theme-preset-name">Custom</span>
-                <span class="theme-preset-meta">Color wheel</span>
-              </button>
-            </div>
-            <div class="theme-options" id="profileThemeOptions">
-              <label class="settings-toggle theme-option">
-                <input id="profileThemeSidebarInvert" type="checkbox" />
-                <span class="settings-toggle-slider" aria-hidden="true"></span>
-                <span class="theme-option-copy">
-                  <strong>Invert sidebar colors</strong>
-                  <small>Swap sidebar dark/theme emphasis.</small>
-                </span>
-              </label>
-              <label class="settings-toggle theme-option">
-                <input id="profileThemeSquareCorners" type="checkbox" />
-                <span class="settings-toggle-slider" aria-hidden="true"></span>
-                <span class="theme-option-copy">
-                  <strong>Square corners</strong>
-                  <small>Remove rounded corners across the UI.</small>
-                </span>
-              </label>
-              <label class="settings-toggle theme-option">
-                <input id="profileThemeBgMotion" type="checkbox" checked />
-                <span class="settings-toggle-slider" aria-hidden="true"></span>
-                <span class="theme-option-copy">
-                  <strong>Animated space background</strong>
-                  <small>Theme-linked moving star field.</small>
-                </span>
-              </label>
-              <label class="settings-toggle theme-option">
-                <input id="profileThemeCarouselFreeScroll" type="checkbox" />
-                <span class="settings-toggle-slider" aria-hidden="true"></span>
-                <span class="theme-option-copy">
-                  <strong>Free carousel scroll</strong>
-                  <small>Disable index snapping and allow fast horizontal swipe scrolling.</small>
-                </span>
-              </label>
-              <label class="settings-toggle theme-option">
-                <input id="profileThemeHideScrollbars" type="checkbox" />
-                <span class="settings-toggle-slider" aria-hidden="true"></span>
-                <span class="theme-option-copy">
-                  <strong>Hide scrollbars</strong>
-                  <small>Hide visual scrollbar rails while keeping scroll behavior.</small>
-                </span>
-              </label>
-            </div>
-            <form method="post" action="/user-settings/theme" class="settings-card-actions" id="profileThemeSaveForm">
-              <input type="hidden" name="theme_mode" id="profileThemeMode" />
-              <input type="hidden" name="theme_brand_theme" id="profileThemeBrandTheme" />
-              <input type="hidden" name="theme_custom_color" id="profileThemeCustomColor" />
-              <input type="hidden" name="theme_sidebar_invert" id="profileThemeSidebarInvertValue" />
-              <input type="hidden" name="theme_square_corners" id="profileThemeSquareCornersValue" />
-              <input type="hidden" name="theme_bg_motion" id="profileThemeBgMotionValue" />
-              <input type="hidden" name="theme_carousel_free_scroll" id="profileThemeCarouselFreeScrollValue" />
-              <input type="hidden" name="theme_hide_scrollbars" id="profileThemeHideScrollbarsValue" />
-              <button class="primary-button" type="submit">Save my theme</button>
-            </form>
-            <% if (themeNote) { %>
-              <span class="settings-users-note<%= themeError ? ' settings-users-note--error' : '' %>"><%= themeNote %></span>
-            <% } %>
-          </div>
-
-          <% if (actualRole === 'admin') { %>
-            <div class="settings-card">
-              <div class="settings-card-title">View mode</div>
-              <div class="settings-card-sub">Preview user access without leaving your account</div>
-              <form method="post" action="/switch-view" class="settings-access-form" id="viewModeForm">
-                <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
-                <input type="hidden" name="role" value="<%= role === 'admin' ? 'user' : 'admin' %>" />
-                <div class="settings-access-row">
-                  <label class="settings-toggle">
-                    <input type="checkbox" id="viewModeToggle" <%= role === 'admin' ? 'checked' : '' %> />
-                    <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    <span class="settings-toggle-text"><%= role === 'admin' ? 'Admin view' : 'User view' %></span>
-                  </label>
-                  <button class="primary-button" type="submit"><%= role === 'admin' ? 'Switch to user view' : 'Switch to admin view' %></button>
+            <%# ── Theme ───────────────────────────────────────────────── %>
+            <div class="settings-panel">
+              <h2 class="settings-panel-title">Theme</h2>
+              <form method="post" action="/user-settings/theme" class="settings-form" id="themeForm">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <div class="settings-field">
+                  <label class="settings-label">Color mode</label>
+                  <div class="settings-radio-group">
+                    <label class="settings-radio">
+                      <input type="radio" name="mode" value="night" <%= (config.theme?.mode !== 'day') ? 'checked' : '' %> />
+                      <span>Night</span>
+                    </label>
+                    <label class="settings-radio">
+                      <input type="radio" name="mode" value="day" <%= (config.theme?.mode === 'day') ? 'checked' : '' %> />
+                      <span>Day</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="settings-actions">
+                  <button type="submit" class="btn btn-primary">Save theme</button>
                 </div>
               </form>
             </div>
-          <% } %>
+
+          </div>
         </div>
       </div>
     </section>
   </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
   <script>
-    const dashFrame = document.querySelector('.dash-frame');
-    const toggle = document.querySelector('.sidebar-toggle');
-    const toggleIcon = toggle?.querySelector('img');
-    const mobileQuery = window.matchMedia('(max-width: 980px)');
-    const isMobile = () => mobileQuery.matches;
-    const mainContent = document.querySelector('.dash-main');
-    const sidebar = document.querySelector('.dash-sidebar');
-    const dashNav = document.querySelector('.dash-nav');
-    const safeStorage = {
-      get(key) {
-        try {
-          return localStorage.getItem(key);
-        } catch (err) {
-          return null;
-        }
-      },
-      set(key, value) {
-        try {
-          localStorage.setItem(key, value);
-        } catch (err) {
-          return;
-        }
-      },
-    };
-    const userMenus = document.querySelectorAll('[data-user-menu]');
-    const serverThemeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
-    const profileThemePresetButtons = Array.from(document.querySelectorAll('#profileThemePresets .theme-preset-card'));
-    const profileCustomThemeColorInput = document.getElementById('profileCustomThemeColor');
-    const profileCustomThemeChip = document.querySelector('#profileThemePresets [data-custom-chip]');
-    const profileThemeSidebarInvertToggle = document.getElementById('profileThemeSidebarInvert');
-    const profileThemeSquareCornersToggle = document.getElementById('profileThemeSquareCorners');
-    const profileThemeBgMotionToggle = document.getElementById('profileThemeBgMotion');
-    const profileThemeCarouselFreeScrollToggle = document.getElementById('profileThemeCarouselFreeScroll');
-    const profileThemeHideScrollbarsToggle = document.getElementById('profileThemeHideScrollbars');
-    const profileThemeSaveForm = document.getElementById('profileThemeSaveForm');
-    const profileThemeModeInput = document.getElementById('profileThemeMode');
-    const profileThemeBrandThemeInput = document.getElementById('profileThemeBrandTheme');
-    const profileThemeCustomColorInput = document.getElementById('profileThemeCustomColor');
-    const profileThemeSidebarInvertValueInput = document.getElementById('profileThemeSidebarInvertValue');
-    const profileThemeSquareCornersValueInput = document.getElementById('profileThemeSquareCornersValue');
-    const profileThemeBgMotionValueInput = document.getElementById('profileThemeBgMotionValue');
-    const profileThemeCarouselFreeScrollValueInput = document.getElementById('profileThemeCarouselFreeScrollValue');
-    const profileThemeHideScrollbarsValueInput = document.getElementById('profileThemeHideScrollbarsValue');
-    const allowedBrandThemes = new Set(['custom', 'launcharr', 'rocketship', 'pulsarr', 'plex', 'radarr', 'sonarr', 'lidarr', 'readarr']);
-    const customColorStorageKey = 'launcharr-custom-color';
-    const themeOptionStorageKeys = {
-      sidebarInvert: 'launcharr-sidebar-invert',
-      squareCorners: 'launcharr-square-corners',
-      bgMotion: 'launcharr-bg-motion',
-      carouselFreeScroll: 'launcharr-carousel-free-scroll',
-      hideScrollbars: 'launcharr-hide-scrollbars',
-    };
-    const parseStoredBool = (key, defaultValue = false) => {
-      const raw = safeStorage.get(key);
-      if (raw === null || raw === undefined) return defaultValue;
-      return raw === '1' || raw === 'true';
-    };
-    const resolveBrandTheme = (value) => {
-      const raw = String(value || '').trim().toLowerCase();
-      return allowedBrandThemes.has(raw) ? raw : 'pulsarr';
-    };
-    const parseHexColor = (value) => {
-      const raw = String(value || '').trim();
-      const normalized = raw.startsWith('#') ? raw : `#${raw}`;
-      return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : '#1cc6c2';
-    };
-    const hexToRgb = (hex) => ({
-      r: Number.parseInt(hex.slice(1, 3), 16),
-      g: Number.parseInt(hex.slice(3, 5), 16),
-      b: Number.parseInt(hex.slice(5, 7), 16),
-    });
-    const rgbToHex = (r, g, b) => `#${[r, g, b].map((value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')).join('')}`;
-    const mixRgb = (base, target, amount) => ({
-      r: base.r + (target.r - base.r) * amount,
-      g: base.g + (target.g - base.g) * amount,
-      b: base.b + (target.b - base.b) * amount,
-    });
-    const clearCustomThemeVars = () => {
-      const rootStyle = document.documentElement.style;
-      ['--teal', '--teal-dark', '--brand-rgb', '--brand-btn-start', '--brand-btn-mid', '--brand-btn-end', '--brand-btn-shadow', '--on-brand', '--on-brand-muted', '--on-brand-icon-filter'].forEach((name) => {
-        rootStyle.removeProperty(name);
-      });
-    };
-    const applyCustomColor = (inputHex) => {
-      const hex = parseHexColor(inputHex);
-      const base = hexToRgb(hex);
-      const dark = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.4);
-      const start = mixRgb(base, { r: 255, g: 255, b: 255 }, 0.35);
-      const end = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.2);
-      const shadow = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.28);
-      const toLinear = (channel) => {
-        const value = channel / 255;
-        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    function previewAvatar(input) {
+      if (!input.files || !input.files[0]) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('avatarPreview').src = e.target.result;
+        document.getElementById('avatarData').value = e.target.result;
+        document.getElementById('avatarSaveBtn').style.display = '';
       };
-      const luminance = 0.2126 * toLinear(base.r) + 0.7152 * toLinear(base.g) + 0.0722 * toLinear(base.b);
-      const contrastWhite = 1.05 / (luminance + 0.05);
-      const contrastBlack = (luminance + 0.05) / 0.05;
-      const onBrand = contrastWhite >= contrastBlack ? '#ffffff' : '#081013';
-      const onBrandMuted = contrastWhite >= contrastBlack ? 'rgba(255,255,255,.78)' : 'rgba(8,16,19,.72)';
-      const onBrandIconFilter = contrastWhite >= contrastBlack ? 'brightness(0) saturate(100%) invert(1)' : 'brightness(0) saturate(100%)';
-      const rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--teal', hex);
-      rootStyle.setProperty('--teal-dark', rgbToHex(dark.r, dark.g, dark.b));
-      rootStyle.setProperty('--brand-rgb', `${Math.round(base.r)},${Math.round(base.g)},${Math.round(base.b)}`);
-      rootStyle.setProperty('--brand-btn-start', rgbToHex(start.r, start.g, start.b));
-      rootStyle.setProperty('--brand-btn-mid', hex);
-      rootStyle.setProperty('--brand-btn-end', rgbToHex(end.r, end.g, end.b));
-      rootStyle.setProperty('--brand-btn-shadow', `${Math.round(shadow.r)},${Math.round(shadow.g)},${Math.round(shadow.b)}`);
-      rootStyle.setProperty('--on-brand', onBrand);
-      rootStyle.setProperty('--on-brand-muted', onBrandMuted);
-      rootStyle.setProperty('--on-brand-icon-filter', onBrandIconFilter);
-      if (profileCustomThemeChip) profileCustomThemeChip.style.setProperty('--theme-color', hex);
-      return hex;
-    };
-    const syncProfileThemeSaveForm = () => {
-      if (!profileThemeSaveForm) return;
-      if (profileThemeModeInput) {
-        profileThemeModeInput.value = document.documentElement.dataset.theme === 'day' ? 'day' : 'night';
-      }
-      if (profileThemeBrandThemeInput) {
-        profileThemeBrandThemeInput.value = resolveBrandTheme(document.documentElement.dataset.brandTheme || serverThemeDefaults.brandTheme);
-      }
-      if (profileThemeCustomColorInput) {
-        profileThemeCustomColorInput.value = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#1cc6c2');
-      }
-      if (profileThemeSidebarInvertValueInput) {
-        profileThemeSidebarInvertValueInput.value = profileThemeSidebarInvertToggle?.checked ? '1' : '0';
-      }
-      if (profileThemeSquareCornersValueInput) {
-        profileThemeSquareCornersValueInput.value = profileThemeSquareCornersToggle?.checked ? '1' : '0';
-      }
-      if (profileThemeBgMotionValueInput) {
-        profileThemeBgMotionValueInput.value = profileThemeBgMotionToggle?.checked ? '1' : '0';
-      }
-      if (profileThemeCarouselFreeScrollValueInput) {
-        profileThemeCarouselFreeScrollValueInput.value = profileThemeCarouselFreeScrollToggle?.checked ? '1' : '0';
-      }
-      if (profileThemeHideScrollbarsValueInput) {
-        profileThemeHideScrollbarsValueInput.value = profileThemeHideScrollbarsToggle?.checked ? '1' : '0';
-      }
-    };
-    const applyThemeOptions = (options = {}) => {
-      const sidebarInvert = Boolean(options.sidebarInvert);
-      const squareCorners = Boolean(options.squareCorners);
-      const bgMotion = options.bgMotion !== false;
-      const starDensity = 165;
-      const starSpeed = 45;
-      const starSize = 1.2;
-      const carouselFreeScroll = Boolean(options.carouselFreeScroll);
-      const hideScrollbars = Boolean(options.hideScrollbars);
-      document.documentElement.dataset.sidebarInvert = sidebarInvert ? '1' : '0';
-      document.documentElement.dataset.squareCorners = squareCorners ? '1' : '0';
-      document.documentElement.dataset.bgMotion = bgMotion ? '1' : '0';
-      document.documentElement.style.setProperty('--star-density', String(starDensity));
-      document.documentElement.style.setProperty('--star-speed', `${starSpeed}s`);
-      document.documentElement.style.setProperty('--star-size', String(starSize));
-      document.documentElement.dataset.carouselFreeScroll = carouselFreeScroll ? '1' : '0';
-      document.documentElement.dataset.hideScrollbars = hideScrollbars ? '1' : '0';
-      safeStorage.set(themeOptionStorageKeys.sidebarInvert, sidebarInvert ? '1' : '0');
-      safeStorage.set(themeOptionStorageKeys.squareCorners, squareCorners ? '1' : '0');
-      safeStorage.set(themeOptionStorageKeys.bgMotion, bgMotion ? '1' : '0');
-      safeStorage.set(themeOptionStorageKeys.carouselFreeScroll, carouselFreeScroll ? '1' : '0');
-      safeStorage.set(themeOptionStorageKeys.hideScrollbars, hideScrollbars ? '1' : '0');
-      if (profileThemeSidebarInvertToggle) profileThemeSidebarInvertToggle.checked = sidebarInvert;
-      if (profileThemeSquareCornersToggle) profileThemeSquareCornersToggle.checked = squareCorners;
-      if (profileThemeBgMotionToggle) profileThemeBgMotionToggle.checked = bgMotion;
-      if (profileThemeCarouselFreeScrollToggle) profileThemeCarouselFreeScrollToggle.checked = carouselFreeScroll;
-      if (profileThemeHideScrollbarsToggle) profileThemeHideScrollbarsToggle.checked = hideScrollbars;
-      syncProfileThemeSaveForm();
-    };
-    const syncThemeOptionsFromInputs = () => {
-      applyThemeOptions({
-        sidebarInvert: Boolean(profileThemeSidebarInvertToggle?.checked),
-        squareCorners: Boolean(profileThemeSquareCornersToggle?.checked),
-        bgMotion: Boolean(profileThemeBgMotionToggle?.checked),
-        carouselFreeScroll: Boolean(profileThemeCarouselFreeScrollToggle?.checked),
-        hideScrollbars: Boolean(profileThemeHideScrollbarsToggle?.checked),
-      });
-    };
-    const applyBrandTheme = (theme) => {
-      const normalized = allowedBrandThemes.has(theme) ? theme : 'pulsarr';
-      document.documentElement.dataset.brandTheme = normalized;
-      safeStorage.set('launcharr-brand-theme', normalized);
-      if (normalized === 'custom') {
-        const savedCustomHex = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#1cc6c2');
-        const appliedHex = applyCustomColor(savedCustomHex);
-        if (profileCustomThemeColorInput) profileCustomThemeColorInput.value = appliedHex;
-      } else {
-        clearCustomThemeVars();
-      }
-      profileThemePresetButtons.forEach((btn) => {
-        const isActive = btn.dataset.brandTheme === normalized;
-        btn.classList.toggle('is-active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-      });
-      syncProfileThemeSaveForm();
-    };
-    const initialThemeOptions = {
-      sidebarInvert: parseStoredBool(themeOptionStorageKeys.sidebarInvert, serverThemeDefaults.sidebarInvert === true),
-      squareCorners: parseStoredBool(themeOptionStorageKeys.squareCorners, serverThemeDefaults.squareCorners === true),
-      bgMotion: parseStoredBool(themeOptionStorageKeys.bgMotion, serverThemeDefaults.bgMotion === undefined ? true : serverThemeDefaults.bgMotion === true),
-      carouselFreeScroll: parseStoredBool(themeOptionStorageKeys.carouselFreeScroll, serverThemeDefaults.carouselFreeScroll === true),
-      hideScrollbars: parseStoredBool(themeOptionStorageKeys.hideScrollbars, serverThemeDefaults.hideScrollbars === true),
-    };
-    applyThemeOptions(initialThemeOptions);
-    profileThemeSidebarInvertToggle?.addEventListener('change', syncThemeOptionsFromInputs);
-    profileThemeSquareCornersToggle?.addEventListener('change', syncThemeOptionsFromInputs);
-    profileThemeBgMotionToggle?.addEventListener('change', syncThemeOptionsFromInputs);
-    profileThemeCarouselFreeScrollToggle?.addEventListener('change', syncThemeOptionsFromInputs);
-    profileThemeHideScrollbarsToggle?.addEventListener('change', syncThemeOptionsFromInputs);
-    if (profileThemePresetButtons.length) {
-      const initialCustomHex = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#1cc6c2');
-      if (profileCustomThemeColorInput) profileCustomThemeColorInput.value = initialCustomHex;
-      if (profileCustomThemeChip) profileCustomThemeChip.style.setProperty('--theme-color', initialCustomHex);
-      const storedBrandTheme = safeStorage.get('launcharr-brand-theme');
-      const fallbackBrandTheme = resolveBrandTheme(serverThemeDefaults.brandTheme);
-      applyBrandTheme(allowedBrandThemes.has(storedBrandTheme) ? storedBrandTheme : fallbackBrandTheme);
-      profileThemePresetButtons.forEach((btn) => {
-        btn.addEventListener('click', () => applyBrandTheme(btn.dataset.brandTheme));
-      });
-      profileCustomThemeColorInput?.addEventListener('input', () => {
-        const hex = parseHexColor(profileCustomThemeColorInput.value);
-        safeStorage.set(customColorStorageKey, hex);
-        applyBrandTheme('custom');
-      });
-    }
-    syncProfileThemeSaveForm();
-    profileThemeSaveForm?.addEventListener('submit', () => {
-      syncProfileThemeSaveForm();
-    });
-
-    function setToggleIcon() {
-      if (!toggleIcon) return;
-      toggleIcon.src = '/icons/sidebar-toggle.svg';
-    }
-
-    function applySidebarState() {
-      if (!dashFrame) return;
-      if (isMobile()) {
-        dashFrame.classList.remove('sidebar-collapsed');
-        dashFrame.classList.remove('mobile-nav-open');
-        document.body.classList.remove('mobile-nav-open');
-        if (dashNav) dashNav.scrollTop = 0;
-        setToggleIcon(false);
-      } else {
-        const collapsed = safeStorage.get('sidebarCollapsed') === 'true';
-        dashFrame.classList.toggle('sidebar-collapsed', collapsed);
-        dashFrame.classList.remove('mobile-nav-open');
-        document.body.classList.remove('mobile-nav-open');
-        if (dashNav) dashNav.scrollTop = 0;
-        setToggleIcon(!collapsed);
-      }
-    }
-
-    function closeMobileNav() {
-      if (!dashFrame || !isMobile()) return;
-      if (!dashFrame.classList.contains('mobile-nav-open')) return;
-      dashFrame.classList.remove('mobile-nav-open');
-      document.body.classList.remove('mobile-nav-open');
-      setToggleIcon(false);
-    }
-
-    applySidebarState();
-    mobileQuery.addEventListener('change', applySidebarState);
-    const autoOpenSingleAppMenuItem = <%= autoOpenSingleAppMenuItem ? 'true' : 'false' %>;
-    const sidebarButtonPressActions = <%- JSON.stringify(sidebarButtonPressActions || {}) %>;
-    const currentSidebarRole = String('<%= role || 'user' %>').trim().toLowerCase();
-    const normalizeSidebarRole = (value) => {
-      const raw = String(value || '').trim().toLowerCase();
-      if (raw === 'guest' || raw === 'user' || raw === 'co-admin' || raw === 'admin') return raw;
-      return 'user';
-    };
-    const normalizePressAction = (value, fallback = 'default') => {
-      const raw = String(value || '').trim().toLowerCase();
-      if (raw === 'default' || raw === 'launch' || raw === 'settings' || raw === 'activity') return raw;
-      return fallback;
-    };
-    const rolePressConfig = (sidebarButtonPressActions && typeof sidebarButtonPressActions === 'object')
-      ? (sidebarButtonPressActions[normalizeSidebarRole(currentSidebarRole)] || sidebarButtonPressActions.user || {})
-      : {};
-    const shortPressAction = normalizePressAction(rolePressConfig.short, 'default');
-    const longPressAction = normalizePressAction(rolePressConfig.long, 'default');
-    const LONG_PRESS_DELAY_MS = 450;
-    const openSubmenuLink = (link) => {
-      if (!link) return false;
-      const rawHref = typeof link.getAttribute === 'function'
-        ? (link.getAttribute('href') || link.href || '')
-        : (link.href || '');
-      const href = String(rawHref || '').trim();
-      if (!href) return false;
-      const rawTargetAttr = typeof link.getAttribute === 'function'
-        ? (link.getAttribute('target') || '')
-        : (link.target || '');
-      const targetAttr = String(rawTargetAttr || '').trim().toLowerCase();
-      const targetProp = String(link.target || '').trim().toLowerCase();
-      const launchMode = String((link.dataset && link.dataset.launchMode) || link.launchMode || '').trim().toLowerCase();
-      const isLaunchRoute = /\/apps\/[^/?#]+\/launch(?:$|[/?#])/i.test(href);
-      const shouldOpenBlank = targetAttr === '_blank'
-        || targetProp === '_blank'
-        || (isLaunchRoute && launchMode === 'new-tab');
-      if (shouldOpenBlank) {
-        window.open(href, '_blank', 'noopener,noreferrer');
-      } else {
-        window.location.href = href;
-      }
-      return true;
-    };
-    const getDirectLinks = (item) => {
-      const panel = Array.from(item.children).find((child) => child.classList && child.classList.contains('nav-accordion-panel'));
-      return panel
-        ? Array.from(panel.children).filter((child) => typeof child.matches === 'function' && child.matches('a.nav-subitem[href]'))
-        : [];
-    };
-    const resolveAppIdFromItem = (item, links = []) => {
-      const pool = Array.isArray(links) && links.length ? links : getDirectLinks(item);
-      for (let index = 0; index < pool.length; index += 1) {
-        const href = String((pool[index] && pool[index].getAttribute && pool[index].getAttribute('href')) || '').trim();
-        const match = href.match(/\/apps\/([^/?#]+)/i);
-        if (match && match[1]) return decodeURIComponent(String(match[1]));
-      }
-      return '';
-    };
-    const buildVirtualActionLink = (appId, action, links = []) => {
-      const normalizedId = String(appId || '').trim();
-      if (!normalizedId) return null;
-      const encodedId = encodeURIComponent(normalizedId);
-      if (action === 'launch') {
-        const launchLink = links.find((link) => /\/launch(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
-        const launchMode = String((launchLink?.dataset && launchLink.dataset.launchMode) || '').trim().toLowerCase();
-        return {
-          href: '/apps/' + encodedId + '/launch',
-          target: launchMode === 'new-tab' ? '_blank' : '',
-          launchMode,
-        };
-      }
-      if (action === 'settings') return { href: '/apps/' + encodedId + '/settings', target: '', launchMode: '' };
-      if (action === 'activity') return { href: '/apps/' + encodedId + '/activity', target: '', launchMode: '' };
-      return null;
-    };
-    const getActionLink = (item, action) => {
-      const links = getDirectLinks(item);
-      if (action === 'launch') {
-        const direct = links.find((link) => /\/launch(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
-        return direct || buildVirtualActionLink(resolveAppIdFromItem(item, links), action, links);
-      }
-      if (action === 'settings') {
-        const direct = links.find((link) => /\/settings(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
-        return direct || buildVirtualActionLink(resolveAppIdFromItem(item, links), action, links);
-      }
-      if (action === 'activity') {
-        const direct = links.find((link) => /\/activity(?:$|[/?#])/.test(String(link.getAttribute('href') || '')));
-        return direct || buildVirtualActionLink(resolveAppIdFromItem(item, links), action, links);
-      }
-      return null;
-    };
-    const toggleAccordionItem = (item) => {
-      const parentAccordion = item.closest('.nav-accordion');
-      const siblings = parentAccordion
-        ? Array.from(parentAccordion.children).filter((child) => child.classList.contains('nav-accordion-item'))
-        : [];
-      siblings.forEach((other) => {
-        if (other !== item) other.classList.remove('open');
-      });
-      item.classList.toggle('open');
-    };
-    const handleDefaultPress = (item, isCategoryTrigger) => {
-      if (autoOpenSingleAppMenuItem && !isCategoryTrigger) {
-        const links = getDirectLinks(item);
-        if (links.length === 1 && openSubmenuLink(links[0])) return;
-      }
-      toggleAccordionItem(item);
-    };
-    const handlePressAction = (item, action, isCategoryTrigger) => {
-      if (isCategoryTrigger) {
-        toggleAccordionItem(item);
-        return;
-      }
-      const resolvedAction = normalizePressAction(action, 'default');
-      if (resolvedAction === 'default') {
-        handleDefaultPress(item, false);
-        return;
-      }
-      const link = getActionLink(item, resolvedAction);
-      if (openSubmenuLink(link)) return;
-      handleDefaultPress(item, false);
-    };
-    const accordion = document.querySelectorAll('.nav-accordion-item');
-    accordion.forEach((item) => {
-      const trigger = item.querySelector('.nav-accordion-trigger');
-      if (!trigger) return;
-      const isCategoryTrigger = trigger.classList.contains('nav-accordion-trigger--category');
-      let longPressTimer = null;
-      let longPressTriggered = false;
-      const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
-      const clearLongPressTimer = () => {
-        if (longPressTimer) {
-          window.clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-      };
-      const startLongPressTimer = () => {
-        longPressTriggered = false;
-        clearLongPressTimer();
-        longPressTimer = window.setTimeout(() => {
-          longPressTriggered = true;
-          handlePressAction(item, longPressAction, false);
-        }, LONG_PRESS_DELAY_MS);
-      };
-      if (supportsPointerEvents) {
-        trigger.addEventListener('pointerdown', (event) => {
-          if (isCategoryTrigger) return;
-          if (event.button !== undefined && event.button !== 0) return;
-          startLongPressTimer();
-        });
-        ['pointerup', 'pointerleave', 'pointercancel'].forEach((eventName) => {
-          trigger.addEventListener(eventName, clearLongPressTimer);
-        });
-      } else {
-        trigger.addEventListener('touchstart', () => {
-          if (isCategoryTrigger) return;
-          startLongPressTimer();
-        }, { passive: true });
-        ['touchend', 'touchcancel', 'touchmove'].forEach((eventName) => {
-          trigger.addEventListener(eventName, clearLongPressTimer, { passive: true });
-        });
-      }
-      trigger.addEventListener('contextmenu', (event) => {
-        if (longPressTriggered) event.preventDefault();
-      });
-      trigger.addEventListener('click', (event) => {
-        event.stopPropagation();
-        clearLongPressTimer();
-        if (longPressTriggered) {
-          event.preventDefault();
-          longPressTriggered = false;
-          return;
-        }
-        handlePressAction(item, shortPressAction, isCategoryTrigger);
-      });
-    });
-
-    function handleSidebarToggle() {
-      if (!dashFrame) return;
-      if (isMobile()) {
-        dashFrame.classList.remove('sidebar-collapsed');
-        const isOpen = dashFrame.classList.toggle('mobile-nav-open');
-        document.body.classList.toggle('mobile-nav-open', isOpen);
-        if (dashNav) dashNav.scrollTop = 0;
-        setToggleIcon(isOpen);
-        return;
-      }
-      const isCollapsed = dashFrame.classList.toggle('sidebar-collapsed');
-      safeStorage.set('sidebarCollapsed', isCollapsed ? 'true' : 'false');
-      if (dashNav) dashNav.scrollTop = 0;
-      setToggleIcon(!isCollapsed);
-    }
-
-    toggle?.addEventListener('click', handleSidebarToggle);
-
-    mainContent?.addEventListener('click', (event) => {
-      if (event.target.closest('.sidebar-toggle')) return;
-      if (event.target.closest('.main-window-bar')) return;
-      closeMobileNav();
-    });
-
-    sidebar?.addEventListener('click', (event) => {
-      if (!isMobile() || !dashFrame?.classList.contains('mobile-nav-open')) return;
-      const link = event.target.closest('a');
-      if (!link || !link.classList.contains('active')) return;
-      event.preventDefault();
-      closeMobileNav();
-    });
-
-    function closeUserMenus(except) {
-      userMenus.forEach((menu) => {
-        if (menu === except) return;
-        menu.querySelectorAll('[data-user-role-picker][open]').forEach((picker) => { picker.open = false; });
-        menu.classList.remove('user-pill--open');
-        menu.setAttribute('aria-expanded', 'false');
-      });
-    }
-
-    userMenus.forEach((menu) => {
-      menu.setAttribute('aria-expanded', 'false');
-      menu.addEventListener('click', (event) => {
-        if (event.target.closest('.user-menu')) return;
-        event.preventDefault();
-        const isOpen = menu.classList.contains('user-pill--open');
-        closeUserMenus(menu);
-        menu.classList.toggle('user-pill--open', !isOpen);
-        menu.setAttribute('aria-expanded', !isOpen ? 'true' : 'false');
-      });
-      menu.addEventListener('keydown', (event) => {
-        if (event.target.closest('.user-menu')) return;
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        menu.click();
-      });
-    });
-
-    document.addEventListener('click', (event) => {
-      if (event.target.closest('[data-user-menu]')) return;
-      closeUserMenus();
-    });
-
-    document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return;
-      closeUserMenus();
-    });
-
-    const viewModeForm = document.getElementById('viewModeForm');
-    const viewModeToggle = document.getElementById('viewModeToggle');
-    if (viewModeForm && viewModeToggle) {
-      viewModeToggle.addEventListener('change', () => {
-        viewModeForm.submit();
-      });
-    }
-
-    const avatarUploadInput = document.getElementById('avatarUploadInput');
-    const avatarDataUrlField = document.getElementById('avatarDataUrl');
-    const avatarPreview = document.getElementById('profileAvatarPreview');
-    const avatarUploadError = document.getElementById('avatarUploadError');
-    const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-    const MIN_AVATAR_DIMENSION = 64;
-    const MAX_AVATAR_DIMENSION = 1024;
-    const ALLOWED_AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
-
-    function setAvatarError(message) {
-      if (!avatarUploadError) return;
-      const text = String(message || '').trim();
-      avatarUploadError.hidden = !text;
-      avatarUploadError.textContent = text;
-    }
-
-    function resetAvatarUploadInput() {
-      if (!avatarUploadInput) return;
-      avatarUploadInput.value = '';
-      if (avatarDataUrlField) avatarDataUrlField.value = '';
-    }
-
-    if (avatarUploadInput && avatarDataUrlField && avatarPreview) {
-      avatarUploadInput.addEventListener('change', () => {
-        setAvatarError('');
-        avatarDataUrlField.value = '';
-        const file = avatarUploadInput.files && avatarUploadInput.files[0];
-        if (!file) return;
-
-        const mime = String(file.type || '').trim().toLowerCase();
-        if (!ALLOWED_AVATAR_TYPES.has(mime)) {
-          setAvatarError('Avatar must be PNG, JPG, or WEBP.');
-          resetAvatarUploadInput();
-          return;
-        }
-        if (file.size > MAX_AVATAR_BYTES) {
-          setAvatarError('Avatar image is too large. Maximum size is 2 MB.');
-          resetAvatarUploadInput();
-          return;
-        }
-
-        const reader = new FileReader();
-        reader.onerror = () => {
-          setAvatarError('Avatar file could not be read.');
-          resetAvatarUploadInput();
-        };
-        reader.onload = () => {
-          const dataUrl = String(reader.result || '');
-          if (!dataUrl) {
-            setAvatarError('Avatar file is empty.');
-            resetAvatarUploadInput();
-            return;
-          }
-          const probe = new Image();
-          probe.onerror = () => {
-            setAvatarError('Avatar file is not a valid image.');
-            resetAvatarUploadInput();
-          };
-          probe.onload = () => {
-            const width = Number(probe.naturalWidth || 0);
-            const height = Number(probe.naturalHeight || 0);
-            if (
-              width < MIN_AVATAR_DIMENSION
-              || height < MIN_AVATAR_DIMENSION
-              || width > MAX_AVATAR_DIMENSION
-              || height > MAX_AVATAR_DIMENSION
-            ) {
-              setAvatarError('Avatar dimensions must be between 64x64 and 1024x1024 pixels.');
-              resetAvatarUploadInput();
-              return;
-            }
-            avatarDataUrlField.value = dataUrl;
-            avatarPreview.src = dataUrl;
-          };
-          probe.src = dataUrl;
-        };
-        reader.readAsDataURL(file);
-      });
+      reader.readAsDataURL(input.files[0]);
     }
   </script>
-  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
-  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
-  <script src="/pwa.js?v=<%= assetVersion %>"></script>
 </body>
 </html>

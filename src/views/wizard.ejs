@@ -1,0 +1,183 @@
+<%- include('partials/head', { pageTitle: 'Curatorr · Setup', extraCss: locals.extraCss || [] }) %>
+<body class="login-body">
+  <%- include('partials/theme-init') %>
+  <div class="wizard-shell">
+    <div class="wizard-card">
+      <div class="wizard-header">
+        <div class="wizard-brand">
+          <img src="/icons/curatorr-icon.svg" alt="Curatorr" class="wizard-logo" onerror="this.style.display='none'" />
+          <span class="wizard-brand-name">Curatorr</span>
+        </div>
+        <div class="wizard-steps">
+          <% for (var i = 1; i <= totalSteps; i++) { %>
+            <div class="wizard-step-dot<%= i === step ? ' wizard-step-dot--active' : (i < step ? ' wizard-step-dot--done' : '') %>"></div>
+          <% } %>
+        </div>
+        <div class="wizard-step-label">Step <%= step %> of <%= totalSteps %></div>
+      </div>
+
+      <% if (error) { %>
+        <div class="wizard-error"><%= error %></div>
+      <% } %>
+
+      <%# ── Step 1: Create admin account ────────────────────────────────────── %>
+      <% if (step === 1) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Welcome to Curatorr</h2>
+          <p class="wizard-desc">Let's get you set up. First, create your administrator account.</p>
+          <form method="post" action="/wizard/account" class="wizard-form" id="wsf1">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-field">
+              <label class="wizard-label" for="username">Username</label>
+              <input class="wizard-input" type="text" id="username" name="username" required autocomplete="username" autofocus />
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="email">Email</label>
+              <input class="wizard-input" type="email" id="email" name="email" required autocomplete="email" />
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="password">Password</label>
+              <input class="wizard-input" type="password" id="password" name="password" required autocomplete="new-password" />
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="confirmPassword">Confirm password</label>
+              <input class="wizard-input" type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" />
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <button type="submit" form="wsf1" class="btn btn-primary">Create account →</button>
+          </div>
+        </div>
+
+      <%# ── Step 2: Connect Plex ────────────────────────────────────────────── %>
+      <% } else if (step === 2) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Connect Plex</h2>
+          <p class="wizard-desc">Enter your Plex server URL and access token. Curatorr uses this to fetch your music libraries and manage playlists.</p>
+          <form method="post" action="/wizard/plex" class="wizard-form" id="wsf2">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-field">
+              <label class="wizard-label" for="plexUrl">Plex server URL</label>
+              <input class="wizard-input" type="url" id="plexUrl" name="plexUrl" value="<%= config.plex?.url || '' %>" placeholder="http://192.168.1.x:32400" required />
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="plexToken">Plex token</label>
+              <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Your Plex token' %>" <%= config.plex?.tokenSet ? '' : 'required' %> />
+              <div class="wizard-hint">Find your token at <a href="https://support.plex.tv/articles/204059436" target="_blank" rel="noreferrer">support.plex.tv</a> or via Tautulli → Settings → Plex Media Server → Plex token.</div>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="2" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wsf2" class="btn btn-primary">Connect &amp; continue →</button>
+          </div>
+        </div>
+
+      <%# ── Step 3: Select music libraries ─────────────────────────────────── %>
+      <% } else if (step === 3) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Select music libraries</h2>
+          <p class="wizard-desc">Choose which Plex music libraries Curatorr should monitor and include in smart playlists.</p>
+          <form method="post" action="/wizard/libraries" class="wizard-form" id="wsf3">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <% var availLibs = config.plex?.availableLibraries || []; %>
+            <% if (availLibs.length) { %>
+              <div class="wizard-check-grid">
+                <% availLibs.forEach(function(lib) { %>
+                  <label class="wizard-check-item">
+                    <input type="checkbox" name="libraries" value="<%= lib.key %>"
+                      <%= (config.plex?.libraries || []).includes(lib.key) ? 'checked' : (availLibs.length === 1 ? 'checked' : '') %> />
+                    <span class="wizard-check-label"><%= lib.title %></span>
+                  </label>
+                <% }) %>
+              </div>
+            <% } else { %>
+              <p class="wizard-hint">No music libraries found. Go back and verify your Plex connection.</p>
+            <% } %>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="3" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wsf3" class="btn btn-primary">Continue →</button>
+          </div>
+        </div>
+
+      <%# ── Step 4: Tautulli (optional) ────────────────────────────────────── %>
+      <% } else if (step === 4) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Tautulli <span class="wizard-optional">optional</span></h2>
+          <p class="wizard-desc">Connect Tautulli for detailed playback tracking (recommended). Curatorr will automatically create the webhook notifier in Tautulli.</p>
+          <form method="post" action="/wizard/tautulli" class="wizard-form" id="wsf4">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-field">
+              <label class="wizard-label" for="tautulliUrl">Tautulli URL</label>
+              <input class="wizard-input" type="url" id="tautulliUrl" name="tautulliUrl" value="<%= config.tautulli?.url || '' %>" placeholder="http://192.168.1.x:8181" />
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="tautulliApiKey">API key</label>
+              <input class="wizard-input" type="text" id="tautulliApiKey" name="tautulliApiKey" value="" placeholder="<%= config.tautulli?.apiKeySet ? '(saved — leave blank to keep)' : 'Tautulli API key' %>" />
+              <div class="wizard-hint">Find it in Tautulli → Settings → Web Interface → API key.</div>
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="curatorrUrl">Curatorr URL <span class="wizard-optional">as Tautulli can reach it</span></label>
+              <input class="wizard-input" type="url" id="curatorrUrl" name="curatorrUrl" value="<%= config.tautulli?.curatorrUrl || '' %>" placeholder="http://192.168.1.x:7676" />
+              <div class="wizard-hint">The URL Tautulli will POST to — must be reachable from the Tautulli server. Leave blank to skip auto-configure.</div>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="4" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <form method="post" action="/wizard/tautulli">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="skip" value="1" />
+              <button type="submit" class="btn btn-secondary">Skip (use Plex webhooks)</button>
+            </form>
+            <button type="submit" form="wsf4" class="btn btn-primary">Connect &amp; continue →</button>
+          </div>
+        </div>
+
+      <%# ── Step 5: Lidarr (optional) ──────────────────────────────────────── %>
+      <% } else if (step === 5) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">Lidarr <span class="wizard-optional">optional</span></h2>
+          <p class="wizard-desc">Connect Lidarr to enable automatic artist discovery and library management. You can skip this and connect later from Settings.</p>
+          <form method="post" action="/wizard/lidarr" class="wizard-form" id="wsf5">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-field">
+              <label class="wizard-label" for="lidarrUrl">Lidarr URL</label>
+              <input class="wizard-input" type="url" id="lidarrUrl" name="lidarrUrl" value="<%= config.lidarr?.url || '' %>" placeholder="http://192.168.1.x:8686" />
+            </div>
+            <div class="wizard-field">
+              <label class="wizard-label" for="lidarrApiKey">API key</label>
+              <input class="wizard-input" type="text" id="lidarrApiKey" name="lidarrApiKey" value="" placeholder="<%= config.lidarr?.apiKeySet ? '(saved — leave blank to keep)' : 'Lidarr API key' %>" />
+              <div class="wizard-hint">Find it in Lidarr → Settings → General → API key.</div>
+            </div>
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="5" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <form method="post" action="/wizard/lidarr">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="skip" value="1" />
+              <button type="submit" class="btn btn-secondary">Skip for now</button>
+            </form>
+            <button type="submit" form="wsf5" class="btn btn-primary">Finish setup →</button>
+          </div>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</body>
+</html>
