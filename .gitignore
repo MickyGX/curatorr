@@ -47,6 +47,9 @@ bfg.jar
 # Local helper scripts
 scripts/
 
+# Local module development
+local-modules/
+
 # Local AI assistant settings
 .claude/
 .Claude/
