@@ -1448,11 +1448,11 @@ async function start() {
   _routeCtx.lidarrService = createLidarrService(_routeCtx);
   _routeCtx.playlistService = createPlaylistService(_routeCtx);
 
-  // Middleware: redirect any logged-in user who hasn't completed the personal wizard.
-  // This includes the initial setup admin so the first-run flow continues into
-  // favourite genres and artist selection before landing on the main pages.
+  // Middleware: redirect Plex users who haven't completed the personal wizard.
+  // Locally created Curatorr users can still launch it manually if they want.
   _routeCtx.requireUserWizardComplete = (req, res, next) => {
     if (!req.session?.user) return next();
+    if (String(req.session.user.source || '').trim().toLowerCase() !== 'plex') return next();
     const userId = req.session.user.username;
     const prefs = getUserPreferences(db, userId);
     if (!prefs.userWizardCompleted) return res.redirect('/wizard/user');
