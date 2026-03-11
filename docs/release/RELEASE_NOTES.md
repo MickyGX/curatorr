@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.3 (2026-03-11)
+
+- Changed onboarding so the personal wizard only auto-runs for Plex accounts. Locally created Curatorr users, including the setup admin, can still launch it manually when needed.
+
 ## v0.1.2 (2026-03-11)
 
 - Fixed the first-run setup flow so the server wizard no longer shows a duplicate second admin account step.
