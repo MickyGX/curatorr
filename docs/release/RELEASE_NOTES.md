@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.4 (2026-03-11)
+
+- Fixed onboarding redirects so locally created Curatorr accounts, including the setup admin, are no longer forced into the server wizard automatically. Plex accounts still auto-run onboarding when required.
+
 ## v0.1.3 (2026-03-11)
 
 - Changed onboarding so the personal wizard only auto-runs for Plex accounts. Locally created Curatorr users, including the setup admin, can still launch it manually when needed.
