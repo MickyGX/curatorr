@@ -877,8 +877,7 @@ function requireActualAdmin(req, res, next) { return requireAdmin(req, res, next
 
 function requireWizardComplete(_req, res, next) {
   const config = loadConfig();
-  const source = String(_req.session?.user?.source || '').trim().toLowerCase();
-  if (!config.wizard?.completed && source === 'plex') return res.redirect('/wizard');
+  if (!config.wizard?.completed) return res.redirect('/wizard');
   return next();
 }
 
