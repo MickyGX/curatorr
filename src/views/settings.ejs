@@ -221,7 +221,7 @@
               <div class="settings-card plex-settings-card">
                 <div class="settings-card-title">Tautulli Access</div>
                 <div class="settings-card-sub">
-                  In Tautulli: Settings → Notification Agents → Webhook<br />
+                  Curatorr registers the webhook in Tautulli automatically. If auto-registration did not run, use the button below or add it manually.<br />
                   URL: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= (config.general?.remoteUrl || config.general?.localUrl || 'http://curatorr:7676').replace(/\/$/, '') %>/webhook/tautulli</code><br />
                   Method: POST · Triggers: Playback Start, Stop, Pause, Resume, Watched
                 </div>
@@ -235,6 +235,10 @@
                       </button>
                     </div>
                   </label>
+                </div>
+                <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+                  <button id="tautulli-register-webhook-btn" class="ghost-button" type="button">Register webhook in Tautulli</button>
+                  <span id="tautulli-webhook-status" style="font-size:12px;opacity:0.7"></span>
                 </div>
               </div>
               <button class="primary-button" type="submit">Save Tautulli settings</button>
@@ -2034,6 +2038,40 @@
     };
     plexButtons.forEach(function(btn) {
       btn.addEventListener('click', function() { runPlexAction(btn); });
+    });
+  })();
+
+  // ── Tautulli webhook registration ────────────────────────────────────────
+  (function() {
+    var btn = document.getElementById('tautulli-register-webhook-btn');
+    var status = document.getElementById('tautulli-webhook-status');
+    if (!btn || !status) return;
+    var _csrf = '<%= csrfToken %>';
+    btn.addEventListener('click', function() {
+      btn.disabled = true;
+      status.textContent = 'Registering…';
+      fetch('/api/wizard/configure-tautulli-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+      })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+        .then(function(res) {
+          if (!res.ok || !res.data.ok) {
+            status.textContent = res.data.error || res.data.reason || 'Registration failed — check URL and API key are saved.';
+            status.style.color = 'var(--color-error, #f87171)';
+          } else if (res.data.created === false) {
+            status.textContent = 'Webhook already registered in Tautulli.';
+            status.style.color = '';
+          } else {
+            status.textContent = 'Webhook registered successfully.';
+            status.style.color = 'var(--color-success, #4ade80)';
+          }
+        })
+        .catch(function() {
+          status.textContent = 'Request failed — check Tautulli URL and API key are saved.';
+          status.style.color = 'var(--color-error, #f87171)';
+        })
+        .finally(function() { btn.disabled = false; });
     });
   })();
 

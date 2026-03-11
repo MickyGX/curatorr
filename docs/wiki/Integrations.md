@@ -8,25 +8,31 @@ Tautulli is the primary source of playback data for Curatorr. Without it, plays 
 
 ### Setup
 
-**In Tautulli:**
-
-1. Go to **Settings → Notification Agents**
-2. Click **Add a new notification agent** and choose **Webhook**
-3. Set the **Webhook URL** to:
-   ```
-   http://your-curatorr-url:7676/webhook/tautulli
-   ```
-   If Curatorr is behind a reverse proxy, use the public URL instead.
-4. Set the **Method** to `POST`
-5. Under **Triggers**, enable: **Playback Start**, **Playback Stop**, **Playback Pause**, **Playback Resume**, **Watched**
-6. Save the notification agent
-
 **In Curatorr:**
 
 1. Go to **Settings → Tautulli**
 2. Enter your Tautulli local and/or remote URL
 3. Enter your Tautulli API key (found in Tautulli → Settings → Web Interface)
 4. Save
+
+That's it. If you set up Tautulli during the **setup wizard**, the webhook was registered in Tautulli automatically. Curatorr uses the Tautulli API to create a webhook notification agent pointing back to itself — it will not create a duplicate if one already exists.
+
+### Manual webhook setup (fallback)
+
+If auto-registration did not run (e.g. you skipped the wizard Tautulli step, or the registration silently failed), you can add the webhook in Tautulli manually:
+
+1. In Tautulli go to **Settings → Notification Agents**
+2. Click **Add a new notification agent** and choose **Webhook**
+3. Set the **Webhook URL** to:
+   ```
+   http://your-curatorr-url:7676/webhook/tautulli
+   ```
+   If Curatorr is behind a reverse proxy, use your public URL instead.
+4. Set the **Method** to `POST`
+5. Under **Triggers**, enable: **Playback Start**, **Playback Stop**, **Playback Pause**, **Playback Resume**, **Watched**
+6. Save the notification agent
+
+The Tautulli settings tab in Curatorr shows the exact webhook URL to use for your installation.
 
 ### What Tautulli provides
 

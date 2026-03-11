@@ -271,7 +271,7 @@ const TAUTULLI_WEBHOOK_BODY = JSON.stringify({
 async function configureTautulliWebhook(tautulliUrl, apiKey, ctx) {
   const { loadConfig, pushLog } = ctx;
   const config = loadConfig();
-  const baseUrl = (config.tautulli?.curatorrUrl || '').replace(/\/$/, '');
+  const baseUrl = (config.tautulli?.curatorrUrl || config.general?.localUrl || config.general?.remoteUrl || '').replace(/\/$/, '');
   if (!baseUrl || !tautulliUrl || !apiKey) return { ok: false, reason: 'missing config' };
 
   const webhookUrl = `${baseUrl}/webhook/tautulli`;
