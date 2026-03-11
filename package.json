@@ -1,6 +1,6 @@
 {
   "name": "curatorr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatic smart playlist generator and music taste tracker for Plex / Plexamp",
   "main": "src/index.js",
   "type": "module",
