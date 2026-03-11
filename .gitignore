@@ -53,6 +53,7 @@ local-modules/
 # Local AI assistant settings
 .claude/
 .Claude/
+curatorr.code-workspace
 
 config/config.quickstart-backup.json
 launcharr-test-build.tar
