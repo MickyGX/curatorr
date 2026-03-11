@@ -31,6 +31,7 @@ reference/
 # Local compose overrides
 docker-compose.override.yml
 docker-compose.local.yml
+docker-compose.temp.yml
 
 # Local custom app icons
 public/icons/custom/
@@ -57,3 +58,5 @@ curatorr.code-workspace
 
 config/config.quickstart-backup.json
 launcharr-test-build.tar
+config-temp/
+data-temp/

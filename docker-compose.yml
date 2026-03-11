@@ -2,7 +2,6 @@ services:
   curatorr:
     container_name: curatorr
     image: curatorr:latest
-    build: .
     ports:
       - "7676:7676"
     environment:

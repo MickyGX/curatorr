@@ -361,8 +361,10 @@ export function registerAuth(app, ctx) {
       createdAt: new Date().toISOString(),
     };
 
-    saveConfig({ ...config, users: serializeLocalUsers([...users, newUser]) });
+    const nextConfig = { ...config, users: serializeLocalUsers([...users, newUser]) };
+    saveConfig(nextConfig);
     setSessionUser(req, newUser, 'local');
+    if (!nextConfig.wizard?.completed) return res.redirect('/wizard');
     return res.redirect('/dashboard');
   });
 

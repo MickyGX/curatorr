@@ -340,7 +340,8 @@ export function registerWizard(app, ctx) {
   app.get('/wizard', (req, res) => {
     const config = loadConfig();
     if (config.wizard?.completed) return res.redirect('/dashboard');
-    return renderServerWizard(res, config, 1, null);
+    const hasAdminAccount = resolveLocalUsers(config).length > 0;
+    return renderServerWizard(res, config, hasAdminAccount ? 2 : 1, null);
   });
 
   // ── Server Step 1: Create admin account ───────────────────────────────────
@@ -514,7 +515,8 @@ export function registerWizard(app, ctx) {
 
   app.post('/wizard/back', (req, res) => {
     const config = loadConfig();
-    const step = Math.max(1, Number(req.body?.step || 1) - 1);
+    const minimumStep = resolveLocalUsers(config).length > 0 ? 2 : 1;
+    const step = Math.max(minimumStep, Number(req.body?.step || minimumStep) - 1);
     return renderServerWizard(res, config, step, null);
   });
 
@@ -522,12 +524,16 @@ export function registerWizard(app, ctx) {
   // USER WIZARD
   // ═══════════════════════════════════════════════════════════════════════════
 
-  app.get('/wizard/user', (req, res) => {
+  app.get('/wizard/user', async (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
     const config = loadConfig();
     if (!config.wizard?.completed) return res.redirect('/wizard');
     req.session.userWizard = resolveWizardState(req, db, loadConfig);
-    const genres = getGenresFromMaster(db);
+    let genres = getGenresFromMaster(db);
+    if (!genres.length && getMasterTrackCount(db) === 0) {
+      await refreshMasterTrackCache(ctx).catch(() => {});
+      genres = getGenresFromMaster(db);
+    }
     return renderUserWizard(res, req, 1, null, { genres });
   });
 

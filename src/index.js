@@ -1129,6 +1129,17 @@ async function completePlexLogin(req, authToken) {
   req.session.viewRole = null;
   req.session.pinId = null;
 
+  // First-time Plex users should continue directly into the personal wizard
+  // instead of relying on a later dashboard redirect to send them there.
+  try {
+    if (_routeCtx.db) {
+      const prefs = getUserPreferences(_routeCtx.db, req.session.user.username);
+      if (!prefs.userWizardCompleted) req.session.postLoginRedirect = '/wizard/user';
+    }
+  } catch (_err) {
+    // Non-fatal: if preference lookup fails, normal post-login redirects still apply.
+  }
+
   let config = loadConfig();
   config = updateUserLogins(config, { identifier: loginIdentifier, plex: true });
 
@@ -1437,12 +1448,11 @@ async function start() {
   _routeCtx.lidarrService = createLidarrService(_routeCtx);
   _routeCtx.playlistService = createPlaylistService(_routeCtx);
 
-  // Middleware: redirect non-admin users who haven't completed the user wizard.
-  // Admins can always access pages — they may run the wizard later from their profile.
+  // Middleware: redirect any logged-in user who hasn't completed the personal wizard.
+  // This includes the initial setup admin so the first-run flow continues into
+  // favourite genres and artist selection before landing on the main pages.
   _routeCtx.requireUserWizardComplete = (req, res, next) => {
     if (!req.session?.user) return next();
-    const role = req.session.user.role || 'user';
-    if (role === 'admin' || role === 'co-admin') return next(); // admins bypass
     const userId = req.session.user.username;
     const prefs = getUserPreferences(db, userId);
     if (!prefs.userWizardCompleted) return res.redirect('/wizard/user');
