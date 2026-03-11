@@ -508,7 +508,8 @@ export function registerWizard(app, ctx) {
     setInterval(() => refreshMasterTrackCache(ctx).catch(() => {}), 6 * 60 * 60 * 1000).unref();
 
     pushLog({ level: 'info', app: 'wizard', action: 'server.complete', message: 'Server wizard completed — building master track cache' });
-    return res.redirect('/wizard/user');
+    const source = String(req.session?.user?.source || '').trim().toLowerCase();
+    return res.redirect(source === 'plex' ? '/wizard/user' : '/dashboard');
   });
 
   // ── Back navigation (server wizard) ──────────────────────────────────────
