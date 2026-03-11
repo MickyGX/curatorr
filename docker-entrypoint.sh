@@ -24,11 +24,6 @@ else
   chown -R node:node /app/data /app/config /app/public/icons/custom 2>/dev/null || true
 fi
 
-# Bootstrap config from example if not present
-if [ -f /app/config.example.json ] && [ ! -f /app/config/config.json ]; then
-  cp /app/config.example.json /app/config/config.json 2>/dev/null || true
-fi
-
 chown "${APP_USER}:${APP_GROUP}" /app/config/config.json 2>/dev/null || true
 chmod 644 /app/config/config.json 2>/dev/null || true
 

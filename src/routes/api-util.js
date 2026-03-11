@@ -23,10 +23,12 @@ export function registerApiUtil(app, ctx) {
   });
 
   app.get('/api/logs', requireUser, (req, res) => {
+    const appId = String(req.query?.appId || '').trim().toLowerCase();
     const level = String(req.query?.level || '').trim().toLowerCase();
     const limitValue = Number(req.query?.limit || 120);
     const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(250, limitValue)) : 120;
     const list = LOG_BUFFER
+      .filter((entry) => !appId || String(entry.app || '').toLowerCase() === appId)
       .filter((entry) => !level || entry.level === level)
       .slice(-limit);
     res.json({ items: list });
@@ -45,7 +47,7 @@ export function registerApiUtil(app, ctx) {
     const actualRole = getActualRole(req);
     if (actualRole !== 'admin') return res.status(403).send('Admin access required.');
     const desired = String(req.body?.role ?? req.query?.role ?? '').trim().toLowerCase();
-    const allowedViewRoles = new Set(['guest', 'user', 'co-admin', 'admin']);
+    const allowedViewRoles = new Set(['guest', 'user', 'power-user', 'co-admin', 'admin']);
     req.session.viewRole = allowedViewRoles.has(desired) && desired !== 'admin' ? desired : null;
     const targetPath = resolveRoleSwitchRedirectPath(req, getEffectiveRole(req), {});
     return res.redirect(targetPath);

@@ -5,7 +5,42 @@
         var prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
         var themeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
         var modeFromDefaults = (themeDefaults && (themeDefaults.mode === "day" || themeDefaults.mode === "night")) ? themeDefaults.mode : "";
-        var mode = stored || modeFromDefaults || (prefersLight ? "day" : "night");
+        var launcharrThemeMode = "";
+        var launcharrSquareCorners = "";
+        var launcharrEmbedRequested = false;
+        try {
+          var bootstrapParams = new URLSearchParams(window.location.search);
+          var bootstrapEmbedParam = String(bootstrapParams.get("embed") || "").trim().toLowerCase();
+          var bootstrapIsEmbedded = false;
+          try {
+            bootstrapIsEmbedded = window.self !== window.top;
+          } catch (_bootstrapEmbedErr) {
+            bootstrapIsEmbedded = true;
+          }
+          launcharrEmbedRequested = /^(launcharr|native|app)$/i.test(bootstrapEmbedParam)
+            || (bootstrapIsEmbedded && sessionStorage.getItem("curatorr-embed-mode") === "launcharr");
+          launcharrThemeMode = String(bootstrapParams.get("launcharr_theme") || "").trim().toLowerCase();
+          launcharrSquareCorners = String(bootstrapParams.get("launcharr_square_corners") || "").trim().toLowerCase();
+          if (launcharrEmbedRequested && (launcharrThemeMode === "day" || launcharrThemeMode === "night")) {
+            sessionStorage.setItem("curatorr-launcharr-theme", launcharrThemeMode);
+          } else if (launcharrEmbedRequested) {
+            launcharrThemeMode = String(sessionStorage.getItem("curatorr-launcharr-theme") || "").trim().toLowerCase();
+          } else {
+            sessionStorage.removeItem("curatorr-launcharr-theme");
+            launcharrThemeMode = "";
+          }
+          if (launcharrEmbedRequested && (launcharrSquareCorners === "1" || launcharrSquareCorners === "0")) {
+            sessionStorage.setItem("curatorr-launcharr-square-corners", launcharrSquareCorners);
+          } else if (launcharrEmbedRequested) {
+            launcharrSquareCorners = String(sessionStorage.getItem("curatorr-launcharr-square-corners") || "").trim().toLowerCase();
+          } else {
+            sessionStorage.removeItem("curatorr-launcharr-square-corners");
+            launcharrSquareCorners = "";
+          }
+        } catch (_launcharrThemeErr) {}
+        var mode = (launcharrThemeMode === "day" || launcharrThemeMode === "night")
+          ? launcharrThemeMode
+          : (stored || modeFromDefaults || (prefersLight ? "day" : "night"));
         var defaultBrandTheme = String(themeDefaults && themeDefaults.brandTheme || "").trim().toLowerCase();
         var isAllowedBrandTheme = /^(custom|curatorr|pulsarr|plex|lidarr)$/.test(defaultBrandTheme);
         var brandTheme = localStorage.getItem("curatorr-brand-theme") || (isAllowedBrandTheme ? defaultBrandTheme : "curatorr");
@@ -24,7 +59,9 @@
         var hideScrollbars = parseStoredBool("curatorr-hide-scrollbars", themeDefaults && themeDefaults.hideScrollbars === true);
         var maximizedWindow = localStorage.getItem("curatorr-maximized-window") === "1";
         document.documentElement.dataset.sidebarInvert = sidebarInvert ? "1" : "0";
-        document.documentElement.dataset.squareCorners = squareCorners ? "1" : "0";
+        document.documentElement.dataset.squareCorners = (launcharrSquareCorners === "1" || launcharrSquareCorners === "0")
+          ? launcharrSquareCorners
+          : (squareCorners ? "1" : "0");
         document.documentElement.dataset.bgMotion = bgMotion ? "1" : "0";
         document.documentElement.dataset.hideScrollbars = hideScrollbars ? "1" : "0";
         document.documentElement.dataset.maximized = maximizedWindow ? "1" : "0";
@@ -40,7 +77,41 @@
         } catch (err) {
           embedded = true;
         }
-        document.documentElement.dataset.embedded = embedded ? "1" : "0";
+        var embedMode = "";
+        try {
+          var embedParam = new URLSearchParams(window.location.search).get("embed");
+          if (/^(launcharr|native|app)$/i.test(String(embedParam || "").trim())) {
+            embedMode = "launcharr";
+            sessionStorage.setItem("curatorr-embed-mode", embedMode);
+          } else if (embedded) {
+            embedMode = sessionStorage.getItem("curatorr-embed-mode") || "";
+          } else {
+            sessionStorage.removeItem("curatorr-embed-mode");
+          }
+        } catch (_err) {}
+        var launcharrEmbed = embedMode === "launcharr";
+        document.documentElement.dataset.embedded = (embedded || launcharrEmbed) ? "1" : "0";
+        document.documentElement.dataset.launcharrEmbed = launcharrEmbed ? "1" : "0";
+        if (launcharrEmbed) {
+          window.addEventListener("message", function(event) {
+            var payload = event && event.data && typeof event.data === "object" ? event.data : null;
+            if (!payload || payload.type !== "launcharr-theme-sync") return;
+            var nextMode = String(payload.theme || "").trim().toLowerCase();
+            var nextSquareCorners = String(payload.squareCorners || "").trim().toLowerCase();
+            if (nextMode === "day" || nextMode === "night") {
+              document.documentElement.dataset.theme = nextMode;
+              try {
+                sessionStorage.setItem("curatorr-launcharr-theme", nextMode);
+              } catch (_syncThemeErr) {}
+            }
+            if (nextSquareCorners === "1" || nextSquareCorners === "0") {
+              document.documentElement.dataset.squareCorners = nextSquareCorners;
+              try {
+                sessionStorage.setItem("curatorr-launcharr-square-corners", nextSquareCorners);
+              } catch (_syncCornersErr) {}
+            }
+          });
+        }
         if (brandTheme === "custom") {
           var customHex = localStorage.getItem("curatorr-custom-color") || String(themeDefaults && themeDefaults.customColor || "#8b5cf6");
           var normalizedHex = /^#?[0-9a-fA-F]{6}$/.test(customHex) ? (customHex.charAt(0) === "#" ? customHex : "#" + customHex) : "#8b5cf6";

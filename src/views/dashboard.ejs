@@ -1,10 +1,10 @@
 <%- include('partials/head', { pageTitle: title || 'Dashboard — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
-  <div class="dash-frame">
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div>
           <div class="dash-title">Curatorr</div>
@@ -19,7 +19,6 @@
     </aside>
 
     <section class="dash-main">
-      <div id="cur-page-bg" class="cur-page-bg"></div>
       <div class="main-window-bar">
         <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
           <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
@@ -43,6 +42,7 @@
           const _topArtists = Array.isArray(topArtists) ? topArtists : [];
           const _topTracks = Array.isArray(topTracks) ? topTracks : [];
           const _recentHistory = Array.isArray(recentHistory) ? recentHistory : [];
+          const _lidarrStatus = lidarrStatus && typeof lidarrStatus === 'object' ? lidarrStatus : { items: [], counts: {} };
           const _maxPlays = _byDay.reduce((m, d) => Math.max(m, d.plays || 0), 1);
 
           function fmtTime(ms) {
@@ -132,6 +132,37 @@
         </div>
         </div><%# end cur-two-col--streams-chart %>
 
+        <div class="cur-panel cur-panel--lidarr">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Lidarr Status</h3>
+            <div class="cur-panel-actions">
+              <a href="/artists" class="cur-panel-link">View artists</a>
+            </div>
+          </div>
+          <% if ((_lidarrStatus.items || []).length) { %>
+            <ul class="cur-list">
+              <% _lidarrStatus.items.slice(0, 5).forEach(function(item) { %>
+                <li class="cur-list-item cur-list-item--stack">
+                  <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>">
+                    <img src="/api/music/thumb/artist/<%= encodeURIComponent(item.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                  </span>
+                  <span class="cur-list-primary">
+                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
+                    <% if (item.detail) { %>
+                      <span class="cur-list-sub"><%= item.detail %></span>
+                    <% } %>
+                  </span>
+                  <span class="cur-badge cur-badge--<%= item.tone || 'neutral' %>"><%= item.label %></span>
+                </li>
+              <% }) %>
+            </ul>
+          <% } else if (Object.keys(_lidarrStatus.counts || {}).length) { %>
+            <div class="cur-panel-foot">
+              <span class="cur-panel-meta">No artist rows yet, but Lidarr activity has been recorded.</span>
+            </div>
+          <% } %>
+        </div>
+
         <div class="cur-two-col">
           <%# ── Top artists ──────────────────────────────────────────────── %>
           <div class="cur-panel">
@@ -143,10 +174,12 @@
               <ul class="cur-list">
                 <% _topArtists.forEach(function(a) { %>
                   <li class="cur-list-item">
-                    <span class="cur-list-name"><%= a.artist_name %></span>
+                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>">
+                      <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                    </span>
+                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
                     <span class="cur-list-meta"><%= a.total_plays %> plays</span>
-                    <% if (a.excluded) { %><span class="cur-badge cur-badge--skip">excluded</span><% } %>
-                    <% if (a.skip_streak > 0) { %><span class="cur-badge cur-badge--warn"><%= a.skip_streak %> skips</span><% } %>
+                    <% if (a.curatorrTier) { %><span class="cur-badge cur-badge--<%= a.curatorrTier.tone %>"><%= a.curatorrTier.label %></span><% } %>
                   </li>
                 <% }) %>
               </ul>
@@ -165,12 +198,15 @@
               <ul class="cur-list">
                 <% _topTracks.forEach(function(t) { %>
                   <li class="cur-list-item">
+                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>">
+                      <img src="/api/music/thumb/track/<%= encodeURIComponent(t.rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                    </span>
                     <div class="cur-list-primary">
-                      <span class="cur-list-name"><%= t.track_title %></span>
-                      <span class="cur-list-sub"><%= t.artist_name %></span>
+                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>"><%= t.track_title %></span>
+                      <span class="cur-list-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= t.artist_name %>"><%= t.artist_name %></span>
                     </div>
                     <span class="cur-list-meta"><%= t.total_plays %> plays</span>
-                    <% if (t.excluded) { %><span class="cur-badge cur-badge--skip">excluded</span><% } %>
+                    <% if (t.curatorrTier) { %><span class="cur-badge cur-badge--<%= t.curatorrTier.tone %>"><%= t.curatorrTier.label %></span><% } %>
                   </li>
                 <% }) %>
               </ul>
@@ -196,8 +232,14 @@
               </div>
               <% _recentHistory.forEach(function(h) { %>
                 <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
-                  <span class="cur-history-track"><%= h.track_title || '—' %><% if (h.is_skip) { %> <span class="cur-badge cur-badge--skip">skip</span><% } %></span>
-                  <span class="cur-history-artist"><%= h.artist_name || '—' %></span>
+                  <span class="cur-history-track">
+                    <span class="cur-history-track-main">
+                      <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.track_title || '—' %></span>
+                      <% if (h.curatorrTier) { %><span class="cur-badge cur-badge--<%= h.curatorrTier.tone %>"><%= h.curatorrTier.label %></span><% } %>
+                    </span>
+                    <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
+                  </span>
+                  <span class="cur-history-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
                   <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
                   <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
                 </div>
@@ -228,12 +270,14 @@
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script>
   (function() {
     var body   = document.getElementById('cur-streams-body');
     var dot    = document.getElementById('cur-stream-dot');
     var cnt    = document.getElementById('cur-streams-count');
-    var pageBg = document.getElementById('cur-page-bg');
 
     function fmtMs(ms) {
       if (!ms) return '0:00';
@@ -257,16 +301,6 @@
         cnt.style.display = 'none';
       }
 
-      // Full-page background from first active stream's art
-      var first = sessions.find(function(s){ return s.state !== 'paused'; }) || sessions[0];
-      var bgSrc = first ? artUrl(first.artistThumb || first.albumThumb) : '';
-      if (bgSrc) {
-        pageBg.style.backgroundImage = 'url(' + bgSrc + ')';
-        pageBg.classList.add('is-active');
-      } else {
-        pageBg.classList.remove('is-active');
-      }
-
       if (!sessions.length) {
         body.innerHTML = '<div class="cur-empty cur-streams-empty">No music playing right now.</div>';
         return;
@@ -282,9 +316,9 @@
               ? '<img class="cur-stream-album-art" src="' + escAttr(albumImg) + '" alt="" loading="lazy" />'
               : '<div class="cur-stream-album-art cur-stream-album-art--empty"></div>') +
             '<div class="cur-stream-details">' +
-              '<div class="cur-stream-track">' + escHtml(s.title) + '</div>' +
-              '<div class="cur-stream-meta">' + escHtml(s.artist) +
-                (s.album ? '<span class="cur-stream-album-sep"> · </span>' + escHtml(s.album) : '') + '</div>' +
+              '<div class="cur-stream-track"><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="' + escAttr(s.ratingKey || '') + '">' + escHtml(s.title) + '</span></div>' +
+              '<div class="cur-stream-meta"><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escAttr(s.artist || '') + '">' + escHtml(s.artist) + '</span>' +
+                (s.album ? '<span class="cur-stream-album-sep"> · </span><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="' + escAttr(s.artist || '') + '" data-cur-overview-album="' + escAttr(s.album || '') + '">' + escHtml(s.album) + '</span>' : '') + '</div>' +
               '<div class="cur-stream-footer">' +
                 '<span class="cur-stream-user">' + escHtml(s.userName || 'Unknown') + '</span>' +
                 '<span class="cur-stream-device">' + escHtml(s.playerTitle || '') + '</span>' +
@@ -316,5 +350,6 @@
     setInterval(poll, 12000);
   })();
   </script>
+  <script src="/starfield-3d.js"></script>
 </body>
 </html>

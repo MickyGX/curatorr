@@ -1,10 +1,10 @@
 <%- include('partials/head', { pageTitle: title || 'Play History — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
-  <div class="dash-frame">
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div><div class="dash-title">Curatorr</div></div>
       </div>
@@ -25,6 +25,9 @@
           <span class="main-window-rest">| History</span>
         </div>
         <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
       </div>
 
       <div class="dash-content">
@@ -62,19 +65,24 @@
                 <span>Album</span>
                 <span>Listened</span>
                 <span>When</span>
-                <span>Source</span>
               </div>
               <% _history.forEach(function(h) { %>
                 <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
                   <span class="cur-history-track">
-                    <%= h.track_title || '—' %>
-                    <% if (h.is_skip) { %><span class="cur-badge cur-badge--skip">skip</span><% } %>
+                    <span class="cur-history-track-main">
+                      <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.track_title || '—' %></span>
+                      <% if (h.curatorrTier) { %><span class="cur-badge cur-badge--<%= h.curatorrTier.tone %>"><%= h.curatorrTier.label %></span><% } %>
+                    </span>
+                    <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
                   </span>
-                  <span class="cur-history-artist"><%= h.artist_name || '—' %></span>
-                  <span class="cur-history-album"><%= h.album_name || '—' %></span>
+                  <span class="cur-history-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
+                  <% if (h.album_name) { %>
+                    <span class="cur-history-album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= h.artist_name || '' %>" data-cur-overview-album="<%= h.album_name %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.album_name %></span>
+                  <% } else { %>
+                    <span class="cur-history-album">—</span>
+                  <% } %>
                   <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
                   <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
-                  <span class="cur-history-source cur-source-badge"><%= h.event_source || '—' %></span>
                 </div>
               <% }) %>
             </div>
@@ -88,5 +96,9 @@
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
 </body>
 </html>

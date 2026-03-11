@@ -10,7 +10,7 @@
           </div>
           <span class="user-pill-caret" aria-hidden="true"></span>
           <div class="user-menu" role="menu">
-            <% const _actualRole = (locals.actualRole || role); %>
+            <% const _actualRole = (typeof actualRole !== 'undefined' && actualRole) ? actualRole : role; %>
             <% if (_actualRole === 'admin') { %>
               <details class="user-menu-role-picker" data-user-role-picker>
                 <summary class="user-menu-item user-menu-role-trigger">
@@ -19,7 +19,7 @@
                   <span class="user-menu-role-caret" aria-hidden="true"></span>
                 </summary>
                 <div class="user-menu-role-options" role="group" aria-label="Role view options">
-                  <% ['guest', 'user', 'co-admin', 'admin'].forEach(function(r) { %>
+                  <% ['guest', 'user', 'power-user', 'co-admin', 'admin'].forEach(function(r) { %>
                     <form class="user-menu-inline-form" method="post" action="/switch-view">
                       <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
                       <input type="hidden" name="role" value="<%= r %>" />

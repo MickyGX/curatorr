@@ -1,10 +1,10 @@
 <%- include('partials/head', { pageTitle: title || 'Artists — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
-  <div class="dash-frame">
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div><div class="dash-title">Curatorr</div></div>
       </div>
@@ -25,12 +25,111 @@
           <span class="main-window-rest">| Artists</span>
         </div>
         <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
       </div>
 
       <div class="dash-content">
         <%
           const _artists = Array.isArray(artists) ? artists : [];
+          const _suggestedArtists = Array.isArray(suggestedArtists) ? suggestedArtists : [];
+          const _lidarrAutomationEligible = Boolean(lidarrAutomationEligible);
+          const _lidarrStatus = lidarrStatus && typeof lidarrStatus === 'object' ? lidarrStatus : { items: [], counts: {} };
+          const _lidarrQuota = lidarrQuota && typeof lidarrQuota === 'object' ? lidarrQuota : null;
+
+          function fmtQuota(metric, label) {
+            if (!metric) return '';
+            if (metric.unlimited) return label + ' unlimited';
+            return label + ' ' + metric.used + '/' + metric.limit;
+          }
         %>
+
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Suggested Artists <span class="cur-count"><%= _suggestedArtists.length %></span></h3>
+            <div class="cur-panel-actions">
+              <% if (_lidarrQuota) { %>
+                <span class="cur-status-chip"><strong><%= fmtQuota(_lidarrQuota.weeklyArtists, 'Artists') %></strong></span>
+                <span class="cur-status-chip"><strong><%= fmtQuota(_lidarrQuota.weeklyAlbums, 'Albums') %></strong></span>
+              <% } %>
+            </div>
+          </div>
+          <% if (_suggestedArtists.length) { %>
+            <ul class="cur-list">
+              <% _suggestedArtists.forEach(function(a) { const topGenres = Array.isArray(a.reason?.topGenres) ? a.reason.topGenres.filter(Boolean).slice(0, 3) : []; %>
+                <li class="cur-list-item cur-suggest-item">
+                  <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>">
+                    <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                  </span>
+                  <span class="cur-list-primary">
+                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>"><%= a.artistName %></span>
+                    <span class="cur-list-sub">
+                      <%= topGenres.length ? topGenres.join(' · ') : 'Suggested from your current library taste profile' %>
+                      <% if (a.reason?.albumCount) { %> · <%= a.reason.albumCount %> album<%= a.reason.albumCount === 1 ? '' : 's' %><% } %>
+                    </span>
+                  </span>
+                  <span class="cur-list-meta cur-suggest-score">Score <strong><%= Number(a.totalScore || 0).toFixed(1) %></strong></span>
+                  <span class="cur-badge cur-badge--<%= a.lidarrStatusTone || 'curatorr' %>"><%= a.lidarrStatusLabel || a.status || 'Suggested' %></span>
+                  <span class="cur-cell-actions cur-suggest-actions">
+                    <% if ((a.status || 'suggested') === 'suggested' && _lidarrAutomationEligible) { %>
+                      <button class="btn btn-sm btn-primary" type="button" onclick="queueSuggestedArtist('<%= encodeURIComponent(a.artistName) %>', this)">Add to Lidarr</button>
+                    <% } else if ((a.status || '') === 'quota_blocked') { %>
+                      <span class="cur-panel-meta"><%= a.lidarrStatusDetail || 'Weekly quota reached.' %></span>
+                    <% } else if ((a.status || '') === 'queued_for_lidarr') { %>
+                      <span class="cur-panel-meta">Queued for later Lidarr review</span>
+                    <% } else if ((a.status || '') === 'added_to_lidarr') { %>
+                      <span class="cur-panel-meta">Added to Lidarr</span>
+                    <% } else if (!_lidarrAutomationEligible) { %>
+                      <span class="cur-panel-meta">Lidarr automation is not enabled for this role.</span>
+                    <% } %>
+                  </span>
+                </li>
+              <% }) %>
+            </ul>
+          <% } else { %>
+            <div class="cur-empty">No actionable artist suggestions right now. Curatorr checks this list automatically and moves existing Lidarr artists into the activity panel below.</div>
+          <% } %>
+          <div class="cur-panel-foot">
+            <span id="artistSuggestionStatus" class="cur-panel-meta"></span>
+          </div>
+        </div>
+
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Lidarr Activity <span class="cur-count"><%= (_lidarrStatus.items || []).length %></span></h3>
+            <div class="cur-panel-actions">
+              <% Object.keys(_lidarrStatus.counts || {}).forEach(function(label) { %>
+                <span class="cur-status-chip"><strong><%= _lidarrStatus.counts[label] %></strong> <%= label %></span>
+              <% }) %>
+            </div>
+          </div>
+          <% if ((_lidarrStatus.items || []).length) { %>
+            <ul class="cur-list">
+              <% _lidarrStatus.items.forEach(function(item) { %>
+                <li class="cur-list-item cur-list-item--stack">
+                  <span class="cur-list-primary">
+                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
+                    <% if (item.detail) { %>
+                      <span class="cur-list-sub"><%= item.detail %></span>
+                    <% } %>
+                  </span>
+                  <% if (_lidarrAutomationEligible && item.reviewable) { %>
+                    <span class="cur-cell-actions">
+                      <button class="btn btn-sm btn-ghost" type="button" onclick="reviewLidarrProgression('<%= encodeURIComponent(item.artistName) %>', this)">Review now</button>
+                    </span>
+                  <% } %>
+                  <span class="cur-badge cur-badge--<%= item.tone || 'neutral' %>"><%= item.label %></span>
+                </li>
+              <% }) %>
+            </ul>
+          <% } else { %>
+            <div class="cur-empty">No Lidarr actions recorded yet. Added artists and album activity will appear here.</div>
+          <% } %>
+          <div class="cur-panel-foot">
+            <span id="lidarrReviewStatus" class="cur-panel-meta"></span>
+          </div>
+        </div>
 
         <div class="cur-panel">
           <div class="cur-panel-header">
@@ -52,9 +151,9 @@
                 <span>Actions</span>
               </div>
               <% _artists.forEach(function(a) { %>
-                <div class="cur-table-row<%= a.excluded ? ' cur-row--excluded' : '' %>" data-artist-name="<%= a.artist_name.toLowerCase() %>">
-                  <span class="cur-cell-thumb"><img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
-                  <span class="cur-cell-name"><%= a.artist_name %></span>
+                <div class="cur-table-row" data-artist-name="<%= a.artist_name.toLowerCase() %>">
+                  <span class="cur-cell-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
+                  <span class="cur-cell-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
                   <span class="cur-cell"><%= a.total_plays %></span>
                   <span class="cur-cell"><%= a.total_skips %></span>
                   <span class="cur-cell">
@@ -65,21 +164,11 @@
                     <% } %>
                   </span>
                   <span class="cur-cell">
-                    <% if (a.excluded) { %>
-                      <span class="cur-badge cur-badge--skip">Excluded</span>
-                    <% } else if (a.total_plays > 0 && a.total_skips === 0) { %>
-                      <span class="cur-badge cur-badge--belter">Belter</span>
-                    <% } else if (a.total_plays > 0 && a.total_skips > 0) { %>
-                      <span class="cur-badge cur-badge--decent">Decent</span>
-                    <% } else { %>
-                      <span class="cur-badge cur-badge--ok">Active</span>
+                    <% if (a.curatorrTier) { %>
+                      <span class="cur-badge cur-badge--<%= a.curatorrTier.tone %>"><%= a.curatorrTier.label %></span>
                     <% } %>
                   </span>
                   <span class="cur-cell-actions">
-                    <button class="btn btn-sm<%= a.excluded ? ' btn-primary' : ' btn-ghost-danger' %>"
-                      onclick="toggleArtistExclusion('<%= encodeURIComponent(a.artist_name) %>', <%= !a.excluded %>, this)">
-                      <%= a.excluded ? 'Re-include' : 'Exclude' %>
-                    </button>
                     <% if (a.skip_streak > 0) { %>
                       <button class="btn btn-sm btn-ghost" onclick="resetArtistSkips('<%= encodeURIComponent(a.artist_name) %>', this)">Reset skips</button>
                     <% } %>
@@ -97,6 +186,10 @@
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
   <script>
     // Client-side artist search
     const artistSearch = document.getElementById('artistSearch');
@@ -110,19 +203,52 @@
       });
     }
 
-    function toggleArtistExclusion(encodedName, exclude, btn) {
-      fetch('/api/music/artists/' + encodedName + '/exclude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
-        body: JSON.stringify({ excluded: exclude }),
-      }).then(function(r) { if (r.ok) location.reload(); });
-    }
+
 
     function resetArtistSkips(encodedName, btn) {
       fetch('/api/music/artists/' + encodedName + '/reset-skips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
       }).then(function(r) { if (r.ok) location.reload(); });
+    }
+
+    function queueSuggestedArtist(encodedName, btn) {
+      var status = document.getElementById('artistSuggestionStatus');
+      if (btn) btn.disabled = true;
+      if (status) status.textContent = 'Adding artist to Lidarr…';
+      fetch('/api/music/suggestions/artists/' + encodedName + '/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+        .then(function(result) {
+          if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Failed to add artist.');
+          if (status) status.textContent = 'Artist added to Lidarr.';
+          location.reload();
+        })
+        .catch(function(err) {
+          if (status) status.textContent = err.message || 'Failed to add artist.';
+          if (btn) btn.disabled = false;
+        });
+    }
+
+    function reviewLidarrProgression(encodedName, btn) {
+      var status = document.getElementById('lidarrReviewStatus');
+      if (btn) btn.disabled = true;
+      if (status) status.textContent = 'Reviewing artist progression…';
+      fetch('/api/music/lidarr/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+        body: JSON.stringify({ artistName: decodeURIComponent(encodedName), force: true }),
+      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+        .then(function(result) {
+          if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Review failed.');
+          if (status) status.textContent = 'Artist progression reviewed.';
+          location.reload();
+        })
+        .catch(function(err) {
+          if (status) status.textContent = err.message || 'Review failed.';
+          if (btn) btn.disabled = false;
+        });
     }
   </script>
 </body>

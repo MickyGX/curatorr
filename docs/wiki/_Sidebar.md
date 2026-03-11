@@ -1,17 +1,12 @@
-[Home](Home)
+## Curatorr Wiki
 
-[Quick Start](Quick-Start)
-
-[Configuration](Configuration)
-
-[Authentication and Roles](Authentication-and-Roles)
-
-[Integrations](Integrations)
-
-[Supported Apps](Supported-Apps)
-
-[Troubleshooting](Troubleshooting)
-
-[FAQ](FAQ)
-
-[Release Checklist](Release-Checklist)
+- [Home](Home)
+- [Quick Start](Quick-Start)
+- [Configuration](Configuration)
+- [Authentication and Roles](Authentication-and-Roles)
+- [Integrations](Integrations)
+- [Artist Suggestions and Lidarr Activity](Artist-Suggestions-and-Lidarr-Activity)
+- [Discover — External Artist Discovery](Discover)
+- [Smart Playlists](Smart-Playlists)
+- [Troubleshooting](Troubleshooting)
+- [FAQ](FAQ)

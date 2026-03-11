@@ -5,18 +5,205 @@
 import {
   getUserPreferences, saveUserPreferences,
   getUserPlaylist, saveUserPlaylist,
+  getPlaylistJob, savePlaylistJob, recordPlaylistSync,
   refreshMasterTracks, getMasterTracks, getMasterTrackCount,
-  getGenresFromMaster, getArtistsFromMaster,
+  getGenresFromMaster, getArtistsFromMaster, dedupeMasterArtistNames, getResolvedUserArtistFilters,
+  listUserGeneratedPlaylists, saveUserGeneratedPlaylist,
+  clearPlaylistState,
+  PRESET_VALUES,
 } from '../db.js';
 
 const SERVER_STEPS = 5;
 const USER_STEPS = 6;
+const activePlaylistJobs = new Set();
 
-const PRESET_VALUES = {
-  cautious:   { skipThresholdSeconds: 20, completionThresholdSeconds: 20, skipWeight: -0.5, belterWeight: 0.5,  artistSkipRank: 1, artistBelterRank: 9, songSkipLimit: 3 },
-  measured:   { skipThresholdSeconds: 30, completionThresholdSeconds: 30, skipWeight: -1,   belterWeight: 1,    artistSkipRank: 2, artistBelterRank: 8, songSkipLimit: 2 },
-  aggressive: { skipThresholdSeconds: 40, completionThresholdSeconds: 40, skipWeight: -1.5, belterWeight: 1.5,  artistSkipRank: 3, artistBelterRank: 7, songSkipLimit: 1 },
-};
+function buildWizardArtistOptions(artists = []) {
+  return (Array.isArray(artists) ? artists : []).map((artistName) => ({
+    name: artistName,
+    thumb: `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=wizard-artist-thumb-1`,
+  }));
+}
+
+function resolveSavedArtistPrefs(req, db, loadConfig) {
+  const userId = String(req.session?.user?.username || '').trim();
+  const saved = userId ? getUserPreferences(db, userId) : {};
+  const config = typeof loadConfig === 'function' ? loadConfig() : {};
+  const { mustIncludeArtists: likedArtists, neverIncludeArtists: ignoredArtists } = getResolvedUserArtistFilters(db, config, userId);
+  return {
+    likedArtists,
+    ignoredArtists,
+    saved,
+  };
+}
+
+function resolveWizardState(req, db, loadConfig) {
+  const sessionState = req.session?.userWizard && typeof req.session.userWizard === 'object'
+    ? req.session.userWizard
+    : {};
+  const { likedArtists, ignoredArtists, saved } = resolveSavedArtistPrefs(req, db, loadConfig);
+  const mergeArtists = (sessionArtists, savedArtists) => {
+    const merged = [
+      ...(Array.isArray(savedArtists) ? savedArtists : []),
+      ...(Array.isArray(sessionArtists) ? sessionArtists : []),
+    ];
+    return dedupeMasterArtistNames(merged);
+  };
+  return {
+    likedGenres: Array.isArray(sessionState.likedGenres) ? sessionState.likedGenres : (saved.likedGenres || []),
+    likedArtists: mergeArtists(sessionState.likedArtists, likedArtists),
+    ignoredGenres: Array.isArray(sessionState.ignoredGenres) ? sessionState.ignoredGenres : (saved.ignoredGenres || []),
+    ignoredArtists: mergeArtists(sessionState.ignoredArtists, ignoredArtists),
+  };
+}
+
+function storeWizardState(req, db, loadConfig, patch = {}) {
+  const nextState = { ...resolveWizardState(req, db, loadConfig), ...patch };
+  req.session.userWizard = nextState;
+  return nextState;
+}
+
+function getWizardFilterArtistSet(req, db, loadConfig) {
+  const prefs = resolveSavedArtistPrefs(req, db, loadConfig);
+  const mustInclude = Array.isArray(prefs?.likedArtists) ? prefs.likedArtists : [];
+  const neverInclude = Array.isArray(prefs?.ignoredArtists) ? prefs.ignoredArtists : [];
+  return new Set(
+    dedupeMasterArtistNames([...mustInclude, ...neverInclude]).map((artist) => String(artist || '').trim().toLowerCase())
+  );
+}
+
+function filterWizardArtists(req, db, loadConfig, artists = [], wizardState = {}) {
+  const blocked = getWizardFilterArtistSet(req, db, loadConfig);
+  (wizardState.likedArtists || []).forEach((artist) => blocked.add(String(artist || '').trim().toLowerCase()));
+  (wizardState.ignoredArtists || []).forEach((artist) => blocked.add(String(artist || '').trim().toLowerCase()));
+  return dedupeMasterArtistNames(artists).filter((artist) => !blocked.has(String(artist || '').trim().toLowerCase()));
+}
+
+async function resolveWizardMachineId(ctx, url, token, machineId = '') {
+  const { buildAppApiUrl, saveConfig, loadConfig } = ctx;
+  let resolvedMachineId = String(machineId || '').trim();
+  if (resolvedMachineId) return resolvedMachineId;
+  const idUrl = buildAppApiUrl(url, '');
+  idUrl.searchParams.set('X-Plex-Token', token);
+  const response = await fetch(idUrl.toString(), { headers: { Accept: 'application/json' } });
+  if (!response.ok) return '';
+  const json = await response.json();
+  resolvedMachineId = json?.MediaContainer?.machineIdentifier || '';
+  if (resolvedMachineId) {
+    const latest = loadConfig();
+    saveConfig({ ...latest, plex: { ...latest.plex, machineId: resolvedMachineId } });
+  }
+  return resolvedMachineId;
+}
+
+async function buildWizardPlaylistPayload(ctx, userId, ignoredArtists = [], likedArtists = []) {
+  const { db, pushLog } = ctx;
+  let masterTracks = getMasterTracks(db);
+  if (!masterTracks.length) {
+    pushLog({ level: 'info', app: 'wizard', action: 'master.cache.wait', message: 'Master cache empty — building now before creating playlist' });
+    await refreshMasterTrackCache(ctx);
+    masterTracks = getMasterTracks(db);
+  }
+
+  pushLog({ level: 'info', app: 'wizard', action: 'playlist.build', message: `Building playlist from ${masterTracks.length} cached tracks` });
+
+  const ignoredArtistSet = new Set((ignoredArtists || []).map((a) => String(a).toLowerCase()));
+  const likedArtistSet = new Set((likedArtists || []).map((a) => String(a).toLowerCase()));
+  const excludedArtistNames = new Set();
+
+  const included = masterTracks.filter((track) => {
+    const artist = String(track.artistName || '').toLowerCase();
+    if (likedArtistSet.has(artist)) return true;
+    if (ignoredArtistSet.has(artist)) {
+      excludedArtistNames.add(String(track.artistName || ''));
+      return false;
+    }
+    return true;
+  });
+
+  const ratingKeys = included.map((track) => track.ratingKey);
+  pushLog({ level: 'info', app: 'wizard', action: 'playlist.tracks', message: `${ratingKeys.length} tracks included after exclusions` });
+
+  return {
+    ratingKeys,
+    trackCount: ratingKeys.length,
+    excludedArtists: [...excludedArtistNames].filter(Boolean).length,
+    excludedTracks: Math.max(0, masterTracks.length - ratingKeys.length),
+    playlistTitle: `${userId}'s Curatorred Playlist`,
+  };
+}
+
+async function runWizardPlaylistJob(ctx, { user, sessionPlexToken = '', trigger = 'wizard' }) {
+  const { db, loadConfig, pushLog, safeMessage, playlistService } = ctx;
+  const userId = String(user?.username || '').trim();
+  if (!userId || activePlaylistJobs.has(userId)) return;
+
+  activePlaylistJobs.add(userId);
+  try {
+    const config = loadConfig();
+    const { url, libraries: selectedKeys = [] } = config.plex || {};
+    if (!url || !selectedKeys.length) {
+      savePlaylistJob(db, userId, { status: 'failed', trigger, message: 'Plex is not configured for playlist creation.', errorMessage: 'Plex is not configured.', completedAt: Date.now() });
+      return;
+    }
+
+    // ── Step 1: Crescive (smaller — build first) ───────────────────────────
+    savePlaylistJob(db, userId, { status: 'building', trigger, message: 'Creating Crescive playlist…', startedAt: Date.now(), completedAt: null, errorMessage: '' });
+    clearPlaylistState(db, userId, 'crescive');
+    await playlistService.syncCrescive(userId);
+
+    // ── Step 2: Curative (larger — replaces old curatorred playlist) ───────
+    savePlaylistJob(db, userId, { status: 'building', trigger, message: 'Creating Curative playlist…', completedAt: null, errorMessage: '' });
+
+    // If an existing curatorred playlist is in user_generated_playlists, reuse its Plex ID
+    const existingCuratorred = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+      .find((e) => e.playlistType === 'curatorred' || e.playlistKey === 'curatorred');
+    if (existingCuratorred?.plexPlaylistId) {
+      // Migrate: rename in Plex and convert record to curative
+      try {
+        const { url: plexUrl, token } = config.plex || {};
+        const renameUrl = new URL(`${plexUrl.replace(/\/$/, '')}/playlists/${existingCuratorred.plexPlaylistId}`);
+        renameUrl.searchParams.set('title', `${userId}'s Curative Playlist`);
+        renameUrl.searchParams.set('X-Plex-Token', token);
+        await fetch(renameUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
+      } catch { /* non-fatal — rename is cosmetic */ }
+      saveUserGeneratedPlaylist(db, userId, {
+        ...existingCuratorred,
+        playlistType: 'curative',
+        playlistKey: 'curative',
+        playlistTitle: `${userId}'s Curative Playlist`,
+        active: true,
+        updatedAt: Date.now(),
+      });
+    }
+
+    clearPlaylistState(db, userId, 'curative');
+    await playlistService.syncCurative(userId);
+
+    const curativeRow = listUserGeneratedPlaylists(db, userId).find((e) => e.playlistKey === 'curative');
+    savePlaylistJob(db, userId, {
+      status: 'completed', trigger,
+      message: 'Crescive and Curative playlists created.',
+      playlistId: curativeRow?.plexPlaylistId || '',
+      playlistTitle: curativeRow?.playlistTitle || `${userId}'s Curative Playlist`,
+      trackCount: curativeRow?.trackCount || 0,
+      startedAt: getPlaylistJob(db, userId)?.started_at || Date.now(),
+      completedAt: Date.now(),
+      errorMessage: '',
+    });
+    pushLog({ level: 'info', app: 'wizard', action: 'user.playlist.synced', message: `Crescive + Curative playlists created for ${userId}` });
+  } catch (err) {
+    savePlaylistJob(db, userId, { status: 'failed', trigger, message: 'Playlist creation failed.', errorMessage: safeMessage(err), completedAt: Date.now() });
+    pushLog({ level: 'error', app: 'wizard', action: 'user.playlist.error', message: safeMessage(err) });
+  } finally {
+    activePlaylistJobs.delete(userId);
+  }
+}
+
+function queueWizardPlaylistJob(ctx, options) {
+  setTimeout(() => {
+    runWizardPlaylistJob(ctx, options).catch(() => {});
+  }, 10);
+}
 
 // ── Master track cache refresh ────────────────────────────────────────────────
 // Fetches all tracks from selected Plex libraries and stores in master_tracks table.
@@ -45,6 +232,8 @@ export async function refreshMasterTrackCache(ctx) {
           albumName: String(t.parentTitle || ''),
           genres: (t.Genre || []).map((g) => g.tag),
           libraryKey: String(key),
+          ratingCount: Number(t.ratingCount || 0),
+          viewCount: Number(t.viewCount || 0),
         });
       }
     }
@@ -138,6 +327,7 @@ export function registerWizard(app, ctx) {
     loadConfig, saveConfig,
     resolveLocalUsers, serializeLocalUsers,
     hashPassword, validateLocalPasswordStrength, setSessionUser,
+    resolveUserPlexServerToken,
     fetchPlexMusicLibraries,
     buildAppApiUrl,
     normalizeBaseUrl, safeMessage, pushLog,
@@ -336,6 +526,7 @@ export function registerWizard(app, ctx) {
     if (!req.session?.user) return res.redirect('/login');
     const config = loadConfig();
     if (!config.wizard?.completed) return res.redirect('/wizard');
+    req.session.userWizard = resolveWizardState(req, db, loadConfig);
     const genres = getGenresFromMaster(db);
     return renderUserWizard(res, req, 1, null, { genres });
   });
@@ -344,18 +535,17 @@ export function registerWizard(app, ctx) {
   app.post('/wizard/user/genres-like', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
     const selected = parseCheckboxArray(req.body?.genres);
-    req.session.userWizard = { ...req.session.userWizard, likedGenres: selected };
-    // Get artists from liked genres
-    const artists = getArtistsFromMaster(db, selected);
-    return renderUserWizard(res, req, 2, null, { artists, likedGenres: selected });
+    const wizardState = storeWizardState(req, db, loadConfig, { likedGenres: selected });
+    const artists = filterWizardArtists(req, db, loadConfig, getArtistsFromMaster(db, selected), wizardState);
+    return renderUserWizard(res, req, 2, null, { artistOptions: buildWizardArtistOptions(artists), likedGenres: selected });
   });
 
   // Step 2: Artists you like (from liked genres)
   app.post('/wizard/user/artists-like', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
     const selected = parseCheckboxArray(req.body?.artists);
-    req.session.userWizard = { ...req.session.userWizard, likedArtists: selected };
-    const likedGenres = req.session.userWizard?.likedGenres || [];
+    const wizardState = storeWizardState(req, db, loadConfig, { likedArtists: selected });
+    const likedGenres = wizardState.likedGenres || [];
     // All genres for ignore step (excluding already-liked)
     const allGenres = getGenresFromMaster(db).filter((g) => !likedGenres.includes(g));
     return renderUserWizard(res, req, 3, null, { genres: allGenres });
@@ -365,27 +555,36 @@ export function registerWizard(app, ctx) {
   app.post('/wizard/user/genres-ignore', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
     const selected = parseCheckboxArray(req.body?.genres);
-    req.session.userWizard = { ...req.session.userWizard, ignoredGenres: selected };
-    const w = req.session.userWizard || {};
-    // Artists in ignored genres, excluding already-liked artists
-    const likedArtistSet = new Set(w.likedArtists || []);
-    const artists = getArtistsFromMaster(db, selected).filter((a) => !likedArtistSet.has(a));
-    return renderUserWizard(res, req, 4, null, { artists });
+    const wizardState = storeWizardState(req, db, loadConfig, { ignoredGenres: selected });
+    const artists = filterWizardArtists(req, db, loadConfig, getArtistsFromMaster(db, selected), wizardState);
+    return renderUserWizard(res, req, 4, null, { artistOptions: buildWizardArtistOptions(artists) });
   });
 
   // Step 4: Artists to ignore (from ignored genres, not already liked)
   app.post('/wizard/user/artists-ignore', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
     const selected = parseCheckboxArray(req.body?.artists);
-    req.session.userWizard = { ...req.session.userWizard, ignoredArtists: selected };
-    const masterCount = getMasterTrackCount(db);
-    return renderUserWizard(res, req, 5, null, { masterCount });
+    storeWizardState(req, db, loadConfig, { ignoredArtists: selected });
+    return renderUserWizard(res, req, 5, null, {});
   });
 
-  // Step 5: Create playlist
+  // Step 5: Curation preset
+  app.post('/wizard/user/preset', (req, res) => {
+    if (!req.session?.user) return res.redirect('/login');
+    const userId = req.session.user.username;
+    const preset = String(req.body?.preset || '').trim();
+    if (PRESET_VALUES[preset]) {
+      const prefs = getUserPreferences(db, userId);
+      saveUserPreferences(db, userId, { ...prefs, smartConfig: { preset } });
+      pushLog({ level: 'info', app: 'wizard', action: 'preset.selected', message: `Smart playlist preset "${preset}" set for ${userId}` });
+    }
+    const masterCount = getMasterTrackCount(db);
+    return renderUserWizard(res, req, 6, null, { masterCount });
+  });
+
+  // Step 6: Create playlist
   app.post('/wizard/user/create-playlist', async (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
-    const config = loadConfig();
     const user = req.session.user;
     const userId = user.username;
     const w = req.session.userWizard || {};
@@ -398,107 +597,39 @@ export function registerWizard(app, ctx) {
     // ignoredGenres is only used to build the artist exclusion list — not stored as a filter
     saveUserPreferences(db, userId, { likedGenres, ignoredGenres: [], likedArtists, ignoredArtists, userWizardCompleted: true });
 
-    const { url, token, machineId = '', libraries: selectedKeys = [] } = config.plex || {};
-    const playlistTitle = `${user.username}'s Curatorred Playlist`;
-
-    if (url && token && selectedKeys.length) {
-      try {
-        // Resolve machineId — if missing from config, fetch it now
-        let resolvedMachineId = machineId;
-        if (!resolvedMachineId) {
-          try {
-            const idUrl = buildAppApiUrl(url, '');
-            idUrl.searchParams.set('X-Plex-Token', token);
-            const r = await fetch(idUrl.toString(), { headers: { Accept: 'application/json' } });
-            if (r.ok) {
-              const json = await r.json();
-              resolvedMachineId = json?.MediaContainer?.machineIdentifier || '';
-              if (resolvedMachineId) {
-                saveConfig({ ...loadConfig(), plex: { ...loadConfig().plex, machineId: resolvedMachineId } });
-              }
-            }
-          } catch (_) { /* non-fatal */ }
-        }
-
-        if (!resolvedMachineId) {
-          throw new Error('Could not determine Plex machine ID — check your Plex server connection.');
-        }
-
-        // Ensure master track cache is populated (may not be ready if wizard was just completed)
-        let masterTracks = getMasterTracks(db);
-        if (!masterTracks.length) {
-          pushLog({ level: 'info', app: 'wizard', action: 'master.cache.wait', message: 'Master cache empty — building now before creating playlist' });
-          await refreshMasterTrackCache(ctx);
-          masterTracks = getMasterTracks(db);
-        }
-
-        pushLog({ level: 'info', app: 'wizard', action: 'playlist.build', message: `Building playlist from ${masterTracks.length} cached tracks` });
-
-        const ignoredArtistSet = new Set(ignoredArtists.map((a) => a.toLowerCase()));
-        const likedArtistSet = new Set(likedArtists.map((a) => a.toLowerCase()));
-
-        const included = masterTracks.filter((t) => {
-          const artist = t.artistName.toLowerCase();
-          if (likedArtistSet.has(artist)) return true;
-          if (ignoredArtistSet.has(artist)) return false;
-          return true;
-        });
-        const ratingKeys = included.map((t) => t.ratingKey);
-
-        pushLog({ level: 'info', app: 'wizard', action: 'playlist.tracks', message: `${ratingKeys.length} tracks included after exclusions` });
-
-        // Create empty playlist
-        const createUrl = buildAppApiUrl(url, 'playlists');
-        createUrl.searchParams.set('type', 'audio');
-        createUrl.searchParams.set('title', playlistTitle);
-        createUrl.searchParams.set('smart', '0');
-        createUrl.searchParams.set('uri', `server://${resolvedMachineId}/com.plexapp.plugins.library`);
-        createUrl.searchParams.set('X-Plex-Token', token);
-        const createRes = await fetch(createUrl.toString(), { method: 'POST', headers: { Accept: 'application/json' } });
-        if (!createRes.ok) throw new Error(`Create playlist failed: HTTP ${createRes.status}`);
-        const createJson = await createRes.json();
-        const playlistId = createJson?.MediaContainer?.Metadata?.[0]?.ratingKey;
-
-        if (!playlistId) throw new Error('Plex did not return a playlist ID after creation');
-
-        if (ratingKeys.length) {
-          const base = url.replace(/\/$/, '');
-          // Add tracks in batches of 100 (conservative to avoid URI length limits)
-          for (let i = 0; i < ratingKeys.length; i += 100) {
-            const batch = ratingKeys.slice(i, i + 100);
-            const uri = `server://${resolvedMachineId}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
-            const addUrl = new URL(`${base}/playlists/${playlistId}/items`);
-            addUrl.searchParams.set('uri', uri);
-            addUrl.searchParams.set('X-Plex-Token', token);
-            const addRes = await fetch(addUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
-            if (!addRes.ok) {
-              pushLog({ level: 'warn', app: 'wizard', action: 'playlist.add.warn', message: `Batch add returned HTTP ${addRes.status} at offset ${i}` });
-            }
-          }
-        }
-
-        saveUserPlaylist(db, userId, String(playlistId), playlistTitle);
-        pushLog({ level: 'info', app: 'wizard', action: 'user.playlist.created', message: `Created "${playlistTitle}" with ${ratingKeys.length} tracks for ${userId}` });
-      } catch (err) {
-        pushLog({ level: 'error', app: 'wizard', action: 'user.playlist.error', message: safeMessage(err) });
-      }
-    }
+    const existingPlaylist = getUserPlaylist(db, userId);
+    savePlaylistJob(db, userId, {
+      status: 'queued',
+      trigger: 'wizard',
+      message: existingPlaylist?.playlist_id ? 'Wizard preferences saved. Playlist rebuild queued.' : 'Wizard preferences saved. Playlist creation queued.',
+      playlistId: existingPlaylist?.playlist_id || '',
+      playlistTitle: existingPlaylist?.playlist_title || `${user.username}'s Curatorred Playlist`,
+      trackCount: 0,
+      errorMessage: '',
+      startedAt: Date.now(),
+      completedAt: null,
+    });
+    queueWizardPlaylistJob(ctx, {
+      user,
+      sessionPlexToken: req.session?.plexServerToken || '',
+      trigger: 'wizard',
+    });
 
     delete req.session.userWizard;
     pushLog({ level: 'info', app: 'wizard', action: 'user.complete', message: `User wizard completed by ${userId}` });
-    return res.redirect('/dashboard');
+    return res.redirect('/playlists?wizardJob=queued');
   });
 
   // User wizard back
   app.post('/wizard/user/back', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
     const step = Math.max(1, Number(req.body?.step || 1) - 1);
-    const w = req.session.userWizard || {};
+    const w = storeWizardState(req, db, loadConfig);
     const extra = {};
     if (step === 1) extra.genres = getGenresFromMaster(db);
-    if (step === 2) extra.artists = getArtistsFromMaster(db, w.likedGenres || []);
+    if (step === 2) extra.artistOptions = buildWizardArtistOptions(filterWizardArtists(req, db, loadConfig, getArtistsFromMaster(db, w.likedGenres || []), w));
     if (step === 3) extra.genres = getGenresFromMaster(db).filter((g) => !(w.likedGenres || []).includes(g));
-    if (step === 4) extra.artists = getArtistsFromMaster(db, w.ignoredGenres || []).filter((a) => !(w.likedArtists || []).includes(a));
+    if (step === 4) extra.artistOptions = buildWizardArtistOptions(filterWizardArtists(req, db, loadConfig, getArtistsFromMaster(db, w.ignoredGenres || []), w));
     return renderUserWizard(res, req, step, null, extra);
   });
 
@@ -544,68 +675,27 @@ export function registerWizard(app, ctx) {
   // Rebuild user playlist from master cache (re-adds tracks using correct URI format)
   app.post('/api/wizard/rebuild-playlist', async (req, res) => {
     if (!req.session?.user) return res.status(401).json({ error: 'Auth required.' });
-    const config = loadConfig();
     const userId = req.session.user.username;
-    const { url, token, machineId = '' } = config.plex || {};
+    const playlistRow = getUserPlaylist(db, userId);
+    if (!playlistRow?.playlist_id) return res.status(400).json({ error: 'No playlist found — complete the user wizard first.' });
 
-    if (!url || !token) return res.status(400).json({ error: 'Plex not configured.' });
-
-    try {
-      const playlistRow = getUserPlaylist(db, userId);
-      if (!playlistRow?.playlist_id) return res.status(400).json({ error: 'No playlist found — complete the user wizard first.' });
-      const playlistId = playlistRow.playlist_id;
-
-      const prefs = getUserPreferences(db, userId);
-      const ignoredArtistSet = new Set((prefs.ignoredArtists || []).map((a) => a.toLowerCase()));
-      const likedArtistSet = new Set((prefs.likedArtists || []).map((a) => a.toLowerCase()));
-
-      // Ensure master cache is populated
-      let masterTracks = getMasterTracks(db);
-      if (!masterTracks.length) {
-        await refreshMasterTrackCache(ctx);
-        masterTracks = getMasterTracks(db);
-      }
-
-      const included = masterTracks.filter((t) => {
-        const artist = t.artistName.toLowerCase();
-        if (likedArtistSet.has(artist)) return true;
-        if (ignoredArtistSet.has(artist)) return false;
-        return true;
-      });
-      const ratingKeys = included.map((t) => t.ratingKey);
-
-      // Resolve machineId
-      let mid = machineId;
-      if (!mid) {
-        const idUrl = buildAppApiUrl(url, '');
-        idUrl.searchParams.set('X-Plex-Token', token);
-        const r = await fetch(idUrl.toString(), { headers: { Accept: 'application/json' } });
-        if (r.ok) mid = (await r.json())?.MediaContainer?.machineIdentifier || '';
-      }
-      if (!mid) return res.status(500).json({ error: 'Could not determine Plex machine ID.' });
-
-      const base = url.replace(/\/$/, '');
-
-      // Clear existing playlist items
-      const clearUrl = new URL(`${base}/playlists/${playlistId}/items`);
-      clearUrl.searchParams.set('X-Plex-Token', token);
-      await fetch(clearUrl.toString(), { method: 'DELETE', headers: { Accept: 'application/json' } });
-
-      // Add tracks in batches of 100
-      for (let i = 0; i < ratingKeys.length; i += 100) {
-        const batch = ratingKeys.slice(i, i + 100);
-        const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
-        const addUrl = new URL(`${base}/playlists/${playlistId}/items`);
-        addUrl.searchParams.set('uri', uri);
-        addUrl.searchParams.set('X-Plex-Token', token);
-        await fetch(addUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
-      }
-
-      pushLog({ level: 'info', app: 'wizard', action: 'playlist.rebuilt', message: `Rebuilt playlist for ${userId} with ${ratingKeys.length} tracks` });
-      return res.json({ ok: true, trackCount: ratingKeys.length });
-    } catch (err) {
-      return res.status(500).json({ error: safeMessage(err) });
-    }
+    savePlaylistJob(db, userId, {
+      status: 'queued',
+      trigger: 'manual',
+      message: 'Playlist rebuild queued.',
+      playlistId: playlistRow.playlist_id,
+      playlistTitle: playlistRow.playlist_title,
+      trackCount: 0,
+      errorMessage: '',
+      startedAt: Date.now(),
+      completedAt: null,
+    });
+    queueWizardPlaylistJob(ctx, {
+      user: req.session.user,
+      sessionPlexToken: req.session?.plexServerToken || '',
+      trigger: 'manual',
+    });
+    return res.json({ ok: true, queued: true });
   });
 }
 
@@ -651,6 +741,6 @@ function renderUserWizard(res, req, step, error, extra) {
     wizardState: req.session?.userWizard || {},
     error,
     extra: extra || {},
-    extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
+    extraCss: ['/styles-layout.css', '/styles-curatorr.css', '/styles-settings.css'],
   });
 }

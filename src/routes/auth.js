@@ -237,6 +237,16 @@ export function registerAuth(app, ctx) {
       });
     }
 
+    if (String(match.role || '').trim().toLowerCase() === 'disabled') {
+      return res.status(403).render('login', {
+        title: 'Curatorr',
+        product: PRODUCT,
+        allowLocalLogin: true,
+        error: 'This account is disabled.',
+        info: null,
+      });
+    }
+
     clearLoginFailures(ip);
     setSessionUser(req, match, 'local');
     const loginConfig = updateUserLogins(config, {

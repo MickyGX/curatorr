@@ -11,6 +11,9 @@ services:
       - BASE_URL=http://localhost:7676
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
+      # Allow Launcharr or another dashboard to embed Curatorr in an iframe.
+      # Example: EMBED_ALLOWED_ORIGINS=http://localhost:3333
+      # - EMBED_ALLOWED_ORIGINS=http://localhost:3333
       # Generate once: openssl rand -hex 32
       - SESSION_SECRET=replace-this-with-a-random-secret
       # optional but recommended if you only use HTTPS on domain:

@@ -13,7 +13,13 @@ import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
-import { initDb, getUserPreferences } from './db.js';
+import { initDb, getUserPreferences, getAllUserIds } from './db.js';
+import { createRecommendationService } from './services/recommendations.js';
+import { createLidarrService, DEFAULT_LIDARR_AUTOMATION_SETTINGS } from './services/lidarr.js';
+import { createPlaylistService } from './services/playlists.js';
+import { createJobService } from './services/jobs.js';
+import { rebuildSmartPlaylist } from './routes/api-music.js';
+import { runTautulliDailySync } from './services/tautulli-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +43,7 @@ const LOCAL_AUTH_MIN_PASSWORD = 12;
 const TRUST_PROXY_ENABLED = parseEnvFlag(process.env.TRUST_PROXY, false);
 const TRUST_PROXY_HOPS = resolveProxyHopCount(process.env.TRUST_PROXY_HOPS, 1);
 const TRUST_PROXY_SETTING = TRUST_PROXY_ENABLED ? TRUST_PROXY_HOPS : false;
+const EMBED_ALLOWED_ORIGINS = resolveAllowedEmbedOrigins(process.env.EMBED_ALLOWED_ORIGINS || '');
 const URLENCODED_BODY_LIMIT = String(process.env.URLENCODED_BODY_LIMIT || '8mb').trim() || '8mb';
 const JSON_BODY_LIMIT = String(process.env.JSON_BODY_LIMIT || '4mb').trim() || '4mb';
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(__dirname, '..', 'config', 'config.json');
@@ -79,7 +86,35 @@ const DEFAULT_SMART_PLAYLIST_SETTINGS = {
   syncIntervalMinutes: 30,
   artistSkipRank: 2,
   artistBelterRank: 8,
+  crescive: {
+    favouriteArtistTrackPct: 0.80,
+    favouriteGenreArtistPct: 0.80,
+    favouriteGenreTrackPct:  0.20,
+    otherGenreArtistPct:     0.20,
+    otherGenreTrackPct:      0.20,
+  },
+  curative: {
+    favouriteArtistTrackPct: 1.00,
+    favouriteGenreArtistPct: 1.00,
+    favouriteGenreTrackPct:  0.80,
+    otherGenreArtistPct:     0.50,
+    otherGenreTrackPct:      0.50,
+  },
+  additionRules: {
+    belter:     { playedPct: 0.50, addCount: 15 },
+    decent:     { playedPct: 0.80, addCount: 10 },
+    halfDecent: { playedPct: 1.00, addCount:  5 },
+  },
+  subtractionRules: {
+    skip: [
+      { playedPct: 0.20, removeCount: 15 },
+      { playedPct: 0.50, removeCount: 10 },
+      { playedPct: 0.80, removeCount:  5 },
+    ],
+  },
 };
+
+const ROLE_ORDER = ['guest', 'user', 'power-user', 'co-admin', 'admin'];
 
 // ─── Startup helpers ──────────────────────────────────────────────────────────
 
@@ -97,6 +132,28 @@ function resolveProxyHopCount(value, fallback = 1) {
 
 function parseCsv(value) {
   return String(value || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function normalizeHttpOrigin(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    return url.origin;
+  } catch (_err) {
+    return '';
+  }
+}
+
+function resolveAllowedEmbedOrigins(value) {
+  const parts = String(value || '').split(/[\n,]/);
+  return [...new Set(parts.map(normalizeHttpOrigin).filter(Boolean))];
+}
+
+function normalizeIdentityList(value) {
+  const list = Array.isArray(value) ? value : String(value || '').split(/[\n,]/);
+  return [...new Set(list.map((entry) => String(entry || '').trim()).filter(Boolean))];
 }
 
 function loadPackageVersion() {
@@ -179,6 +236,20 @@ function normalizeBasePath(value) {
   return p === '/' ? '' : p;
 }
 
+function getCookieValue(header, name) {
+  const source = String(header || '');
+  const prefix = `${name}=`;
+  for (const part of source.split(';')) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) return decodeURIComponent(trimmed.slice(prefix.length));
+  }
+  return '';
+}
+
+function makeGlobalPlaylistId() {
+  return 'gp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
 function normalizeBaseUrl(value, options = {}) {
   let raw = String(value || '').trim();
   if (!raw) return '';
@@ -206,7 +277,7 @@ function resolvePublicBaseUrl(req) {
 
 function buildReleaseNotesUrl(version) {
   const tag = normalizeVersionTag(version);
-  return tag ? `https://github.com/YOUR_GITHUB/curatorr/releases/tag/${tag}` : '';
+  return tag ? `https://github.com/MickyGX/curatorr/releases/tag/${tag}` : '';
 }
 
 function loadReleaseHighlights() { return []; }
@@ -323,17 +394,27 @@ function csrfProtectionMiddleware(req, res, next) {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
+const DEFAULT_JOBS_CONFIG = {
+  masterTrackRefresh:  { intervalMinutes: 360, enabled: true },
+  smartPlaylistSync:   { intervalMinutes: 30,  enabled: true },
+  lidarrReviewArtists: { intervalMinutes: 30,  enabled: true },
+  lidarrProcessQueue:  { intervalMinutes: 20,  enabled: true },
+};
+
 const DEFAULT_CONFIG = {
   wizard: { completed: false },
   plex: { url: '', token: '', machineId: '', libraries: [] },
   tautulli: { url: '', apiKey: '' },
-  lidarr: { url: '', apiKey: '' },
+  lidarr: { url: '', localUrl: '', remoteUrl: '', apiKey: '', ...DEFAULT_LIDARR_AUTOMATION_SETTINGS },
   smartPlaylist: { ...DEFAULT_SMART_PLAYLIST_SETTINGS },
+  discovery: { lastfmApiKey: '', region: 'united states', showTrendingArtists: true, showTrendingTracks: true, showSimilarArtists: true },
   filters: { mustIncludeArtists: [], neverIncludeArtists: [] },
   general: { serverName: 'Curatorr', remoteUrl: '', localUrl: '', basePath: '', restrictGuests: false },
   users: [],
   theme: {},
   logs: { ...DEFAULT_LOG_SETTINGS },
+  jobs: { ...DEFAULT_JOBS_CONFIG },
+  globalPlaylists: [],
 };
 
 function loadConfig() {
@@ -365,9 +446,9 @@ function normalizeUserKey(value) {
 
 function normalizeLocalRole(value, fallback = 'user') {
   const role = String(value || '').trim().toLowerCase();
-  if (['admin', 'co-admin', 'user', 'guest', 'disabled'].includes(role)) return role;
+  if (['admin', 'co-admin', 'power-user', 'user', 'guest', 'disabled'].includes(role)) return role;
   const fb = String(fallback || '').trim().toLowerCase();
-  return ['admin', 'co-admin', 'user', 'guest', 'disabled'].includes(fb) ? fb : 'user';
+  return ['admin', 'co-admin', 'power-user', 'user', 'guest', 'disabled'].includes(fb) ? fb : 'user';
 }
 
 function normalizeStoredAvatarPath(value) {
@@ -449,6 +530,12 @@ function serializeLocalUsers(users) {
 }
 
 function hasLocalAdmin(config) { return resolveLocalUsers(config).some((u) => u.role === 'admin'); }
+
+function roleRank(role) {
+  const key = normalizeLocalRole(role, 'guest');
+  const index = ROLE_ORDER.indexOf(key);
+  return index >= 0 ? index : 0;
+}
 
 function findLocalUserIndex(users, identity = {}) {
   const un = normalizeUserKey(identity.username || '');
@@ -582,6 +669,57 @@ function saveCoAdmins(coAdmins) {
   fs.writeFileSync(path.join(DATA_DIR, 'coadmins.json'), JSON.stringify({ coAdmins }, null, 2));
 }
 
+function loadPowerUsers() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const p = path.join(DATA_DIR, 'powerusers.json');
+  if (fs.existsSync(p)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (Array.isArray(data.powerUsers)) return data.powerUsers;
+    } catch (err) { return []; }
+  }
+  return [];
+}
+
+function savePowerUsers(powerUsers) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(path.join(DATA_DIR, 'powerusers.json'), JSON.stringify({ powerUsers }, null, 2));
+}
+
+function loadGuestUsers() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const p = path.join(DATA_DIR, 'guestusers.json');
+  if (fs.existsSync(p)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (Array.isArray(data.guests)) return data.guests;
+    } catch (err) { return []; }
+  }
+  return [];
+}
+
+function saveGuestUsers(guests) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(path.join(DATA_DIR, 'guestusers.json'), JSON.stringify({ guests }, null, 2));
+}
+
+function loadDisabledUsers() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const p = path.join(DATA_DIR, 'disabledusers.json');
+  if (fs.existsSync(p)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (Array.isArray(data.disabledUsers)) return data.disabledUsers;
+    } catch (err) { return []; }
+  }
+  return [];
+}
+
+function saveDisabledUsers(disabledUsers) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(path.join(DATA_DIR, 'disabledusers.json'), JSON.stringify({ disabledUsers }, null, 2));
+}
+
 function matchesAdminList(list, identifiers) {
   const normalized = list.map((v) => v.toLowerCase());
   return identifiers.some((v) => normalized.includes(String(v || '').toLowerCase()));
@@ -589,13 +727,106 @@ function matchesAdminList(list, identifiers) {
 
 function resolveRole(plexUser) {
   const ids = [plexUser.username, plexUser.email, plexUser.title].filter(Boolean);
+  if (matchesAdminList(loadDisabledUsers(), ids)) return 'disabled';
   if (matchesAdminList(loadAdmins(), ids)) return 'admin';
   if (matchesAdminList(loadCoAdmins(), ids)) return 'co-admin';
+  if (matchesAdminList(loadPowerUsers(), ids)) return 'power-user';
+  if (matchesAdminList(loadGuestUsers(), ids)) return 'guest';
   if (!loadAdmins().length) {
     const key = ids[0];
     if (key) { saveAdmins([key]); return 'admin'; }
   }
   return 'user';
+}
+
+function normalizeLidarrAutomationScope(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'global') return 'global';
+  if (raw === 'per-user' || raw === 'per_user' || raw === 'user') return 'per-user';
+  return 'off';
+}
+
+function resolveLidarrAutomationSettings(config) {
+  const source = (config?.lidarr && typeof config.lidarr === 'object') ? config.lidarr : {};
+  const enabledUsers = normalizeIdentityList(source.enabledUsers || []);
+  const normalizeRoleQuotas = (value = {}) => {
+    const quotas = value && typeof value === 'object' ? value : {};
+    return {
+      admin: {
+        ...DEFAULT_LIDARR_AUTOMATION_SETTINGS.roleQuotas.admin,
+        ...(quotas.admin && typeof quotas.admin === 'object' ? quotas.admin : {}),
+      },
+      'co-admin': {
+        ...DEFAULT_LIDARR_AUTOMATION_SETTINGS.roleQuotas['co-admin'],
+        ...(quotas['co-admin'] && typeof quotas['co-admin'] === 'object' ? quotas['co-admin'] : {}),
+      },
+      'power-user': {
+        ...DEFAULT_LIDARR_AUTOMATION_SETTINGS.roleQuotas['power-user'],
+        ...(quotas['power-user'] && typeof quotas['power-user'] === 'object' ? quotas['power-user'] : {}),
+      },
+      user: {
+        ...DEFAULT_LIDARR_AUTOMATION_SETTINGS.roleQuotas.user,
+        ...(quotas.user && typeof quotas.user === 'object' ? quotas.user : {}),
+      },
+    };
+  };
+  let automationScope = source.automationEnabled === false
+    ? 'off'
+    : normalizeLidarrAutomationScope(source.automationScope);
+  if (automationScope === 'per-user') automationScope = 'global';
+  const automationEnabled = Boolean(source.automationEnabled) && automationScope !== 'off';
+  return {
+    ...DEFAULT_LIDARR_AUTOMATION_SETTINGS,
+    ...source,
+    automationEnabled,
+    automationScope: automationEnabled ? automationScope : 'off',
+    enabledUsers,
+    roleQuotas: normalizeRoleQuotas(source.roleQuotas),
+  };
+}
+
+function resolveUserIdentifiers(user) {
+  return normalizeIdentityList([
+    user?.username,
+    user?.email,
+    user?.plexId,
+  ]).map((entry) => entry.toLowerCase());
+}
+
+function userHasOwnPlexToken(config, userOrId) {
+  const source = (config?.plex && typeof config.plex === 'object') ? config.plex : {};
+  const tokenMap = source.userServerTokens && typeof source.userServerTokens === 'object' ? source.userServerTokens : {};
+  const ids = typeof userOrId === 'string'
+    ? normalizeIdentityList([userOrId]).map((e) => e.toLowerCase())
+    : resolveUserIdentifiers(userOrId);
+  return ids.some((id) => String(tokenMap[id] || '').trim() !== '');
+}
+
+function resolveUserPlexServerToken(config, userOrId, fallbackToken = '') {
+  const source = (config?.plex && typeof config.plex === 'object') ? config.plex : {};
+  const tokenMap = source.userServerTokens && typeof source.userServerTokens === 'object'
+    ? source.userServerTokens
+    : {};
+  const ids = typeof userOrId === 'string'
+    ? normalizeIdentityList([userOrId]).map((entry) => entry.toLowerCase())
+    : resolveUserIdentifiers(userOrId);
+  for (const id of ids) {
+    const token = String(tokenMap[id] || '').trim();
+    if (token) return token;
+  }
+  return String(fallbackToken || source.token || '').trim();
+}
+
+function canUserAccessLidarrAutomation(config, user) {
+  if (!user || typeof user !== 'object') return false;
+  const role = normalizeLocalRole(user.role, 'guest');
+  if (!['admin', 'co-admin', 'power-user'].includes(role)) return false;
+  const lidarr = resolveLidarrAutomationSettings(config);
+  if (!lidarr.automationEnabled || lidarr.automationScope === 'off') return false;
+  if (role === 'admin' || role === 'co-admin') return true;
+  if (lidarr.automationScope === 'global') return true;
+  const enabled = new Set((lidarr.enabledUsers || []).map((entry) => entry.toLowerCase()));
+  return resolveUserIdentifiers(user).some((entry) => enabled.has(entry));
 }
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
@@ -604,6 +835,10 @@ function requireUser(req, res, next) {
   if (!req.session?.user) {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Authentication required.' });
     return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+  }
+  if (getActualRole(req) === 'disabled') {
+    if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'Account disabled.' });
+    return res.status(403).send('Account disabled.');
   }
   const cfg = loadConfig();
   if (cfg.general?.restrictGuests && getActualRole(req) === 'guest') {
@@ -879,6 +1114,7 @@ async function completePlexLogin(req, authToken) {
   if (!plexUser) throw new Error('Could not fetch Plex user info.');
 
   const role = resolveRole(plexUser);
+  if (role === 'disabled') throw new Error('This Plex account is disabled.');
   const loginIdentifier = plexUser.email || plexUser.username || plexUser.title || plexUser.id || '';
 
   req.session.user = {
@@ -896,17 +1132,26 @@ async function completePlexLogin(req, authToken) {
   let config = loadConfig();
   config = updateUserLogins(config, { identifier: loginIdentifier, plex: true });
 
-  // Save server token on first admin login
-  if (role === 'admin') {
-    try {
-      const resources = await fetchPlexResources(authToken);
-      const plexCfg = config.plex || {};
-      const serverToken = resolvePlexServerToken(resources, { machineId: plexCfg.machineId || '', plexUrl: plexCfg.url || '' });
-      if (serverToken && serverToken !== plexCfg.token) {
-        config = { ...config, plex: { ...plexCfg, token: serverToken } };
-      }
-    } catch (err) { /* non-fatal */ }
-  }
+  try {
+    const resources = await fetchPlexResources(authToken);
+    const plexCfg = config.plex || {};
+    const serverToken = resolvePlexServerToken(resources, { machineId: plexCfg.machineId || '', plexUrl: plexCfg.url || '' });
+    if (serverToken) {
+      req.session.plexServerToken = serverToken;
+      const nextUserServerTokens = {
+        ...(plexCfg.userServerTokens && typeof plexCfg.userServerTokens === 'object' ? plexCfg.userServerTokens : {}),
+      };
+      for (const id of resolveUserIdentifiers(req.session.user)) nextUserServerTokens[id] = serverToken;
+      config = {
+        ...config,
+        plex: {
+          ...plexCfg,
+          ...(role === 'admin' && serverToken !== plexCfg.token ? { token: serverToken } : {}),
+          userServerTokens: nextUserServerTokens,
+        },
+      };
+    }
+  } catch (err) { /* non-fatal */ }
 
   saveConfig(config);
   pushLog({ level: 'info', app: 'plex', action: 'login.success', message: 'Plex login successful.', meta: { user: req.session.user.username, role } });
@@ -978,13 +1223,18 @@ app.use(httpAccessLogMiddleware);
 // Security headers
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'");
+  if (EMBED_ALLOWED_ORIGINS.length) {
+    res.removeHeader('X-Frame-Options');
+  } else {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  }
+  const frameAncestors = ["'self'", ...EMBED_ALLOWED_ORIGINS].join(' ');
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}; object-src 'none'; base-uri 'self'; form-action 'self'`);
   next();
 });
 
@@ -1029,7 +1279,7 @@ app.use('/setup', createRequestBodySizeGuard(32 * 1024));
 app.use('/logout', createRequestBodySizeGuard(8 * 1024));
 
 // Sync local user role changes into session on every request
-app.use((req, _res, next) => {
+  app.use((req, _res, next) => {
   const sessionUser = req.session?.user;
   if (!sessionUser || typeof sessionUser !== 'object') return next();
   if (String(sessionUser.source || '').toLowerCase() === 'local') {
@@ -1056,6 +1306,7 @@ app.use((req, _res, next) => {
 app.use((req, res, next) => {
   const config = loadConfig();
   res.locals.themeDefaults = resolveThemeSettingsForUser(config, req.session?.user);
+  res.locals.sidebarCollapsed = getCookieValue(req.headers?.cookie, 'curatorr_sidebar_collapsed') === 'true';
   res.locals.serverName = config?.general?.serverName || 'Curatorr';
   res.locals.wizardCompleted = Boolean(config?.wizard?.completed);
   res.locals.generalSettings = {
@@ -1096,6 +1347,13 @@ const _routeCtx = {
   resolvePublicBaseUrl,
   buildAppApiUrl,
   normalizeBaseUrl,
+  normalizeIdentityList,
+  normalizeLidarrAutomationScope,
+  resolveLidarrAutomationSettings,
+  canUserAccessLidarrAutomation,
+  userHasOwnPlexToken,
+  resolveUserPlexServerToken,
+  roleRank,
   safeMessage,
   slugifyId,
   uniqueList,
@@ -1120,6 +1378,12 @@ const _routeCtx = {
   saveAdmins,
   loadCoAdmins,
   saveCoAdmins,
+  loadPowerUsers,
+  savePowerUsers,
+  loadGuestUsers,
+  saveGuestUsers,
+  loadDisabledUsers,
+  saveDisabledUsers,
   // logging
   pushLog,
   LOG_BUFFER,
@@ -1154,6 +1418,8 @@ const _routeCtx = {
   DATA_DIR,
   DB_PATH,
   DEFAULT_SMART_PLAYLIST_SETTINGS,
+  DEFAULT_LIDARR_AUTOMATION_SETTINGS,
+  makeGlobalPlaylistId,
   // mutable let — accessed via getter/setter so route files see current value
   get versionCache() { return versionCache; },
   set versionCache(v) { versionCache = v; },
@@ -1167,6 +1433,9 @@ async function start() {
   // Initialize SQLite DB
   const db = initDb(DB_PATH);
   _routeCtx.db = db;
+  _routeCtx.recommendationService = createRecommendationService(_routeCtx);
+  _routeCtx.lidarrService = createLidarrService(_routeCtx);
+  _routeCtx.playlistService = createPlaylistService(_routeCtx);
 
   // Middleware: redirect non-admin users who haven't completed the user wizard.
   // Admins can always access pages — they may run the wizard later from their profile.
@@ -1186,11 +1455,43 @@ async function start() {
   // Load persisted logs
   loadLogsFromDisk(resolveLogSettings(loadConfig()));
 
-  // Schedule periodic master track cache refresh (also fires once on startup if wizard complete)
+  // Create job service and start scheduled jobs (if wizard is complete)
+  const _jobFunctions = {
+    masterTrackRefresh: () => refreshMasterTrackCache(_routeCtx),
+    smartPlaylistSync: async () => {
+      const userIds = getAllUserIds(db);
+      for (const userId of userIds) {
+        const prefs = getUserPreferences(db, userId);
+        if (!prefs.userWizardCompleted) continue;
+        await rebuildSmartPlaylist(_routeCtx, userId);
+        await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
+        await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
+        const globalPlaylists = (loadConfig().globalPlaylists || []).filter((p) => p.enabled);
+        for (const gp of globalPlaylists) {
+          await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+        }
+      }
+    },
+    tautulliDailySync: () => runTautulliDailySync(_routeCtx),
+    lidarrReviewArtists: async () => {
+      await _routeCtx.lidarrService?.autoQueueSuggestedArtists({ perUserLimit: 1 });
+      return _routeCtx.lidarrService?.reviewDueArtists({ limit: 20 });
+    },
+    lidarrProcessQueue: () => _routeCtx.lidarrService?.processQueuedRequests({ limit: 10 }),
+    dailyMixSync: async () => {
+      const userIds = getAllUserIds(db);
+      for (const userId of userIds) {
+        const prefs = getUserPreferences(db, userId);
+        if (!prefs.userWizardCompleted) continue;
+        await _routeCtx.playlistService.syncDailyMix(userId).catch(() => {});
+      }
+    },
+  };
+  _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
+
   const config0 = loadConfig();
   if (config0.wizard?.completed) {
-    refreshMasterTrackCache(_routeCtx).catch(() => {});
-    setInterval(() => refreshMasterTrackCache(_routeCtx).catch(() => {}), 6 * 60 * 60 * 1000).unref();
+    _routeCtx.jobService.startAll(true); // start intervals + run each job immediately once
   }
 
   // Register all routes

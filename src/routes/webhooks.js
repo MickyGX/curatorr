@@ -39,7 +39,10 @@ import {
   recordPlayEvent,
   updateTrackStats,
   updateArtistStats,
+  updateTrackTierOnly,
+  adjustArtistScore,
   expireOldSessions,
+  resolveUserSmartConfig,
 } from '../db.js';
 
 // Debounce map: after a skip event, schedule a smart-playlist rebuild
@@ -123,7 +126,7 @@ export function registerWebhooks(app, ctx) {
       const viewOffsetMs = Number(body.view_offset || 0);
 
       const config = loadConfig();
-      const smartSettings = config.smartPlaylist || DEFAULT_SMART_PLAYLIST_SETTINGS;
+      const smartSettings = resolveUserSmartConfig(db, config, userPlexId);
       const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
       const songSkipLimit = Number(smartSettings.songSkipLimit) || 3;
 
@@ -131,13 +134,16 @@ export function registerWebhooks(app, ctx) {
       const effectiveSessionKey = sessionKey || `tautulli-${userPlexId}-${plexRatingKey}-${Math.floor(now / 60000)}`;
 
       if (action === 'play' || action === 'resume') {
-        // Open or refresh session
+        // On resume, adjust startedAt backwards by the current viewOffset so that the
+        // "now - startedAt" fallback at stop time reflects accumulated playtime rather
+        // than just time-since-resume. This matches the Plex webhook's approach and
+        // handles clients that send view_offset=0 on the stop event.
         openSession(db, {
           sessionKey: effectiveSessionKey,
           userPlexId, plexRatingKey,
           trackTitle, artistName, albumName, libraryKey,
           trackDurationMs,
-          startedAt: now,
+          startedAt: action === 'resume' ? now - viewOffsetMs : now,
           eventSource: 'tautulli',
         });
       } else if (action === 'stop' || action === 'watched' || action === 'scrobble') {
@@ -265,7 +271,7 @@ export function registerWebhooks(app, ctx) {
       const viewOffsetMs = Number(metadata.viewOffset || 0);
 
       const config = loadConfig();
-      const smartSettings = config.smartPlaylist || DEFAULT_SMART_PLAYLIST_SETTINGS;
+      const smartSettings = resolveUserSmartConfig(db, config, userPlexId);
       const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
       const songSkipLimit = Number(smartSettings.songSkipLimit) || 3;
 
@@ -280,13 +286,11 @@ export function registerWebhooks(app, ctx) {
           eventSource: 'plex_webhook',
         });
       } else if (event === 'media.stop' || event === 'media.scrobble') {
-        const alreadyRecorded = db.prepare('SELECT id FROM play_events WHERE session_key = ? LIMIT 1').get(sessionKey);
-        if (alreadyRecorded) return res.json({ ok: true, ignored: 'duplicate' });
-
         const session = getOpenSession(db, sessionKey);
         const startedAt = session ? session.started_at : now - viewOffsetMs;
         const listenedMs = viewOffsetMs || (now - startedAt);
         const resolvedTrackDuration = trackDurationMs || session?.track_duration_ms || 0;
+        const resolvedArtist = artistName || session?.artist_name || '';
 
         const isSkip = Boolean(
           resolvedTrackDuration > 0
@@ -294,10 +298,40 @@ export function registerWebhooks(app, ctx) {
           && event !== 'media.scrobble',
         );
 
+        // Deduplicate within a short window to catch stop+scrobble double-fires.
+        // However, if a network blip caused an earlier stop to be recorded with a lower
+        // listenedMs, accept the new event and update the record rather than ignoring it.
+        const recentCutoff = Date.now() - 10 * 60 * 1000;
+        const existing = db.prepare('SELECT id, duration_ms FROM play_events WHERE session_key = ? AND ended_at > ? LIMIT 1').get(sessionKey, recentCutoff);
+
+        if (existing) {
+          if (listenedMs <= existing.duration_ms) {
+            // Same or shorter — genuine stop+scrobble double-fire; ignore.
+            return res.json({ ok: true, ignored: 'duplicate' });
+          }
+          // Longer — a resumed play went further (e.g. after a network blip).
+          // Update the existing record with the better measurement.
+          db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ? WHERE id = ?')
+            .run(listenedMs, now, isSkip ? 1 : 0, existing.id);
+          if (resolvedArtist) {
+            const { scoreDelta } = updateTrackTierOnly(db, {
+              userPlexId, plexRatingKey, listenedMs,
+              trackDurationMs: resolvedTrackDuration, smartConfig: smartSettings,
+            });
+            if (scoreDelta) adjustArtistScore(db, { userPlexId, artistName: resolvedArtist, scoreDelta });
+          }
+          closeSession(db, sessionKey);
+          pushLog({
+            level: 'info', app: 'webhook', action: `plex.${event}`,
+            message: `${event} updated (longer) — "${trackTitle}" by ${resolvedArtist} [user=${userPlexId}] ${existing.duration_ms}ms→${listenedMs}ms`,
+          });
+          return res.json({ ok: true });
+        }
+
         recordPlayEvent(db, {
           userPlexId, plexRatingKey,
           trackTitle: trackTitle || session?.track_title || '',
-          artistName: artistName || session?.artist_name || '',
+          artistName: resolvedArtist,
           albumName: albumName || session?.album_name || '',
           libraryKey: '',
           startedAt, endedAt: now,
@@ -308,7 +342,6 @@ export function registerWebhooks(app, ctx) {
           sessionKey,
         });
 
-        const resolvedArtist = artistName || session?.artist_name || '';
         let effectiveIsSkip = isSkip;
         if (resolvedArtist) {
           const trackResult = updateTrackStats(db, {

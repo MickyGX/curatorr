@@ -41,7 +41,7 @@
     + '</svg>';
   wrapper.className = 'dash-brand-menu';
   wrapper.innerHTML = ''
-    + '<button class="dash-brand-menu-toggle" type="button" aria-label="Open Launcharr menu" aria-expanded="false">'
+    + '<button class="dash-brand-menu-toggle" type="button" aria-label="Open Curatorr menu" aria-expanded="false">'
     + '  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
     + '    <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.9" />'
     + '    <line x1="8" y1="9" x2="16" y2="9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />'
@@ -60,7 +60,7 @@
     + '      <path fill="currentColor" d="M12 4.2l1.15 2.73 2.73 1.15-2.73 1.15L12 12l-1.15-2.77-2.73-1.15 2.73-1.15L12 4.2z" />'
     + '      <path fill="currentColor" d="M18.5 3.6l.62 1.48 1.48.62-1.48.62-.62 1.48-.62-1.48-1.48-.62 1.48-.62.62-1.48zM5.2 14.5l.7 1.66 1.66.7-1.66.7-.7 1.66-.7-1.66-1.66-.7 1.66-.7.7-1.66zM16.2 14.8l.48 1.12 1.12.48-1.12.48-.48 1.12-.48-1.12-1.12-.48 1.12-.48.48-1.12z" />'
     + '    </svg>'
-    + '    <span class="dash-brand-menu-item-label" data-label="bg-motion">Disable Starfield</span>'
+    + '    <span class="dash-brand-menu-item-label" data-label="bg-motion">Disable Music Notes</span>'
     + '  </button>'
     + '  <button class="dash-brand-menu-item" type="button" data-action="maximize">'
     + '    <span data-icon="maximize"></span>'
@@ -109,11 +109,11 @@
     themeIcon.src = themeMode === 'day' ? '/icons/sun.svg' : '/icons/moon.svg';
     const motionPreferredEnabled = isMotionPreferredEnabled();
     const motionLocked = isMotionLocked();
-    motionLabel.textContent = motionPreferredEnabled ? 'Disable Starfield' : 'Enable Starfield';
+    motionLabel.textContent = motionPreferredEnabled ? 'Disable Music Notes' : 'Enable Music Notes';
     motionBtn.disabled = motionLocked;
     motionBtn.setAttribute('aria-disabled', motionLocked ? 'true' : 'false');
     motionBtn.title = motionLocked
-      ? 'Starfield is disabled in mobile and maximized views.'
+      ? 'Music notes are disabled in mobile and maximized views.'
       : '';
     maximizeLabel.textContent = isMaximized() ? 'Minimise window' : 'Maximize window';
     maximizeIcon.innerHTML = isMaximized() ? minimizeIconSvg : maximizeIconSvg;

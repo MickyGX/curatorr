@@ -1,13 +1,15 @@
 services:
-  launcharr:
-    container_name: launcharr
-    image: mickygx/launcharr:latest
+  curatorr:
+    container_name: curatorr
+    image: mickygx/curatorr:latest
     environment:
       - CONFIG_PATH=/app/config/config.json
       - DATA_DIR=/app/data
-      - BASE_URL=https://launcharr.example.com
+      - BASE_URL=https://curatorr.example.com
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
+      # Comma-separated list of origins allowed to iframe Curatorr.
+      # - EMBED_ALLOWED_ORIGINS=https://launcharr.example.com
       # Generate once: openssl rand -hex 32
       - SESSION_SECRET=replace-this-with-a-random-secret
       # Optional if only served over HTTPS:
@@ -15,10 +17,10 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.launcharr.rule=Host(`launcharr.example.com`)
-      - traefik.http.routers.launcharr.entrypoints=websecure
-      - traefik.http.routers.launcharr.tls.certresolver=letsencrypt
-      - traefik.http.services.launcharr.loadbalancer.server.port=3333
+      - traefik.http.routers.curatorr.rule=Host(`curatorr.example.com`)
+      - traefik.http.routers.curatorr.entrypoints=websecure
+      - traefik.http.routers.curatorr.tls.certresolver=letsencrypt
+      - traefik.http.services.curatorr.loadbalancer.server.port=7676
     volumes:
       - ./config:/app/config
       - ./data:/app/data

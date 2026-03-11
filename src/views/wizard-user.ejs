@@ -21,6 +21,10 @@
         <div class="wizard-error"><%= error %></div>
       <% } %>
 
+      <% var _wizardArtistOptions = Array.isArray(extra.artistOptions) ? extra.artistOptions : []; %>
+      <% var _likedArtists = Array.isArray(wizardState.likedArtists) ? wizardState.likedArtists : []; %>
+      <% var _ignoredArtists = Array.isArray(wizardState.ignoredArtists) ? wizardState.ignoredArtists : []; %>
+
       <%# ── Step 1: Genres you like ─────────────────────────────────────────── %>
       <% if (step === 1) { %>
         <div class="wizard-body">
@@ -51,24 +55,69 @@
         <div class="wizard-body">
           <h2 class="wizard-title">Artists you love</h2>
           <p class="wizard-desc">These artists will always stay in your playlist regardless of skip count.</p>
-          <% if ((extra.artists || []).length) { %>
-            <div class="wizard-search-wrap">
-              <input type="search" id="artistSearch1" class="wizard-input wizard-search" placeholder="Search artists…" />
-            </div>
-          <% } %>
-          <form method="post" action="/wizard/user/artists-like" id="wuf2">
+          <form method="post" action="/wizard/user/artists-like" id="wuf2" data-wizard-artist-manager="liked">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-            <div class="wizard-check-grid" id="artistLikeGrid">
-              <% (extra.artists || []).forEach(function(artist) { %>
-                <label class="wizard-check-item">
-                  <input type="checkbox" name="artists" value="<%= artist %>" />
-                  <span class="wizard-check-label"><%= artist %></span>
-                </label>
-              <% }) %>
-              <% if (!(extra.artists || []).length) { %>
-                <p class="wizard-hint">No artists found for your selected genres.</p>
-              <% } %>
-            </div>
+            <% if (_wizardArtistOptions.length) { %>
+              <div class="settings-filter-card wizard-artist-picker-card">
+                <details class="settings-filter-picker" open>
+                  <summary class="settings-filter-picker-toggle">Add artists</summary>
+                  <div class="settings-filter-picker-panel">
+                    <input type="search" class="settings-filter-search" placeholder="Search artists…" data-wizard-filter-search="liked" />
+                    <div class="settings-filter-options" data-wizard-filter-options="liked">
+                      <% _wizardArtistOptions.forEach(function(artist) { if (!_likedArtists.includes(artist.name)) { %>
+                        <label class="settings-filter-option" data-wizard-filter-option data-name="<%= artist.name.toLowerCase() %>">
+                          <input type="checkbox" value="<%= artist.name %>" data-wizard-filter-option-input="liked" />
+                          <span class="settings-filter-thumb"><img src="<%= artist.thumb %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                          <span class="settings-filter-option-name"><%= artist.name %></span>
+                        </label>
+                      <% } }) %>
+                    </div>
+                    <div class="settings-filter-picker-actions">
+                      <button class="ghost-button" type="button" data-wizard-filter-add="liked">Add selected</button>
+                    </div>
+                  </div>
+                </details>
+                <div class="settings-filter-hidden" data-wizard-filter-hidden="liked">
+                  <% _likedArtists.forEach(function(name) { %>
+                    <input type="hidden" name="artists" value="<%= name %>" />
+                  <% }) %>
+                </div>
+                <div class="settings-filter-table-wrap">
+                  <table class="settings-filter-table">
+                    <thead>
+                      <tr>
+                        <th class="settings-filter-check-col"><input type="checkbox" data-wizard-filter-select-all="liked" /></th>
+                        <th>Artist</th>
+                      </tr>
+                    </thead>
+                    <tbody data-wizard-filter-table="liked">
+                      <% if (_likedArtists.length) { %>
+                        <% _likedArtists.forEach(function(name) { %>
+                          <tr data-wizard-filter-row data-name="<%= name %>">
+                            <td class="settings-filter-check-col"><input type="checkbox" data-wizard-filter-row-check="liked" value="<%= name %>" /></td>
+                            <td>
+                              <div class="settings-filter-row-artist">
+                                <span class="settings-filter-thumb"><img src="/api/music/thumb/artist/<%= encodeURIComponent(name) %>?v=wizard-artist-thumb-1" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                                <span><%= name %></span>
+                              </div>
+                            </td>
+                          </tr>
+                        <% }) %>
+                      <% } else { %>
+                        <tr data-wizard-filter-empty="liked">
+                          <td colspan="2" class="settings-filter-empty">No artists selected.</td>
+                        </tr>
+                      <% } %>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="settings-filter-table-actions">
+                  <button class="ghost-button" type="button" data-wizard-filter-remove="liked">Remove selected</button>
+                </div>
+              </div>
+            <% } else { %>
+              <p class="wizard-hint">No artists found for your selected genres.</p>
+            <% } %>
           </form>
           <div class="wizard-actions">
             <form method="post" action="/wizard/user/back">
@@ -114,24 +163,69 @@
         <div class="wizard-body">
           <h2 class="wizard-title">Artists to exclude</h2>
           <p class="wizard-desc">These artists won't appear in your playlist from the start. The list is filtered from your least favourite genres.</p>
-          <% if ((extra.artists || []).length) { %>
-            <div class="wizard-search-wrap">
-              <input type="search" id="artistSearch2" class="wizard-input wizard-search" placeholder="Search artists…" />
-            </div>
-          <% } %>
-          <form method="post" action="/wizard/user/artists-ignore" id="wuf4">
+          <form method="post" action="/wizard/user/artists-ignore" id="wuf4" data-wizard-artist-manager="ignored">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-            <div class="wizard-check-grid" id="artistIgnoreGrid">
-              <% (extra.artists || []).forEach(function(artist) { %>
-                <label class="wizard-check-item">
-                  <input type="checkbox" name="artists" value="<%= artist %>" />
-                  <span class="wizard-check-label"><%= artist %></span>
-                </label>
-              <% }) %>
-              <% if (!(extra.artists || []).length) { %>
-                <p class="wizard-hint">No additional artists to exclude.</p>
-              <% } %>
-            </div>
+            <% if (_wizardArtistOptions.length) { %>
+              <div class="settings-filter-card wizard-artist-picker-card">
+                <details class="settings-filter-picker" open>
+                  <summary class="settings-filter-picker-toggle">Add artists</summary>
+                  <div class="settings-filter-picker-panel">
+                    <input type="search" class="settings-filter-search" placeholder="Search artists…" data-wizard-filter-search="ignored" />
+                    <div class="settings-filter-options" data-wizard-filter-options="ignored">
+                      <% _wizardArtistOptions.forEach(function(artist) { if (!_ignoredArtists.includes(artist.name)) { %>
+                        <label class="settings-filter-option" data-wizard-filter-option data-name="<%= artist.name.toLowerCase() %>">
+                          <input type="checkbox" value="<%= artist.name %>" data-wizard-filter-option-input="ignored" />
+                          <span class="settings-filter-thumb"><img src="<%= artist.thumb %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                          <span class="settings-filter-option-name"><%= artist.name %></span>
+                        </label>
+                      <% } }) %>
+                    </div>
+                    <div class="settings-filter-picker-actions">
+                      <button class="ghost-button" type="button" data-wizard-filter-add="ignored">Add selected</button>
+                    </div>
+                  </div>
+                </details>
+                <div class="settings-filter-hidden" data-wizard-filter-hidden="ignored">
+                  <% _ignoredArtists.forEach(function(name) { %>
+                    <input type="hidden" name="artists" value="<%= name %>" />
+                  <% }) %>
+                </div>
+                <div class="settings-filter-table-wrap">
+                  <table class="settings-filter-table">
+                    <thead>
+                      <tr>
+                        <th class="settings-filter-check-col"><input type="checkbox" data-wizard-filter-select-all="ignored" /></th>
+                        <th>Artist</th>
+                      </tr>
+                    </thead>
+                    <tbody data-wizard-filter-table="ignored">
+                      <% if (_ignoredArtists.length) { %>
+                        <% _ignoredArtists.forEach(function(name) { %>
+                          <tr data-wizard-filter-row data-name="<%= name %>">
+                            <td class="settings-filter-check-col"><input type="checkbox" data-wizard-filter-row-check="ignored" value="<%= name %>" /></td>
+                            <td>
+                              <div class="settings-filter-row-artist">
+                                <span class="settings-filter-thumb"><img src="/api/music/thumb/artist/<%= encodeURIComponent(name) %>?v=wizard-artist-thumb-1" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                                <span><%= name %></span>
+                              </div>
+                            </td>
+                          </tr>
+                        <% }) %>
+                      <% } else { %>
+                        <tr data-wizard-filter-empty="ignored">
+                          <td colspan="2" class="settings-filter-empty">No artists selected.</td>
+                        </tr>
+                      <% } %>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="settings-filter-table-actions">
+                  <button class="ghost-button" type="button" data-wizard-filter-remove="ignored">Remove selected</button>
+                </div>
+              </div>
+            <% } else { %>
+              <p class="wizard-hint">No additional artists to exclude.</p>
+            <% } %>
           </form>
           <div class="wizard-actions">
             <form method="post" action="/wizard/user/back">
@@ -143,14 +237,23 @@
           </div>
         </div>
 
-      <%# ── Step 5: Create playlist ─────────────────────────────────────────── %>
+      <%# ── Step 5: Curation preset ──────────────────────────────────────────── %>
       <% } else if (step === 5) { %>
         <div class="wizard-body">
-          <h2 class="wizard-title">All set!</h2>
-          <p class="wizard-desc">Curatorr will now create <strong>"<%= user.username %>'s Curatorred Playlist"</strong> in Plex, starting with all qualifying tracks from your library (<%= extra.masterCount || 'thousands of' %> tracks, minus your exclusions).</p>
-          <p class="wizard-desc">As you listen, tracks and artists you skip too often are automatically removed. Your liked artists are protected and stay in forever.</p>
-          <form method="post" action="/wizard/user/create-playlist" id="wuf5">
+          <h2 class="wizard-title">Curation style</h2>
+          <p class="wizard-desc">Choose how aggressively Curatorr manages your playlist. This controls skip thresholds and scoring weights. You can change it any time in Settings → Curatorr → Rules.</p>
+          <form method="post" action="/wizard/user/preset" id="wuf5">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="wizard-field">
+              <label class="wizard-label" for="wizPreset">Quick preset</label>
+              <select class="wizard-input" id="wizPreset" name="preset">
+                <option value="">— Keep defaults —</option>
+                <option value="cautious">Cautious — larger playlist, wide range of artists</option>
+                <option value="measured" selected>Measured — medium playlist, good mix of artists</option>
+                <option value="aggressive">Aggressive — smaller playlist, I know what I like</option>
+              </select>
+            </div>
+            <p id="wizPresetDesc" class="wizard-hint" style="margin-top:4px;min-height:1.2em"></p>
           </form>
           <div class="wizard-actions">
             <form method="post" action="/wizard/user/back">
@@ -158,7 +261,27 @@
               <input type="hidden" name="step" value="5" />
               <button type="submit" class="btn btn-ghost">← Back</button>
             </form>
-            <button type="submit" form="wuf5" class="btn btn-primary" id="createBtn">Create my playlist →</button>
+            <button type="submit" form="wuf5" class="btn btn-primary">Next →</button>
+          </div>
+        </div>
+
+      <%# ── Step 6: Create playlist ─────────────────────────────────────────── %>
+      <% } else if (step === 6) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">All set!</h2>
+          <p class="wizard-desc">Curatorr will now create or update <strong>"<%= user.username %>'s Curatorred Playlist"</strong> in Plex, starting with all qualifying tracks from your library (<%= extra.masterCount || 'thousands of' %> tracks, minus your exclusions).</p>
+          <p class="wizard-desc">As you listen, tracks and artists you skip too often are automatically removed. Your liked artists are protected and stay in forever.</p>
+          <p class="wizard-desc">This now runs in the background, so you can carry on using Curatorr while the playlist job completes. Live status will appear on the Playlists page.</p>
+          <form method="post" action="/wizard/user/create-playlist" id="wuf6">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          </form>
+          <div class="wizard-actions">
+            <form method="post" action="/wizard/user/back">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="step" value="6" />
+              <button type="submit" class="btn btn-ghost">← Back</button>
+            </form>
+            <button type="submit" form="wuf6" class="btn btn-primary" id="createBtn">Finish and build in background →</button>
           </div>
         </div>
       <% } %>
@@ -166,23 +289,211 @@
   </div>
 
   <script>
-    // Artist search filter
-    ['artistSearch1', 'artistSearch2'].forEach(function(id) {
-      var input = document.getElementById(id);
-      if (!input) return;
-      var gridId = id === 'artistSearch1' ? 'artistLikeGrid' : 'artistIgnoreGrid';
-      input.addEventListener('input', function() {
-        var q = this.value.toLowerCase();
-        document.querySelectorAll('#' + gridId + ' .wizard-check-item').forEach(function(el) {
-          el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+    (function () {
+      var managers = document.querySelectorAll('[data-wizard-artist-manager]');
+      if (!managers.length) return;
+
+      function matchesFilterTerm(name, term) {
+        var value = String(name || '').toLowerCase();
+        var query = String(term || '').trim().toLowerCase();
+        if (!query) return true;
+        if (value.indexOf(query) === 0) return true;
+        return value.split(/[\s&/,+.-]+/).some(function (token) {
+          return token.indexOf(query) === 0;
         });
+      }
+
+      function createThumb(name) {
+        var wrap = document.createElement('span');
+        wrap.className = 'settings-filter-thumb';
+        var img = document.createElement('img');
+        img.src = '/api/music/thumb/artist/' + encodeURIComponent(name) + '?v=wizard-artist-thumb-1';
+        img.alt = '';
+        img.loading = 'lazy';
+        img.onerror = function () { this.style.visibility = 'hidden'; };
+        wrap.appendChild(img);
+        return wrap;
+      }
+
+      function createHidden(group, name) {
+        var wrap = document.querySelector('[data-wizard-filter-hidden="' + group + '"]');
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'artists';
+        input.value = name;
+        wrap.appendChild(input);
+      }
+
+      function removeHidden(group, name) {
+        document.querySelectorAll('[data-wizard-filter-hidden="' + group + '"] input[name="artists"]').forEach(function (input) {
+          if (input.value === name) input.remove();
+        });
+      }
+
+      function createOption(group, name) {
+        var label = document.createElement('label');
+        label.className = 'settings-filter-option';
+        label.setAttribute('data-wizard-filter-option', '');
+        label.setAttribute('data-name', String(name || '').toLowerCase());
+
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = name;
+        input.setAttribute('data-wizard-filter-option-input', group);
+
+        var text = document.createElement('span');
+        text.className = 'settings-filter-option-name';
+        text.textContent = name;
+
+        label.appendChild(input);
+        label.appendChild(createThumb(name));
+        label.appendChild(text);
+        return label;
+      }
+
+      function createRow(group, name) {
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-wizard-filter-row', '');
+        tr.setAttribute('data-name', name);
+
+        var tdCheck = document.createElement('td');
+        tdCheck.className = 'settings-filter-check-col';
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = name;
+        input.setAttribute('data-wizard-filter-row-check', group);
+        tdCheck.appendChild(input);
+
+        var tdName = document.createElement('td');
+        var artist = document.createElement('div');
+        artist.className = 'settings-filter-row-artist';
+        var text = document.createElement('span');
+        text.textContent = name;
+        artist.appendChild(createThumb(name));
+        artist.appendChild(text);
+        tdName.appendChild(artist);
+
+        tr.appendChild(tdCheck);
+        tr.appendChild(tdName);
+        return tr;
+      }
+
+      function ensureEmptyRow(group) {
+        var tbody = document.querySelector('[data-wizard-filter-table="' + group + '"]');
+        if (tbody.querySelector('[data-wizard-filter-row]')) {
+          var empty = tbody.querySelector('[data-wizard-filter-empty="' + group + '"]');
+          if (empty) empty.remove();
+          return;
+        }
+        if (tbody.querySelector('[data-wizard-filter-empty="' + group + '"]')) return;
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-wizard-filter-empty', group);
+        var td = document.createElement('td');
+        td.colSpan = 2;
+        td.className = 'settings-filter-empty';
+        td.textContent = 'No artists selected.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+
+      function focusFirstVisibleOption(group, term) {
+        var options = Array.from(document.querySelectorAll('[data-wizard-filter-options="' + group + '"] [data-wizard-filter-option]'));
+        var visible = options.filter(function (option) { return option.style.display !== 'none'; });
+        if (!visible.length) return;
+        var query = String(term || '').trim().toLowerCase();
+        var target = visible[0];
+        if (query) {
+          target = visible.find(function (option) {
+            return String(option.getAttribute('data-name') || '').indexOf(query) === 0;
+          }) || visible[0];
+        }
+        target.scrollIntoView({ block: 'nearest' });
+      }
+
+      ['liked', 'ignored'].forEach(function (group) {
+        var search = document.querySelector('[data-wizard-filter-search="' + group + '"]');
+        var picker = document.querySelector('[data-wizard-artist-manager="' + group + '"] .settings-filter-picker');
+        if (search) {
+          search.addEventListener('input', function () {
+            var term = this.value.trim().toLowerCase();
+            document.querySelectorAll('[data-wizard-filter-options="' + group + '"] [data-wizard-filter-option]').forEach(function (option) {
+              option.style.display = matchesFilterTerm(option.getAttribute('data-name') || '', term) ? '' : 'none';
+            });
+            focusFirstVisibleOption(group, term);
+          });
+        }
+
+        var addButton = document.querySelector('[data-wizard-filter-add="' + group + '"]');
+        if (addButton) {
+          addButton.addEventListener('click', function () {
+            var checked = Array.from(document.querySelectorAll('[data-wizard-filter-option-input="' + group + '"]:checked'));
+            if (!checked.length) return;
+            var tbody = document.querySelector('[data-wizard-filter-table="' + group + '"]');
+            checked.forEach(function (input) {
+              var name = input.value;
+              if (!tbody.querySelector('[data-name="' + CSS.escape(name) + '"]')) {
+                createHidden(group, name);
+                var empty = tbody.querySelector('[data-wizard-filter-empty="' + group + '"]');
+                if (empty) empty.remove();
+                tbody.appendChild(createRow(group, name));
+              }
+              input.closest('[data-wizard-filter-option]').remove();
+            });
+            if (search) search.value = '';
+            document.querySelectorAll('[data-wizard-filter-options="' + group + '"] [data-wizard-filter-option]').forEach(function (option) {
+              option.style.display = '';
+            });
+            if (picker) picker.open = false;
+          });
+        }
+
+        var removeButton = document.querySelector('[data-wizard-filter-remove="' + group + '"]');
+        if (removeButton) {
+          removeButton.addEventListener('click', function () {
+            var checked = Array.from(document.querySelectorAll('[data-wizard-filter-row-check="' + group + '"]:checked'));
+            if (!checked.length) return;
+            checked.forEach(function (input) {
+              var name = input.value;
+              removeHidden(group, name);
+              var row = input.closest('[data-wizard-filter-row]');
+              if (row) row.remove();
+              document.querySelector('[data-wizard-filter-options="' + group + '"]').appendChild(createOption(group, name));
+            });
+            ensureEmptyRow(group);
+          });
+        }
+
+        var selectAll = document.querySelector('[data-wizard-filter-select-all="' + group + '"]');
+        if (selectAll) {
+          selectAll.addEventListener('change', function () {
+            document.querySelectorAll('[data-wizard-filter-row-check="' + group + '"]').forEach(function (input) {
+              input.checked = selectAll.checked;
+            });
+          });
+        }
       });
-    });
+    })();
+
+    // Preset picker description (step 5)
+    var wizPreset = document.getElementById('wizPreset');
+    var wizPresetDesc = document.getElementById('wizPresetDesc');
+    if (wizPreset && wizPresetDesc) {
+      var WIZ_PRESET_DESCS = {
+        cautious:   'Generous thresholds — best for large, varied playlists where you want to keep things broad.',
+        measured:   'Balanced thresholds — suits most listeners with a decent-sized playlist.',
+        aggressive: 'Strict thresholds — best for smaller playlists where you know your taste well.',
+      };
+      function updateWizDesc() {
+        wizPresetDesc.textContent = WIZ_PRESET_DESCS[wizPreset.value] || '';
+      }
+      wizPreset.addEventListener('change', updateWizDesc);
+      updateWizDesc();
+    }
 
     // Disable create button on submit to prevent double-click
     var createBtn = document.getElementById('createBtn');
     if (createBtn) {
-      document.getElementById('wuf5').addEventListener('submit', function() {
+      document.getElementById('wuf6').addEventListener('submit', function() {
         createBtn.disabled = true;
         createBtn.textContent = 'Creating playlist…';
       });

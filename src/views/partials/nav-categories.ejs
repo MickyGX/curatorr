@@ -16,18 +16,15 @@
   <img class="nav-icon" src="/icons/user-profile.svg" alt="" />
   <span class="nav-label">Artists</span>
 </a>
+<a class="nav-item<%= _navActivePage === 'discover' ? ' active' : '' %>" href="/discover">
+  <img class="nav-icon" src="/icons/search.svg" alt="" />
+  <span class="nav-label">Discover</span>
+</a>
 <a class="nav-item<%= _navActivePage === 'tracks' ? ' active' : '' %>" href="/tracks">
-  <img class="nav-icon" src="/icons/overview.svg" alt="" />
+  <img class="nav-icon" src="/icons/vinyl-record.svg" alt="" />
   <span class="nav-label">Tracks</span>
 </a>
 <a class="nav-item<%= _navActivePage === 'playlists' ? ' active' : '' %>" href="/playlists">
   <img class="nav-icon" src="/icons/category.svg" alt="" />
   <span class="nav-label">Playlists</span>
 </a>
-<% if (_navIsAdmin) { %>
-<div class="nav-divider"></div>
-<a class="nav-item<%= _navActivePage === 'settings' ? ' active' : '' %>" href="/settings">
-  <img class="nav-icon" src="/icons/settings.svg" alt="" />
-  <span class="nav-label">Settings</span>
-</a>
-<% } %>

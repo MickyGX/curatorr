@@ -1,10 +1,10 @@
 <%- include('partials/head', { pageTitle: title || 'Settings — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-settings.css'] }) %>
 <body class="dash-body">
-  <div class="dash-frame">
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div><div class="dash-title">Curatorr</div></div>
       </div>
@@ -25,10 +25,17 @@
           <span class="main-window-rest">| Settings</span>
         </div>
         <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
       </div>
 
       <div class="dash-content">
         <% const _tab = tab || 'general'; %>
+        <% const safeJson = (value) => JSON.stringify(value)
+          .replace(/</g, '\\u003c')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029'); %>
 
         <% if (success) { %>
           <div class="settings-debug" style="border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.1);color:#4ade80;margin-bottom:0">Settings saved successfully.</div>
@@ -38,42 +45,59 @@
         <% } %>
 
         <div class="settings-tabs" role="tablist" aria-label="Settings tabs">
-          <button class="settings-tab-btn" type="button" data-tab="general">
+          <button class="settings-tab-btn<%= _tab === 'general' ? ' is-active' : '' %>" type="button" data-tab="general">
             <img class="settings-tab-icon" src="/icons/settings.svg" alt="" />
             <span class="settings-tab-text">General</span>
           </button>
-          <button class="settings-tab-btn" type="button" data-tab="plex">
-            <img class="settings-tab-icon" src="/icons/plex.svg" alt="" />
+          <button class="settings-tab-btn<%= _tab === 'plex' ? ' is-active' : '' %>" type="button" data-tab="plex">
+            <img class="settings-tab-icon settings-tab-icon--app" src="/icons/plex.png" alt="" />
             <span class="settings-tab-text">Plex</span>
           </button>
-          <button class="settings-tab-btn" type="button" data-tab="tautulli">
-            <img class="settings-tab-icon" src="/icons/tautulli.svg" alt="" />
+          <button class="settings-tab-btn<%= _tab === 'tautulli' ? ' is-active' : '' %>" type="button" data-tab="tautulli">
+            <img class="settings-tab-icon settings-tab-icon--app" src="/icons/tautulli.png" alt="" />
             <span class="settings-tab-text">Tautulli</span>
           </button>
-          <button class="settings-tab-btn" type="button" data-tab="lidarr">
-            <img class="settings-tab-icon" src="/icons/lidarr.svg" alt="" />
-            <span class="settings-tab-text">Lidarr</span>
-          </button>
-          <button class="settings-tab-btn" type="button" data-tab="smart-playlist">
+          <% if (actualRole === 'admin') { %>
+            <button class="settings-tab-btn<%= _tab === 'lidarr' ? ' is-active' : '' %>" type="button" data-tab="lidarr">
+              <img class="settings-tab-icon settings-tab-icon--app" src="/icons/lidarr.png" alt="" />
+              <span class="settings-tab-text">Lidarr</span>
+            </button>
+          <% } %>
+          <button class="settings-tab-btn<%= _tab === 'smart-playlist' ? ' is-active' : '' %>" type="button" data-tab="smart-playlist">
             <img class="settings-tab-icon" src="/icons/music.svg" alt="" />
-            <span class="settings-tab-text">Smart Playlist</span>
+            <span class="settings-tab-text">Playlists</span>
           </button>
-          <button class="settings-tab-btn" type="button" data-tab="filters">
-            <img class="settings-tab-icon" src="/icons/tools.svg" alt="" />
-            <span class="settings-tab-text">Filters</span>
+          <button class="settings-tab-btn<%= _tab === 'discovery' ? ' is-active' : '' %>" type="button" data-tab="discovery">
+            <img class="settings-tab-icon" src="/icons/search.svg" alt="" />
+            <span class="settings-tab-text">Discovery</span>
           </button>
-          <button class="settings-tab-btn" type="button" data-tab="users">
+
+          <button class="settings-tab-btn<%= _tab === 'users' ? ' is-active' : '' %>" type="button" data-tab="users">
             <img class="settings-tab-icon" src="/icons/user-profile.svg" alt="" />
             <span class="settings-tab-text">Users</span>
           </button>
-          <button class="settings-tab-btn" type="button" data-tab="appearance">
+          <button class="settings-tab-btn<%= _tab === 'logs' ? ' is-active' : '' %>" type="button" data-tab="logs">
+            <img class="settings-tab-icon" src="/icons/activity-queue.svg" alt="" />
+            <span class="settings-tab-text">Logs</span>
+          </button>
+          <button class="settings-tab-btn<%= _tab === 'about' ? ' is-active' : '' %>" type="button" data-tab="about">
+            <img class="settings-tab-icon" src="/icons/about.svg" alt="" />
+            <span class="settings-tab-text">About</span>
+          </button>
+          <% if (actualRole === 'admin') { %>
+            <button class="settings-tab-btn<%= _tab === 'jobs' ? ' is-active' : '' %>" type="button" data-tab="jobs">
+              <img class="settings-tab-icon" src="/icons/activity-queue.svg" alt="" />
+              <span class="settings-tab-text">Jobs</span>
+            </button>
+          <% } %>
+          <button class="settings-tab-btn<%= _tab === 'appearance' ? ' is-active' : '' %>" type="button" data-tab="appearance">
             <img class="settings-tab-icon" src="/icons/sun.svg" alt="" />
-            <span class="settings-tab-text">Appearance</span>
+            <span class="settings-tab-text">Themes</span>
           </button>
         </div>
 
         <%# ── General ──────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="general">
+        <div class="settings-tab-panel<%= _tab === 'general' ? ' is-active' : '' %>" data-tab="general">
           <div class="dash-panel">
             <form method="post" action="/settings/general" class="settings-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -108,7 +132,7 @@
         </div>
 
         <%# ── Plex ─────────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="plex">
+        <div class="settings-tab-panel<%= _tab === 'plex' ? ' is-active' : '' %>" data-tab="plex">
           <div class="dash-panel">
             <form method="post" action="/settings/plex" class="settings-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -178,7 +202,7 @@
         </div>
 
         <%# ── Tautulli ─────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="tautulli">
+        <div class="settings-tab-panel<%= _tab === 'tautulli' ? ' is-active' : '' %>" data-tab="tautulli">
           <div class="dash-panel">
             <form method="post" action="/settings/tautulli" class="settings-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -219,44 +243,130 @@
         </div>
 
         <%# ── Lidarr ───────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="lidarr">
-          <div class="dash-panel">
-            <form method="post" action="/settings/lidarr" class="settings-form">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <div class="settings-card">
-                <div class="settings-card-title">App URLs</div>
-                <div class="settings-card-sub">Local URL is used inside your network. Remote URL is used for external access. Local URL is preferred when set.</div>
-                <label class="field">
-                  <span>Local URL</span>
-                  <input type="text" name="lidarrLocalUrl" value="<%= config.lidarr?.localUrl || config.lidarr?.url || '' %>" placeholder="http://192.168.1.x:8686" />
-                </label>
-                <label class="field">
-                  <span>Remote URL</span>
-                  <input type="text" name="lidarrRemoteUrl" value="<%= config.lidarr?.remoteUrl || '' %>" placeholder="https://lidarr.example.com" />
-                </label>
-              </div>
-              <div class="settings-card plex-settings-card">
-                <div class="settings-card-title">Lidarr Access</div>
-                <div class="settings-card-sub">Connect to Lidarr for music library management. Find the API key in Lidarr → Settings → General.</div>
-                <div class="plex-settings-fields">
-                  <label class="field field-with-action">
-                    <span>API key</span>
-                    <div class="field-action-row">
-                      <input id="lidarr-apikey-input" type="password" name="apiKey" value="<%= config.lidarr?.apiKey || '' %>" placeholder="Lidarr API key" />
-                      <button class="icon-button" type="button" aria-label="Show API key" data-visibility-toggle="lidarr-apikey-input" data-visibility-state="hidden">
-                        <img src="/icons/view-off.svg" alt="" />
-                      </button>
-                    </div>
+        <% if (actualRole === 'admin') { %>
+          <div class="settings-tab-panel<%= _tab === 'lidarr' ? ' is-active' : '' %>" data-tab="lidarr">
+            <div class="dash-panel">
+              <form method="post" action="/settings/lidarr" class="settings-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <div class="settings-card">
+                  <div class="settings-card-title">App URLs</div>
+                  <div class="settings-card-sub">Local URL is used inside your network. Remote URL is used for external access. Local URL is preferred when set.</div>
+                  <label class="field">
+                    <span>Local URL</span>
+                    <input type="text" name="lidarrLocalUrl" value="<%= config.lidarr?.localUrl || config.lidarr?.url || '' %>" placeholder="http://192.168.1.x:8686" />
+                  </label>
+                  <label class="field">
+                    <span>Remote URL</span>
+                    <input type="text" name="lidarrRemoteUrl" value="<%= config.lidarr?.remoteUrl || '' %>" placeholder="https://lidarr.example.com" />
                   </label>
                 </div>
-              </div>
-              <button class="primary-button" type="submit">Save Lidarr settings</button>
-            </form>
+                <div class="settings-card plex-settings-card">
+                  <div class="settings-card-title">Lidarr Access</div>
+                  <div class="settings-card-sub">Connect to Lidarr for music library management. Find the API key in Lidarr → Settings → General.</div>
+                  <div class="plex-settings-fields">
+                    <label class="field field-with-action">
+                      <span>API key</span>
+                      <div class="field-action-row">
+                        <input id="lidarr-apikey-input" type="password" name="apiKey" value="<%= config.lidarr?.apiKey || '' %>" placeholder="Lidarr API key" />
+                        <button class="icon-button" type="button" aria-label="Show API key" data-visibility-toggle="lidarr-apikey-input" data-visibility-state="hidden">
+                          <img src="/icons/view-off.svg" alt="" />
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                <div class="settings-card">
+                  <div class="settings-card-title">Automation</div>
+                  <div class="settings-card-sub">Only admins can change these settings. Access is role-based: admins and co-admins always qualify, and power users can use it when automation is enabled.</div>
+                  <label class="settings-toggle" style="margin-top:4px">
+                    <input type="checkbox" name="automationEnabled" value="1" <%= lidarrAutomation?.automationEnabled ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Enable Lidarr automation</span>
+                  </label>
+                  <label class="field">
+                    <span>Automation scope</span>
+                    <select name="automationScope">
+                      <option value="off" <%= (lidarrAutomation?.automationScope || 'off') === 'off' ? 'selected' : '' %>>Off</option>
+                      <option value="global" <%= lidarrAutomation?.automationScope === 'global' ? 'selected' : '' %>>Role based</option>
+                    </select>
+                  </label>
+                  <label class="settings-toggle" style="margin-top:4px">
+                    <input type="checkbox" name="autoTriggerManualSearch" value="1" <%= lidarrAutomation?.autoTriggerManualSearch ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Auto trigger manual search after starter album is added</span>
+                  </label>
+                  <div class="settings-card-sub" style="margin-top:2px">When enabled, Curatorr will immediately queue a Lidarr <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">AlbumSearch</code> for the starter album after it is monitored.</div>
+                  <label class="settings-toggle" style="margin-top:12px">
+                    <input type="checkbox" name="autoAddArtists" value="1" <%= lidarrAutomation?.autoAddArtists ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Automatically add top suggested artists to Lidarr</span>
+                  </label>
+                  <div class="settings-card-sub" style="margin-top:2px">When enabled, Curatorr will automatically queue the highest-scoring artist suggestion for each eligible user during the Lidarr review job (runs every 30 minutes). Artists must score 7.0 or above to qualify. Weekly role quotas still apply — if quota is full the artist moves into the queue for later.</div>
+                  <div class="settings-grid settings-grid--2" style="margin-top:12px">
+                    <label class="field">
+                      <span>Fallback search attempts</span>
+                      <input type="number" min="1" max="10" name="manualSearchFallbackAttempts" value="<%= lidarrAutomation?.manualSearchFallbackAttempts ?? 2 %>" />
+                    </label>
+                    <label class="field">
+                      <span>Fallback delay (hours)</span>
+                      <input type="number" min="1" max="168" name="manualSearchFallbackHours" value="<%= lidarrAutomation?.manualSearchFallbackHours ?? 24 %>" />
+                    </label>
+                    <label class="field">
+                      <span>Minimum peers for fallback grab</span>
+                      <input type="number" min="0" max="999" name="minimumReleasePeers" value="<%= lidarrAutomation?.minimumReleasePeers ?? 2 %>" />
+                    </label>
+                    <label class="settings-toggle field" style="align-self:end;margin:0">
+                      <input type="checkbox" name="preferApprovedReleases" value="1" <%= lidarrAutomation?.preferApprovedReleases !== false ? 'checked' : '' %> />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Prefer approved releases in fallback grab</span>
+                    </label>
+                  </div>
+                  <div class="settings-card-sub" style="margin-top:2px">If Lidarr search finishes without files, Curatorr can re-monitor, retry search, and eventually choose the best release by peers and score for download.</div>
+                  <div class="settings-card-sub" style="margin-top:10px">Weekly content quotas by role.</div>
+                  <div class="settings-grid settings-grid--2">
+                    <label class="field">
+                      <span>Admin artists per week</span>
+                      <input type="text" value="Unlimited" disabled />
+                    </label>
+                    <label class="field">
+                      <span>Admin albums per week</span>
+                      <input type="text" value="Unlimited" disabled />
+                    </label>
+                    <label class="field">
+                      <span>Co-admin artists per week</span>
+                      <input type="number" min="-1" max="999" name="coAdminWeeklyArtists" value="<%= lidarrAutomation?.roleQuotas?.['co-admin']?.weeklyArtists ?? 3 %>" />
+                    </label>
+                    <label class="field">
+                      <span>Co-admin albums per week</span>
+                      <input type="number" min="-1" max="999" name="coAdminWeeklyAlbums" value="<%= lidarrAutomation?.roleQuotas?.['co-admin']?.weeklyAlbums ?? 6 %>" />
+                    </label>
+                    <label class="field">
+                      <span>Power user artists per week</span>
+                      <input type="number" min="-1" max="999" name="powerUserWeeklyArtists" value="<%= lidarrAutomation?.roleQuotas?.['power-user']?.weeklyArtists ?? 1 %>" />
+                    </label>
+                    <label class="field">
+                      <span>Power user albums per week</span>
+                      <input type="number" min="-1" max="999" name="powerUserWeeklyAlbums" value="<%= lidarrAutomation?.roleQuotas?.['power-user']?.weeklyAlbums ?? 2 %>" />
+                    </label>
+                    <label class="field">
+                      <span>User artists per week</span>
+                      <input type="number" min="-1" max="999" name="userWeeklyArtists" value="<%= lidarrAutomation?.roleQuotas?.user?.weeklyArtists ?? 0 %>" />
+                    </label>
+                    <label class="field">
+                      <span>User albums per week</span>
+                      <input type="number" min="-1" max="999" name="userWeeklyAlbums" value="<%= lidarrAutomation?.roleQuotas?.user?.weeklyAlbums ?? 0 %>" />
+                    </label>
+                  </div>
+                  <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">Use <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">-1</code> for unlimited quotas.</small>
+                </div>
+                <button class="primary-button" type="submit">Save Lidarr settings</button>
+              </form>
+            </div>
           </div>
-        </div>
+        <% } %>
 
         <%# ── Smart Playlist ───────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="smart-playlist">
+        <div class="settings-tab-panel<%= _tab === 'smart-playlist' ? ' is-active' : '' %>" data-tab="smart-playlist">
           <div class="dash-panel">
             <form method="post" action="/settings/smart-playlist" class="settings-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -274,31 +384,18 @@
                   const _decentW = +(_belterW / 2).toFixed(2);
                   const _artistSkipRank = config.smartPlaylist?.artistSkipRank ?? 2;
                   const _artistBelterRank = config.smartPlaylist?.artistBelterRank ?? 8;
-                  // Detect which preset (if any) matches the current saved values
-                  const _presetDefs = {
-                    cautious:   { s:20, c:20, sw:-0.5, bw:0.5,  sr:1, br:9, sl:3 },
-                    measured:   { s:30, c:30, sw:-1,   bw:1,    sr:2, br:8, sl:2 },
-                    aggressive: { s:40, c:40, sw:-1.5, bw:1.5,  sr:3, br:7, sl:1 },
-                  };
-                  const _activePreset = Object.keys(_presetDefs).find(k => {
-                    const p = _presetDefs[k];
-                    return _skipSec === p.s && _compSec === p.c &&
-                           _skipW === p.sw && _belterW === p.bw &&
-                           _artistSkipRank === p.sr && _artistBelterRank === p.br &&
-                           _songLim === p.sl;
-                  }) || '';
                 %>
-                <div style="margin-bottom:14px">
+                <div class="settings-smart-preset">
                   <label class="field">
-                    <span>Quick preset</span>
-                    <select id="curPreset" style="flex:1">
-                      <option value="" <%= _activePreset === '' ? 'selected' : '' %>>— Custom —</option>
-                      <option value="cautious" <%= _activePreset === 'cautious' ? 'selected' : '' %>>Cautious — larger playlist, wide range of artists</option>
-                      <option value="measured" <%= _activePreset === 'measured' ? 'selected' : '' %>>Measured — medium playlist, good mix of artists</option>
-                      <option value="aggressive" <%= _activePreset === 'aggressive' ? 'selected' : '' %>>Aggressive — smaller playlist, I know what I like</option>
+                    <span>Default preset for new users</span>
+                    <select name="defaultPreset" id="defaultPresetSelect" onchange="applyPresetDefaults(this.value)">
+                      <% const _defaultPreset = config.smartPlaylist?.defaultPreset || 'measured'; %>
+                      <option value="cautious" <%= _defaultPreset === 'cautious' ? 'selected' : '' %>>Cautious — larger playlist, wide range of artists</option>
+                      <option value="measured" <%= _defaultPreset === 'measured' ? 'selected' : '' %>>Measured — medium playlist, good mix of artists</option>
+                      <option value="aggressive" <%= _defaultPreset === 'aggressive' ? 'selected' : '' %>>Aggressive — smaller playlist, I know what I like</option>
                     </select>
                   </label>
-                  <p id="curPresetDesc" style="font-size:11px;color:var(--muted);margin:4px 0 0;min-height:14px;text-transform:none;letter-spacing:0"></p>
+                  <small class="settings-smart-helper">Applied to new users during setup. Existing users keep their chosen preset. Changing this updates the fields below.</small>
                 </div>
                 <div class="cur-tier-table-wrap">
                   <table class="cur-tier-table">
@@ -375,8 +472,8 @@
                           </div>
                         </th>
                         <td><div class="cur-tier-cell"><input type="number" name="skipWeight" value="<%= _skipW %>" min="-1.5" max="-0.5" step="0.25" class="cur-tier-input" /></div></td>
-                        <td><div class="cur-tier-cell" style="justify-content:center"><span id="cur-hd-weight" class="cur-tier-lock" style="font-size:11px"><%= _hdW %></span></div></td>
-                        <td><div class="cur-tier-cell" style="justify-content:center"><span id="cur-decent-weight" class="cur-tier-lock" style="font-size:11px"><%= _decentW %></span></div></td>
+                        <td><div class="cur-tier-cell cur-tier-cell--static"><span id="cur-hd-weight" class="cur-tier-lock settings-smart-tier-lock"><%= _hdW %></span></div></td>
+                        <td><div class="cur-tier-cell cur-tier-cell--static"><span id="cur-decent-weight" class="cur-tier-lock settings-smart-tier-lock"><%= _decentW %></span></div></td>
                         <td><div class="cur-tier-cell"><input type="number" name="belterWeight" value="<%= _belterW %>" min="0.5" max="1.5" step="0.25" class="cur-tier-input" /></div></td>
                       </tr>
                       <tr>
@@ -394,60 +491,40 @@
                     </tbody>
                   </table>
                 </div>
-                <div style="display:flex;align-items:flex-start;gap:16px;margin-top:16px">
-                  <label class="field" style="flex:1;min-width:0">
+                <div class="settings-smart-grid">
+                  <label class="field settings-smart-field">
                     <span>Song skip limit</span>
-                    <select name="songSkipLimit" style="flex:1">
+                    <select name="songSkipLimit">
                       <option value="1"<%= _songLim == 1 ? ' selected' : '' %>>1 skip</option>
                       <option value="2"<%= _songLim == 2 ? ' selected' : '' %>>2 skips</option>
                       <option value="3"<%= _songLim == 3 ? ' selected' : '' %>>3 skips</option>
                     </select>
-                    <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">Consecutive skips before auto-excluding a track.</small>
+                    <small class="settings-smart-helper">Consecutive skips before auto-excluding a track.</small>
                   </label>
-                  <div class="settings-smart-toggle-field" style="flex:1;min-width:0">
-                    <span class="settings-smart-toggle-field-label">Artist exclusions</span>
-                    <input type="hidden" name="excludeUnplayedForSkipArtists" value="" />
-                    <label class="settings-smart-toggle-field-control" for="excludeUnplayedForSkipArtists">
-                      <span class="settings-smart-toggle-field-title">Exclude unplayed tracks for skip-tier artists</span>
-                      <span class="settings-toggle settings-toggle--smart-playlist">
-                        <input id="excludeUnplayedForSkipArtists" type="checkbox" name="excludeUnplayedForSkipArtists" value="1" <%= config.smartPlaylist?.excludeUnplayedForSkipArtists ? 'checked' : '' %> />
-                        <span class="settings-toggle-slider" aria-hidden="true"></span>
-                      </span>
-                    </label>
-                    <small class="settings-smart-toggle-field-help">Also remove unplayed tracks from artists that have fallen into the skip tier.</small>
-                  </div>
-                  <label class="field" style="flex:1;min-width:0">
-                    <span>Sync interval (minutes)</span>
-                    <input type="number" name="syncIntervalMinutes" value="<%= config.smartPlaylist?.syncIntervalMinutes || 30 %>" min="5" max="1440" />
-                    <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">How often Curatorr syncs the playlist to Plex.</small>
-                  </label>
+
                 </div>
               </div>
               <script>
+              var SMART_PRESET_VALUES = {
+                cautious:   { skipThresholdSeconds: 20, completionThresholdSeconds: 20, skipWeight: -0.5, belterWeight: 0.5,  artistSkipRank: 1, artistBelterRank: 9, songSkipLimit: 3 },
+                measured:   { skipThresholdSeconds: 30, completionThresholdSeconds: 30, skipWeight: -1,   belterWeight: 1,    artistSkipRank: 2, artistBelterRank: 8, songSkipLimit: 2 },
+                aggressive: { skipThresholdSeconds: 40, completionThresholdSeconds: 40, skipWeight: -1.5, belterWeight: 1.5,  artistSkipRank: 3, artistBelterRank: 7, songSkipLimit: 1 },
+              };
+
+              function applyPresetDefaults(preset) {
+                var p = SMART_PRESET_VALUES[preset];
+                if (!p) return;
+                var fields = ['skipThresholdSeconds','completionThresholdSeconds','skipWeight','belterWeight','artistSkipRank','artistBelterRank'];
+                fields.forEach(function(f) {
+                  var el = document.querySelector('[name=' + f + ']');
+                  if (el) { el.value = p[f]; el.dispatchEvent(new Event('input')); }
+                });
+                // Also update songSkipLimit select
+                var sl = document.querySelector('[name=songSkipLimit]');
+                if (sl) sl.value = String(p.songSkipLimit);
+              }
+
               (function(){
-                var PRESETS = {
-                  cautious: {
-                    desc: 'For larger libraries with a wider range of artists. Lower weighting means scores shift slowly, keeping more music in rotation for open-minded or exploratory listeners.',
-                    skipThresholdSeconds: 20, completionThresholdSeconds: 20,
-                    skipWeight: -0.5, belterWeight: 0.5,
-                    artistSkipRank: 1, artistBelterRank: 9, songSkipLimit: 3
-                  },
-                  measured: {
-                    desc: 'A balanced setting for a medium-sized library. Scores respond at a moderate pace — suitable for most listeners with a good mix of favourite and new artists.',
-                    skipThresholdSeconds: 30, completionThresholdSeconds: 30,
-                    skipWeight: -1, belterWeight: 1,
-                    artistSkipRank: 2, artistBelterRank: 8, songSkipLimit: 2
-                  },
-                  aggressive: {
-                    desc: 'For smaller, well-curated libraries where you know exactly what you like. Strong weighting means artist scores shift quickly and skips have an immediate impact.',
-                    skipThresholdSeconds: 40, completionThresholdSeconds: 40,
-                    skipWeight: -1.5, belterWeight: 1.5,
-                    artistSkipRank: 3, artistBelterRank: 7, songSkipLimit: 1
-                  }
-                };
-                var FIELDS = ['skipThresholdSeconds','completionThresholdSeconds','skipWeight','belterWeight','artistSkipRank','artistBelterRank'];
-                var sel = document.getElementById('curPreset');
-                var desc = document.getElementById('curPresetDesc');
                 function updateDerived() {
                   var sw = parseFloat(document.querySelector('[name=skipWeight]').value) || -1;
                   var bw = parseFloat(document.querySelector('[name=belterWeight]').value) || 1;
@@ -456,241 +533,762 @@
                   if (hd) hd.textContent = +(sw / 2).toFixed(2);
                   if (dc) dc.textContent = +(bw / 2).toFixed(2);
                 }
-                sel.addEventListener('change', function() {
-                  var p = PRESETS[this.value];
-                  desc.textContent = p ? p.desc : '';
-                  if (!p) return;
-                  FIELDS.forEach(function(f) { var el = document.querySelector('[name='+f+']'); if (el) el.value = p[f]; });
-                  // songSkipLimit is a <select>, set by value
-                  var skipLimEl = document.querySelector('[name=songSkipLimit]');
-                  if (skipLimEl) skipLimEl.value = p.songSkipLimit;
-                  updateDerived();
-                });
-                FIELDS.forEach(function(f) {
+                ['skipWeight','belterWeight'].forEach(function(f) {
                   var el = document.querySelector('[name='+f+']');
-                  if (el) el.addEventListener('input', function() { sel.value = ''; desc.textContent = ''; updateDerived(); });
+                  if (el) el.addEventListener('input', updateDerived);
                 });
-                // Also reset preset on manual songSkipLimit change
-                var skipLimEl = document.querySelector('[name=songSkipLimit]');
-                if (skipLimEl) skipLimEl.addEventListener('change', function() { sel.value = ''; desc.textContent = ''; });
               })();
               </script>
+              <button class="primary-button" type="submit">Save Curatorr rules</button>
+            </form>
+
+            <%# ── Crescive / Curative playlist settings ──────────────────── %>
+            <% if (actualRole === 'admin') { %>
+            <form method="post" action="/settings/smart-playlist-types" class="settings-form settings-playlist-types-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <%
+                const _cr = config.smartPlaylist?.crescive || {};
+                const _cu = config.smartPlaylist?.curative || {};
+                const _ar = config.smartPlaylist?.additionRules || {};
+                const _sr = config.smartPlaylist?.subtractionRules?.skip || [];
+                function _pct(val, def) { return Math.round(((val ?? def) * 100)); }
+              %>
+
+              <%# Crescive %>
+              <div class="settings-card settings-playlist-types-card">
+                <div class="settings-card-title">Crescive Playlist — Starting Position</div>
+                <div class="settings-card-sub">Starts refined and grows over time. Percentages control how much of each artist tier is included on first build.</div>
+                <div class="settings-type-grid">
+                  <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cr_favArtistTrackPct" value="<%= _pct(_cr.favouriteArtistTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre artists</span><div class="settings-pct-row"><input type="number" name="cr_favGenreArtistPct" value="<%= _pct(_cr.favouriteGenreArtistPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre tracks</span><div class="settings-pct-row"><input type="number" name="cr_favGenreTrackPct" value="<%= _pct(_cr.favouriteGenreTrackPct, 0.20) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other artists</span><div class="settings-pct-row"><input type="number" name="cr_otherArtistPct" value="<%= _pct(_cr.otherGenreArtistPct, 0.20) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other tracks</span><div class="settings-pct-row"><input type="number" name="cr_otherTrackPct" value="<%= _pct(_cr.otherGenreTrackPct, 0.20) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                </div>
+              </div>
+
+              <%# Curative %>
               <div class="settings-card">
-                <div class="settings-card-title">Playlist</div>
-                <div class="settings-card-sub">Manage the Plex playlist Curatorr syncs to.</div>
-                <% const _managedPlaylists = config.smartPlaylist?.managedPlaylists || []; %>
-                <% const _currentPlaylistId = String(config.smartPlaylist?.playlistId || ''); %>
-                <% const _currentPlaylistTitle = String(config.smartPlaylist?.playlistTitle || 'Curatorr Smart Playlist'); %>
-                <div class="field field-with-action">
-                  <span>Playlist name</span>
-                  <div class="field-action-row">
-                    <input type="text" name="playlistTitle" id="playlistTitle" value="<%= _currentPlaylistTitle %>" style="flex:1" />
-                    <button type="button" class="ghost-button" id="createPlaylistBtn" style="white-space:nowrap">+ Create new</button>
+                <div class="settings-card-title">Curative Playlist — Starting Position</div>
+                <div class="settings-card-sub">Starts large and is pruned over time. Replaces your existing Curatorr playlist.</div>
+                <div class="settings-type-grid">
+                  <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cu_favArtistTrackPct" value="<%= _pct(_cu.favouriteArtistTrackPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre artists</span><div class="settings-pct-row"><input type="number" name="cu_favGenreArtistPct" value="<%= _pct(_cu.favouriteGenreArtistPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre tracks</span><div class="settings-pct-row"><input type="number" name="cu_favGenreTrackPct" value="<%= _pct(_cu.favouriteGenreTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other artists</span><div class="settings-pct-row"><input type="number" name="cu_otherArtistPct" value="<%= _pct(_cu.otherGenreArtistPct, 0.50) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other tracks</span><div class="settings-pct-row"><input type="number" name="cu_otherTrackPct" value="<%= _pct(_cu.otherGenreTrackPct, 0.50) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                </div>
+              </div>
+
+              <%# Addition rules %>
+              <div class="settings-card">
+                <div class="settings-card-title">Addition Rules</div>
+                <div class="settings-card-sub">When an artist's tier threshold is reached, the next highest-rated unplayed tracks are added to both playlists.</div>
+                <table class="cur-tier-table" style="width:100%">
+                  <thead><tr><th>Artist tier</th><th>% of their tracks played</th><th>Tracks to add</th></tr></thead>
+                  <tbody>
+                    <% [['belter','Belter',0.50,15],['decent','Decent',0.80,10],['halfDecent','Half Decent',1.00,5]].forEach(function(row) { %>
+                    <% const _arRow = _ar[row[0]] || {}; %>
+                    <tr>
+                      <td><span class="cur-badge cur-badge--<%= row[0] === 'halfDecent' ? 'half-decent' : row[0] %>"><%= row[1] %></span></td>
+                      <td><div class="settings-pct-row"><input type="number" name="ar_<%= row[0] %>_pct" value="<%= Math.round((_arRow.playedPct ?? row[2]) * 100) %>" min="1" max="100" style="width:70px" /><span class="settings-pct-sym">%</span></div></td>
+                      <td><input type="number" name="ar_<%= row[0] %>_count" value="<%= _arRow.addCount ?? row[3] %>" min="1" max="50" style="width:70px" /></td>
+                    </tr>
+                    <% }); %>
+                  </tbody>
+                </table>
+              </div>
+
+              <%# Subtraction rules %>
+              <div class="settings-card">
+                <div class="settings-card-title">Subtraction Rules</div>
+                <div class="settings-card-sub">When an artist's tracks are predominantly skipped, the lowest-rated unplayed or previously skipped tracks are removed from both playlists.</div>
+                <table class="cur-tier-table" style="width:100%">
+                  <thead><tr><th>% of their tracks exposed</th><th>Tracks to remove</th></tr></thead>
+                  <tbody>
+                    <% [[0.20,15],[0.50,10],[0.80,5]].forEach(function(def, i) { %>
+                    <% const _srRow = _sr[i] || {}; %>
+                    <tr>
+                      <td><div class="settings-pct-row"><input type="number" name="sr_skip_<%= i %>_pct" value="<%= Math.round((_srRow.playedPct ?? def[0]) * 100) %>" min="1" max="100" style="width:70px" /><span class="settings-pct-sym">%</span></div></td>
+                      <td><input type="number" name="sr_skip_<%= i %>_count" value="<%= _srRow.removeCount ?? def[1] %>" min="1" max="50" style="width:70px" /></td>
+                    </tr>
+                    <% }); %>
+                  </tbody>
+                </table>
+              </div>
+
+              <button class="primary-button" type="submit">Save playlist type settings</button>
+            </form>
+
+            <%# ── Global Playlists ────────────────────────────────────────── %>
+            <%# Builder card %>
+            <div class="settings-card gp-builder-card">
+              <div class="settings-card-title">Create Global Playlist</div>
+              <div class="settings-card-sub">Filters are applied per user using their play/skip history. Preview shows live counts before saving.</div>
+
+              <div class="field">
+                <span>Playlist name</span>
+                <input type="text" id="gp-name" placeholder="e.g. Belting Belters" style="width:100%" />
+              </div>
+
+              <div class="gp-builder-grid">
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Artist tier</div>
+                  <div class="gp-filter-chips">
+                    <% [['belter','Belter','belter'],['decent','Decent','decent'],['halfDecent','Half-Decent','half-decent'],['skip','Skip','skip'],['unranked','Unranked','muted']].forEach(function(t) { %>
+                    <label class="gp-chip-label">
+                      <input type="checkbox" class="gp-artist-tier" value="<%= t[0] %>" />
+                      <span class="cur-badge cur-badge--<%= t[2] %>"><%= t[1] %></span>
+                    </label>
+                    <% }); %>
+                    <label class="gp-chip-label gp-chip-all">
+                      <input type="checkbox" class="gp-artist-tier-all" checked />
+                      <span class="cur-badge">All</span>
+                    </label>
                   </div>
                 </div>
-                <div class="field">
-                  <span>Curatorr playlist</span>
-                  <select id="playlistPicker" style="width:100%">
-                    <option value="">— Select a playlist —</option>
-                    <% _managedPlaylists.forEach(function(p) { %>
-                      <option value="<%= p.ratingKey %>" <%= String(p.ratingKey) === _currentPlaylistId ? 'selected' : '' %>><%= p.title %> (ID <%= p.ratingKey %>)</option>
+
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Track tier</div>
+                  <div class="gp-filter-chips">
+                    <% [['belter','Belter','belter'],['decent','Decent','decent'],['halfDecent','Half-Decent','half-decent'],['skip','Skip','skip'],['unplayed','Unplayed','muted']].forEach(function(t) { %>
+                    <label class="gp-chip-label">
+                      <input type="checkbox" class="gp-track-tier" value="<%= t[0] %>" />
+                      <span class="cur-badge cur-badge--<%= t[2] %>"><%= t[1] %></span>
+                    </label>
                     <% }); %>
-                    <% if (_currentPlaylistId && !_managedPlaylists.find(function(p) { return String(p.ratingKey) === _currentPlaylistId; })) { %>
-                      <option value="<%= _currentPlaylistId %>" selected><%= _currentPlaylistTitle %> (ID <%= _currentPlaylistId %>)</option>
-                    <% } %>
-                  </select>
-                  <small id="playlistPickerHint" style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0;margin-top:4px;display:block">
-                    <% const _selPlaylist = _managedPlaylists.find(function(p) { return String(p.ratingKey) === _currentPlaylistId; }); %>
-                    <% if (_selPlaylist) { %>Currently syncing to <strong><%= _selPlaylist.title %></strong> (ID <%= _currentPlaylistId %>)<% } else if (_currentPlaylistId) { %>Currently syncing to <strong><%= _currentPlaylistTitle %></strong> (ID <%= _currentPlaylistId %>)<% } else { %>No playlist selected.<% } %>
-                  </small>
-                  <input type="hidden" id="playlistId" name="playlistId" value="<%= _currentPlaylistId %>" />
+                    <label class="gp-chip-label gp-chip-all">
+                      <input type="checkbox" class="gp-track-tier-all" checked />
+                      <span class="cur-badge">All</span>
+                    </label>
+                  </div>
                 </div>
-                <div class="plex-settings-note" style="margin-top:12px">Curatorr syncs the selected playlist automatically. Use <strong>+ Create new</strong> to create a fresh Plex playlist, or select an existing Curatorr-managed playlist from the dropdown. Changes take effect on the next sync interval.</div>
+
+                <div class="gp-filter-section gp-filter-section--inline">
+                  <label class="field" style="flex:1">
+                    <span>Top N per artist</span>
+                    <input type="number" id="gp-top-n" min="1" max="999" placeholder="All tracks" />
+                  </label>
+                  <label class="field" style="flex:1">
+                    <span>Max total tracks</span>
+                    <input type="number" id="gp-max-tracks" min="1" placeholder="No limit" />
+                  </label>
+                  <label class="field" style="flex:1">
+                    <span>Sort tracks by</span>
+                    <select id="gp-sort-by">
+                      <option value="ratingCount">Global rating count</option>
+                      <option value="tierWeight">Tier weight</option>
+                      <option value="playCount">Play count</option>
+                    </select>
+                  </label>
+                </div>
               </div>
-              <button class="primary-button" type="submit">Save smart playlist settings</button>
-            </form>
+
+              <%# Preview %>
+              <div class="gp-preview-bar">
+                <div class="gp-preview-left">
+                  <span class="gp-preview-label">Preview for</span>
+                  <select id="gp-preview-user" class="settings-select gp-preview-select">
+                    <option value="">— All users (avg) —</option>
+                    <% (allUserIds || []).forEach(function(uid) { %>
+                    <option value="<%= uid %>"><%= uid %></option>
+                    <% }); %>
+                  </select>
+                </div>
+                <div class="gp-preview-counts" id="gp-preview-counts">
+                  <span class="gp-preview-stat"><span class="gp-preview-num" id="gp-prev-artists">—</span> <span class="gp-preview-unit">artists</span></span>
+                  <span class="gp-preview-sep">·</span>
+                  <span class="gp-preview-stat"><span class="gp-preview-num" id="gp-prev-tracks">—</span> <span class="gp-preview-unit">tracks</span></span>
+                  <span class="gp-preview-avg" id="gp-prev-avg-wrap" style="display:none">
+                    <span class="gp-preview-sep">·</span> avg across all users: <strong id="gp-prev-avg"></strong>
+                  </span>
+                </div>
+              </div>
+
+              <div class="gp-builder-actions">
+                <button class="primary-button" id="gp-create-btn" type="button">Create Playlist</button>
+                <span class="gp-create-msg" id="gp-create-msg"></span>
+              </div>
+            </div>
+
+            <%# Existing global playlists %>
+            <div id="gp-list">
+              <% (globalPlaylists || []).forEach(function(gp) { %>
+              <div class="settings-card gp-card" data-gp-id="<%= gp.id %>">
+                <div class="gp-card-header">
+                  <span class="settings-card-title gp-card-name"><%= gp.name %></span>
+                  <div class="gp-card-actions">
+                    <label class="gp-toggle-wrap" title="<%= gp.enabled ? 'Enabled' : 'Disabled' %>">
+                      <input type="checkbox" class="gp-toggle" data-gp-id="<%= gp.id %>" <%= gp.enabled ? 'checked' : '' %> />
+                      <span class="gp-toggle-label"><%= gp.enabled ? 'Enabled' : 'Disabled' %></span>
+                    </label>
+                    <button class="btn btn-sm btn-ghost-danger gp-delete-btn" data-gp-id="<%= gp.id %>">Delete</button>
+                  </div>
+                </div>
+                <div class="gp-card-rules">
+                  <% const _at = (gp.rules?.artistTiers || []); const _tt = (gp.rules?.trackTiers || []); %>
+                  <span class="gp-rule-chip">Artists: <%= _at.length ? _at.join(', ') : 'all' %></span>
+                  <span class="gp-rule-chip">Tracks: <%= _tt.length ? _tt.join(', ') : 'all' %></span>
+                  <% if (gp.rules?.topNPerArtist) { %><span class="gp-rule-chip">Top <%= gp.rules.topNPerArtist %>/artist</span><% } %>
+                  <% if (gp.rules?.maxTracks) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracks %> tracks</span><% } %>
+                </div>
+              </div>
+              <% }); %>
+              <% if (!(globalPlaylists || []).length) { %>
+              <div class="cur-empty" id="gp-empty">No global playlists yet. Create one below.</div>
+              <% } %>
+            </div>
+
             <script>
             (function() {
-              var picker = document.getElementById('playlistPicker');
-              var hidden = document.getElementById('playlistId');
-              var hint = document.getElementById('playlistPickerHint');
-              var createBtn = document.getElementById('createPlaylistBtn');
-              var managedIds = [<% (_managedPlaylists || []).forEach(function(p,i) { %>'<%= p.ratingKey %>'<% if (i < _managedPlaylists.length - 1) { %>,<% } %><% }); %>];
+              var _csrf = '<%= csrfToken %>';
+              var previewTimer = null;
 
-              // If current playlist isn't in managedPlaylists, resolve its real Plex name
-              var legacyId = '<%= _currentPlaylistId %>';
-              if (legacyId && managedIds.indexOf(legacyId) === -1) {
-                fetch('/api/plex/playlists')
-                  .then(function(r) { return r.json(); })
-                  .then(function(data) {
-                    var match = (data.playlists || []).find(function(p) { return String(p.ratingKey) === legacyId; });
-                    if (!match) return;
-                    // Update the fallback option with the real name
-                    for (var i = 0; i < picker.options.length; i++) {
-                      if (String(picker.options[i].value) === legacyId) {
-                        picker.options[i].textContent = match.title + ' (ID ' + legacyId + ')';
-                        hint.innerHTML = 'Currently syncing to <strong>' + match.title + '</strong> (ID ' + legacyId + ')';
-                        break;
-                      }
-                    }
-                    // Register it in managedPlaylists via create endpoint stub
-                    fetch('/api/plex/managed-playlists', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
-                      body: JSON.stringify({ ratingKey: legacyId, title: match.title }),
-                    }).catch(function() {});
-                  }).catch(function() {});
+              function getBuilderRules() {
+                var artistTiers = [];
+                if (!document.querySelector('.gp-artist-tier-all').checked) {
+                  document.querySelectorAll('.gp-artist-tier:checked').forEach(function(c) { artistTiers.push(c.value); });
+                }
+                var trackTiers = [];
+                if (!document.querySelector('.gp-track-tier-all').checked) {
+                  document.querySelectorAll('.gp-track-tier:checked').forEach(function(c) { trackTiers.push(c.value); });
+                }
+                return {
+                  artistTiers: artistTiers,
+                  trackTiers: trackTiers,
+                  topNPerArtist: document.getElementById('gp-top-n').value ? parseInt(document.getElementById('gp-top-n').value) : null,
+                  maxTracks: document.getElementById('gp-max-tracks').value ? parseInt(document.getElementById('gp-max-tracks').value) : null,
+                  sortBy: document.getElementById('gp-sort-by').value,
+                };
               }
 
-              picker.addEventListener('change', function() {
-                hidden.value = this.value;
-                var sel = this.options[this.selectedIndex];
-                hint.innerHTML = this.value ? 'Currently syncing to <strong>' + sel.textContent + '</strong> (ID ' + this.value + ')' : 'No playlist selected.';
+              function runPreview() {
+                var rules = getBuilderRules();
+                var userId = document.getElementById('gp-preview-user').value;
+                var url = '/api/playlists/global/preview?rules=' + encodeURIComponent(JSON.stringify(rules));
+                if (userId) url += '&userId=' + encodeURIComponent(userId);
+                fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+                  if (!data.ok) return;
+                  if (data.forUser) {
+                    document.getElementById('gp-prev-artists').textContent = data.forUser.artistCount;
+                    document.getElementById('gp-prev-tracks').textContent = data.forUser.trackCount;
+                    document.getElementById('gp-prev-avg-wrap').style.display = 'none';
+                  } else if (data.average) {
+                    document.getElementById('gp-prev-artists').textContent = data.average.artistCount;
+                    document.getElementById('gp-prev-tracks').textContent = data.average.trackCount;
+                    document.getElementById('gp-prev-avg-wrap').style.display = 'none';
+                  }
+                }).catch(function() {});
+              }
+
+              function schedulePreview() {
+                clearTimeout(previewTimer);
+                previewTimer = setTimeout(runPreview, 400);
+              }
+
+              document.querySelector('.gp-artist-tier-all').addEventListener('change', function() {
+                if (this.checked) document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = false; });
+                schedulePreview();
               });
-              createBtn.addEventListener('click', function() {
-                var title = document.getElementById('playlistTitle').value.trim() || 'Curatorr Smart Playlist';
-                createBtn.disabled = true; createBtn.textContent = 'Creating…';
-                fetch('/api/plex/playlists', {
+              document.querySelector('.gp-track-tier-all').addEventListener('change', function() {
+                if (this.checked) document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = false; });
+                schedulePreview();
+              });
+              document.querySelectorAll('.gp-artist-tier').forEach(function(c) {
+                c.addEventListener('change', function() {
+                  if (this.checked) document.querySelector('.gp-artist-tier-all').checked = false;
+                  schedulePreview();
+                });
+              });
+              document.querySelectorAll('.gp-track-tier').forEach(function(c) {
+                c.addEventListener('change', function() {
+                  if (this.checked) document.querySelector('.gp-track-tier-all').checked = false;
+                  schedulePreview();
+                });
+              });
+              ['gp-top-n','gp-max-tracks','gp-sort-by','gp-preview-user'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('change', schedulePreview);
+                if (el && el.tagName === 'INPUT') el.addEventListener('input', schedulePreview);
+              });
+
+              document.querySelectorAll('.gp-delete-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                  var id = btn.dataset.gpId;
+                  if (!confirm('Delete this global playlist? It will no longer be synced to Plex.')) return;
+                  fetch('/api/playlists/global/' + id, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRF-Token': _csrf },
+                  }).then(function(r) { return r.json(); }).then(function(d) {
+                    if (d.ok) btn.closest('.gp-card').remove();
+                  });
+                });
+              });
+
+              document.querySelectorAll('.gp-toggle').forEach(function(tog) {
+                tog.addEventListener('change', function() {
+                  var id = tog.dataset.gpId;
+                  var label = tog.closest('.gp-toggle-wrap').querySelector('.gp-toggle-label');
+                  fetch('/api/playlists/global/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+                    body: JSON.stringify({ enabled: tog.checked }),
+                  }).then(function(r) { return r.json(); }).then(function(d) {
+                    if (d.ok && label) label.textContent = tog.checked ? 'Enabled' : 'Disabled';
+                  });
+                });
+              });
+
+              document.getElementById('gp-create-btn').addEventListener('click', function() {
+                var name = document.getElementById('gp-name').value.trim();
+                var msg = document.getElementById('gp-create-msg');
+                if (!name) { msg.textContent = 'Please enter a name.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
+                var rules = getBuilderRules();
+                fetch('/api/playlists/global', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
-                  body: JSON.stringify({ title: title }),
-                })
-                  .then(function(r) { return r.json(); })
-                  .then(function(data) {
-                    if (data.ok && data.playlist) {
-                      var opt = document.createElement('option');
-                      opt.value = data.playlist.ratingKey;
-                      opt.textContent = data.playlist.title;
-                      opt.selected = true;
-                      picker.appendChild(opt);
-                      hidden.value = data.playlist.ratingKey;
-                      hint.innerHTML = 'Currently syncing to <strong>' + data.playlist.title + '</strong> (ID ' + data.playlist.ratingKey + ')';
-                    } else {
-                      hint.textContent = 'Error: ' + (data.error || 'Could not create playlist');
-                    }
-                  })
-                  .catch(function() { hint.textContent = 'Network error.'; })
-                  .finally(function() { createBtn.disabled = false; createBtn.textContent = '+ Create new'; });
+                  headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+                  body: JSON.stringify({ name: name, ...rules }),
+                }).then(function(r) { return r.json(); }).then(function(d) {
+                  if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
+                  msg.textContent = 'Created! It will sync on the next job run.';
+                  msg.className = 'gp-create-msg gp-msg--success';
+                  var empty = document.getElementById('gp-empty');
+                  if (empty) empty.remove();
+                  var at = (d.playlist.rules?.artistTiers || []); var tt = (d.playlist.rules?.trackTiers || []);
+                  var card = document.createElement('div');
+                  card.className = 'settings-card gp-card'; card.dataset.gpId = d.playlist.id;
+                  card.innerHTML = '<div class="gp-card-header"><span class="settings-card-title gp-card-name">' + d.playlist.name + '</span>'
+                    + '<div class="gp-card-actions"><label class="gp-toggle-wrap"><input type="checkbox" class="gp-toggle" data-gp-id="' + d.playlist.id + '" checked /><span class="gp-toggle-label">Enabled</span></label>'
+                    + '<button class="btn btn-sm btn-ghost-danger gp-delete-btn" data-gp-id="' + d.playlist.id + '">Delete</button></div></div>'
+                    + '<div class="gp-card-rules"><span class="gp-rule-chip">Artists: ' + (at.length ? at.join(', ') : 'all') + '</span>'
+                    + '<span class="gp-rule-chip">Tracks: ' + (tt.length ? tt.join(', ') : 'all') + '</span>'
+                    + (d.playlist.rules?.topNPerArtist ? '<span class="gp-rule-chip">Top ' + d.playlist.rules.topNPerArtist + '/artist</span>' : '')
+                    + (d.playlist.rules?.maxTracks ? '<span class="gp-rule-chip">Max ' + d.playlist.rules.maxTracks + ' tracks</span>' : '')
+                    + '</div>';
+                  document.getElementById('gp-list').appendChild(card);
+                  card.querySelector('.gp-delete-btn').addEventListener('click', function() {
+                    if (!confirm('Delete this global playlist?')) return;
+                    fetch('/api/playlists/global/' + d.playlist.id, { method: 'DELETE', headers: { 'X-CSRF-Token': _csrf } })
+                      .then(function(r) { return r.json(); }).then(function(r2) { if (r2.ok) card.remove(); });
+                  });
+                  card.querySelector('.gp-toggle').addEventListener('change', function() {
+                    var t = card.querySelector('.gp-toggle'); var lbl = card.querySelector('.gp-toggle-label');
+                    fetch('/api/playlists/global/' + d.playlist.id, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf }, body: JSON.stringify({ enabled: t.checked }) })
+                      .then(function(r) { return r.json(); }).then(function(r2) { if (r2.ok && lbl) lbl.textContent = t.checked ? 'Enabled' : 'Disabled'; });
+                  });
+                  document.getElementById('gp-name').value = '';
+                });
               });
+
+              runPreview();
             })();
             </script>
+            <% } %>
+
           </div>
         </div>
 
-        <%# ── Filters ──────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="filters">
+
+        <%# ── Discovery ─────────────────────────────────────────────────────── %>
+        <div class="settings-tab-panel<%= _tab === 'discovery' ? ' is-active' : '' %>" data-tab="discovery">
           <div class="dash-panel">
-            <form method="post" action="/settings/filters" class="settings-form">
+            <form method="post" action="/settings/discovery" class="settings-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <div class="settings-card">
-                <div class="settings-card-title">Artist Filters</div>
-                <div class="settings-card-sub">Override skip-based exclusion rules for specific artists. One artist per line.</div>
+                <div class="settings-card-title">Last.fm Integration</div>
+                <div class="settings-card-sub">Powers the Trending Artists, Trending Tracks, and Similar Artists carousels on the Discover page. Get a free API key at <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener">last.fm/api</a>. Leave blank to hide all carousels.</div>
                 <label class="field">
-                  <span>Always include</span>
-                  <textarea name="mustIncludeArtists" rows="5" style="resize:vertical"><%= (config.filters?.mustIncludeArtists || []).join('\n') %></textarea>
-                  <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">These artists always appear in your playlist regardless of skip count.</small>
+                  <span>API Key</span>
+                  <input type="text" name="lastfmApiKey" value="<%= config.discovery?.lastfmApiKey || '' %>" placeholder="Your Last.fm API key" autocomplete="off" />
                 </label>
                 <label class="field">
-                  <span>Never include</span>
-                  <textarea name="neverIncludeArtists" rows="5" style="resize:vertical"><%= (config.filters?.neverIncludeArtists || []).join('\n') %></textarea>
-                  <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">These artists are always blocked from your playlist.</small>
+                  <span>Region / Country</span>
+                  <input type="text" name="region" value="<%= config.discovery?.region || 'united states' %>" placeholder="united states" />
+                  <small class="settings-card-sub" style="margin-top:4px;display:block">Lowercase country name for regional charts (e.g. "united kingdom", "germany", "australia").</small>
                 </label>
               </div>
-              <button class="primary-button" type="submit">Save filters</button>
+              <div class="settings-card">
+                <div class="settings-card-title">Visible Carousels</div>
+                <div class="settings-card-sub">Choose which carousels appear on the Discover page.</div>
+                <input type="hidden" name="showTrendingArtists" value="" />
+                <label class="settings-toggle">
+                  <input type="checkbox" name="showTrendingArtists" value="1" <%= (config.discovery?.showTrendingArtists ?? true) ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text">Trending Artists</span>
+                </label>
+                <input type="hidden" name="showTrendingTracks" value="" />
+                <label class="settings-toggle">
+                  <input type="checkbox" name="showTrendingTracks" value="1" <%= (config.discovery?.showTrendingTracks ?? true) ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text">Trending Tracks</span>
+                </label>
+                <input type="hidden" name="showSimilarArtists" value="" />
+                <label class="settings-toggle">
+                  <input type="checkbox" name="showSimilarArtists" value="1" <%= (config.discovery?.showSimilarArtists ?? true) ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text">Because You Like… (similar artists)</span>
+                </label>
+              </div>
+              <button class="primary-button" type="submit">Save discovery settings</button>
             </form>
           </div>
         </div>
 
         <%# ── Users ────────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="users">
+        <div class="settings-tab-panel<%= _tab === 'users' ? ' is-active' : '' %>" data-tab="users">
           <div class="dash-panel">
-            <% if (users && users.length) { %>
+            <div class="settings-form settings-users">
+              <%
+                const _users = Array.isArray(users) ? users : [];
+                const usersQueryError = _tab === 'users' ? String(error || '') : '';
+                const localUsersResultMap = {
+                  '1': 'Curatorr user settings updated.',
+                };
+                const usersQuerySuccess = _tab === 'users' ? String(success || '') : '';
+                const localUsersNote = usersQueryError || localUsersResultMap[usersQuerySuccess] || 'Create local Curatorr users and manage access roles.';
+              %>
               <div class="settings-card">
-                <div class="settings-card-title">Local Users</div>
-                <div class="settings-table settings-table--users" style="margin-top:8px">
-                  <div class="settings-row settings-head" style="grid-template-columns:1fr 1fr 80px 100px">
-                    <div><span class="settings-head-label">Username</span></div>
-                    <div><span class="settings-head-label">Email</span></div>
-                    <div><span class="settings-head-label">Role</span></div>
-                    <div><span class="settings-head-label">Actions</span></div>
-                  </div>
-                  <% users.forEach(function(u) { %>
-                    <div class="settings-row" style="grid-template-columns:1fr 1fr 80px 100px">
-                      <div><%= u.username %></div>
-                      <div style="color:var(--muted)"><%= u.email || '—' %></div>
-                      <div><span class="cur-badge cur-badge--neutral"><%= u.role %></span></div>
-                      <div>
-                        <% if (!u.setupAccount && !u.isSetupAdmin) { %>
-                          <form method="post" action="/settings/local-users/remove" style="display:inline;margin:0">
-                            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                            <input type="hidden" name="username" value="<%= u.username %>" />
-                            <button type="submit" class="btn btn-sm btn-ghost-danger" onclick="return confirm('Remove <%= u.username %>?')">Remove</button>
-                          </form>
-                        <% } else { %>
-                          <span style="font-size:11px;color:var(--muted)">Setup admin</span>
-                        <% } %>
-                      </div>
-                    </div>
-                  <% }) %>
+                <div class="settings-card-title">Curatorr Users</div>
+                <div class="settings-card-sub">Local accounts can sign in without Plex and use role-based access.</div>
+                <div class="settings-users-actions">
+                  <span class="settings-users-note<%= usersQueryError ? ' settings-users-note--error' : '' %>"><%= localUsersNote %></span>
                 </div>
-              </div>
-            <% } %>
-
-            <div class="settings-card">
-              <div class="settings-card-title">Add Local User</div>
-              <form method="post" action="/settings/local-users/add" class="settings-form">
-                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                <div class="settings-grid settings-grid--2">
+                <form method="post" action="/settings/local-users/add" class="settings-form">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                   <label class="field">
                     <span>Username</span>
-                    <input type="text" name="username" required />
+                    <input type="text" name="username" placeholder="localuser" required />
                   </label>
                   <label class="field">
-                    <span>Email</span>
-                    <input type="email" name="email" required />
+                    <span>Email (optional)</span>
+                    <input type="email" name="email" placeholder="user@example.com" />
                   </label>
                   <label class="field">
                     <span>Password</span>
-                    <input type="password" name="password" required />
+                    <input type="password" name="password" placeholder="Min 12 with upper/lower/number/symbol" minlength="12" required />
                   </label>
                   <label class="field">
                     <span>Role</span>
-                    <select name="role">
-                      <option value="user">User</option>
+                    <select class="settings-select" name="role">
+                      <option value="guest">Guest</option>
+                      <option value="user" selected>User</option>
+                      <option value="power-user">Power user</option>
                       <option value="co-admin">Co-admin</option>
                       <option value="admin">Admin</option>
-                      <option value="guest">Guest</option>
                       <option value="disabled">Disabled</option>
                     </select>
                   </label>
-                </div>
-                <button class="primary-button" type="submit">Add user</button>
-              </form>
-            </div>
-
-            <% if (plexAdmins !== undefined || plexCoAdmins !== undefined) { %>
-              <div class="settings-card">
-                <div class="settings-card-title">Plex User Roles</div>
-                <div class="settings-card-sub">Assign Curatorr roles to Plex usernames.</div>
-                <form method="post" action="/settings/plex-admins" class="settings-form">
-                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                  <label class="field">
-                    <span>Plex admins (Plex usernames, one per line)</span>
-                    <textarea name="admins" rows="3" style="resize:vertical"><%= (plexAdmins || []).join('\n') %></textarea>
-                  </label>
-                  <label class="field">
-                    <span>Plex co-admins</span>
-                    <textarea name="coAdmins" rows="3" style="resize:vertical"><%= (plexCoAdmins || []).join('\n') %></textarea>
-                  </label>
-                  <button class="primary-button" type="submit">Save Plex roles</button>
+                  <button class="primary-button" type="submit">Add Curatorr user</button>
                 </form>
+                <div class="settings-users-table">
+                  <div class="settings-users-row settings-users-row--local settings-users-head">
+                    <div class="settings-users-head-cell settings-users-col-user">
+                      <img class="settings-head-icon" src="/icons/name.svg" alt="" />
+                      <span>User</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-col-email">
+                      <span>Email</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-col-last">
+                      <span>Last Curatorr login</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-col-role">
+                      <img class="settings-head-icon" src="/icons/role.svg" alt="" />
+                      <span>Role</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-head-cell--delete settings-users-col-delete">
+                      <img class="settings-head-icon" src="/icons/delete.svg" alt="" />
+                      <span>Delete</span>
+                    </div>
+                  </div>
+                  <% if (_users.length) { %>
+                    <% _users.forEach(function(localUser) { %>
+                      <%
+                        const localLogin = localUser.lastCuratorrLogin && !Number.isNaN(Date.parse(localUser.lastCuratorrLogin))
+                          ? new Date(localUser.lastCuratorrLogin).toLocaleString()
+                          : '—';
+                      %>
+                      <div class="settings-users-row settings-users-row--local">
+                        <div class="settings-users-name settings-users-col-user" data-label="User">
+                          <%= localUser.username %>
+                          <% if (localUser.isOwnerAccount) { %>
+                            <span class="settings-users-locked">Setup admin</span>
+                          <% } else if (localUser.isCurrentSessionUser) { %>
+                            <span class="settings-users-locked">Current session</span>
+                          <% } %>
+                        </div>
+                        <div class="settings-users-login settings-users-col-email" data-label="Email"><%= localUser.email || '—' %></div>
+                        <div class="settings-users-login settings-users-col-last" data-label="Last Curatorr login" title="<%= localUser.lastCuratorrLogin || '' %>"><%= localLogin %></div>
+                        <div class="settings-users-role settings-users-col-role" data-label="Role">
+                          <form method="post" action="/settings/local-users/role" class="settings-role-inline-form">
+                            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                            <input type="hidden" name="username" value="<%= localUser.username %>" />
+                            <select name="role">
+                              <option value="guest" <%= localUser.role === 'guest' ? 'selected' : '' %>>Guest</option>
+                              <option value="user" <%= localUser.role === 'user' ? 'selected' : '' %>>User</option>
+                              <option value="power-user" <%= localUser.role === 'power-user' ? 'selected' : '' %>>Power user</option>
+                              <option value="co-admin" <%= localUser.role === 'co-admin' ? 'selected' : '' %>>Co-admin</option>
+                              <option value="admin" <%= localUser.role === 'admin' ? 'selected' : '' %>>Admin</option>
+                              <option value="disabled" <%= localUser.role === 'disabled' ? 'selected' : '' %>>Disabled</option>
+                            </select>
+                            <button class="primary-button" type="submit">Save</button>
+                          </form>
+                        </div>
+                        <div class="settings-users-delete settings-users-col-delete" data-label="Delete">
+                          <form
+                            method="post"
+                            action="/settings/local-users/remove"
+                            class="local-user-delete-form"
+                            onsubmit="return confirm('Delete this Curatorr user? This cannot be undone.');"
+                          >
+                            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                            <input type="hidden" name="username" value="<%= localUser.username %>" />
+                            <button
+                              class="local-user-delete"
+                              type="submit"
+                              <%= localUser.canDelete ? '' : 'disabled' %>
+                              title="<%= localUser.isOwnerAccount ? 'Setup admin account cannot be deleted' : (localUser.isCurrentSessionUser ? 'You cannot delete your current session account' : 'Delete Curatorr user') %>"
+                              aria-label="Delete Curatorr user"
+                            >
+                              <img src="/icons/delete.svg" alt="" />
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                    <% }) %>
+                  <% } else { %>
+                    <div class="settings-users-row settings-users-row--local">
+                      <div class="settings-users-login settings-users-col-user">No local Curatorr users found.</div>
+                      <div class="settings-users-login settings-users-col-email">—</div>
+                      <div class="settings-users-login settings-users-col-last">—</div>
+                      <div class="settings-users-login settings-users-col-role">—</div>
+                      <div class="settings-users-login settings-users-col-delete">—</div>
+                    </div>
+                  <% } %>
+                </div>
               </div>
-            <% } %>
+
+              <div class="settings-card">
+                <div class="settings-card-title">Plex Users</div>
+                <div class="settings-card-sub">Pull users from Plex and assign Curatorr roles.</div>
+                <div class="settings-users-actions">
+                  <button class="primary-button" type="button" id="fetchPlexUsersBtn">Fetch users</button>
+                  <button class="primary-button" type="button" id="savePlexRolesBtn" disabled>Save roles</button>
+                  <span class="settings-users-note" id="plexUsersNote">Pull the user list from Plex to assign roles.</span>
+                </div>
+                <div class="settings-users-table">
+                  <div class="settings-users-row settings-users-head">
+                    <div class="settings-users-head-cell settings-users-sort" data-sort-key="name" role="button" tabindex="0">
+                      <img class="settings-head-icon" src="/icons/name.svg" alt="" />
+                      <span>Name</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-sort" data-sort-key="plex" role="button" tabindex="0">
+                      <span>Last seen (Plex)</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-sort" data-sort-key="curatorr" role="button" tabindex="0">
+                      <span>Last Curatorr login</span>
+                    </div>
+                    <div class="settings-users-head-cell settings-users-sort" data-sort-key="role" role="button" tabindex="0">
+                      <img class="settings-head-icon" src="/icons/role.svg" alt="" />
+                      <span>Role</span>
+                    </div>
+                  </div>
+                  <div id="plexUsersBody"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%# ── Logs ─────────────────────────────────────────────────────────── %>
+        <div class="settings-tab-panel<%= _tab === 'logs' ? ' is-active' : '' %>" data-tab="logs">
+          <div class="dash-panel">
+            <form method="post" action="/settings/logs" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <div class="settings-card">
+                <div class="settings-card-title">Retention</div>
+                <div class="settings-card-sub">Logs are stored on disk and pruned by these limits.</div>
+                <div class="settings-log-row">
+                  <label class="field">
+                    <span>Max Entries</span>
+                    <input type="number" min="50" max="5000" step="50" name="log_max_entries" value="<%= logSettings?.maxEntries || 500 %>" />
+                  </label>
+                  <label class="field">
+                    <span>Max Days</span>
+                    <input type="number" min="1" max="365" step="1" name="log_max_days" value="<%= logSettings?.maxDays || 30 %>" />
+                  </label>
+                  <label class="field">
+                    <span>Visible Rows</span>
+                    <input type="number" min="3" max="100" step="1" name="log_visible_rows" value="<%= logSettings?.visibleRows || 25 %>" />
+                  </label>
+                  <button class="primary-button" type="submit">Save log settings</button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div class="dash-panel">
+            <div class="settings-card">
+              <div class="settings-card-title">Activity</div>
+              <div class="settings-card-sub">Use this to trace playlist syncs, wizard events, and Lidarr automation decisions.</div>
+              <div class="log-toolbar">
+                <div class="log-filter">
+                  <span class="log-filter-label">App</span>
+                  <select class="settings-select" id="settingsLogApp">
+                    <option value="">All</option>
+                    <option value="system">System</option>
+                    <option value="settings">Settings</option>
+                    <option value="wizard">Wizard</option>
+                    <option value="plex">Plex</option>
+                    <option value="tautulli">Tautulli</option>
+                    <option value="webhook">Webhook</option>
+                    <option value="music">Music</option>
+                    <option value="playlist">Playlist</option>
+                    <option value="recommendations">Recommendations</option>
+                    <option value="lidarr">Lidarr</option>
+                    <option value="client">Client</option>
+                  </select>
+                </div>
+                <div class="log-filter">
+                  <span class="log-filter-label">Level</span>
+                  <select class="settings-select" id="settingsLogLevel">
+                    <option value="">All</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warn</option>
+                    <option value="error">Error</option>
+                  </select>
+                </div>
+                <button class="primary-button log-refresh" type="button" id="settingsLogRefresh">Refresh</button>
+                <span class="log-status" id="settingsLogStatus">Loading...</span>
+              </div>
+              <div class="log-list" id="settingsLogList" style="--log-visible-rows:<%= logSettings?.visibleRows || 25 %>"></div>
+            </div>
+          </div>
+        </div>
+
+        <%# ── About ─────────────────────────────────────────────────────────── %>
+        <div class="settings-tab-panel<%= _tab === 'about' ? ' is-active' : '' %>" data-tab="about">
+          <div class="dash-panel">
+            <div class="settings-card">
+              <div class="settings-card-title">About Curatorr</div>
+              <div class="settings-card-sub">Build, support links, and recent release notes.</div>
+              <div class="settings-about-table">
+                <div class="settings-about-row">
+                  <span>Version</span>
+                  <div class="settings-about-value">
+                    <span class="settings-about-version" id="settingsAboutVersion"><%= aboutCurrentVersion || 'Unknown' %></span>
+                    <span class="settings-about-pill" id="settingsAboutVersionState">Checking...</span>
+                  </div>
+                </div>
+                <div class="settings-about-row">
+                  <span>Latest Release</span>
+                  <div class="settings-about-value">
+                    <span id="settingsAboutLatest"><%= aboutLatestVersion || 'Unknown' %></span>
+                  </div>
+                </div>
+                <div class="settings-about-row">
+                  <span>Data Directory</span>
+                  <div class="settings-about-value">
+                    <code class="settings-about-code"><%= aboutDataDirectory || '/data' %></code>
+                  </div>
+                </div>
+                <div class="settings-about-row">
+                  <span>Time Zone</span>
+                  <div class="settings-about-value">
+                    <span id="settingsAboutTimeZone">Detecting...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-panel">
+            <div class="settings-card">
+              <div class="settings-card-title">Getting Support</div>
+              <div class="settings-about-link-grid">
+                <div class="settings-about-link-row">
+                  <span>Documentation</span>
+                  <a href="https://github.com/MickyGX/curatorr/wiki" target="_blank" rel="noreferrer noopener">https://github.com/MickyGX/curatorr/wiki</a>
+                </div>
+                <div class="settings-about-link-row">
+                  <span>Discussions</span>
+                  <a href="https://github.com/MickyGX/curatorr/discussions" target="_blank" rel="noreferrer noopener">https://github.com/MickyGX/curatorr/discussions</a>
+                </div>
+                <div class="settings-about-link-row">
+                  <span>Discord</span>
+                  <a href="https://discord.gg/TuR7uMajEj" target="_blank" rel="noreferrer noopener">https://discord.gg/TuR7uMajEj</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-panel">
+            <div class="settings-card">
+              <div class="settings-card-title">Support Curatorr</div>
+              <div class="settings-about-link-grid">
+                <div class="settings-about-link-row">
+                  <span>Buy Me a Coffee</span>
+                  <a href="https://buymeacoffee.com/mickygx" target="_blank" rel="noreferrer noopener">https://buymeacoffee.com/mickygx</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-panel">
+            <div class="settings-card">
+              <div class="settings-card-title">Releases</div>
+              <div class="settings-card-sub">Click a release to view a short changelog summary.</div>
+              <% const aboutReleaseEntries = Array.isArray(aboutReleases) ? aboutReleases : []; %>
+              <div class="settings-release-list" id="settingsReleaseList">
+                <% if (aboutReleaseEntries.length) { %>
+                  <% aboutReleaseEntries.forEach((release, index) => { %>
+                    <div class="settings-release-row">
+                      <div class="settings-release-copy">
+                        <div class="settings-release-head">
+                          <span class="settings-release-age" data-release-published-at="<%= release.publishedAt || '' %>">Recently</span>
+                          <strong class="settings-release-title">Release <%= release.tag %></strong>
+                          <% if (release.isLatest) { %>
+                            <span class="settings-about-pill settings-about-pill--ok">Latest</span>
+                          <% } %>
+                          <% if (release.isCurrent) { %>
+                            <span class="settings-about-pill">Current</span>
+                          <% } %>
+                        </div>
+                        <div class="settings-release-summary"><%= release.summary || 'Release notes are available.' %></div>
+                      </div>
+                      <button class="primary-button settings-release-open" type="button" data-release-index="<%= index %>">View Changelog</button>
+                    </div>
+                  <% }) %>
+                <% } else { %>
+                  <div class="settings-release-empty">No release notes were found in <code>docs/release/releases</code>.</div>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
+          <div id="settingsReleaseModalBackdrop" class="plex-modal-backdrop plex-hidden">
+            <div class="plex-modal settings-release-modal" role="dialog" aria-modal="true" aria-labelledby="settingsReleaseModalTitle">
+              <button class="plex-modal-close" type="button" aria-label="Close">✕</button>
+              <div class="plex-modal-header">
+                <div class="plex-modal-title" id="settingsReleaseModalTitle">Release Notes</div>
+                <div class="plex-modal-subtitle" id="settingsReleaseModalSubtitle">Changelog summary</div>
+              </div>
+              <div class="plex-modal-body settings-release-modal-body">
+                <div class="plex-modal-scroll settings-release-modal-scroll">
+                  <div class="settings-release-modal-summary" id="settingsReleaseModalSummary"></div>
+                  <ul class="settings-release-modal-list" id="settingsReleaseModalList"></ul>
+                </div>
+              </div>
+              <div class="plex-modal-footer">
+                <a class="plex-modal-link" id="settingsReleaseModalLink" href="#" target="_blank" rel="noreferrer noopener">Full Release</a>
+                <button class="plex-modal-link settings-release-modal-close" type="button">Close</button>
+              </div>
+            </div>
           </div>
         </div>
 
         <%# ── Appearance ────────────────────────────────────────────────────── %>
-        <div class="settings-tab-panel" data-tab="appearance">
+        <div class="settings-tab-panel<%= _tab === 'appearance' ? ' is-active' : '' %>" data-tab="appearance">
           <div class="dash-panel">
             <div class="settings-card settings-card--themes">
               <div class="settings-card-title">Dark / Light Mode</div>
@@ -784,12 +1382,96 @@
           </div>
         </div>
 
+        <%# ── Jobs (admin only) ─────────────────────────────────────────────── %>
+        <% if (actualRole === 'admin') { %>
+        <div class="settings-tab-panel<%= _tab === 'jobs' ? ' is-active' : '' %>" data-tab="jobs">
+          <div class="dash-panel">
+            <div class="settings-card">
+              <div class="settings-card-title">Scheduled Jobs</div>
+              <div class="settings-card-sub">Configure and manually trigger system-wide background jobs. Changes take effect immediately without restart.</div>
+            </div>
+            <form method="post" action="/settings/jobs" class="settings-form" id="jobsSettingsForm">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <%
+                const _jobsCfg = config.jobs || {};
+                const _jobIds = Object.keys(jobDefs || {});
+              %>
+              <% for (const _jid of _jobIds) { %>
+              <%
+                const _jdef = jobDefs[_jid];
+                const _jcfg = _jobsCfg[_jid] || {};
+                const _jstat = jobStatus[_jid] || {};
+                const _jEnabled = _jcfg.enabled !== false;
+                const _jInterval = _jcfg.intervalMinutes || _jdef.defaultIntervalMinutes;
+                const _jStatus = _jstat.status || 'idle';
+                const _jLastRun = _jstat.lastRunAt;
+                const _jMsg = _jstat.message || '';
+              %>
+              <div class="settings-card settings-job-card" data-job-id="<%= _jid %>">
+                <div class="settings-job-card-header">
+                  <div class="settings-job-card-meta">
+                    <div class="settings-card-title" style="margin-bottom:4px"><%= _jdef.label %></div>
+                    <div class="settings-card-sub" style="margin-bottom:0"><%= _jdef.description %></div>
+                  </div>
+                  <div class="settings-job-card-actions">
+                    <span class="settings-job-status-badge settings-job-status-badge--<%= _jStatus %>" data-job-status="<%= _jid %>"><%= _jStatus %></span>
+                    <button type="button" class="settings-btn settings-job-run-btn" data-job-id="<%= _jid %>">Run Now</button>
+                  </div>
+                </div>
+                <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
+                  <% if (_jLastRun) { %>
+                    Last run: <span class="settings-job-time" data-ts="<%= _jLastRun %>"></span>
+                    <% if (_jMsg) { %><span class="settings-job-msg"> — <%= _jMsg %></span><% } %>
+                  <% } else { %>
+                    Never run
+                  <% } %>
+                </div>
+                <div class="settings-job-controls">
+                  <label class="field" style="flex:0 0 auto;min-width:0">
+                    <span>Interval (minutes)</span>
+                    <input type="number" name="<%= _jid %>_interval" value="<%= _jInterval %>" min="1" max="1440" style="width:90px" />
+                  </label>
+                  <label class="settings-smart-toggle-field" style="align-self:flex-end;padding-bottom:2px">
+                    <span class="settings-smart-toggle-field-title">Enabled</span>
+                    <span class="settings-toggle">
+                      <input id="job_enabled_<%= _jid %>" type="checkbox" name="<%= _jid %>_enabled" value="1" <%= _jEnabled ? 'checked' : '' %> />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <% } %>
+              <div style="margin-top:4px">
+                <button type="submit" class="settings-btn settings-btn--primary">Save Job Settings</button>
+              </div>
+            </form>
+
+            <%# ── Playlist maintenance ── %>
+            <div class="settings-card" style="margin-top:20px">
+              <div class="settings-card-title">Playlist Account Maintenance</div>
+              <div class="settings-card-sub">
+                If generated playlists (Crescive, Curative, Daily Mix) appear under the wrong Plex account in Plexamp,
+                use this to delete the misowned copies from Plex and re-register them so the next sync recreates
+                each playlist under the correct user's account.
+              </div>
+              <div style="margin-top:14px; display:flex; align-items:center; gap:12px">
+                <button type="button" class="settings-btn settings-btn--primary" id="reassignPlaylistsBtn" onclick="reassignPlaylists()">Reassign All Playlists</button>
+                <span id="reassignPlaylistsStatus" class="settings-sub-label"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <% } %>
+
       </div>
     </section>
   </div>
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
   <script>
   // ── Tab switching ──────────────────────────────────────────────────────────
   (function() {
@@ -806,7 +1488,365 @@
     var serverTab = '<%= _tab %>';
     var savedTab = '';
     try { savedTab = localStorage.getItem('curatorr-settings-tab') || ''; } catch(e) {}
-    activateTab(serverTab || savedTab || 'general');
+    var initialTab = serverTab || savedTab || 'general';
+    if (!tabBtns.some(function(btn) { return btn.dataset.tab === initialTab; })) initialTab = 'general';
+    activateTab(initialTab);
+  })();
+
+  // ── Jobs ──────────────────────────────────────────────────────────────────
+  (function() {
+    function fmtRelTime(ts) {
+      if (!ts) return 'Never';
+      var diff = Math.floor((Date.now() - ts) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    function applyStatus(data) {
+      Object.keys(data).forEach(function(jobId) {
+        var s = data[jobId];
+        var badge = document.querySelector('[data-job-status="' + jobId + '"]');
+        var lastRunEl = document.querySelector('[data-job-last-run="' + jobId + '"]');
+        if (badge) {
+          badge.textContent = s.status;
+          badge.className = 'settings-job-status-badge settings-job-status-badge--' + s.status;
+        }
+        if (lastRunEl && s.lastRunAt) {
+          var msg = s.message ? ' \u2014 ' + s.message : '';
+          lastRunEl.innerHTML = 'Last run: <span class="settings-job-time">' + fmtRelTime(s.lastRunAt) + '</span>' + (msg ? '<span class="settings-job-msg">' + msg + '</span>' : '');
+        } else if (lastRunEl && !s.lastRunAt) {
+          lastRunEl.textContent = 'Never run';
+        }
+      });
+    }
+
+    // Relative timestamps on page load
+    document.querySelectorAll('.settings-job-time[data-ts]').forEach(function(el) {
+      el.textContent = fmtRelTime(Number(el.dataset.ts));
+    });
+
+    // Poll status while any job is running
+    var pollTimer = null;
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(function() {
+        fetch('/api/jobs/status').then(function(r) { return r.json(); }).then(function(data) {
+          applyStatus(data);
+          var anyRunning = Object.values(data).some(function(s) { return s.status === 'running'; });
+          if (!anyRunning) { clearInterval(pollTimer); pollTimer = null; }
+        }).catch(function() {});
+      }, 2000);
+    }
+
+    // Run Now buttons
+    document.querySelectorAll('.settings-job-run-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var jobId = btn.dataset.jobId;
+        var badge = document.querySelector('[data-job-status="' + jobId + '"]');
+        if (badge) { badge.textContent = 'running'; badge.className = 'settings-job-status-badge settings-job-status-badge--running'; }
+        fetch('/api/jobs/' + jobId + '/run', { method: 'POST', headers: { 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' } })
+          .then(function() { startPolling(); })
+          .catch(function() {});
+      });
+    });
+  })();
+
+  function reassignPlaylists() {
+    var btn = document.getElementById('reassignPlaylistsBtn');
+    var status = document.getElementById('reassignPlaylistsStatus');
+    btn.disabled = true;
+    status.textContent = 'Deleting misowned playlists from Plex…';
+    fetch('/api/admin/playlists/reassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' },
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) throw new Error(data.error || 'Failed');
+        if (data.reassigned > 0) {
+          status.textContent = data.reassigned + ' playlist(s) reassigned. Trigger a Smart Playlist Sync job to recreate them under each user\'s account.';
+        } else {
+          status.textContent = 'No playlists found to reassign.';
+        }
+        if (data.errors && data.errors.length) {
+          status.textContent += ' Errors: ' + data.errors.join(', ');
+        }
+        btn.disabled = false;
+      })
+      .catch(function(err) {
+        status.textContent = 'Error: ' + (err.message || 'Unknown');
+        btn.disabled = false;
+      });
+  }
+
+  // ── Logs ──────────────────────────────────────────────────────────────────
+  (function() {
+    var settingsLogList = document.getElementById('settingsLogList');
+    var settingsLogStatus = document.getElementById('settingsLogStatus');
+    var settingsLogRefresh = document.getElementById('settingsLogRefresh');
+    var settingsLogApp = document.getElementById('settingsLogApp');
+    var settingsLogLevel = document.getElementById('settingsLogLevel');
+    var logAppNames = {
+      system: 'System',
+      settings: 'Settings',
+      wizard: 'Wizard',
+      plex: 'Plex',
+      tautulli: 'Tautulli',
+      webhook: 'Webhook',
+      music: 'Music',
+      playlist: 'Playlist',
+      recommendations: 'Recommendations',
+      lidarr: 'Lidarr',
+      client: 'Client'
+    };
+    var settingsLogs = [];
+
+    function escapeLogHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatLogTime(value) {
+      var date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) return '';
+      return date.toLocaleString();
+    }
+
+    function renderSettingsLogs() {
+      if (!settingsLogList) return;
+      var appFilter = String(settingsLogApp && settingsLogApp.value || '').trim().toLowerCase();
+      var levelFilter = String(settingsLogLevel && settingsLogLevel.value || '').trim().toLowerCase();
+      var filtered = settingsLogs.filter(function(entry) {
+        if (appFilter && String(entry.app || '').toLowerCase() !== appFilter) return false;
+        if (levelFilter && String(entry.level || '').toLowerCase() !== levelFilter) return false;
+        return true;
+      });
+      if (!filtered.length) {
+        settingsLogList.innerHTML = '<div class="log-empty">No logs yet.</div>';
+        return;
+      }
+      settingsLogList.innerHTML = filtered.map(function(entry) {
+        var appId = String(entry.app || 'system').toLowerCase();
+        var appName = logAppNames[appId] || appId;
+        var level = String(entry.level || 'info').toLowerCase();
+        var action = String(entry.action || 'event');
+        var message = String(entry.message || '');
+        var meta = entry.meta && typeof entry.meta === 'object'
+          ? '<div class="log-meta">' + escapeLogHtml(JSON.stringify(entry.meta)) + '</div>'
+          : '';
+        return '' +
+          '<div class="log-row log-row--' + escapeLogHtml(level) + '" data-app="' + escapeLogHtml(appId) + '">' +
+            '<div class="log-time">' + escapeLogHtml(formatLogTime(entry.ts)) + '</div>' +
+            '<div class="log-message">' +
+              '<div class="log-title">' +
+                '<span class="log-app-pill" data-app="' + escapeLogHtml(appId) + '">' + escapeLogHtml(appName) + '</span>' +
+                escapeLogHtml(action) +
+              '</div>' +
+              '<div class="log-text">' + escapeLogHtml(message) + '</div>' +
+              meta +
+            '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    async function loadSettingsLogs() {
+      if (!settingsLogList || !settingsLogStatus) return;
+      settingsLogStatus.textContent = 'Loading...';
+      var params = new URLSearchParams();
+      params.set('limit', '250');
+      if (settingsLogApp && settingsLogApp.value) params.set('appId', settingsLogApp.value);
+      if (settingsLogLevel && settingsLogLevel.value) params.set('level', settingsLogLevel.value);
+      try {
+        var response = await fetch('/api/logs?' + params.toString());
+        var payload = response.ok ? await response.json() : { items: [] };
+        settingsLogs = Array.isArray(payload.items) ? payload.items : [];
+        renderSettingsLogs();
+        settingsLogStatus.textContent = new Date().toLocaleTimeString();
+      } catch (_err) {
+        settingsLogStatus.textContent = 'Failed to load logs';
+      }
+    }
+
+    if (settingsLogRefresh) settingsLogRefresh.addEventListener('click', loadSettingsLogs);
+    if (settingsLogApp) settingsLogApp.addEventListener('change', loadSettingsLogs);
+    if (settingsLogLevel) settingsLogLevel.addEventListener('change', loadSettingsLogs);
+    loadSettingsLogs();
+  })();
+
+  // ── About ─────────────────────────────────────────────────────────────────
+  (function() {
+    try {
+      var settingsAboutVersion = document.getElementById('settingsAboutVersion');
+      var settingsAboutLatest = document.getElementById('settingsAboutLatest');
+      var settingsAboutVersionState = document.getElementById('settingsAboutVersionState');
+      var settingsAboutTimeZone = document.getElementById('settingsAboutTimeZone');
+      var settingsReleaseModalBackdrop = document.getElementById('settingsReleaseModalBackdrop');
+      var settingsReleaseModalTitle = document.getElementById('settingsReleaseModalTitle');
+      var settingsReleaseModalSubtitle = document.getElementById('settingsReleaseModalSubtitle');
+      var settingsReleaseModalSummary = document.getElementById('settingsReleaseModalSummary');
+      var settingsReleaseModalList = document.getElementById('settingsReleaseModalList');
+      var settingsReleaseModalLink = document.getElementById('settingsReleaseModalLink');
+      var settingsReleaseOpenButtons = Array.from(document.querySelectorAll('.settings-release-open'));
+      var releaseModalCloseButtons = settingsReleaseModalBackdrop
+        ? Array.from(settingsReleaseModalBackdrop.querySelectorAll('.settings-release-modal-close, .plex-modal-close'))
+        : [];
+      var aboutReleaseEntriesRaw = <%- safeJson(aboutReleases || []) %>;
+      var aboutReleaseEntries = Array.isArray(aboutReleaseEntriesRaw) ? aboutReleaseEntriesRaw : [];
+
+      if (settingsReleaseModalBackdrop && settingsReleaseModalBackdrop.parentElement !== document.body) {
+        document.body.appendChild(settingsReleaseModalBackdrop);
+      }
+
+      var normalizeVersionTag = function(value) {
+        var raw = String(value || '').trim();
+        if (!raw) return '';
+        return raw.startsWith('v') ? raw : ('v' + raw);
+      };
+      var escapeHtml = function(value) {
+        return String(value || '').replace(/[&<>\"']/g, function(char) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char];
+        });
+      };
+      var parseHighlight = function(value) {
+        var raw = String(value || '').trim();
+        if (!raw) return null;
+        var match = raw.match(/^([A-Za-z][A-Za-z\\s]+):\\s*(.+)$/);
+        if (!match) return { section: 'Update', detail: raw };
+        return {
+          section: String(match[1] || '').trim() || 'Update',
+          detail: String(match[2] || '').trim() || raw,
+        };
+      };
+      var formatRelativeTime = function(value) {
+        var date = value ? new Date(value) : null;
+        if (!date || Number.isNaN(date.getTime())) return 'Recently';
+        var seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+        if (seconds < 60) return 'Just now';
+        var minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return minutes + ' minute' + (minutes === 1 ? '' : 's') + ' ago';
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+        var days = Math.floor(hours / 24);
+        if (days < 30) return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+        var months = Math.floor(days / 30);
+        if (months < 12) return months + ' month' + (months === 1 ? '' : 's') + ' ago';
+        var years = Math.floor(months / 12);
+        return years + ' year' + (years === 1 ? '' : 's') + ' ago';
+      };
+      var updateReleaseRelativeTimes = function() {
+        document.querySelectorAll('[data-release-published-at]').forEach(function(node) {
+          var publishedAt = String(node.getAttribute('data-release-published-at') || '').trim();
+          node.textContent = formatRelativeTime(publishedAt);
+        });
+      };
+      var setVersionState = function(text, tone) {
+        if (!settingsAboutVersionState) return;
+        settingsAboutVersionState.textContent = String(text || '').trim();
+        settingsAboutVersionState.classList.remove('settings-about-pill--ok', 'settings-about-pill--warn');
+        if (tone === 'ok') settingsAboutVersionState.classList.add('settings-about-pill--ok');
+        if (tone === 'warn') settingsAboutVersionState.classList.add('settings-about-pill--warn');
+      };
+      var closeReleaseModal = function() {
+        if (!settingsReleaseModalBackdrop) return;
+        settingsReleaseModalBackdrop.classList.add('plex-hidden');
+        window.removeEventListener('keydown', onReleaseModalKeydown);
+      };
+      var onReleaseModalKeydown = function(event) {
+        if (event.key === 'Escape') closeReleaseModal();
+      };
+      var openReleaseModal = function(release) {
+        if (!settingsReleaseModalBackdrop || !release) return;
+        var releaseTag = normalizeVersionTag(release.tag || 'Release');
+        var subtitle = release.publishedAt ? formatRelativeTime(release.publishedAt) : 'Changelog summary';
+        var highlights = (Array.isArray(release.highlights) ? release.highlights : [])
+          .map(parseHighlight)
+          .filter(Boolean)
+          .slice(0, 3);
+        var summary = String(release.summary || '').trim()
+          || (highlights[0] ? highlights[0].detail : 'Release notes are available.');
+        if (settingsReleaseModalTitle) settingsReleaseModalTitle.textContent = 'Release ' + releaseTag;
+        if (settingsReleaseModalSubtitle) settingsReleaseModalSubtitle.textContent = subtitle;
+        if (settingsReleaseModalSummary) settingsReleaseModalSummary.textContent = summary;
+        if (settingsReleaseModalList) {
+          settingsReleaseModalList.innerHTML = highlights.length
+            ? highlights.map(function(item) {
+              return '<li class="settings-release-modal-item">'
+                + '<span class="settings-release-modal-tag">' + escapeHtml(item.section) + '</span>'
+                + '<span class="settings-release-modal-text">' + escapeHtml(item.detail) + '</span>'
+                + '</li>';
+            }).join('')
+            : '<li class="settings-release-modal-item"><span class="settings-release-modal-text">No highlight entries were found for this release.</span></li>';
+        }
+        if (settingsReleaseModalLink) {
+          settingsReleaseModalLink.href = String(release.releaseNotesUrl || '#').trim() || '#';
+        }
+        settingsReleaseModalBackdrop.classList.remove('plex-hidden');
+        window.addEventListener('keydown', onReleaseModalKeydown);
+      };
+
+      settingsReleaseOpenButtons.forEach(function(button) {
+        button.addEventListener('click', function() {
+          var index = Number(button.dataset.releaseIndex);
+          if (!Number.isFinite(index)) return;
+          var release = aboutReleaseEntries[index];
+          if (!release) return;
+          openReleaseModal(release);
+        });
+      });
+      if (settingsReleaseModalBackdrop) {
+        settingsReleaseModalBackdrop.addEventListener('click', function(event) {
+          if (event.target === settingsReleaseModalBackdrop) closeReleaseModal();
+        });
+      }
+      releaseModalCloseButtons.forEach(function(button) {
+        button.addEventListener('click', closeReleaseModal);
+      });
+
+      updateReleaseRelativeTimes();
+      if (settingsAboutTimeZone) {
+        var tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim();
+        settingsAboutTimeZone.textContent = tz || 'Unknown';
+      }
+
+      var fallbackCurrent = normalizeVersionTag(settingsAboutVersion && settingsAboutVersion.textContent || '');
+      var fallbackLatest = normalizeVersionTag(settingsAboutLatest && settingsAboutLatest.textContent || '');
+      if (fallbackLatest && settingsAboutLatest) settingsAboutLatest.textContent = fallbackLatest;
+      if (fallbackCurrent && settingsAboutVersion) settingsAboutVersion.textContent = fallbackCurrent;
+      if (fallbackCurrent && fallbackLatest && fallbackCurrent === fallbackLatest) {
+        setVersionState('Up to Date', 'ok');
+      } else if (fallbackLatest) {
+        setVersionState('Update Available', 'warn');
+      } else {
+        setVersionState('Unknown', '');
+      }
+
+      fetch('/api/version')
+        .then(function(response) { return response.ok ? response.json() : null; })
+        .then(function(payload) {
+          if (!payload) return;
+          var current = normalizeVersionTag(payload.current || fallbackCurrent);
+          var latest = normalizeVersionTag(payload.latest || fallbackLatest);
+          if (settingsAboutVersion && current) settingsAboutVersion.textContent = current;
+          if (settingsAboutLatest && latest) settingsAboutLatest.textContent = latest;
+          if (current && latest && current === latest) {
+            setVersionState('Up to Date', 'ok');
+          } else if (current && latest && current !== latest) {
+            setVersionState('Update Available', 'warn');
+          } else {
+            setVersionState('Version Info', '');
+          }
+        })
+        .catch(function() {
+          setVersionState('Version Info', '');
+        });
+    } catch (err) {
+      console.error('[Curatorr] About settings init failed', err);
+    }
   })();
 
   // ── Appearance ─────────────────────────────────────────────────────────────
@@ -995,6 +2035,210 @@
     plexButtons.forEach(function(btn) {
       btn.addEventListener('click', function() { runPlexAction(btn); });
     });
+  })();
+
+  // ── Plex user role editor ────────────────────────────────────────────────
+  (function() {
+    var fetchBtn = document.getElementById('fetchPlexUsersBtn');
+    var saveBtn = document.getElementById('savePlexRolesBtn');
+    var usersBody = document.getElementById('plexUsersBody');
+    var note = document.getElementById('plexUsersNote');
+    var usersTabBtn = document.querySelector('.settings-tab-btn[data-tab="users"]');
+    if (!fetchBtn || !saveBtn || !usersBody || !note) return;
+    var usersLoaded = false;
+
+    function formatLoginTimestamp(value) {
+      if (!value) return '—';
+      var date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '—';
+      try {
+        return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      } catch (err) {
+        return date.toLocaleString();
+      }
+    }
+
+    function roleOptions(selected) {
+      var current = String(selected || 'user').toLowerCase();
+      return [
+        ['guest', 'Guest'],
+        ['user', 'User'],
+        ['power-user', 'Power user'],
+        ['co-admin', 'Co-admin'],
+        ['admin', 'Admin'],
+        ['disabled', 'Disabled'],
+      ].map(function(entry) {
+        return '<option value="' + entry[0] + '"' + (current === entry[0] ? ' selected' : '') + '>' + entry[1] + '</option>';
+      }).join('');
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    var userSort = { key: 'name', dir: 'asc' };
+    var sortHeaders = Array.from(document.querySelectorAll('.settings-users-head-cell[data-sort-key]'));
+    function updateUserSortIndicators() {
+      sortHeaders.forEach(function(header) {
+        var key = header.dataset.sortKey;
+        var isActive = key === userSort.key;
+        if (isActive) {
+          header.dataset.sortDir = userSort.dir;
+          header.setAttribute('aria-sort', userSort.dir === 'asc' ? 'ascending' : 'descending');
+        } else {
+          header.dataset.sortDir = '';
+          header.setAttribute('aria-sort', 'none');
+        }
+      });
+    }
+
+    function sortUserRows() {
+      var rows = Array.from(usersBody.querySelectorAll('.settings-users-row'));
+      var key = userSort.key;
+      var isNumeric = key === 'plex' || key === 'curatorr';
+      rows.sort(function(a, b) {
+        if (isNumeric) {
+          var av = Number(a.dataset[key] || 0);
+          var bv = Number(b.dataset[key] || 0);
+          if (av === bv) return 0;
+          return userSort.dir === 'asc' ? av - bv : bv - av;
+        }
+        var as = String(a.dataset[key] || '');
+        var bs = String(b.dataset[key] || '');
+        return userSort.dir === 'asc'
+          ? as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' })
+          : bs.localeCompare(as, undefined, { numeric: true, sensitivity: 'base' });
+      });
+      rows.forEach(function(row) { usersBody.appendChild(row); });
+      updateUserSortIndicators();
+    }
+
+    sortHeaders.forEach(function(header) {
+      var key = header.dataset.sortKey;
+      if (!key) return;
+      header.addEventListener('click', function() {
+        if (userSort.key === key) userSort.dir = userSort.dir === 'asc' ? 'desc' : 'asc';
+        else {
+          userSort.key = key;
+          userSort.dir = (key === 'plex' || key === 'curatorr') ? 'desc' : 'asc';
+        }
+        sortUserRows();
+      });
+      header.addEventListener('keydown', function(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        header.click();
+      });
+    });
+    updateUserSortIndicators();
+
+    function renderUsers(users) {
+      usersBody.innerHTML = '';
+      users.forEach(function(user) {
+        var row = document.createElement('div');
+        row.className = 'settings-users-row';
+        row.dataset.identifier = user.identifier || '';
+        row.dataset.name = String(user.name || user.username || 'Plex User').toLowerCase();
+        row.dataset.role = String(user.role || 'user').toLowerCase();
+        row.dataset.plex = String(user.lastPlexSeen ? Date.parse(user.lastPlexSeen) || 0 : 0);
+        row.dataset.curatorr = String(user.lastCuratorrLogin ? Date.parse(user.lastCuratorrLogin) || 0 : 0);
+        var safeName = escapeHtml(user.name || 'Plex User');
+        var safeLastPlexSeen = escapeHtml(user.lastPlexSeen || '');
+        var safeLastCuratorrLogin = escapeHtml(user.lastCuratorrLogin || '');
+        row.innerHTML =
+          '<div class="settings-users-name">' + safeName + '</div>' +
+          '<div class="settings-users-login" title="' + safeLastPlexSeen + '">' + escapeHtml(formatLoginTimestamp(user.lastPlexSeen)) + '</div>' +
+          '<div class="settings-users-login" title="' + safeLastCuratorrLogin + '">' + escapeHtml(formatLoginTimestamp(user.lastCuratorrLogin)) + '</div>' +
+          '<div class="settings-users-role">' +
+            '<select ' + (user.locked ? 'disabled' : '') + '>' + roleOptions(user.role || 'user') + '</select>' +
+            (user.locked ? '<span class="settings-users-locked">Owner</span>' : '') +
+          '</div>';
+        usersBody.appendChild(row);
+      });
+      sortUserRows();
+    }
+
+    function renderEmpty(message) {
+      usersBody.innerHTML = '';
+      var row = document.createElement('div');
+      row.className = 'settings-users-row';
+      row.innerHTML =
+        '<div class="settings-users-login">No Plex users found.</div>' +
+        '<div class="settings-users-login">—</div>' +
+        '<div class="settings-users-login">—</div>' +
+        '<div class="settings-users-login">' + (message || '—') + '</div>';
+      usersBody.appendChild(row);
+    }
+
+    async function fetchUsers() {
+      usersLoaded = true;
+      fetchBtn.disabled = true;
+      note.textContent = 'Fetching Plex users...';
+      try {
+        var res = await fetch('/settings/plex-users', { headers: { Accept: 'application/json' } });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch users.');
+        var users = Array.isArray(data.users) ? data.users : [];
+        if (users.length) {
+          renderUsers(users);
+          saveBtn.disabled = false;
+          note.textContent = 'Update roles and hit save.';
+        } else {
+          renderEmpty();
+          saveBtn.disabled = true;
+          note.textContent = 'No Plex users returned.';
+        }
+      } catch (err) {
+        renderEmpty('Fetch failed');
+        saveBtn.disabled = true;
+        note.textContent = err.message || 'Failed to fetch users.';
+      } finally {
+        fetchBtn.disabled = false;
+      }
+    }
+
+    async function saveRoles() {
+      var rows = Array.from(usersBody.querySelectorAll('.settings-users-row[data-identifier]'));
+      var roles = rows.map(function(row) {
+        var select = row.querySelector('select');
+        return {
+          identifier: row.dataset.identifier || '',
+          role: select ? select.value : 'user',
+        };
+      });
+      saveBtn.disabled = true;
+      note.textContent = 'Saving roles...';
+      try {
+        var res = await fetch('/settings/roles', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': '<%= csrfToken %>',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({ roles: roles })
+        });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to save roles.');
+        note.textContent = 'Roles saved.';
+      } catch (err) {
+        note.textContent = err.message || 'Failed to save roles.';
+      } finally {
+        saveBtn.disabled = false;
+      }
+    }
+
+    fetchBtn.addEventListener('click', fetchUsers);
+    saveBtn.addEventListener('click', saveRoles);
+    usersTabBtn && usersTabBtn.addEventListener('click', function() {
+      if (!usersLoaded) fetchUsers();
+    });
+    if (usersTabBtn && usersTabBtn.classList.contains('is-active')) fetchUsers();
   })();
   </script>
 </body>

@@ -1,60 +1,56 @@
 # Authentication and Roles
 
-## Authentication Flows
+---
 
-Launcharr supports two sign-in paths:
+## Authentication Modes
 
-1. Local fallback login (`/setup` then `/login`)
-2. Plex SSO (PIN flow + callback)
+Curatorr supports two login methods that can be used side by side:
 
-## Local Fallback Admin
+### Plex SSO
 
-On a fresh install (no local admin yet), Launcharr redirects to `/setup`.
+Users sign in with their Plex account. Curatorr validates the token with Plex and maps the user to a role based on their relationship to the admin Plex account.
 
-Setup requirements:
+Role mapping happens automatically:
+- The account that owns the Plex server (matching `Plex Admin User` in settings) is assigned the **Admin** role
+- Home users and managed accounts on the same Plex account are assigned **User** by default
+- Roles can be manually adjusted in **Settings → Users**
 
-- Username required.
-- Valid email required.
-- Password minimum length: `6`.
-- Password confirmation must match.
+### Local Admin Account
 
-The first local setup account is created as role `admin`.
+Created during the setup wizard. This account bypasses Plex authentication and is intended as a fallback if Plex SSO is unavailable. It always has full admin access.
 
-## Plex SSO
-
-Launcharr uses Plex PIN login and stores session data in a cookie session.
-
-For reliable callback behavior behind a reverse proxy:
-
-- Configure `Settings -> General -> Remote URL`.
-- Set `COOKIE_SECURE=true` when serving HTTPS.
-
-If no Plex admin list exists yet, the first Plex user to authenticate becomes owner admin.
+---
 
 ## Roles
 
-| Role | Overview Access | Launch Access | App Settings | Global Settings |
-| --- | --- | --- | --- | --- |
-| `admin` | Yes (admin menu flags) | Yes (admin menu flags) | Yes | Yes |
-| `co-admin` | Yes (admin menu flags) | Yes (admin menu flags) | No | No |
-| `user` | Yes (user menu flags) | Yes (user menu flags) | No | No |
+| Role | Description |
+|---|---|
+| **Admin** | Full access to all settings, jobs, users, and Lidarr automation. Weekly Lidarr quotas are unlimited. |
+| **Co-admin** | Access to Lidarr automation and most features. Subject to configurable weekly quotas (default: 3 artists / 6 albums per week). |
+| **Power user** | Can use Lidarr automation when the admin has enabled it for this scope. Subject to lower quotas (default: 1 artist / 2 albums per week). |
+| **User** | Standard access to their own play history, smart playlists, and artist/track views. Lidarr automation is off by default. |
+| **Guest** | Read-only access. Cannot interact with suggestions or automation. Guest access can be restricted entirely in General settings. |
 
-Notes:
+---
 
-- Role enforcement is route-level (`requireUser`, `requireAdmin`, `requireSettingsAdmin`).
-- `co-admin` cannot access settings routes.
-- Admin can switch view mode via `/switch-view?role=guest|user|co-admin|admin` to preview role experiences.
-- `guest` is a visibility/view role for dashboards/modules, not a standalone authenticated account role.
+## Managing Users
 
-## Role Storage
+Go to **Settings → Users** to view all accounts, their current roles, and their linked Plex identities.
 
-- Owner/admin list: `data/admins.json`
-- Co-admin list: `data/coadmins.json`
+From this view you can:
+- Change a user's role
+- Remove a user account
 
-`ADMIN_USERS` environment variable can bootstrap initial admins (comma-separated identifiers).
+Role changes take effect on the user's next page load.
 
-## Recovery and Safety
+---
 
-- Keep one known local admin credential for lockout recovery.
-- Use Plex users + roles UI to manage day-to-day access.
-- Back up `config/config.json` and `data/admins.json` before major changes.
+## Lidarr Automation Access
+
+Lidarr automation eligibility is determined by role:
+
+- **Admin** and **Co-admin** — always eligible when Lidarr is configured and automation is enabled
+- **Power user** — eligible only when the admin has set automation scope to **Role based**
+- **User** and **Guest** — not eligible by default; quota can be set to allow limited access
+
+Weekly quota limits are configured in **Settings → Lidarr → Automation**. Setting a quota to `-1` makes it unlimited for that role.

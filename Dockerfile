@@ -14,7 +14,6 @@ RUN npm install --omit=dev
 
 COPY . .
 RUN mkdir -p /app/data /app/config /app/public/icons/custom && chown -R node:node /app
-RUN cp /app/config/config.example.json /app/config.example.json
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

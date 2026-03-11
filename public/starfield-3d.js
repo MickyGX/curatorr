@@ -1,6 +1,7 @@
 (() => {
   const body = document.body;
   const root = document.documentElement;
+  if (root && root.dataset && root.dataset.launcharrEmbed === '1') return;
   const isSupportedPage = Boolean(
     body
       && root
@@ -47,8 +48,8 @@
   let depth = 0;
   let fov = 0;
   let dpr = 1;
-  let stars = [];
-  let starCount = 0;
+  let notes = [];
+  let noteCount = 0;
   let rafId = 0;
   let lastTs = 0;
   let lastSettingsTs = 0;
@@ -61,10 +62,12 @@
     color: { r: 28, g: 198, b: 194 },
   };
 
+  const NOTE_GLYPHS = ['\u2669', '\u266a', '\u266b', '\u266c'];
+
   function densityToCount(density) {
-    // Lower density value = many more stars.
-    const count = Math.round(52000 / clamp(density, 20, 220));
-    return clamp(count, 220, 2600);
+    // Text rendering is heavier than dots, so keep the field slightly sparser.
+    const count = Math.round(24000 / clamp(density, 20, 220));
+    return clamp(count, 120, 980);
   }
 
   function speedToFactor(speedSeconds) {
@@ -86,21 +89,35 @@
     return { r: 28, g: 198, b: 194 };
   }
 
-  function resetStar(star) {
-    const spreadX = width * 1.15;
-    const spreadY = height * 1.15;
-    star.x = (Math.random() * 2 - 1) * spreadX;
-    star.y = (Math.random() * 2 - 1) * spreadY;
-    star.z = 1 + Math.random() * depth;
-    star.speedMul = 0.5 + Math.random() * 1.6;
-    star.alphaMul = 0.55 + Math.random() * 0.45;
+  function pickNoteGlyph() {
+    return NOTE_GLYPHS[Math.floor(Math.random() * NOTE_GLYPHS.length)];
   }
 
-  function buildStars(count) {
-    stars = Array.from({ length: count }, () => {
-      const star = { x: 0, y: 0, z: 0, speedMul: 1, alphaMul: 1 };
-      resetStar(star);
-      return star;
+  function resetNote(note) {
+    const spreadX = width * 1.15;
+    const spreadY = height * 1.15;
+    note.x = (Math.random() * 2 - 1) * spreadX;
+    note.y = (Math.random() * 2 - 1) * spreadY;
+    note.z = 1 + Math.random() * depth;
+    note.speedMul = 0.5 + Math.random() * 1.6;
+    note.alphaMul = 0.55 + Math.random() * 0.45;
+    note.rotation = (Math.random() * 0.8) - 0.4;
+    note.spin = (Math.random() * 0.02) - 0.01;
+    note.glyph = pickNoteGlyph();
+  }
+
+  function buildNotes(count) {
+    notes = Array.from({ length: count }, () => {
+      const note = {
+        x: 0, y: 0, z: 0,
+        speedMul: 1,
+        alphaMul: 1,
+        rotation: 0,
+        spin: 0,
+        glyph: NOTE_GLYPHS[0],
+      };
+      resetNote(note);
+      return note;
     });
   }
 
@@ -131,9 +148,9 @@
       && !(prefersReducedMotion && prefersReducedMotion.matches);
     const count = densityToCount(density);
 
-    if (forceRebuild || count !== starCount) {
-      starCount = count;
-      buildStars(starCount);
+    if (forceRebuild || count !== noteCount) {
+      noteCount = count;
+      buildNotes(noteCount);
     }
 
     state.motionEnabled = motionAllowed;
@@ -158,56 +175,43 @@
     const { r, g, b } = state.color;
     const motionStep = state.motionEnabled ? (state.speedFactor * dt * 60) : 0;
 
-    for (let index = 0; index < stars.length; index += 1) {
-      const star = stars[index];
-      const previousZ = star.z;
-      star.z -= motionStep * star.speedMul;
-      if (star.z <= 1) {
-        resetStar(star);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (let index = 0; index < notes.length; index += 1) {
+      const note = notes[index];
+      note.rotation += note.spin * (state.motionEnabled ? 1 : 0.2);
+      note.z -= motionStep * note.speedMul;
+      if (note.z <= 1) {
+        resetNote(note);
         continue;
       }
 
-      const invZ = 1 / star.z;
-      const px = centerX + (star.x * fov * invZ);
-      const py = centerY + (star.y * fov * invZ);
+      const invZ = 1 / note.z;
+      const px = centerX + (note.x * fov * invZ);
+      const py = centerY + (note.y * fov * invZ);
 
       if (px < -80 || px > (width + 80) || py < -80 || py > (height + 80)) {
-        resetStar(star);
+        resetNote(note);
         continue;
       }
 
-      const depthNorm = 1 - (star.z / depth);
-      const radius = Math.max(0.22, state.size * (0.2 + depthNorm * 2.2));
-      const alpha = clamp((0.16 + depthNorm * 0.92) * star.alphaMul, 0.08, 1);
+      const depthNorm = 1 - (note.z / depth);
+      const fontSize = Math.max(5, state.size * (5 + depthNorm * 24));
+      const alpha = clamp((0.12 + depthNorm * 0.9) * note.alphaMul, 0.06, 1);
 
-      // Soft glow.
-      ctx.beginPath();
-      ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.24})`;
-      ctx.arc(px, py, radius * 3.1, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Core star.
-      ctx.beginPath();
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(note.rotation);
+      ctx.font = `700 ${fontSize}px "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols", "Arial Unicode MS", sans-serif`;
+      ctx.shadowColor = `rgba(${r},${g},${b},${alpha * 0.45})`;
+      ctx.shadowBlur = Math.max(6, fontSize * 0.85);
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.38})`;
+      ctx.fillText(note.glyph, 0, 0);
+      ctx.shadowBlur = Math.max(2, fontSize * 0.2);
       ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Motion streak.
-      if (state.motionEnabled) {
-        const prevInvZ = 1 / previousZ;
-        const lx = centerX + (star.x * fov * prevInvZ);
-        const ly = centerY + (star.y * fov * prevInvZ);
-        const lineDx = px - lx;
-        const lineDy = py - ly;
-        if ((lineDx * lineDx + lineDy * lineDy) > 0.35) {
-          ctx.beginPath();
-          ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.35})`;
-          ctx.lineWidth = Math.max(0.32, radius * 0.55);
-          ctx.moveTo(lx, ly);
-          ctx.lineTo(px, py);
-          ctx.stroke();
-        }
-      }
+      ctx.fillText(note.glyph, 0, 0);
+      ctx.restore();
     }
   }
 

@@ -30,6 +30,11 @@
   --star-size:1.2;
 }
 
+[data-theme="day"] {
+  --text: #1a2332;
+  --text-muted: rgba(11,21,30,.52);
+}
+
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
@@ -95,19 +100,6 @@ html[data-brand-theme="pulsarr"]{
   --on-brand-icon-filter:brightness(0) saturate(100%);
 }
 
-html[data-brand-theme="launcharr"]{
-  --teal:#6d7a86;
-  --teal-dark:#414c57;
-  --brand-rgb:109,122,134;
-  --brand-btn-start:#a5b1bb;
-  --brand-btn-mid:#6d7a86;
-  --brand-btn-end:#4b5864;
-  --brand-btn-shadow:75,88,100;
-  --on-brand:#ffffff;
-  --on-brand-muted:rgba(255,255,255,.78);
-  --on-brand-icon-filter:brightness(0) saturate(100%) invert(1);
-}
-
 html[data-brand-theme="custom"]{
   --teal:#1cc6c2;
   --teal-dark:#0c8b88;
@@ -116,19 +108,6 @@ html[data-brand-theme="custom"]{
   --brand-btn-mid:#2ec6c2;
   --brand-btn-end:#16a7a4;
   --brand-btn-shadow:22,167,164;
-  --on-brand:#081013;
-  --on-brand-muted:rgba(8,16,19,.72);
-  --on-brand-icon-filter:brightness(0) saturate(100%);
-}
-
-html[data-brand-theme="rocketship"]{
-  --teal:#b8c1ca;
-  --teal-dark:#7b848d;
-  --brand-rgb:184,193,202;
-  --brand-btn-start:#e2e7ec;
-  --brand-btn-mid:#b8c1ca;
-  --brand-btn-end:#959fa9;
-  --brand-btn-shadow:128,139,150;
   --on-brand:#081013;
   --on-brand-muted:rgba(8,16,19,.72);
   --on-brand-icon-filter:brightness(0) saturate(100%);
@@ -147,32 +126,6 @@ html[data-brand-theme="plex"]{
   --on-brand-icon-filter:brightness(0) saturate(100%);
 }
 
-html[data-brand-theme="radarr"]{
-  --teal:#f4c542;
-  --teal-dark:#a98518;
-  --brand-rgb:244,197,66;
-  --brand-btn-start:#ffe39b;
-  --brand-btn-mid:#f4c542;
-  --brand-btn-end:#cc9f23;
-  --brand-btn-shadow:204,159,35;
-  --on-brand:#081013;
-  --on-brand-muted:rgba(8,16,19,.72);
-  --on-brand-icon-filter:brightness(0) saturate(100%);
-}
-
-html[data-brand-theme="sonarr"]{
-  --teal:#3d7bfd;
-  --teal-dark:#1f54bc;
-  --brand-rgb:61,123,253;
-  --brand-btn-start:#8eb1ff;
-  --brand-btn-mid:#3d7bfd;
-  --brand-btn-end:#255fd5;
-  --brand-btn-shadow:37,95,213;
-  --on-brand:#ffffff;
-  --on-brand-muted:rgba(255,255,255,.78);
-  --on-brand-icon-filter:brightness(0) saturate(100%) invert(1);
-}
-
 html[data-brand-theme="lidarr"]{
   --teal:#53b86a;
   --teal-dark:#2f7f41;
@@ -184,19 +137,6 @@ html[data-brand-theme="lidarr"]{
   --on-brand:#081013;
   --on-brand-muted:rgba(8,16,19,.72);
   --on-brand-icon-filter:brightness(0) saturate(100%);
-}
-
-html[data-brand-theme="readarr"]{
-  --teal:#d84a4a;
-  --teal-dark:#912b2b;
-  --brand-rgb:216,74,74;
-  --brand-btn-start:#f29b9b;
-  --brand-btn-mid:#d84a4a;
-  --brand-btn-end:#b23636;
-  --brand-btn-shadow:178,54,54;
-  --on-brand:#ffffff;
-  --on-brand-muted:rgba(255,255,255,.78);
-  --on-brand-icon-filter:brightness(0) saturate(100%) invert(1);
 }
 
 .ghost-button{

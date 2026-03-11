@@ -1,10 +1,10 @@
 <%- include('partials/head', { pageTitle: title || 'Tracks — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
-  <div class="dash-frame">
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div><div class="dash-title">Curatorr</div></div>
       </div>
@@ -20,18 +20,111 @@
           <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
         </button>
         <div class="main-window-title">
-          <img class="main-window-icon" src="/icons/overview.svg" alt="" />
+          <img class="main-window-icon" src="/icons/vinyl-record.svg" alt="" />
           <span class="main-window-app">Curatorr</span>
           <span class="main-window-rest">| Tracks</span>
         </div>
         <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
       </div>
 
       <div class="dash-content">
         <%
           const _tracks = Array.isArray(tracks) ? tracks : [];
           const _completedKeys = new Set(Array.isArray(completedKeys) ? completedKeys : []);
+          const _suggestedTracks = Array.isArray(suggestedTracks) ? suggestedTracks : [];
+          const _suggestedAlbums = Array.isArray(suggestedAlbums) ? suggestedAlbums : [];
         %>
+
+        <div class="cur-two-col">
+          <div class="cur-panel">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Suggested Tracks <span class="cur-count"><%= _suggestedTracks.length %></span></h3>
+              <div class="cur-panel-actions">
+                <span class="cur-panel-meta">Read-only fit from Curatorr’s current scoring pass</span>
+                <button class="btn btn-sm btn-primary" type="button" onclick="rebuildSuggestions(this, ‘trackSuggestionStatus’)">Rebuild</button>
+              </div>
+            </div>
+            <details class="cur-score-explainer">
+              <summary>How is the score calculated?</summary>
+              <div class="cur-score-explainer-body">
+                <p><strong>Track Score = Genre Fit + Behavior + Editorial</strong></p>
+                <ul>
+                  <li><strong>Genre fit</strong> — how closely the track’s genres match your listening affinity. Up to 3 genre tags contribute, each weighted by how often you’ve listened to that genre.</li>
+                  <li><strong>Behavior</strong> — unplayed tracks score highest (+3.25). Not heard in 21+ days gets a boost; recently played is penalised (−4). Each skip reduces score (−0.6). Belter-tier adds +1.5; skip-tier subtracts −3.</li>
+                  <li><strong>Editorial</strong> — small bonuses if the artist is also a suggested artist (+1.25), the track has never been played (+0.75), or it belongs to a known album (+0.15).</li>
+                </ul>
+              </div>
+            </details>
+            <% if (_suggestedTracks.length) { %>
+              <ul class="cur-list">
+                <% _suggestedTracks.forEach(function(t) { const topGenres = Array.isArray(t.reason?.topGenres) ? t.reason.topGenres.filter(Boolean).slice(0, 3) : []; %>
+                  <li class="cur-list-item cur-suggest-item">
+                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.ratingKey || '' %>">
+                      <img src="/api/music/thumb/track/<%= encodeURIComponent(t.ratingKey || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                    </span>
+                    <span class="cur-list-primary">
+                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.ratingKey || '' %>"><%= t.trackTitle %></span>
+                      <span class="cur-list-sub">
+                        <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= t.artistName %>"><%= t.artistName %></span><% if (t.albumName) { %> · <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= t.artistName %>" data-cur-overview-album="<%= t.albumName %>"><%= t.albumName %></span><% } %>
+                        <% if (topGenres.length) { %> · <%= topGenres.join(' · ') %><% } %>
+                      </span>
+                    </span>
+                    <span class="cur-list-meta cur-suggest-score">Score <strong><%= Number(t.totalScore || 0).toFixed(1) %></strong></span>
+                    <span class="cur-badge cur-badge--decent"><%= t.source === 'unplayed-library-fit' ? 'new' : 'rediscover' %></span>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="cur-empty">No track suggestions cached yet. Rebuild to score unplayed and rediscovery candidates.</div>
+            <% } %>
+            <div class="cur-panel-foot">
+              <span id="trackSuggestionStatus" class="cur-panel-meta"></span>
+            </div>
+          </div>
+
+          <div class="cur-panel">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Suggested Albums <span class="cur-count"><%= _suggestedAlbums.length %></span></h3>
+              <span class="cur-panel-meta">Album-level candidates for later Lidarr progression</span>
+            </div>
+            <details class="cur-score-explainer">
+              <summary>How is the score calculated?</summary>
+              <div class="cur-score-explainer-body">
+                <p><strong>Album Score = Track Signal + Discovery Value + Artist Fit</strong></p>
+                <ul>
+                  <li><strong>Track signal</strong> — average track score of the top 3 matching tracks from this album. Albums whose tracks score highly in the track suggestions rank higher here.</li>
+                  <li><strong>Discovery value</strong> — proportion of unplayed tracks × 4. An album you've never heard scores up to +4; an album where you've heard everything scores 0.</li>
+                  <li><strong>Artist fit</strong> — if the album's artist is also a suggested artist, their artist score contributes ×0.45.</li>
+                </ul>
+              </div>
+            </details>
+            <% if (_suggestedAlbums.length) { %>
+              <ul class="cur-list">
+                <% _suggestedAlbums.forEach(function(a) { const topGenres = Array.isArray(a.reason?.topGenres) ? a.reason.topGenres.filter(Boolean).slice(0, 2) : []; const fallbackRatingKey = Array.isArray(a.reason?.sourceTracks) && a.reason.sourceTracks[0] ? a.reason.sourceTracks[0].ratingKey : ''; %>
+                  <li class="cur-list-item cur-suggest-item">
+                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= a.artistName %>" data-cur-overview-album="<%= a.albumTitle %>">
+                      <img src="/api/music/thumb/album?artist=<%= encodeURIComponent(a.artistName) %>&album=<%= encodeURIComponent(a.albumTitle) %>" alt="" loading="lazy" onerror="this.src='/api/music/thumb/track/<%= encodeURIComponent(fallbackRatingKey) %>';this.onerror=function(){this.style.visibility='hidden'}" />
+                    </span>
+                    <span class="cur-list-primary">
+                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= a.artistName %>" data-cur-overview-album="<%= a.albumTitle %>"><%= a.albumTitle %></span>
+                      <span class="cur-list-sub">
+                        <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>"><%= a.artistName %></span> · <%= a.selectionReason || 'Strong current fit' %>
+                        <% if (topGenres.length) { %> · <%= topGenres.join(' · ') %><% } %>
+                      </span>
+                    </span>
+                    <span class="cur-list-meta cur-suggest-score">Score <strong><%= Number(a.rankScore || 0).toFixed(1) %></strong></span>
+                    <span class="cur-badge cur-badge--curatorr"><%= a.status || 'candidate' %></span>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="cur-empty">No album suggestions yet. These will appear once track-level candidates cluster around strong albums.</div>
+            <% } %>
+          </div>
+        </div>
 
         <div class="cur-panel">
           <div class="cur-panel-header">
@@ -50,36 +143,27 @@
                 <span>Album</span>
                 <span>Plays</span>
                 <span>Skips</span>
-                <span>Streak</span>
                 <span>Status</span>
                 <span>Actions</span>
               </div>
               <% _tracks.forEach(function(t) { %>
                 <div class="cur-table-row<%= t.excluded ? ' cur-row--excluded' : '' %>" data-track-name="<%= (t.track_title + ' ' + t.artist_name).toLowerCase() %>">
-                  <span class="cur-cell-thumb"><img src="/api/music/thumb/track/<%= encodeURIComponent(t.rating_key) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
-                  <span class="cur-cell-name"><%= t.track_title %></span>
-                  <span class="cur-cell"><%= t.artist_name %></span>
-                  <span class="cur-cell cur-cell-muted"><%= t.album_name || '—' %></span>
+                  <span class="cur-cell-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key %>"><img src="/api/music/thumb/track/<%= encodeURIComponent(t.rating_key) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
+                  <span class="cur-cell-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key %>"><%= t.track_title %></span>
+                  <span class="cur-cell cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= t.artist_name %>"><%= t.artist_name %></span>
+                  <% if (t.album_name) { %>
+                    <span class="cur-cell cur-cell-muted cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= t.artist_name %>" data-cur-overview-album="<%= t.album_name %>"><%= t.album_name %></span>
+                  <% } else { %>
+                    <span class="cur-cell cur-cell-muted">—</span>
+                  <% } %>
                   <span class="cur-cell"><%= t.total_plays %></span>
                   <span class="cur-cell"><%= t.total_skips %></span>
                   <span class="cur-cell">
-                    <% if (t.skip_streak > 0) { %>
-                      <span class="cur-skip-streak<%= t.skip_streak >= 3 ? ' cur-skip-streak--danger' : ' cur-skip-streak--warn' %>"><%= t.skip_streak %></span>
-                    <% } else { %>
-                      <span class="cur-cell-muted">0</span>
+                    <% if (t.curatorrTier) { %>
+                      <span class="cur-badge cur-badge--<%= t.curatorrTier.tone %>"><%= t.curatorrTier.label %></span>
                     <% } %>
-                  </span>
-                  <span class="cur-cell">
-                    <% if (t.excluded) { %>
-                      <span class="cur-badge cur-badge--skip">Excluded</span>
-                    <% } else if (t.force_included) { %>
+                    <% if (t.force_included) { %>
                       <span class="cur-badge cur-badge--ok">Pinned</span>
-                    <% } else if (_completedKeys.has(t.rating_key)) { %>
-                      <span class="cur-badge cur-badge--belter">Belter</span>
-                    <% } else if (t.total_plays > 0) { %>
-                      <span class="cur-badge cur-badge--decent">Decent</span>
-                    <% } else { %>
-                      <span class="cur-badge cur-badge--neutral">Active</span>
                     <% } %>
                   </span>
                   <span class="cur-cell-actions">
@@ -87,9 +171,6 @@
                       <button class="btn btn-sm btn-primary" onclick="toggleTrackExclusion('<%= encodeURIComponent(t.rating_key) %>', false, this)">Re-include</button>
                     <% } else { %>
                       <button class="btn btn-sm btn-ghost-danger" onclick="toggleTrackExclusion('<%= encodeURIComponent(t.rating_key) %>', true, this)">Exclude</button>
-                    <% } %>
-                    <% if (t.skip_streak > 0) { %>
-                      <button class="btn btn-sm btn-ghost" onclick="resetTrackSkips('<%= encodeURIComponent(t.rating_key) %>', this)">Reset</button>
                     <% } %>
                   </span>
                 </div>
@@ -105,6 +186,10 @@
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
   <script>
     const trackSearch = document.getElementById('trackSearch');
     if (trackSearch) {
@@ -129,6 +214,25 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
       }).then(function(r) { if (r.ok) location.reload(); });
+    }
+
+    function rebuildSuggestions(btn, statusId) {
+      var status = document.getElementById(statusId);
+      if (btn) btn.disabled = true;
+      if (status) status.textContent = 'Building suggestions…';
+      fetch('/api/music/suggestions/rebuild', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+      }).then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed');
+          if (status) status.textContent = 'Suggestions updated.';
+          window.location.reload();
+        })
+        .catch(function(err) {
+          if (status) status.textContent = err.message || 'Failed to rebuild suggestions.';
+          if (btn) btn.disabled = false;
+        });
     }
   </script>
 </body>

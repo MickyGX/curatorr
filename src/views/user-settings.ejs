@@ -1,16 +1,18 @@
 <%- include('partials/head', { pageTitle: title || 'My Settings — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-settings.css'] }) %>
 <body class="dash-body">
-  <div class="dash-frame">
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div><div class="dash-title">Curatorr</div></div>
       </div>
+
       <div class="dash-nav">
         <%- include('partials/nav-categories', { navActivePage: '', role: role }) %>
       </div>
+
       <%- include('partials/user-menu') %>
     </aside>
 
@@ -21,94 +23,331 @@
         </button>
         <div class="main-window-title">
           <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
-          <span class="main-window-app">Curatorr</span>
-          <span class="main-window-rest">| My Profile</span>
+          <span class="main-window-app">User Profile</span>
         </div>
         <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
       </div>
 
-      <div class="dash-content">
-        <% if (success) { %>
-          <div class="settings-success">
-            <% if (success === 'password-changed') { %>Password changed successfully.<% } else if (success === 'avatar-updated') { %>Avatar updated.<% } else if (success === 'theme-updated') { %>Theme saved.<% } else { %>Saved.<% } %>
-          </div>
-        <% } %>
-        <% if (error) { %>
-          <div class="settings-error"><%= error %></div>
-        <% } %>
+      <div class="dash-panel">
+        <div class="panel-header">
+          <h2>User Profile</h2>
+          <span class="panel-sub">Profile and view mode</span>
+        </div>
 
-        <div class="settings-layout">
-          <div class="settings-panels">
+        <%
+          const isLocalUser = String(user?.source || '').toLowerCase() === 'local';
+          const profileRole = isLocalUser ? (user?.role || actualRole || role) : (role || 'user');
+          const profileAvatarFallback = user?.avatarFallback || '/icons/user-profile.svg';
+          const profileAvatarSrc = user?.avatar || profileAvatarFallback;
+          const successMap = {
+            'password-changed': 'Password changed successfully.',
+            'avatar-updated': 'Avatar updated.',
+            'theme-updated': 'Theme saved.',
+            'filters-updated': 'Artist filters updated.',
+            'preset-updated': 'Curation style saved.',
+          };
+          const profileNote = error
+            ? error
+            : (successMap[success] || (isLocalUser
+              ? 'Update your Curatorr account details.'
+              : 'This profile is managed by your Plex account.'));
+        %>
 
-            <%# ── Avatar ──────────────────────────────────────────────── %>
-            <div class="settings-panel">
-              <h2 class="settings-panel-title">Avatar</h2>
-              <div class="settings-avatar-wrap">
-                <img class="settings-avatar-preview" id="avatarPreview"
-                  src="<%= user.avatar || user.avatarFallback || '/icons/user-profile.svg' %>"
-                  alt="Your avatar" onerror="this.src='/icons/user-profile.svg'" />
-                <div class="settings-avatar-controls">
-                  <label class="btn btn-secondary" for="avatarFile">Choose image</label>
-                  <input type="file" id="avatarFile" accept="image/*" style="display:none" onchange="previewAvatar(this)" />
-                  <form method="post" action="/user-settings/avatar" id="avatarForm">
-                    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                    <input type="hidden" name="avatarData" id="avatarData" />
-                    <button type="submit" id="avatarSaveBtn" class="btn btn-primary" style="display:none">Save avatar</button>
-                  </form>
-                </div>
+        <div class="settings-form">
+          <div class="settings-card">
+            <div class="settings-profile-head">
+              <div class="settings-profile-head-copy">
+                <div class="settings-card-title">Profile</div>
+                <div class="settings-card-sub"><%= isLocalUser ? 'Curatorr account details' : 'Plex account details' %></div>
+              </div>
+              <strong class="settings-role-pill settings-role-pill--profile">
+                <img class="settings-role-pill-icon" src="/icons/role.svg" alt="" />
+                <%= profileRole %>
+              </strong>
+            </div>
+
+            <div class="settings-profile-avatar">
+              <img
+                class="settings-profile-avatar-image"
+                id="profileAvatarPreview"
+                src="<%= profileAvatarSrc %>"
+                alt="Current avatar"
+                onerror="this.onerror=null;this.src='<%= profileAvatarFallback %>';"
+              />
+              <div class="settings-profile-avatar-meta">
+                <strong class="settings-profile-avatar-label">Current avatar</strong>
+                <span class="settings-profile-avatar-help">PNG, JPG, or WEBP up to 2 MB.</span>
               </div>
             </div>
 
-            <%# ── Change password (local auth only) ──────────────────── %>
-            <% if (String(user.source || '').toLowerCase() === 'local') { %>
-              <div class="settings-panel">
-                <h2 class="settings-panel-title">Change password</h2>
-                <form method="post" action="/user-settings/password" class="settings-form">
-                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                  <div class="settings-field">
-                    <label class="settings-label" for="currentPassword">Current password</label>
-                    <input class="settings-input" type="password" id="currentPassword" name="currentPassword" required autocomplete="current-password" />
-                  </div>
-                  <div class="settings-field">
-                    <label class="settings-label" for="newPassword">New password</label>
-                    <input class="settings-input" type="password" id="newPassword" name="newPassword" required autocomplete="new-password" />
-                  </div>
-                  <div class="settings-field">
-                    <label class="settings-label" for="confirmPassword">Confirm new password</label>
-                    <input class="settings-input" type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" />
-                  </div>
-                  <div class="settings-actions">
-                    <button type="submit" class="btn btn-primary">Change password</button>
-                  </div>
-                </form>
-              </div>
-            <% } %>
+            <span class="settings-users-note<%= error ? ' settings-users-note--error' : '' %>"><%= profileNote %></span>
 
-            <%# ── Theme ───────────────────────────────────────────────── %>
-            <div class="settings-panel">
-              <h2 class="settings-panel-title">Theme</h2>
-              <form method="post" action="/user-settings/theme" class="settings-form" id="themeForm">
-                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                <div class="settings-field">
-                  <label class="settings-label">Color mode</label>
-                  <div class="settings-radio-group">
-                    <label class="settings-radio">
-                      <input type="radio" name="mode" value="night" <%= (config.theme?.mode !== 'day') ? 'checked' : '' %> />
-                      <span>Night</span>
-                    </label>
-                    <label class="settings-radio">
-                      <input type="radio" name="mode" value="day" <%= (config.theme?.mode === 'day') ? 'checked' : '' %> />
-                      <span>Day</span>
-                    </label>
-                  </div>
+            <div class="settings-card-lines">
+              <div class="settings-card-line">
+                <span>Username</span>
+                <strong><%= user?.username || '' %></strong>
+              </div>
+              <% if (user?.email) { %>
+                <div class="settings-card-line">
+                  <span>Email</span>
+                  <strong><%= user.email %></strong>
                 </div>
-                <div class="settings-actions">
-                  <button type="submit" class="btn btn-primary">Save theme</button>
+              <% } %>
+              <div class="settings-card-line">
+                <span>Account source</span>
+                <strong><%= isLocalUser ? 'Curatorr local' : 'Plex' %></strong>
+              </div>
+            </div>
+
+            <form method="post" action="/user-settings/avatar" class="settings-form" id="avatarForm">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="avatarData" id="avatarData" />
+              <label class="field">
+                <span>Avatar image (optional)</span>
+                <input class="settings-icon-file" type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" />
+              </label>
+              <span class="settings-users-note settings-users-note--error" id="avatarUploadError" hidden></span>
+              <button class="primary-button" type="submit" id="avatarSaveBtn" hidden>Save avatar</button>
+            </form>
+          </div>
+
+          <% if (isLocalUser) { %>
+            <div class="settings-card">
+              <div class="settings-card-title">Password</div>
+              <div class="settings-card-sub">Change your Curatorr local account password.</div>
+              <form method="post" action="/user-settings/password" class="settings-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <label class="field">
+                  <span>Current password</span>
+                  <input type="password" name="currentPassword" required autocomplete="current-password" />
+                </label>
+                <label class="field">
+                  <span>New password</span>
+                  <input type="password" name="newPassword" required autocomplete="new-password" />
+                </label>
+                <label class="field">
+                  <span>Confirm new password</span>
+                  <input type="password" name="confirmPassword" required autocomplete="new-password" />
+                </label>
+                <button class="primary-button" type="submit">Save new password</button>
+              </form>
+            </div>
+          <% } %>
+
+          <div class="settings-card">
+            <div class="settings-card-title">Theme</div>
+            <div class="settings-card-sub">Customize your personal Curatorr appearance.</div>
+            <form method="post" action="/user-settings/theme" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <label class="field">
+                <span>Color mode</span>
+                <div class="settings-radio-group">
+                  <label class="settings-radio">
+                    <input type="radio" name="mode" value="night" <%= (config.theme?.mode !== 'day') ? 'checked' : '' %> />
+                    <span>Night</span>
+                  </label>
+                  <label class="settings-radio">
+                    <input type="radio" name="mode" value="day" <%= (config.theme?.mode === 'day') ? 'checked' : '' %> />
+                    <span>Day</span>
+                  </label>
+                </div>
+              </label>
+              <button class="primary-button" type="submit">Save my theme</button>
+            </form>
+          </div>
+
+          <div class="settings-card">
+            <form method="post" action="/user-settings/filters" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <%
+                const _filterArtists = Array.isArray(filterArtists) ? filterArtists : [];
+                const _mustIncludeArtists = Array.isArray(mustIncludeArtists) ? mustIncludeArtists : [];
+                const _neverIncludeArtists = Array.isArray(neverIncludeArtists) ? neverIncludeArtists : [];
+                const _selectedFilterArtists = new Set([].concat(_mustIncludeArtists, _neverIncludeArtists));
+              %>
+              <div class="settings-filter-card-head">
+                <div>
+                  <div class="settings-card-title">Artist Filters</div>
+                  <div class="settings-card-sub">Manage your personal always-include and never-include artists here. The wizard uses these same saved lists.</div>
+                </div>
+                <a class="ghost-button" href="/wizard/user">Run wizard</a>
+              </div>
+
+              <div class="settings-filter-grid" data-filter-manager>
+                <section class="settings-filter-card" data-filter-group="include">
+                  <div class="settings-filter-card-head">
+                    <div>
+                      <div class="settings-filter-title">Always include</div>
+                      <div class="settings-filter-help">These artists always appear in your playlist regardless of skip count.</div>
+                    </div>
+                  </div>
+                  <details class="settings-filter-picker">
+                    <summary class="settings-filter-picker-toggle">Add artists</summary>
+                    <div class="settings-filter-picker-panel">
+                      <input type="search" class="settings-filter-search" placeholder="Search artists…" data-filter-search="include" />
+                      <div class="settings-filter-options" data-filter-options="include">
+                        <% _filterArtists.forEach(function(artist) { if (!_selectedFilterArtists.has(artist.name)) { %>
+                          <label class="settings-filter-option" data-filter-option data-name="<%= artist.name.toLowerCase() %>">
+                            <input type="checkbox" value="<%= artist.name %>" data-filter-option-input="include" />
+                            <span class="settings-filter-thumb"><img src="<%= artist.thumb %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                            <span class="settings-filter-option-name"><%= artist.name %></span>
+                          </label>
+                        <% } }) %>
+                      </div>
+                      <div class="settings-filter-picker-actions">
+                        <button class="ghost-button" type="button" data-filter-add="include">Add selected</button>
+                      </div>
+                    </div>
+                  </details>
+
+                  <div class="settings-filter-hidden" data-filter-hidden="include">
+                    <% _mustIncludeArtists.forEach(function(name) { %>
+                      <input type="hidden" name="mustIncludeArtists" value="<%= name %>" />
+                    <% }) %>
+                  </div>
+
+                  <div class="settings-filter-table-wrap">
+                    <table class="settings-filter-table">
+                      <thead>
+                        <tr>
+                          <th class="settings-filter-check-col"><input type="checkbox" data-filter-select-all="include" /></th>
+                          <th>Artist</th>
+                        </tr>
+                      </thead>
+                      <tbody data-filter-table="include">
+                        <% if (_mustIncludeArtists.length) { %>
+                          <% _mustIncludeArtists.forEach(function(name) { %>
+                            <tr data-filter-row data-name="<%= name %>">
+                              <td class="settings-filter-check-col"><input type="checkbox" data-filter-row-check="include" value="<%= name %>" /></td>
+                              <td>
+                                <div class="settings-filter-row-artist">
+                                  <span class="settings-filter-thumb"><img src="/api/music/thumb/artist/<%= encodeURIComponent(name) %>?v=user-settings-artist-thumb-1" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                                  <span><%= name %></span>
+                                </div>
+                              </td>
+                            </tr>
+                          <% }) %>
+                        <% } else { %>
+                          <tr data-filter-empty="include">
+                            <td colspan="2" class="settings-filter-empty">No artists selected.</td>
+                          </tr>
+                        <% } %>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="settings-filter-table-actions">
+                    <button class="ghost-button" type="button" data-filter-remove="include">Remove selected</button>
+                  </div>
+                </section>
+
+                <section class="settings-filter-card" data-filter-group="exclude">
+                  <div class="settings-filter-card-head">
+                    <div>
+                      <div class="settings-filter-title">Never include</div>
+                      <div class="settings-filter-help">These artists are always blocked from your playlist.</div>
+                    </div>
+                  </div>
+                  <details class="settings-filter-picker">
+                    <summary class="settings-filter-picker-toggle">Add artists</summary>
+                    <div class="settings-filter-picker-panel">
+                      <input type="search" class="settings-filter-search" placeholder="Search artists…" data-filter-search="exclude" />
+                      <div class="settings-filter-options" data-filter-options="exclude">
+                        <% _filterArtists.forEach(function(artist) { if (!_selectedFilterArtists.has(artist.name)) { %>
+                          <label class="settings-filter-option" data-filter-option data-name="<%= artist.name.toLowerCase() %>">
+                            <input type="checkbox" value="<%= artist.name %>" data-filter-option-input="exclude" />
+                            <span class="settings-filter-thumb"><img src="<%= artist.thumb %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                            <span class="settings-filter-option-name"><%= artist.name %></span>
+                          </label>
+                        <% } }) %>
+                      </div>
+                      <div class="settings-filter-picker-actions">
+                        <button class="ghost-button" type="button" data-filter-add="exclude">Add selected</button>
+                      </div>
+                    </div>
+                  </details>
+
+                  <div class="settings-filter-hidden" data-filter-hidden="exclude">
+                    <% _neverIncludeArtists.forEach(function(name) { %>
+                      <input type="hidden" name="neverIncludeArtists" value="<%= name %>" />
+                    <% }) %>
+                  </div>
+
+                  <div class="settings-filter-table-wrap">
+                    <table class="settings-filter-table">
+                      <thead>
+                        <tr>
+                          <th class="settings-filter-check-col"><input type="checkbox" data-filter-select-all="exclude" /></th>
+                          <th>Artist</th>
+                        </tr>
+                      </thead>
+                      <tbody data-filter-table="exclude">
+                        <% if (_neverIncludeArtists.length) { %>
+                          <% _neverIncludeArtists.forEach(function(name) { %>
+                            <tr data-filter-row data-name="<%= name %>">
+                              <td class="settings-filter-check-col"><input type="checkbox" data-filter-row-check="exclude" value="<%= name %>" /></td>
+                              <td>
+                                <div class="settings-filter-row-artist">
+                                  <span class="settings-filter-thumb"><img src="/api/music/thumb/artist/<%= encodeURIComponent(name) %>?v=user-settings-artist-thumb-1" alt="" loading="lazy" onerror="this.style.visibility='hidden'" /></span>
+                                  <span><%= name %></span>
+                                </div>
+                              </td>
+                            </tr>
+                          <% }) %>
+                        <% } else { %>
+                          <tr data-filter-empty="exclude">
+                            <td colspan="2" class="settings-filter-empty">No artists selected.</td>
+                          </tr>
+                        <% } %>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="settings-filter-table-actions">
+                    <button class="ghost-button" type="button" data-filter-remove="exclude">Remove selected</button>
+                  </div>
+                </section>
+              </div>
+              <button class="primary-button" type="submit">Save my filters</button>
+            </form>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title">Curation Style</div>
+            <div class="settings-card-sub">Choose how aggressively your smart playlist curates tracks based on your listening habits.</div>
+            <form method="post" action="/user-settings/preset" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <label class="field">
+                <span>Playlist style</span>
+                <select name="preset">
+                  <option value="cautious" <%= (locals.userPreset || 'measured') === 'cautious' ? 'selected' : '' %>>Cautious — larger playlist, wide range of artists</option>
+                  <option value="measured" <%= (locals.userPreset || 'measured') === 'measured' ? 'selected' : '' %>>Measured — medium playlist, good mix of artists</option>
+                  <option value="aggressive" <%= (locals.userPreset || 'measured') === 'aggressive' ? 'selected' : '' %>>Aggressive — smaller playlist, I know what I like</option>
+                </select>
+              </label>
+              <button class="primary-button" type="submit">Save my style</button>
+            </form>
+          </div>
+
+          <% if (actualRole === 'admin') { %>
+            <div class="settings-card">
+              <div class="settings-card-title">View mode</div>
+              <div class="settings-card-sub">Preview user access without leaving your account.</div>
+              <form method="post" action="/switch-view" class="settings-access-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+                <input type="hidden" name="role" value="<%= role === 'admin' ? 'user' : 'admin' %>" />
+                <div class="settings-access-row">
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="viewModeToggle" <%= role === 'admin' ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text"><%= role === 'admin' ? 'Admin view' : 'User view' %></span>
+                  </label>
+                  <button class="primary-button" type="submit"><%= role === 'admin' ? 'Switch to user view' : 'Switch to admin view' %></button>
                 </div>
               </form>
             </div>
-
-          </div>
+          <% } %>
         </div>
       </div>
     </section>
@@ -116,17 +355,265 @@
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
   <script>
-    function previewAvatar(input) {
-      if (!input.files || !input.files[0]) return;
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        document.getElementById('avatarPreview').src = e.target.result;
-        document.getElementById('avatarData').value = e.target.result;
-        document.getElementById('avatarSaveBtn').style.display = '';
+    (function () {
+      const avatarInput = document.getElementById('avatarFile');
+      const avatarPreview = document.getElementById('profileAvatarPreview');
+      const avatarDataInput = document.getElementById('avatarData');
+      const avatarSaveBtn = document.getElementById('avatarSaveBtn');
+      const avatarError = document.getElementById('avatarUploadError');
+
+      if (!avatarInput) return;
+
+      avatarInput.addEventListener('change', function () {
+        const file = avatarInput.files && avatarInput.files[0];
+        if (!file) return;
+
+        const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+        if (!allowed.includes(file.type)) {
+          if (avatarError) {
+            avatarError.hidden = false;
+            avatarError.textContent = 'Please choose a PNG, JPG, or WEBP image.';
+          }
+          avatarInput.value = '';
+          if (avatarSaveBtn) avatarSaveBtn.hidden = true;
+          return;
+        }
+        if (file.size > (2 * 1024 * 1024)) {
+          if (avatarError) {
+            avatarError.hidden = false;
+            avatarError.textContent = 'Avatar images must be 2 MB or smaller.';
+          }
+          avatarInput.value = '';
+          if (avatarSaveBtn) avatarSaveBtn.hidden = true;
+          return;
+        }
+
+        if (avatarError) {
+          avatarError.hidden = true;
+          avatarError.textContent = '';
+        }
+
+        const reader = new FileReader();
+        reader.onload = function (event) {
+          const dataUrl = String(event?.target?.result || '');
+          if (!dataUrl) return;
+          if (avatarPreview) avatarPreview.src = dataUrl;
+          if (avatarDataInput) avatarDataInput.value = dataUrl;
+          if (avatarSaveBtn) avatarSaveBtn.hidden = false;
+        };
+        reader.readAsDataURL(file);
+      });
+    })();
+  </script>
+  <script>
+    (function () {
+      var root = document.querySelector('[data-filter-manager]');
+      if (!root) return;
+
+      var artistCatalog = <%- JSON.stringify(_filterArtists || []) %>;
+      var artistMap = new Map(artistCatalog.map(function (artist) {
+        return [String(artist.name || ''), artist];
+      }));
+      var groups = {
+        include: { inputName: 'mustIncludeArtists' },
+        exclude: { inputName: 'neverIncludeArtists' },
       };
-      reader.readAsDataURL(input.files[0]);
-    }
+
+      function escapeSelector(value) {
+        return String(value || '').replace(/["\\]/g, '\\$&');
+      }
+
+      function createThumb(name) {
+        var wrap = document.createElement('span');
+        wrap.className = 'settings-filter-thumb';
+        var img = document.createElement('img');
+        var artist = artistMap.get(name) || {};
+        img.src = artist.thumb || ('/api/music/thumb/artist/' + encodeURIComponent(name) + '?v=user-settings-artist-thumb-1');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.onerror = function () { this.style.visibility = 'hidden'; };
+        wrap.appendChild(img);
+        return wrap;
+      }
+
+      function createOption(group, name) {
+        var label = document.createElement('label');
+        label.className = 'settings-filter-option';
+        label.setAttribute('data-filter-option', '');
+        label.setAttribute('data-name', String(name || '').toLowerCase());
+
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = name;
+        input.setAttribute('data-filter-option-input', group);
+
+        var text = document.createElement('span');
+        text.className = 'settings-filter-option-name';
+        text.textContent = name;
+
+        label.appendChild(input);
+        label.appendChild(createThumb(name));
+        label.appendChild(text);
+        return label;
+      }
+
+      function createTableRow(group, name) {
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-filter-row', '');
+        tr.setAttribute('data-name', name);
+
+        var tdCheck = document.createElement('td');
+        tdCheck.className = 'settings-filter-check-col';
+        var checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = name;
+        checkbox.setAttribute('data-filter-row-check', group);
+        tdCheck.appendChild(checkbox);
+
+        var tdArtist = document.createElement('td');
+        var artist = document.createElement('div');
+        artist.className = 'settings-filter-row-artist';
+        var text = document.createElement('span');
+        text.textContent = name;
+        artist.appendChild(createThumb(name));
+        artist.appendChild(text);
+        tdArtist.appendChild(artist);
+
+        tr.appendChild(tdCheck);
+        tr.appendChild(tdArtist);
+        return tr;
+      }
+
+      function createHidden(group, name) {
+        var hiddenWrap = root.querySelector('[data-filter-hidden="' + group + '"]');
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = groups[group].inputName;
+        input.value = name;
+        hiddenWrap.appendChild(input);
+      }
+
+      function removeHidden(group, name) {
+        root.querySelectorAll('[data-filter-hidden="' + group + '"] input').forEach(function (input) {
+          if (input.value === name) input.remove();
+        });
+      }
+
+      function ensureEmptyRow(group) {
+        var table = root.querySelector('[data-filter-table="' + group + '"]');
+        if (!table.querySelector('[data-filter-row]')) {
+          var tr = document.createElement('tr');
+          tr.setAttribute('data-filter-empty', group);
+          var td = document.createElement('td');
+          td.colSpan = 2;
+          td.className = 'settings-filter-empty';
+          td.textContent = 'No artists selected.';
+          tr.appendChild(td);
+          table.appendChild(tr);
+        }
+      }
+
+      function clearEmptyRow(group) {
+        var empty = root.querySelector('[data-filter-empty="' + group + '"]');
+        if (empty) empty.remove();
+      }
+
+      function getSelectedNames() {
+        var names = new Set();
+        root.querySelectorAll('[data-filter-hidden] input').forEach(function (input) {
+          names.add(input.value);
+        });
+        return names;
+      }
+
+      function rehydrateOptions() {
+        var selected = getSelectedNames();
+        Object.keys(groups).forEach(function (group) {
+          var optionsWrap = root.querySelector('[data-filter-options="' + group + '"]');
+          if (!optionsWrap) return;
+          var checked = new Set(Array.from(optionsWrap.querySelectorAll('input:checked')).map(function (input) { return input.value; }));
+          optionsWrap.innerHTML = '';
+          artistCatalog.forEach(function (artist) {
+            if (selected.has(artist.name)) return;
+            var option = createOption(group, artist.name);
+            option.querySelector('input').checked = checked.has(artist.name);
+            optionsWrap.appendChild(option);
+          });
+        });
+      }
+
+      function applySearch(group) {
+        var search = root.querySelector('[data-filter-search="' + group + '"]');
+        var term = String(search?.value || '').trim().toLowerCase();
+        var options = Array.from(root.querySelectorAll('[data-filter-options="' + group + '"] [data-filter-option]'));
+        var firstPrefixMatch = null;
+        options.forEach(function (option) {
+          var name = option.getAttribute('data-name') || '';
+          var visible = !term || name.indexOf(term) === 0 || name.split(/[\s&/,+.-]+/).some(function (token) {
+            return token.indexOf(term) === 0;
+          });
+          option.hidden = !visible;
+          if (visible && term && firstPrefixMatch === null && name.indexOf(term) === 0) {
+            firstPrefixMatch = option;
+          }
+        });
+        if (firstPrefixMatch) firstPrefixMatch.scrollIntoView({ block: 'nearest' });
+      }
+
+      root.querySelectorAll('[data-filter-add]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          var group = button.getAttribute('data-filter-add');
+          var options = Array.from(root.querySelectorAll('[data-filter-option-input="' + group + '"]:checked'));
+          if (!options.length) return;
+          clearEmptyRow(group);
+          var table = root.querySelector('[data-filter-table="' + group + '"]');
+          options.forEach(function (input) {
+            createHidden(group, input.value);
+            table.appendChild(createTableRow(group, input.value));
+          });
+          rehydrateOptions();
+          var picker = root.querySelector('[data-filter-group="' + group + '"] .settings-filter-picker');
+          var search = root.querySelector('[data-filter-search="' + group + '"]');
+          if (search) search.value = '';
+          applySearch(group);
+          if (picker) picker.removeAttribute('open');
+        });
+      });
+
+      root.querySelectorAll('[data-filter-remove]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          var group = button.getAttribute('data-filter-remove');
+          var checked = Array.from(root.querySelectorAll('[data-filter-row-check="' + group + '"]:checked'));
+          checked.forEach(function (input) {
+            removeHidden(group, input.value);
+            var row = input.closest('[data-filter-row]');
+            if (row) row.remove();
+          });
+          ensureEmptyRow(group);
+          rehydrateOptions();
+          applySearch(group);
+        });
+      });
+
+      root.querySelectorAll('[data-filter-select-all]').forEach(function (input) {
+        input.addEventListener('change', function () {
+          var group = input.getAttribute('data-filter-select-all');
+          root.querySelectorAll('[data-filter-row-check="' + group + '"]').forEach(function (rowCheck) {
+            rowCheck.checked = input.checked;
+          });
+        });
+      });
+
+      root.querySelectorAll('[data-filter-search]').forEach(function (input) {
+        input.addEventListener('input', function () {
+          applySearch(input.getAttribute('data-filter-search'));
+        });
+      });
+    })();
   </script>
 </body>
 </html>

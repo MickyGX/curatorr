@@ -5,6 +5,9 @@
   const isMobile = () => mobileQuery.matches;
   const safeGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+  const setSidebarCookie = (collapsed) => {
+    document.cookie = 'curatorr_sidebar_collapsed=' + (collapsed ? 'true' : 'false') + '; Path=/; Max-Age=31536000; SameSite=Lax';
+  };
 
   function applySidebarState() {
     if (!dashFrame) return;
@@ -12,10 +15,13 @@
       dashFrame.classList.remove('sidebar-collapsed', 'mobile-nav-open');
       document.body.classList.remove('mobile-nav-open');
     } else {
-      const collapsed = safeGet('curatorr-sidebar-collapsed') === 'true';
+      const stored = safeGet('curatorr-sidebar-collapsed');
+      const collapsed = stored === null ? dashFrame.classList.contains('sidebar-collapsed') : stored === 'true';
       dashFrame.classList.toggle('sidebar-collapsed', collapsed);
       dashFrame.classList.remove('mobile-nav-open');
       document.body.classList.remove('mobile-nav-open');
+      safeSet('curatorr-sidebar-collapsed', collapsed ? 'true' : 'false');
+      setSidebarCookie(collapsed);
     }
   }
 
@@ -32,6 +38,7 @@
       } else {
         const collapsed = dashFrame.classList.toggle('sidebar-collapsed');
         safeSet('curatorr-sidebar-collapsed', collapsed ? 'true' : 'false');
+        setSidebarCookie(collapsed);
       }
     });
   }
