@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.5 (2026-03-11)
+
+- Fixed Plex settings so the saved Plex token remains in the masked input after save, matching the machine ID field and avoiding the appearance that the token was cleared.
+- Fixed the Settings route to expose stored-secret state consistently for Plex, Tautulli, and Lidarr, so saved credentials render correctly in the UI.
+- Added Launcharr-style release loading in About settings, so Curatorr now lists recent releases from `docs/release/releases` and shows real changelog highlights in the release modal.
+
 ## v0.1.4 (2026-03-11)
 
 - Fixed onboarding redirects so locally created Curatorr accounts, including the setup admin, are no longer forced into the server wizard automatically. Plex accounts still auto-run onboarding when required.

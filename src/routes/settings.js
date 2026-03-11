@@ -35,6 +35,7 @@ export function registerSettings(app, ctx) {
     USER_AVATAR_BASE,
     normalizeVersionTag,
     APP_VERSION,
+    loadSettingsReleases,
     DATA_DIR,
     loadAdmins,
     saveAdmins,
@@ -81,9 +82,23 @@ export function registerSettings(app, ctx) {
     const plexDisabledUsers = loadDisabledUsers();
     const lidarrAutomation = resolveLidarrAutomationSettings(config);
     const logSettings = resolveLogSettings(config);
-    const renderedConfig = { ...config };
+    const renderedConfig = {
+      ...config,
+      plex: {
+        ...config.plex,
+        tokenSet: Boolean(String(config.plex?.token || '').trim()),
+      },
+      tautulli: {
+        ...config.tautulli,
+        apiKeySet: Boolean(String(config.tautulli?.apiKey || '').trim()),
+      },
+      lidarr: {
+        ...config.lidarr,
+        apiKeySet: Boolean(String(config.lidarr?.apiKey || '').trim()),
+      },
+    };
     const aboutCurrentVersion = normalizeVersionTag(APP_VERSION || '') || 'Unknown';
-    const aboutReleases = [];
+    const aboutReleases = loadSettingsReleases({ limit: 12, currentVersion: aboutCurrentVersion });
 
     res.render('settings', {
       title: 'Settings — Curatorr',
@@ -102,7 +117,7 @@ export function registerSettings(app, ctx) {
       jobDefs: JOB_DEFS,
       jobStatus: jobService?.getStatus() || {},
       aboutCurrentVersion,
-      aboutLatestVersion: aboutCurrentVersion,
+      aboutLatestVersion: String(aboutReleases[0]?.tag || '').trim() || aboutCurrentVersion,
       aboutDataDirectory: DATA_DIR || '/data',
       aboutReleases,
       globalPlaylists: config.globalPlaylists || [],

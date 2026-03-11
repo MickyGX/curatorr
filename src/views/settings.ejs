@@ -155,7 +155,7 @@
                   <label class="field field-with-action">
                     <span>Plex Token</span>
                     <div class="field-action-row">
-                      <input id="plex-token-input" type="password" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Enter Plex token' %>" data-plex-field="token" />
+                      <input id="plex-token-input" type="password" name="plexToken" value="<%= config.plex?.token || '' %>" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Enter Plex token' %>" data-plex-field="token" />
                       <button class="icon-button" type="button" aria-label="Show Plex token" data-visibility-toggle="plex-token-input" data-visibility-state="hidden">
                         <img src="/icons/view-off.svg" alt="" />
                       </button>

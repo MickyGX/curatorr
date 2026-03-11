@@ -50,6 +50,10 @@ const CONFIG_PATH = process.env.CONFIG_PATH || path.join(__dirname, '..', 'confi
 const APP_VERSION = process.env.APP_VERSION || loadPackageVersion();
 const ASSET_VERSION_BASE = normalizeVersionTag(APP_VERSION || '') || String(APP_VERSION || 'dev');
 const ASSET_VERSION = `${ASSET_VERSION_BASE}-${String(process.env.ASSET_BUILD_ID || Date.now().toString(36))}`;
+const RELEASE_NOTES_BASE_URL = 'https://github.com/MickyGX/curatorr/releases/tag/';
+const RELEASE_NOTES_DIR = path.join(__dirname, '..', 'docs', 'release', 'releases');
+const RELEASE_HIGHLIGHT_SECTIONS = ['Added', 'Changed', 'Fixed', 'Summary', 'Upgrade Notes'];
+const RELEASE_HIGHLIGHT_LIMIT = 6;
 const ADMIN_USERS = parseCsv(process.env.ADMIN_USERS || '');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'curatorr.db');
@@ -277,10 +281,132 @@ function resolvePublicBaseUrl(req) {
 
 function buildReleaseNotesUrl(version) {
   const tag = normalizeVersionTag(version);
-  return tag ? `https://github.com/MickyGX/curatorr/releases/tag/${tag}` : '';
+  return tag ? `${RELEASE_NOTES_BASE_URL}${encodeURIComponent(tag)}` : '';
 }
 
-function loadReleaseHighlights() { return []; }
+function stripMarkdownInline(value) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  text = text.replace(/`([^`]+)`/g, '$1');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+  text = text.replace(/\*([^*]+)\*/g, '$1');
+  text = text.replace(/~~([^~]+)~~/g, '$1');
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function loadReleaseHighlights(versionTag, options = {}) {
+  const normalized = normalizeVersionTag(versionTag);
+  if (!normalized) return [];
+  const maxItemsRaw = Number(options.maxItems);
+  const maxItems = Number.isFinite(maxItemsRaw) ? Math.max(1, Math.min(20, maxItemsRaw)) : RELEASE_HIGHLIGHT_LIMIT;
+  const sectionSet = new Set(RELEASE_HIGHLIGHT_SECTIONS.map((section) => section.toLowerCase()));
+  const releaseFilePath = path.join(RELEASE_NOTES_DIR, `${normalized}.md`);
+  if (!fs.existsSync(releaseFilePath)) return [];
+  try {
+    const raw = fs.readFileSync(releaseFilePath, 'utf8');
+    const lines = raw.split(/\r?\n/);
+    let activeSection = '';
+    const highlights = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = String(lines[index] || '');
+      const sectionMatch = line.match(/^#{2,3}\s+(.+?)\s*$/);
+      if (sectionMatch) {
+        const heading = String(sectionMatch[1] || '').trim();
+        const key = heading.toLowerCase();
+        activeSection = sectionSet.has(key) ? heading : '';
+        continue;
+      }
+      if (/^#{1,6}\s+/.test(line)) {
+        activeSection = '';
+        continue;
+      }
+      if (!activeSection) continue;
+      const bulletMatch = line.match(/^\s*-\s+(.+?)\s*$/);
+      if (!bulletMatch) continue;
+      const bulletText = stripMarkdownInline(bulletMatch[1]);
+      if (!bulletText) continue;
+      highlights.push(`${activeSection}: ${bulletText}`);
+      if (highlights.length >= maxItems) break;
+    }
+    return highlights;
+  } catch (err) {
+    return [];
+  }
+}
+
+function parseSemver(value) {
+  const raw = String(value || '').trim().replace(/^v/i, '');
+  const match = raw.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  };
+}
+
+function compareSemver(a, b) {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  return a.patch - b.patch;
+}
+
+function loadSettingsReleases(options = {}) {
+  const limitRaw = Number(options.limit);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(30, Math.floor(limitRaw)))
+    : 12;
+  const currentVersion = normalizeVersionTag(options.currentVersion || '');
+  let filenames = [];
+  try {
+    filenames = fs.readdirSync(RELEASE_NOTES_DIR);
+  } catch (err) {
+    return [];
+  }
+  return filenames
+    .filter((filename) => /^v\d+\.\d+\.\d+\.md$/i.test(String(filename || '').trim()))
+    .map((filename) => {
+      const tag = normalizeVersionTag(String(filename || '').replace(/\.md$/i, ''));
+      const semver = parseSemver(tag);
+      if (!semver) return null;
+      const fullPath = path.join(RELEASE_NOTES_DIR, filename);
+      let publishedAt = '';
+      try {
+        const stats = fs.statSync(fullPath);
+        publishedAt = stats?.mtime ? stats.mtime.toISOString() : '';
+      } catch (err) {
+        publishedAt = '';
+      }
+      const highlights = loadReleaseHighlights(tag, { maxItems: 3 });
+      const primaryHighlight = String(highlights[0] || '').trim();
+      const summary = primaryHighlight
+        ? primaryHighlight.replace(/^[A-Za-z][A-Za-z\s]+:\s*/, '').trim()
+        : 'Release notes are available.';
+      return {
+        tag,
+        semver,
+        publishedAt,
+        releaseNotesUrl: buildReleaseNotesUrl(tag),
+        summary,
+        highlights,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => compareSemver(right.semver, left.semver))
+    .slice(0, limit)
+    .map((entry, index) => ({
+      tag: entry.tag,
+      publishedAt: entry.publishedAt,
+      releaseNotesUrl: entry.releaseNotesUrl,
+      summary: entry.summary,
+      highlights: entry.highlights,
+      isLatest: index === 0,
+      isCurrent: Boolean(currentVersion && entry.tag === currentVersion),
+    }));
+}
+
 async function fetchLatestDockerTag() { return ''; }
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -1419,6 +1545,7 @@ const _routeCtx = {
   VERSION_CACHE_TTL_MS,
   buildReleaseNotesUrl,
   loadReleaseHighlights,
+  loadSettingsReleases,
   fetchLatestDockerTag,
   // constants
   PRODUCT,
