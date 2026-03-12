@@ -2,6 +2,8 @@
 // Note: Plex webhooks use multipart/form-data which express.json() doesn't parse.
 // readRawBody captures the raw body for multipart routes before normal parsing.
 
+import crypto from 'crypto';
+
 // Middleware: capture raw body buffer (only when body not already parsed)
 function readRawBody(req, res, next) {
   if (req.body !== undefined) return next(); // already parsed by express.json/urlencoded
@@ -28,6 +30,21 @@ function extractMultipartField(buf, contentType, fieldName) {
     return end === -1 ? body : body.slice(0, end);
   }
   return null;
+}
+
+function timingSafeEqual(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+
+function resolveWebhookKey(req) {
+  return String(
+    req.query?.key
+      || req.headers?.['x-curatorr-webhook-key']
+      || req.headers?.['x-webhook-secret']
+      || '',
+  ).trim();
 }
 // Both sources emit play/stop/pause/resume events; we deduplicate by session_key.
 // Skip detection: if a track stops before skipThresholdSeconds, it's a skip.
@@ -91,7 +108,22 @@ async function triggerSmartPlaylistRebuild(ctx, userPlexId) {
 // }
 
 export function registerWebhooks(app, ctx) {
-  const { db, loadConfig, pushLog, safeMessage, DEFAULT_SMART_PLAYLIST_SETTINGS } = ctx;
+  const { db, loadConfig, pushLog, safeMessage, getWebhookSharedSecret } = ctx;
+
+  function requireWebhookKey(req, res, source) {
+    const config = loadConfig();
+    const expectedKey = String(getWebhookSharedSecret(config) || '').trim();
+    const providedKey = resolveWebhookKey(req);
+    if (timingSafeEqual(expectedKey, providedKey)) return true;
+    pushLog({
+      level: 'warn',
+      app: 'webhook',
+      action: `${source}.auth`,
+      message: `Rejected ${source} webhook with invalid or missing key.`,
+    });
+    res.status(401).json({ error: 'Invalid webhook key.' });
+    return false;
+  }
 
   // Expire stale open sessions on startup and periodically
   expireOldSessions(db);
@@ -101,6 +133,7 @@ export function registerWebhooks(app, ctx) {
 
   app.post('/webhook/tautulli', (req, res) => {
     try {
+      if (!requireWebhookKey(req, res, 'tautulli')) return;
       const body = req.body || {};
 
       // Only process music tracks
@@ -232,6 +265,7 @@ export function registerWebhooks(app, ctx) {
 
   app.post('/webhook/plex', readRawBody, (req, res) => {
     try {
+      if (!requireWebhookKey(req, res, 'plex')) return;
       let payload = null;
 
       // Plex sends multipart/form-data. We read the raw body and parse it.

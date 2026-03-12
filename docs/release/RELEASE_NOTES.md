@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.6 (2026-03-12)
+
+- Hardened inbound webhook handling with a shared-secret protected URL for Plex and Tautulli, and surfaced the secure webhook URL directly in Settings.
+- Fixed Tautulli webhook auto-registration so the Settings button now saves the webhook URL, enabled triggers, and JSON payload instead of creating a blank notifier.
+- Restricted the Lidarr image proxy to authenticated requests and approved media-cover paths only, preventing unauthenticated use of the stored Lidarr API key.
+- Tightened admin-only utility APIs and stopped rendering plaintext Plex, Tautulli, and Lidarr credentials to `co-admin` users in Settings.
+- Moved Plex and Tautulli credentialed API calls away from query-string authentication to reduce token leakage in logs and upstream requests.
+
 ## v0.1.5 (2026-03-11)
 
 - Fixed Plex settings so the saved Plex token remains in the masked input after save, matching the machine ID field and avoiding the appearance that the token was cleared.

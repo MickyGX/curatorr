@@ -57,8 +57,21 @@ function artistInSet(fullName, nameSet) {
   return parts.length > 1 && parts.some((p) => nameSet.has(p));
 }
 
+function isAllowedLidarrImagePath(value) {
+  const raw = String(value || '').trim();
+  return /^\/(?:api\/v\d+\/)?MediaCover\//.test(raw);
+}
+
 export async function rebuildSmartPlaylist(ctx, userPlexId) {
-  const { db, loadConfig, pushLog, safeMessage, resolveUserPlexServerToken, userHasOwnPlexToken } = ctx;
+  const {
+    db,
+    loadConfig,
+    pushLog,
+    safeMessage,
+    resolveUserPlexServerToken,
+    userHasOwnPlexToken,
+    buildPlexAuthHeaders,
+  } = ctx;
   const config = loadConfig();
   // Skip local-only users — they have no personal Plex token
   if (!userHasOwnPlexToken(config, userPlexId)) return;
@@ -116,7 +129,9 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
     let mid = machineId;
     if (!mid) {
       try {
-        const r = await fetch(`${url.replace(/\/$/, '')}?X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+        const r = await fetch(url.replace(/\/$/, ''), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
         if (r.ok) mid = (await r.json())?.MediaContainer?.machineIdentifier || '';
       } catch (_) { /* non-fatal */ }
     }
@@ -125,7 +140,10 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
     const base = url.replace(/\/$/, '');
 
     // Clear all existing items with a single DELETE
-    await fetch(`${base}/playlists/${playlistId}/items?X-Plex-Token=${token}`, { method: 'DELETE' });
+    await fetch(`${base}/playlists/${playlistId}/items`, {
+      method: 'DELETE',
+      headers: buildPlexAuthHeaders(token),
+    });
 
     // Add in batches of 100
     for (let i = 0; i < ratingKeys.length; i += 100) {
@@ -133,8 +151,10 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
       const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
       const addUrl = new URL(`${base}/playlists/${playlistId}/items`);
       addUrl.searchParams.set('uri', uri);
-      addUrl.searchParams.set('X-Plex-Token', token);
-      await fetch(addUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
+      await fetch(addUrl.toString(), {
+        method: 'PUT',
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
     }
 
     recordPlaylistSync(db, {
@@ -159,7 +179,21 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
 // ─── Route registration ───────────────────────────────────────────────────────
 
 export function registerApiMusic(app, ctx) {
-  const { db, requireUser, requireAdmin, loadConfig, pushLog, safeMessage, recommendationService, playlistService, lidarrService, canUserAccessLidarrAutomation, resolveUserPlexServerToken, buildAppApiUrl } = ctx;
+  const {
+    db,
+    requireUser,
+    requireAdmin,
+    loadConfig,
+    pushLog,
+    safeMessage,
+    recommendationService,
+    playlistService,
+    lidarrService,
+    canUserAccessLidarrAutomation,
+    resolveUserPlexServerToken,
+    buildAppApiUrl,
+    buildPlexAuthHeaders,
+  } = ctx;
 
   function resolveOverviewUserId(req) {
     const user = req.session?.user || {};
@@ -259,8 +293,8 @@ export function registerApiMusic(app, ctx) {
 
   async function fetchPlexMetadata(base, token, ratingKey) {
     if (!base || !token || !ratingKey) return null;
-    const response = await fetch(`${base}/library/metadata/${encodeURIComponent(ratingKey)}?X-Plex-Token=${token}`, {
-      headers: { Accept: 'application/json' },
+    const response = await fetch(`${base}/library/metadata/${encodeURIComponent(ratingKey)}`, {
+      headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
     });
     if (!response.ok) return null;
     const payload = await response.json();
@@ -1261,10 +1295,11 @@ export function registerApiMusic(app, ctx) {
 
     try {
       const plexUrl = new URL(`${url.replace(/\/$/, '')}/playlists/${playlistId}/items`);
-      plexUrl.searchParams.set('X-Plex-Token', token);
       plexUrl.searchParams.set('X-Plex-Container-Start', String(offset));
       plexUrl.searchParams.set('X-Plex-Container-Size', String(limit));
-      const r = await fetch(plexUrl.toString(), { headers: { Accept: 'application/json' } });
+      const r = await fetch(plexUrl.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!r.ok) return res.status(502).json({ error: `Plex returned ${r.status}` });
       const json = await r.json();
       const tracks = (json?.MediaContainer?.Metadata || []).map((t) => ({
@@ -1369,8 +1404,10 @@ export function registerApiMusic(app, ctx) {
       const base = url.replace(/\/$/, '');
       const delUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
       delUrl.searchParams.set('playlistItemID', String(playlistItemID));
-      delUrl.searchParams.set('X-Plex-Token', token);
-      const r = await fetch(delUrl.toString(), { method: 'DELETE', headers: { Accept: 'application/json' } });
+      const r = await fetch(delUrl.toString(), {
+        method: 'DELETE',
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!r.ok) return res.status(502).json({ error: `Plex returned ${r.status}` });
 
       // Remove from playlist_tracks so sync doesn't re-add it
@@ -1417,7 +1454,9 @@ export function registerApiMusic(app, ctx) {
       let mid = machineId;
       if (!mid) {
         try {
-          const r = await fetch(`${url.replace(/\/$/, '')}?X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+          const r = await fetch(url.replace(/\/$/, ''), {
+            headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          });
           if (r.ok) mid = (await r.json())?.MediaContainer?.machineIdentifier || '';
         } catch (_) { /* non-fatal */ }
       }
@@ -1430,8 +1469,10 @@ export function registerApiMusic(app, ctx) {
         const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
         const addUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
         addUrl.searchParams.set('uri', uri);
-        addUrl.searchParams.set('X-Plex-Token', token);
-        await fetch(addUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
+        await fetch(addUrl.toString(), {
+          method: 'PUT',
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
       }
 
       if (playlistKey && (playlistKey === 'crescive' || playlistKey === 'curative')) {
@@ -1460,7 +1501,9 @@ export function registerApiMusic(app, ctx) {
       let mid = machineId;
       if (!mid) {
         try {
-          const r = await fetch(`${url.replace(/\/$/, '')}?X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+          const r = await fetch(url.replace(/\/$/, ''), {
+            headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          });
           if (r.ok) mid = (await r.json())?.MediaContainer?.machineIdentifier || '';
         } catch (_) { /* non-fatal */ }
       }
@@ -1474,8 +1517,10 @@ export function registerApiMusic(app, ctx) {
       createUrl.searchParams.set('title', playlistTitle);
       createUrl.searchParams.set('smart', '0');
       createUrl.searchParams.set('uri', `server://${mid}/com.plexapp.plugins.library`);
-      createUrl.searchParams.set('X-Plex-Token', token);
-      const createRes = await fetch(createUrl.toString(), { method: 'POST', headers: { Accept: 'application/json' } });
+      const createRes = await fetch(createUrl.toString(), {
+        method: 'POST',
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!createRes.ok) return res.status(502).json({ error: `Plex returned ${createRes.status}` });
       const createJson = await createRes.json();
       const newPlexId = String(createJson?.MediaContainer?.Metadata?.[0]?.ratingKey || '');
@@ -1528,8 +1573,11 @@ export function registerApiMusic(app, ctx) {
 
     for (const entry of all) {
       try {
-        const delUrl = `${base}/playlists/${entry.plexPlaylistId}?X-Plex-Token=${adminToken}`;
-        const r = await fetch(delUrl, { method: 'DELETE' });
+        const delUrl = `${base}/playlists/${entry.plexPlaylistId}`;
+        const r = await fetch(delUrl, {
+          method: 'DELETE',
+          headers: buildPlexAuthHeaders(adminToken),
+        });
         if (!r.ok && r.status !== 404) {
           errors.push(`${entry.playlistTitle} (${entry.plexPlaylistId}): HTTP ${r.status}`);
           skipped++;
@@ -1557,14 +1605,18 @@ export function registerApiMusic(app, ctx) {
     const key = req.params.key;
     const base = url.replace(/\/$/, '');
     try {
-      const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(key)}?X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+      const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(key)}`, {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!mr.ok) return res.status(404).end();
       const meta = await mr.json();
       const trackMeta = (meta?.MediaContainer?.Metadata || [])[0];
       const thumb = trackMeta?.parentThumb || trackMeta?.thumb || trackMeta?.grandparentThumb;
       if (!thumb) return res.status(404).end();
 
-      const ir = await fetch(`${base}${thumb}?X-Plex-Token=${token}`);
+      const ir = await fetch(`${base}${thumb}`, {
+        headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+      });
       if (!ir.ok) return res.status(404).end();
       const buf = await ir.arrayBuffer();
       res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
@@ -1603,8 +1655,9 @@ export function registerApiMusic(app, ctx) {
         const searchUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
         searchUrl.searchParams.set('type', '8');
         searchUrl.searchParams.set('title', artistName);
-        searchUrl.searchParams.set('X-Plex-Token', token);
-        const searchRes = await fetch(searchUrl.toString(), { headers: { Accept: 'application/json' } });
+        const searchRes = await fetch(searchUrl.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
         if (!searchRes.ok) continue;
         const searchJson = await searchRes.json();
         const artistMeta = (searchJson?.MediaContainer?.Metadata || []).find((item) => {
@@ -1612,7 +1665,9 @@ export function registerApiMusic(app, ctx) {
         });
         const artistThumb = artistMeta?.thumb || artistMeta?.art;
         if (!artistThumb) continue;
-        const ir = await fetch(`${base}${artistThumb}?X-Plex-Token=${token}`);
+        const ir = await fetch(`${base}${artistThumb}`, {
+          headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+        });
         if (!ir.ok) continue;
         const buf = await ir.arrayBuffer();
         res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
@@ -1621,8 +1676,10 @@ export function registerApiMusic(app, ctx) {
       }
 
       for (const trackRow of trackRows) {
-        const metaUrl = `${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}?X-Plex-Token=${token}`;
-        const mr = await fetch(metaUrl, { headers: { Accept: 'application/json' } });
+        const metaUrl = `${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}`;
+        const mr = await fetch(metaUrl, {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
         if (!mr.ok) continue;
         const meta = await mr.json();
         const trackMeta = (meta?.MediaContainer?.Metadata || [])[0];
@@ -1632,8 +1689,8 @@ export function registerApiMusic(app, ctx) {
           .match(/\/library\/metadata\/([^/?]+)/)?.[1] || String(trackMeta.grandparentRatingKey || '').trim();
 
         if (artistKey) {
-          const artistMetaRes = await fetch(`${base}/library/metadata/${encodeURIComponent(artistKey)}?X-Plex-Token=${token}`, {
-            headers: { Accept: 'application/json' },
+          const artistMetaRes = await fetch(`${base}/library/metadata/${encodeURIComponent(artistKey)}`, {
+            headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
           });
           if (artistMetaRes.ok) {
             const artistMetaJson = await artistMetaRes.json();
@@ -1642,7 +1699,9 @@ export function registerApiMusic(app, ctx) {
             const requestedTitle = requestedArtist;
             const artistThumb = artistMeta?.thumb || artistMeta?.art;
             if (artistThumb && (!artistTitle || artistTitle === requestedTitle)) {
-              const ir = await fetch(`${base}${artistThumb}?X-Plex-Token=${token}`);
+              const ir = await fetch(`${base}${artistThumb}`, {
+                headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+              });
               if (!ir.ok) continue;
               const buf = await ir.arrayBuffer();
               res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
@@ -1655,7 +1714,9 @@ export function registerApiMusic(app, ctx) {
         const fallbackArtistTitle = normalizeArtistMatchText(trackMeta?.grandparentTitle);
         const fallbackThumb = trackMeta?.grandparentThumb;
         if (fallbackThumb && fallbackArtistTitle && fallbackArtistTitle === requestedArtist) {
-          const ir = await fetch(`${base}${fallbackThumb}?X-Plex-Token=${token}`);
+          const ir = await fetch(`${base}${fallbackThumb}`, {
+            headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+          });
           if (!ir.ok) continue;
           const buf = await ir.arrayBuffer();
           res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
@@ -1723,14 +1784,18 @@ export function registerApiMusic(app, ctx) {
     if (!trackRow?.rating_key) return res.status(404).end();
 
     try {
-      const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}?X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+      const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}`, {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!mr.ok) return res.status(404).end();
       const meta = await mr.json();
       const trackMeta = (meta?.MediaContainer?.Metadata || [])[0];
       const thumb = trackMeta?.parentThumb || trackMeta?.thumb;
       if (!thumb) return res.status(404).end();
 
-      const ir = await fetch(`${base}${thumb}?X-Plex-Token=${token}`);
+      const ir = await fetch(`${base}${thumb}`, {
+        headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+      });
       if (!ir.ok) return res.status(404).end();
       const buf = await ir.arrayBuffer();
       res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
@@ -1741,11 +1806,11 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
-  app.get('/api/music/lidarr/image', async (req, res) => {
+  app.get('/api/music/lidarr/image', requireUser, async (req, res) => {
     const config = loadConfig();
     const baseUrl = String(config?.lidarr?.url || '').replace(/\/$/, '');
     const path = String(req.query?.path || '').trim();
-    if (!baseUrl || !path || !path.startsWith('/')) return res.status(404).end();
+    if (!baseUrl || !isAllowedLidarrImagePath(path)) return res.status(404).end();
     try {
       const upstream = await fetch(`${baseUrl}${path}`, {
         headers: {

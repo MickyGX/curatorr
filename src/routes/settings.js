@@ -48,6 +48,7 @@ export function registerSettings(app, ctx) {
     loadDisabledUsers,
     saveDisabledUsers,
     parsePlexUsers,
+    buildConfiguredWebhookUrl,
     LOCAL_AUTH_MIN_PASSWORD,
     db,
     jobService,
@@ -60,6 +61,8 @@ export function registerSettings(app, ctx) {
 
   app.get('/settings', requireSettingsAdmin, (req, res) => {
     const config = loadConfig();
+    const actualRole = getActualRole(req);
+    const canViewServiceSecrets = actualRole === 'admin';
     const currentUserId = String(req.session?.user?.username || '').trim();
     const currentUserKey = String(req.session?.user?.username || '').trim().toLowerCase();
     const userLogins = config?.userLogins?.curatorr && typeof config.userLogins.curatorr === 'object'
@@ -86,14 +89,17 @@ export function registerSettings(app, ctx) {
       ...config,
       plex: {
         ...config.plex,
+        token: canViewServiceSecrets ? String(config.plex?.token || '') : '',
         tokenSet: Boolean(String(config.plex?.token || '').trim()),
       },
       tautulli: {
         ...config.tautulli,
+        apiKey: canViewServiceSecrets ? String(config.tautulli?.apiKey || '') : '',
         apiKeySet: Boolean(String(config.tautulli?.apiKey || '').trim()),
       },
       lidarr: {
         ...config.lidarr,
+        apiKey: canViewServiceSecrets ? String(config.lidarr?.apiKey || '') : '',
         apiKeySet: Boolean(String(config.lidarr?.apiKey || '').trim()),
       },
     };
@@ -104,7 +110,12 @@ export function registerSettings(app, ctx) {
       title: 'Settings — Curatorr',
       user: req.session.user,
       role: getEffectiveRole(req),
-      actualRole: getActualRole(req),
+      actualRole,
+      canViewServiceSecrets,
+      webhookUrls: canViewServiceSecrets ? {
+        plex: buildConfiguredWebhookUrl(config, 'webhook/plex'),
+        tautulli: buildConfiguredWebhookUrl(config, 'webhook/tautulli'),
+      } : null,
       config: renderedConfig,
       users,
       plexAdmins,

@@ -64,8 +64,21 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
 
   try {
     while (true) {
-      const url = `${api}?apikey=${encodeURIComponent(apiKey)}&cmd=get_history&media_type=track&length=${pageSize}&start=${start}&order_column=date&order_dir=desc&after=${afterTs}`;
-      const res = await fetch(url);
+      const body = new URLSearchParams({
+        apikey: apiKey,
+        cmd: 'get_history',
+        media_type: 'track',
+        length: String(pageSize),
+        start: String(start),
+        order_column: 'date',
+        order_dir: 'desc',
+        after: String(afterTs),
+      });
+      const res = await fetch(api, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body,
+      });
       if (!res.ok) throw new Error(`Tautulli API returned HTTP ${res.status}`);
       const json = await res.json();
 

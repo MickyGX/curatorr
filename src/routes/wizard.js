@@ -79,12 +79,13 @@ function filterWizardArtists(req, db, loadConfig, artists = [], wizardState = {}
 }
 
 async function resolveWizardMachineId(ctx, url, token, machineId = '') {
-  const { buildAppApiUrl, saveConfig, loadConfig } = ctx;
+  const { buildAppApiUrl, buildPlexAuthHeaders, saveConfig, loadConfig } = ctx;
   let resolvedMachineId = String(machineId || '').trim();
   if (resolvedMachineId) return resolvedMachineId;
   const idUrl = buildAppApiUrl(url, '');
-  idUrl.searchParams.set('X-Plex-Token', token);
-  const response = await fetch(idUrl.toString(), { headers: { Accept: 'application/json' } });
+  const response = await fetch(idUrl.toString(), {
+    headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
   if (!response.ok) return '';
   const json = await response.json();
   resolvedMachineId = json?.MediaContainer?.machineIdentifier || '';
@@ -163,8 +164,10 @@ async function runWizardPlaylistJob(ctx, { user, sessionPlexToken = '', trigger 
         const { url: plexUrl, token } = config.plex || {};
         const renameUrl = new URL(`${plexUrl.replace(/\/$/, '')}/playlists/${existingCuratorred.plexPlaylistId}`);
         renameUrl.searchParams.set('title', `${userId}'s Curative Playlist`);
-        renameUrl.searchParams.set('X-Plex-Token', token);
-        await fetch(renameUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
+        await fetch(renameUrl.toString(), {
+          method: 'PUT',
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
       } catch { /* non-fatal — rename is cosmetic */ }
       saveUserGeneratedPlaylist(db, userId, {
         ...existingCuratorred,
@@ -210,7 +213,7 @@ function queueWizardPlaylistJob(ctx, options) {
 // Returns count of tracks cached.
 
 export async function refreshMasterTrackCache(ctx) {
-  const { db, loadConfig, buildAppApiUrl, pushLog, safeMessage } = ctx;
+  const { db, loadConfig, buildAppApiUrl, buildPlexAuthHeaders, pushLog, safeMessage } = ctx;
   const config = loadConfig();
   const { url, token, libraries: selectedKeys = [] } = config.plex || {};
   if (!url || !token || !selectedKeys.length) return 0;
@@ -220,8 +223,9 @@ export async function refreshMasterTrackCache(ctx) {
     for (const key of selectedKeys) {
       const u = buildAppApiUrl(url, `library/sections/${key}/all`);
       u.searchParams.set('type', '10'); // tracks
-      u.searchParams.set('X-Plex-Token', token);
-      const r = await fetch(u.toString(), { headers: { Accept: 'application/json' } });
+      const r = await fetch(u.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!r.ok) continue;
       const json = await r.json();
       for (const t of json?.MediaContainer?.Metadata || []) {
@@ -269,67 +273,112 @@ const TAUTULLI_WEBHOOK_BODY = JSON.stringify({
 }, null, 2);
 
 async function configureTautulliWebhook(tautulliUrl, apiKey, ctx) {
-  const { loadConfig, pushLog } = ctx;
+  const { loadConfig, pushLog, buildConfiguredWebhookUrl } = ctx;
   const config = loadConfig();
-  const baseUrl = (config.tautulli?.curatorrUrl || config.general?.localUrl || config.general?.remoteUrl || '').replace(/\/$/, '');
-  if (!baseUrl || !tautulliUrl || !apiKey) return { ok: false, reason: 'missing config' };
-
-  const webhookUrl = `${baseUrl}/webhook/tautulli`;
+  const webhookUrl = buildConfiguredWebhookUrl(config, 'webhook/tautulli');
+  if (!webhookUrl || !tautulliUrl || !apiKey) return { ok: false, reason: 'missing config' };
   const api = `${tautulliUrl.replace(/\/$/, '')}/api/v2`;
+  const triggers = ['on_play', 'on_stop', 'on_pause', 'on_resume', 'on_watched'];
+  const fetchTautulliJson = async (params) => {
+    const body = new URLSearchParams({
+      apikey: apiKey,
+      ...params,
+    });
+    const response = await fetch(api, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body,
+    });
+    if (!response.ok) throw new Error(`Tautulli returned HTTP ${response.status}`);
+    return response.json();
+  };
 
   // Check for existing notifier pointing to our URL
-  const listRes = await fetch(`${api}?apikey=${encodeURIComponent(apiKey)}&cmd=get_notifiers`);
-  const listJson = await listRes.json();
+  const listJson = await fetchTautulliJson({ cmd: 'get_notifiers' });
   const notifiers = listJson?.response?.data || [];
+  let reusableNotifierId = null;
 
   for (const n of notifiers) {
     if (n.agent_name !== 'webhook') continue;
     // Fetch full config to check the URL
-    const cfgRes = await fetch(`${api}?apikey=${encodeURIComponent(apiKey)}&cmd=get_notifier_config&notifier_id=${n.id}`);
-    const cfgJson = await cfgRes.json();
+    const cfgJson = await fetchTautulliJson({
+      cmd: 'get_notifier_config',
+      notifier_id: String(n.id || ''),
+    });
     const hook = cfgJson?.response?.data?.config?.hook || '';
+    const friendlyName = String(n.friendly_name || '').trim();
     if (hook === webhookUrl) {
       pushLog({ level: 'info', app: 'wizard', action: 'tautulli.webhook.exists', message: `Tautulli webhook already configured (notifier ${n.id})` });
       return { ok: true, notifierId: n.id, created: false };
     }
+    if (!hook && reusableNotifierId == null && (!friendlyName || friendlyName === 'Curatorr')) reusableNotifierId = n.id;
   }
 
-  // Build add_notifier_config params
-  const triggers = ['on_play', 'on_stop', 'on_pause', 'on_resume', 'on_watched'];
+  let notifierId = reusableNotifierId;
+  if (!notifierId) {
+    const addJson = await fetchTautulliJson({
+      cmd: 'add_notifier_config',
+      agent_id: '25',
+    });
+    if (addJson?.response?.result !== 'success') {
+      throw new Error(addJson?.response?.message || 'Failed to add notifier');
+    }
+    notifierId = addJson?.response?.data?.notifier_id || null;
+    if (!notifierId) {
+      const refreshedListJson = await fetchTautulliJson({ cmd: 'get_notifiers' });
+      const webhookNotifiers = (refreshedListJson?.response?.data || [])
+        .filter((n) => n.agent_name === 'webhook')
+        .sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+      notifierId = webhookNotifiers[0]?.id || null;
+    }
+    if (!notifierId) throw new Error('Failed to determine Tautulli notifier id.');
+  }
+
   const params = new URLSearchParams({
     apikey: apiKey,
-    cmd: 'add_notifier_config',
+    cmd: 'set_notifier_config',
+    notifier_id: String(notifierId),
     agent_id: '25',
     friendly_name: 'Curatorr',
     webhook_hook: webhookUrl,
     webhook_method: 'POST',
   });
   for (const t of triggers) params.set(t, '1');
-  // Set JSON body for each active trigger
   for (const t of triggers) {
     params.set(`${t}_subject`, '');
     params.set(`${t}_body`, TAUTULLI_WEBHOOK_BODY);
   }
 
-  const addRes = await fetch(`${api}`, { method: 'POST', body: params });
-  const addJson = await addRes.json();
-  if (addJson?.response?.result !== 'success') {
-    throw new Error(addJson?.response?.message || 'Failed to add notifier');
+  const saveRes = await fetch(api, {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: params,
+  });
+  if (!saveRes.ok) throw new Error(`Tautulli returned HTTP ${saveRes.status}`);
+  const saveJson = await saveRes.json();
+  if (saveJson?.response?.result !== 'success') {
+    throw new Error(saveJson?.response?.message || 'Failed to save notifier');
   }
 
-  const notifierId = addJson?.response?.data?.notifier_id;
-  pushLog({ level: 'info', app: 'wizard', action: 'tautulli.webhook.created', message: `Tautulli webhook notifier created (id=${notifierId}) → ${webhookUrl}` });
-  return { ok: true, notifierId, created: true };
+  pushLog({
+    level: 'info',
+    app: 'wizard',
+    action: reusableNotifierId ? 'tautulli.webhook.updated' : 'tautulli.webhook.created',
+    message: `Tautulli webhook notifier ${reusableNotifierId ? 'updated' : 'created'} (id=${notifierId}) → ${webhookUrl}`,
+  });
+  return { ok: true, notifierId, created: !reusableNotifierId };
 }
 
 export function registerWizard(app, ctx) {
   const {
+    requireAdmin,
     loadConfig, saveConfig,
     resolveLocalUsers, serializeLocalUsers,
     hashPassword, validateLocalPasswordStrength, setSessionUser,
     resolveUserPlexServerToken,
     fetchPlexMusicLibraries,
     buildAppApiUrl,
+    buildPlexAuthHeaders,
     normalizeBaseUrl, safeMessage, pushLog,
     DEFAULT_SMART_PLAYLIST_SETTINGS,
     db,
@@ -405,8 +454,9 @@ export function registerWizard(app, ctx) {
     let machineId = '';
     try {
       const idUrl = buildAppApiUrl(url, '');
-      idUrl.searchParams.set('X-Plex-Token', token);
-      const r = await fetch(idUrl.toString(), { headers: { Accept: 'application/json' } });
+      const r = await fetch(idUrl.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (r.ok) {
         const json = await r.json();
         machineId = json?.MediaContainer?.machineIdentifier || '';
@@ -642,7 +692,7 @@ export function registerWizard(app, ctx) {
 
   // ── Misc wizard APIs ──────────────────────────────────────────────────────
 
-  app.post('/api/wizard/test-plex', async (req, res) => {
+  app.post('/api/wizard/test-plex', requireAdmin, async (req, res) => {
     const url = normalizeBaseUrl(String(req.body?.url || '').trim());
     const token = String(req.body?.token || '').trim();
     if (!url || !token) return res.status(400).json({ error: 'URL and token required.' });
@@ -655,8 +705,7 @@ export function registerWizard(app, ctx) {
   });
 
   // Auto-configure Tautulli webhook (admin, callable from settings)
-  app.post('/api/wizard/configure-tautulli-webhook', async (req, res) => {
-    if (!req.session?.user) return res.status(401).json({ error: 'Auth required.' });
+  app.post('/api/wizard/configure-tautulli-webhook', requireAdmin, async (req, res) => {
     const config = loadConfig();
     const { url, apiKey } = config.tautulli || {};
     if (!url || !apiKey) return res.status(400).json({ error: 'Tautulli not configured.' });
@@ -669,8 +718,7 @@ export function registerWizard(app, ctx) {
   });
 
   // Manual master cache refresh (admin)
-  app.post('/api/wizard/refresh-master', async (req, res) => {
-    if (!req.session?.user) return res.status(401).json({ error: 'Auth required.' });
+  app.post('/api/wizard/refresh-master', requireAdmin, async (req, res) => {
     try {
       const count = await refreshMasterTrackCache(ctx);
       return res.json({ ok: true, count });

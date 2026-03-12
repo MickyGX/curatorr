@@ -7,6 +7,7 @@ export function registerApiPlex(app, ctx) {
     loadConfig,
     saveConfig,
     buildAppApiUrl,
+    buildPlexAuthHeaders,
     safeMessage,
     pushLog,
     fetchPlexLibraries,
@@ -46,8 +47,9 @@ export function registerApiPlex(app, ctx) {
       for (const key of keysToFetch) {
         const tracksUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
         tracksUrl.searchParams.set('type', '10'); // type 10 = track
-        tracksUrl.searchParams.set('X-Plex-Token', token);
-        const fetchRes = await fetch(tracksUrl.toString(), { headers: { Accept: 'application/json' } });
+        const fetchRes = await fetch(tracksUrl.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
         if (!fetchRes.ok) continue;
         const json = await fetchRes.json();
         const items = json?.MediaContainer?.Metadata || [];
@@ -74,8 +76,9 @@ export function registerApiPlex(app, ctx) {
     if (!url || !token) return res.status(400).json({ error: 'Plex not configured.' });
     try {
       const sessionsUrl = buildAppApiUrl(url, 'status/sessions');
-      sessionsUrl.searchParams.set('X-Plex-Token', token);
-      const fetchRes = await fetch(sessionsUrl.toString(), { headers: { Accept: 'application/json' } });
+      const fetchRes = await fetch(sessionsUrl.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!fetchRes.ok) return res.status(502).json({ error: 'Plex returned ' + fetchRes.status });
       const json = await fetchRes.json();
       const all = json?.MediaContainer?.Metadata || [];
@@ -113,8 +116,9 @@ export function registerApiPlex(app, ctx) {
     if (!path || !path.startsWith('/')) return res.status(400).end();
     try {
       const artUrl = buildAppApiUrl(url, path.replace(/^\//, ''));
-      artUrl.searchParams.set('X-Plex-Token', token);
-      const upstream = await fetch(artUrl.toString());
+      const upstream = await fetch(artUrl.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+      });
       if (!upstream.ok) return res.status(upstream.status).end();
       const ct = upstream.headers.get('content-type') || 'image/jpeg';
       const buf = Buffer.from(await upstream.arrayBuffer());
@@ -166,8 +170,10 @@ export function registerApiPlex(app, ctx) {
       createUrl.searchParams.set('title', title);
       createUrl.searchParams.set('smart', '0');
       createUrl.searchParams.set('uri', `server://${machineId || ''}/com.plexapp.plugins.library`);
-      createUrl.searchParams.set('X-Plex-Token', token);
-      const createRes = await fetch(createUrl.toString(), { method: 'POST', headers: { Accept: 'application/json' } });
+      const createRes = await fetch(createUrl.toString(), {
+        method: 'POST',
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
       const json = await createRes.json();
       const playlist = json?.MediaContainer?.Metadata?.[0];
@@ -213,8 +219,9 @@ export function registerApiPlex(app, ctx) {
       const genreMap = new Map();
       for (const key of selectedKeys) {
         const u = buildAppApiUrl(url, `library/sections/${key}/genre`);
-        u.searchParams.set('X-Plex-Token', token);
-        const r = await fetch(u.toString(), { headers: { Accept: 'application/json' } });
+        const r = await fetch(u.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
         if (!r.ok) continue;
         const json = await r.json();
         for (const g of json?.MediaContainer?.Directory || []) {
@@ -239,11 +246,12 @@ export function registerApiPlex(app, ctx) {
       for (const key of selectedKeys) {
         const u = buildAppApiUrl(url, `library/sections/${key}/all`);
         u.searchParams.set('type', '8'); // 8 = artist
-        u.searchParams.set('X-Plex-Token', token);
         if (genres.length) {
           for (const g of genres) u.append('genre', g);
         }
-        const r = await fetch(u.toString(), { headers: { Accept: 'application/json' } });
+        const r = await fetch(u.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
         if (!r.ok) continue;
         const json = await r.json();
         for (const a of json?.MediaContainer?.Metadata || []) {
@@ -271,7 +279,9 @@ export function registerApiPlex(app, ctx) {
     const base = (localUrl || url || '').replace(/\/$/, '');
     if (!base || !token) return res.status(400).json({ error: 'Plex URL and token required.' });
     try {
-      const r = await fetch(`${base}?X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+      const r = await fetch(base, {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (!r.ok) throw new Error(`Plex returned ${r.status}`);
       const machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
       if (!machineId) return res.status(502).json({ error: 'Could not read machine identifier from Plex.' });

@@ -32,6 +32,7 @@
 
       <div class="dash-content">
         <% const _tab = tab || 'general'; %>
+        <% const canManageServiceConfig = actualRole === 'admin'; %>
         <% const safeJson = (value) => JSON.stringify(value)
           .replace(/</g, '\\u003c')
           .replace(/\u2028/g, '\\u2028')
@@ -135,6 +136,7 @@
         <div class="settings-tab-panel<%= _tab === 'plex' ? ' is-active' : '' %>" data-tab="plex">
           <div class="dash-panel">
             <form method="post" action="/settings/plex" class="settings-form">
+              <fieldset <%= canManageServiceConfig ? '' : 'disabled' %> style="border:0;padding:0;margin:0;min-inline-size:0">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <div class="settings-card">
                 <div class="settings-card-title">App URLs</div>
@@ -179,7 +181,11 @@
                     <button class="ghost-button" type="button" data-plex-action="machine">Get Plex Machine</button>
                   </div>
                 </div>
-                <div class="plex-settings-note">Tip: Local URL is preferred when set.</div>
+                <% if (canViewServiceSecrets && webhookUrls?.plex) { %>
+                  <div class="plex-settings-note">Tip: Local URL is preferred when set. Plex webhooks should point to <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.plex %></code>.</div>
+                <% } else { %>
+                  <div class="plex-settings-note">Tip: Local URL is preferred when set. Credentials and webhook URLs are visible to admins only.</div>
+                <% } %>
               </div>
               <% if (config.plex?.availableLibraries?.length) { %>
               <div class="settings-card">
@@ -197,6 +203,7 @@
               </div>
               <% } %>
               <button class="primary-button" type="submit">Save Plex settings</button>
+              </fieldset>
             </form>
           </div>
         </div>
@@ -205,6 +212,7 @@
         <div class="settings-tab-panel<%= _tab === 'tautulli' ? ' is-active' : '' %>" data-tab="tautulli">
           <div class="dash-panel">
             <form method="post" action="/settings/tautulli" class="settings-form">
+              <fieldset <%= canManageServiceConfig ? '' : 'disabled' %> style="border:0;padding:0;margin:0;min-inline-size:0">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <div class="settings-card">
                 <div class="settings-card-title">App URLs</div>
@@ -222,7 +230,11 @@
                 <div class="settings-card-title">Tautulli Access</div>
                 <div class="settings-card-sub">
                   Curatorr registers the webhook in Tautulli automatically. If auto-registration did not run, use the button below or add it manually.<br />
-                  URL: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= (config.general?.remoteUrl || config.general?.localUrl || 'http://curatorr:7676').replace(/\/$/, '') %>/webhook/tautulli</code><br />
+                  <% if (canViewServiceSecrets && webhookUrls?.tautulli) { %>
+                    URL: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.tautulli %></code><br />
+                  <% } else { %>
+                    URL: visible to admins only<br />
+                  <% } %>
                   Method: POST · Triggers: Playback Start, Stop, Pause, Resume, Watched
                 </div>
                 <div class="plex-settings-fields">
@@ -242,6 +254,7 @@
                 </div>
               </div>
               <button class="primary-button" type="submit">Save Tautulli settings</button>
+              </fieldset>
             </form>
           </div>
         </div>

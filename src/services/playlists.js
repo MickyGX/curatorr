@@ -95,8 +95,9 @@ async function resolveMachineId(ctx, config) {
   if (machineId || !url || !token) return machineId;
 
   const idUrl = buildAppApiUrl(url, '');
-  idUrl.searchParams.set('X-Plex-Token', token);
-  const response = await fetch(idUrl.toString(), { headers: { Accept: 'application/json' } });
+  const response = await fetch(idUrl.toString(), {
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
   if (!response.ok) return '';
   const json = await response.json();
   machineId = json?.MediaContainer?.machineIdentifier || '';
@@ -122,7 +123,9 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
   const base = url.replace(/\/$/, '');
   if (existing && !existing.plexPlaylistId) {
     try {
-      const searchRes = await fetch(`${base}/playlists?playlistType=audio&X-Plex-Token=${token}`, { headers: { Accept: 'application/json' } });
+      const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
+        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
       if (searchRes.ok) {
         const searchJson = await searchRes.json();
         const match = (searchJson?.MediaContainer?.Metadata || []).find((p) => p.title === playlistTitle);
@@ -145,9 +148,10 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
   createUrl.searchParams.set('title', playlistTitle);
   createUrl.searchParams.set('smart', '0');
   createUrl.searchParams.set('uri', `server://${machineId}/com.plexapp.plugins.library`);
-  createUrl.searchParams.set('X-Plex-Token', token);
-
-  const response = await fetch(createUrl.toString(), { method: 'POST', headers: { Accept: 'application/json' } });
+  const response = await fetch(createUrl.toString(), {
+    method: 'POST',
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
   if (!response.ok) throw new Error(`Create playlist failed: HTTP ${response.status}`);
   const json = await response.json();
   const plexPlaylistId = String(json?.MediaContainer?.Metadata?.[0]?.ratingKey || '').trim();
@@ -175,16 +179,20 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
   if (!base || !token) throw new Error('Plex is not configured for playlist sync');
 
   const clearUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
-  clearUrl.searchParams.set('X-Plex-Token', token);
-  await fetch(clearUrl.toString(), { method: 'DELETE', headers: { Accept: 'application/json' } });
+  await fetch(clearUrl.toString(), {
+    method: 'DELETE',
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
 
   for (let i = 0; i < ratingKeys.length; i += 100) {
     const batch = ratingKeys.slice(i, i + 100);
     const uri = `server://${machineId}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
     const addUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
     addUrl.searchParams.set('uri', uri);
-    addUrl.searchParams.set('X-Plex-Token', token);
-    const response = await fetch(addUrl.toString(), { method: 'PUT', headers: { Accept: 'application/json' } });
+    const response = await fetch(addUrl.toString(), {
+      method: 'PUT',
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
     if (!response.ok) throw new Error(`Add playlist items failed: HTTP ${response.status}`);
   }
 }
@@ -393,9 +401,10 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
   createUrl.searchParams.set('title', playlistTitle);
   createUrl.searchParams.set('smart', '0');
   createUrl.searchParams.set('uri', `server://${machineId}/com.plexapp.plugins.library`);
-  createUrl.searchParams.set('X-Plex-Token', token);
-
-  const res = await fetch(createUrl.toString(), { method: 'POST', headers: { Accept: 'application/json' } });
+  const res = await fetch(createUrl.toString(), {
+    method: 'POST',
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
   if (!res.ok) throw new Error(`Create playlist failed: HTTP ${res.status}`);
   const json = await res.json();
   const plexPlaylistId = String(json?.MediaContainer?.Metadata?.[0]?.ratingKey || '').trim();
@@ -428,7 +437,9 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   let machineId = storedMid;
   if (!machineId) {
     try {
-      const r = await fetch(`${url.replace(/\/$/, '')}?X-Plex-Token=${adminToken}`, { headers: { Accept: 'application/json' } });
+      const r = await fetch(url.replace(/\/$/, ''), {
+        headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }),
+      });
       if (r.ok) machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
     } catch { /* non-fatal */ }
   }
@@ -650,7 +661,9 @@ export function createPlaylistService(ctx) {
     let machineId = storedMid;
     if (!machineId) {
       try {
-        const r = await fetch(`${url.replace(/\/$/, '')}?X-Plex-Token=${adminToken}`, { headers: { Accept: 'application/json' } });
+        const r = await fetch(url.replace(/\/$/, ''), {
+          headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }),
+        });
         if (r.ok) machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
       } catch { /* non-fatal */ }
     }

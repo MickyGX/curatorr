@@ -24,7 +24,7 @@ import { runTautulliDailySync } from './services/tautulli-sync.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
+export const app = express();
 
 // ─── Environment ─────────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ const MAX_USER_AVATAR_BYTES = 2 * 1024 * 1024;
 const USER_AVATAR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const HTTP_ACCESS_LOGS = parseEnvFlag(process.env.HTTP_ACCESS_LOGS, true);
 const HTTP_ACCESS_LOGS_SKIP_STATIC = parseEnvFlag(process.env.HTTP_ACCESS_LOGS_SKIP_STATIC, false);
+const WEBHOOK_SECRET_ENV = String(process.env.WEBHOOK_SECRET || '').trim();
 const LOG_BUFFER = [];
 const LOG_PATH = process.env.LOG_PATH || path.join(DATA_DIR, 'logs.json');
 const VERSION_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -268,6 +269,14 @@ function normalizeBaseUrl(value, options = {}) {
   } catch (err) { return ''; }
 }
 
+function buildPlexAuthHeaders(token, extraHeaders = {}) {
+  const normalizedToken = String(token || '').trim();
+  return {
+    ...(normalizedToken ? { 'X-Plex-Token': normalizedToken } : {}),
+    ...extraHeaders,
+  };
+}
+
 function resolvePublicBaseUrl(req) {
   try {
     const proto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim() || req?.protocol || 'http';
@@ -275,6 +284,28 @@ function resolvePublicBaseUrl(req) {
     if (host) return `${proto}://${host}`;
   } catch (err) { /* ignore */ }
   return BASE_URL;
+}
+
+function getWebhookSharedSecret(config = loadConfig()) {
+  if (WEBHOOK_SECRET_ENV) return WEBHOOK_SECRET_ENV;
+  return String(config?.webhooks?.sharedSecret || '').trim();
+}
+
+function getConfiguredWebhookBaseUrl(config = loadConfig()) {
+  const explicit = normalizeBaseUrl(String(config?.tautulli?.curatorrUrl || '').trim());
+  if (explicit) return explicit;
+  const remote = normalizeBaseUrl(String(config?.general?.remoteUrl || '').trim());
+  if (remote) return remote;
+  const local = normalizeBaseUrl(String(config?.general?.localUrl || '').trim());
+  if (local) return local;
+  return normalizeBaseUrl(BASE_URL) || BASE_URL;
+}
+
+function buildConfiguredWebhookUrl(config, webhookPath) {
+  const url = buildAppApiUrl(getConfiguredWebhookBaseUrl(config), webhookPath);
+  const secret = getWebhookSharedSecret(config);
+  if (secret) url.searchParams.set('key', secret);
+  return url.toString();
 }
 
 // ─── Version ──────────────────────────────────────────────────────────────────
@@ -529,6 +560,7 @@ const DEFAULT_JOBS_CONFIG = {
 
 const DEFAULT_CONFIG = {
   wizard: { completed: false },
+  webhooks: { sharedSecret: '' },
   plex: { url: '', token: '', machineId: '', libraries: [] },
   tautulli: { url: '', apiKey: '' },
   lidarr: { url: '', localUrl: '', remoteUrl: '', apiKey: '', ...DEFAULT_LIDARR_AUTOMATION_SETTINGS },
@@ -562,6 +594,23 @@ function saveConfig(config) {
   const tmpPath = CONFIG_PATH + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2));
   fs.renameSync(tmpPath, CONFIG_PATH);
+}
+
+function ensureWebhookSharedSecret() {
+  if (WEBHOOK_SECRET_ENV) return WEBHOOK_SECRET_ENV;
+  const config = loadConfig();
+  const existing = String(config?.webhooks?.sharedSecret || '').trim();
+  if (existing) return existing;
+  const sharedSecret = crypto.randomBytes(24).toString('hex');
+  saveConfig({
+    ...config,
+    webhooks: {
+      ...(config?.webhooks && typeof config.webhooks === 'object' ? config.webhooks : {}),
+      sharedSecret,
+    },
+  });
+  console.warn('[security] Generated a webhook secret. Reconfigure Plex/Tautulli webhook URLs if this is an existing deployment.');
+  return sharedSecret;
 }
 
 // ─── User management (local) ─────────────────────────────────────────────────
@@ -1318,8 +1367,9 @@ async function ensureKeypair() {
 
 async function fetchPlexLibraries(plexUrl, token) {
   const url = buildAppApiUrl(plexUrl, 'library/sections');
-  url.searchParams.set('X-Plex-Token', token);
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), {
+    headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
   if (!res.ok) throw new Error(`Plex library fetch failed (${res.status})`);
   const json = await res.json();
   return (json?.MediaContainer?.Directory || []).map((d) => ({
@@ -1337,8 +1387,9 @@ async function fetchPlexMusicLibraries(plexUrl, token) {
 
 async function fetchPlexPlaylistsForToken(plexUrl, token) {
   const url = buildAppApiUrl(plexUrl, 'playlists?playlistType=audio');
-  url.searchParams.set('X-Plex-Token', token);
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const res = await fetch(url.toString(), {
+    headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+  });
   if (!res.ok) return [];
   const json = await res.json();
   return (json?.MediaContainer?.Metadata || []).map((pl) => ({
@@ -1483,7 +1534,10 @@ const _routeCtx = {
   updateUserLogins,
   resolvePublicBaseUrl,
   buildAppApiUrl,
+  buildConfiguredWebhookUrl,
+  getWebhookSharedSecret,
   normalizeBaseUrl,
+  buildPlexAuthHeaders,
   normalizeIdentityList,
   normalizeLidarrAutomationScope,
   resolveLidarrAutomationSettings,
@@ -1565,106 +1619,132 @@ const _routeCtx = {
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 
-async function start() {
+let server = null;
+let started = false;
+
+export async function start() {
+  if (server) return server;
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  // Initialize SQLite DB
-  const db = initDb(DB_PATH);
-  _routeCtx.db = db;
-  _routeCtx.recommendationService = createRecommendationService(_routeCtx);
-  _routeCtx.lidarrService = createLidarrService(_routeCtx);
-  _routeCtx.playlistService = createPlaylistService(_routeCtx);
+  if (!started) {
+    // Initialize SQLite DB
+    const db = initDb(DB_PATH);
+    _routeCtx.db = db;
+    _routeCtx.recommendationService = createRecommendationService(_routeCtx);
+    _routeCtx.lidarrService = createLidarrService(_routeCtx);
+    _routeCtx.playlistService = createPlaylistService(_routeCtx);
 
-  // Middleware: redirect Plex users who haven't completed the personal wizard.
-  // Locally created Curatorr users can still launch it manually if they want.
-  _routeCtx.requireUserWizardComplete = (req, res, next) => {
-    if (!req.session?.user) return next();
-    if (String(req.session.user.source || '').trim().toLowerCase() !== 'plex') return next();
-    const userId = req.session.user.username;
-    const prefs = getUserPreferences(db, userId);
-    if (!prefs.userWizardCompleted) return res.redirect('/wizard/user');
-    return next();
-  };
+    // Middleware: redirect Plex users who haven't completed the personal wizard.
+    // Locally created Curatorr users can still launch it manually if they want.
+    _routeCtx.requireUserWizardComplete = (req, res, next) => {
+      if (!req.session?.user) return next();
+      if (String(req.session.user.source || '').trim().toLowerCase() !== 'plex') return next();
+      const userId = req.session.user.username;
+      const prefs = getUserPreferences(db, userId);
+      if (!prefs.userWizardCompleted) return res.redirect('/wizard/user');
+      return next();
+    };
 
-  // Ensure Ed25519 keypair for Plex OAuth
-  await ensureKeypair();
+    // Ensure Ed25519 keypair for Plex OAuth
+    await ensureKeypair();
 
-  // Load persisted logs
-  loadLogsFromDisk(resolveLogSettings(loadConfig()));
+    // Load persisted logs
+    loadLogsFromDisk(resolveLogSettings(loadConfig()));
+    ensureWebhookSharedSecret();
 
-  // Create job service and start scheduled jobs (if wizard is complete)
-  const _jobFunctions = {
-    masterTrackRefresh: () => refreshMasterTrackCache(_routeCtx),
-    smartPlaylistSync: async () => {
-      const userIds = getAllUserIds(db);
-      for (const userId of userIds) {
-        const prefs = getUserPreferences(db, userId);
-        if (!prefs.userWizardCompleted) continue;
-        await rebuildSmartPlaylist(_routeCtx, userId);
-        await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
-        await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
-        const globalPlaylists = (loadConfig().globalPlaylists || []).filter((p) => p.enabled);
-        for (const gp of globalPlaylists) {
-          await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+    // Create job service and start scheduled jobs (if wizard is complete)
+    const _jobFunctions = {
+      masterTrackRefresh: () => refreshMasterTrackCache(_routeCtx),
+      smartPlaylistSync: async () => {
+        const userIds = getAllUserIds(db);
+        for (const userId of userIds) {
+          const prefs = getUserPreferences(db, userId);
+          if (!prefs.userWizardCompleted) continue;
+          await rebuildSmartPlaylist(_routeCtx, userId);
+          await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
+          await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
+          const globalPlaylists = (loadConfig().globalPlaylists || []).filter((p) => p.enabled);
+          for (const gp of globalPlaylists) {
+            await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+          }
         }
-      }
-    },
-    tautulliDailySync: () => runTautulliDailySync(_routeCtx),
-    lidarrReviewArtists: async () => {
-      await _routeCtx.lidarrService?.autoQueueSuggestedArtists({ perUserLimit: 1 });
-      return _routeCtx.lidarrService?.reviewDueArtists({ limit: 20 });
-    },
-    lidarrProcessQueue: () => _routeCtx.lidarrService?.processQueuedRequests({ limit: 10 }),
-    dailyMixSync: async () => {
-      const userIds = getAllUserIds(db);
-      for (const userId of userIds) {
-        const prefs = getUserPreferences(db, userId);
-        if (!prefs.userWizardCompleted) continue;
-        await _routeCtx.playlistService.syncDailyMix(userId).catch(() => {});
-      }
-    },
-  };
-  _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
+      },
+      tautulliDailySync: () => runTautulliDailySync(_routeCtx),
+      lidarrReviewArtists: async () => {
+        await _routeCtx.lidarrService?.autoQueueSuggestedArtists({ perUserLimit: 1 });
+        return _routeCtx.lidarrService?.reviewDueArtists({ limit: 20 });
+      },
+      lidarrProcessQueue: () => _routeCtx.lidarrService?.processQueuedRequests({ limit: 10 }),
+      dailyMixSync: async () => {
+        const userIds = getAllUserIds(db);
+        for (const userId of userIds) {
+          const prefs = getUserPreferences(db, userId);
+          if (!prefs.userWizardCompleted) continue;
+          await _routeCtx.playlistService.syncDailyMix(userId).catch(() => {});
+        }
+      },
+    };
+    _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
 
-  const config0 = loadConfig();
-  if (config0.wizard?.completed) {
-    _routeCtx.jobService.startAll(true); // start intervals + run each job immediately once
+    const config0 = loadConfig();
+    if (config0.wizard?.completed) {
+      _routeCtx.jobService.startAll(true); // start intervals + run each job immediately once
+    }
+
+    // Register all routes
+    registerApiUtil(app, _routeCtx);
+    registerAuth(app, _routeCtx);
+    registerApiPlex(app, _routeCtx);
+    registerWizard(app, _routeCtx);
+    registerPages(app, _routeCtx);
+    registerApiMusic(app, _routeCtx);
+    registerWebhooks(app, _routeCtx);
+    registerSettings(app, _routeCtx);
+
+    // 404 handler
+    app.use((req, res) => {
+      if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found.' });
+      return res.status(404).render('error', { title: 'Not Found', message: 'Page not found.', status: 404 });
+    });
+
+    // Error handler
+    app.use((err, req, res, _next) => {
+      pushLog({ level: 'error', app: 'system', action: 'unhandled', message: safeMessage(err) });
+      if (req.path.startsWith('/api/')) return res.status(500).json({ error: 'Internal server error.' });
+      return res.status(500).render('error', { title: 'Error', message: 'An unexpected error occurred.', status: 500 });
+    });
+
+    started = true;
   }
 
-  // Register all routes
-  registerApiUtil(app, _routeCtx);
-  registerAuth(app, _routeCtx);
-  registerApiPlex(app, _routeCtx);
-  registerWizard(app, _routeCtx);
-  registerPages(app, _routeCtx);
-  registerApiMusic(app, _routeCtx);
-  registerWebhooks(app, _routeCtx);
-  registerSettings(app, _routeCtx);
-
-  // 404 handler
-  app.use((req, res) => {
-    if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found.' });
-    return res.status(404).render('error', { title: 'Not Found', message: 'Page not found.', status: 404 });
+  await new Promise((resolve, reject) => {
+    const listener = app.listen(PORT, () => {
+      const config = loadConfig();
+      console.log(`[curatorr] v${APP_VERSION} listening on port ${PORT}`);
+      console.log(`[curatorr] Base URL: ${BASE_URL}`);
+      if (!config?.wizard?.completed) {
+        console.log('[curatorr] Setup wizard not complete — visit /wizard to get started.');
+      }
+      resolve();
+    });
+    listener.on('error', reject);
+    server = listener;
   });
 
-  // Error handler
-  app.use((err, req, res, _next) => {
-    pushLog({ level: 'error', app: 'system', action: 'unhandled', message: safeMessage(err) });
-    if (req.path.startsWith('/api/')) return res.status(500).json({ error: 'Internal server error.' });
-    return res.status(500).render('error', { title: 'Error', message: 'An unexpected error occurred.', status: 500 });
-  });
-
-  app.listen(PORT, () => {
-    const config = loadConfig();
-    console.log(`[curatorr] v${APP_VERSION} listening on port ${PORT}`);
-    console.log(`[curatorr] Base URL: ${BASE_URL}`);
-    if (!config?.wizard?.completed) {
-      console.log('[curatorr] Setup wizard not complete — visit /wizard to get started.');
-    }
-  });
+  return server;
 }
 
-start().catch((err) => {
-  console.error('[curatorr] Fatal startup error:', err);
-  process.exit(1);
-});
+export async function stop() {
+  if (!server) return;
+  await new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  server = null;
+}
+
+if (process.env.CURATORR_DISABLE_AUTOSTART !== '1') {
+  start().catch((err) => {
+    console.error('[curatorr] Fatal startup error:', err);
+    process.exit(1);
+  });
+}
