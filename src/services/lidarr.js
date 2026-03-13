@@ -19,6 +19,10 @@ import {
 
 export const DEFAULT_LIDARR_AUTOMATION_SETTINGS = {
   autoAddArtists: false,
+  autoAddQuotas: {
+    weeklyArtists: 1,
+    weeklyAlbums: 1,
+  },
   autoTriggerManualSearch: false,
   manualSearchFallbackAttempts: 2,
   manualSearchFallbackHours: 24,
@@ -35,6 +39,17 @@ export const DEFAULT_LIDARR_AUTOMATION_SETTINGS = {
   },
 };
 
+const CURATORR_LIDARR_TAGS = {
+  manual: {
+    artist: 'curatorr-manual-artist',
+    album: 'curatorr-manual-album',
+  },
+  automatic: {
+    artist: 'curatorr-auto-artist',
+    album: 'curatorr-auto-album',
+  },
+};
+
 function normalizeNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -42,6 +57,10 @@ function normalizeNumber(value, fallback = 0) {
 
 function normalizeTitle(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function normalizeSourceKind(value) {
+  return String(value || '').trim().toLowerCase() === 'automatic' ? 'automatic' : 'manual';
 }
 
 function parseDateMs(value) {
@@ -167,6 +186,19 @@ export function createLidarrService(ctx) {
     };
   }
 
+  function normalizeAutoAddQuotas(value = {}) {
+    const source = value && typeof value === 'object' ? value : {};
+    const normalizeLimit = (input, fallback) => {
+      const parsed = Number(input);
+      if (!Number.isFinite(parsed)) return fallback;
+      return Math.max(-1, Math.min(999, Math.round(parsed)));
+    };
+    return {
+      weeklyArtists: normalizeLimit(source.weeklyArtists, DEFAULT_LIDARR_AUTOMATION_SETTINGS.autoAddQuotas.weeklyArtists),
+      weeklyAlbums: normalizeLimit(source.weeklyAlbums, DEFAULT_LIDARR_AUTOMATION_SETTINGS.autoAddQuotas.weeklyAlbums),
+    };
+  }
+
   function getSettings() {
     const config = loadConfig();
     const source = (config?.lidarr && typeof config.lidarr === 'object') ? config.lidarr : {};
@@ -177,6 +209,7 @@ export function createLidarrService(ctx) {
       apiKey: String(source.apiKey || '').trim(),
       ...DEFAULT_LIDARR_AUTOMATION_SETTINGS,
       ...source,
+      autoAddQuotas: normalizeAutoAddQuotas(source.autoAddQuotas),
       roleQuotas: normalizeRoleQuotas(source.roleQuotas),
     };
   }
@@ -382,6 +415,56 @@ export function createLidarrService(ctx) {
       weeklyArtists: buildMetric(quota.weeklyArtists, artistUsed),
       weeklyAlbums: buildMetric(quota.weeklyAlbums, albumUsed),
     };
+  }
+
+  function getAutoAddQuota(usage = {}) {
+    const settings = getSettings();
+    const autoQuotas = settings.autoAddQuotas || DEFAULT_LIDARR_AUTOMATION_SETTINGS.autoAddQuotas;
+    const autoArtistUsed = Math.max(0, Number(usage.auto_artists || 0));
+    const autoAlbumUsed = Math.max(0, Number(usage.auto_albums || 0));
+    const buildMetric = (limit, used) => {
+      const normalizedLimit = Number(limit);
+      const unlimited = normalizedLimit < 0;
+      return {
+        used,
+        limit: unlimited ? -1 : normalizedLimit,
+        unlimited,
+        remaining: unlimited ? -1 : Math.max(0, normalizedLimit - used),
+      };
+    };
+    return {
+      weeklyArtists: buildMetric(autoQuotas.weeklyArtists, autoArtistUsed),
+      weeklyAlbums: buildMetric(autoQuotas.weeklyAlbums, autoAlbumUsed),
+    };
+  }
+
+  function assertAutoAddQuotaAvailable(usage = {}, requested = {}) {
+    const quota = getAutoAddQuota(usage);
+    const artistsRequested = Math.max(0, Number(requested.artists || 0));
+    const albumsRequested = Math.max(0, Number(requested.albums || 0));
+    if (!quota.weeklyArtists.unlimited && quota.weeklyArtists.used + artistsRequested > quota.weeklyArtists.limit) {
+      const err = new Error(`Automatic artist quota reached (${quota.weeklyArtists.used}/${quota.weeklyArtists.limit}).`);
+      err.code = 'AUTO_ARTIST_QUOTA_REACHED';
+      err.quota = quota;
+      throw err;
+    }
+    if (!quota.weeklyAlbums.unlimited && quota.weeklyAlbums.used + albumsRequested > quota.weeklyAlbums.limit) {
+      const err = new Error(`Automatic album quota reached (${quota.weeklyAlbums.used}/${quota.weeklyAlbums.limit}).`);
+      err.code = 'AUTO_ALBUM_QUOTA_REACHED';
+      err.quota = quota;
+      throw err;
+    }
+    return quota;
+  }
+
+  function getPendingAutoAddReservations(userPlexId) {
+    return listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 500 })
+      .filter((request) => request.requestKind === 'artist_album' && request.detail?.autoAdd === true)
+      .reduce((acc, request) => {
+        acc.artists += 1;
+        acc.albums += 1;
+        return acc;
+      }, { artists: 0, albums: 0 });
   }
 
   function assertQuotaAvailable(role, usage = {}, requested = {}) {
@@ -693,6 +776,150 @@ export function createLidarrService(ctx) {
     return result;
   }
 
+  async function listTags(options = {}) {
+    const timeoutMs = Number(options.timeoutMs || 10000);
+    const list = await request('/tag', {
+      method: 'GET',
+      timeoutMs,
+    });
+    return Array.isArray(list) ? list : [];
+  }
+
+  async function ensureTag(tagName, options = {}) {
+    const label = String(tagName || '').trim();
+    if (!label) return null;
+    const timeoutMs = Number(options.timeoutMs || 10000);
+    const existingTags = await listTags({ timeoutMs });
+    const existing = existingTags.find((tag) => normalizeTitle(tag?.label) === normalizeTitle(label));
+    if (existing) return Number(existing.id || 0) || null;
+    const created = await request('/tag', {
+      method: 'POST',
+      timeoutMs,
+      body: JSON.stringify({ label }),
+    });
+    return Number(created?.id || 0) || null;
+  }
+
+  async function ensureTagIds(tagNames = [], options = {}) {
+    const uniqueNames = [...new Set((Array.isArray(tagNames) ? tagNames : [])
+      .map((name) => String(name || '').trim())
+      .filter(Boolean))];
+    if (!uniqueNames.length) return [];
+    const ids = [];
+    for (const tagName of uniqueNames) {
+      const id = await ensureTag(tagName, options);
+      if (Number(id || 0) > 0) ids.push(Number(id));
+    }
+    return [...new Set(ids)];
+  }
+
+  async function addArtistTags(artistId, tagNames = [], options = {}) {
+    const id = Number(artistId || 0);
+    if (!id) return null;
+    const timeoutMs = Number(options.timeoutMs || 15000);
+    const tagIds = await ensureTagIds(tagNames, { timeoutMs });
+    if (!tagIds.length) return null;
+    try {
+      return await request('/artist/editor', {
+        method: 'PUT',
+        timeoutMs,
+        body: JSON.stringify({
+          artistIds: [id],
+          tags: tagIds,
+          applyTags: 'add',
+        }),
+      });
+    } catch (editorErr) {
+      const artist = options.artist && typeof options.artist === 'object'
+        ? options.artist
+        : await getArtist(id, { timeoutMs });
+      if (!artist) throw editorErr;
+      const existingTags = Array.isArray(artist?.tags)
+        ? artist.tags.map((value) => Number(value || 0)).filter((value) => value > 0)
+        : [];
+      return request('/artist', {
+        method: 'PUT',
+        timeoutMs,
+        body: JSON.stringify({
+          ...artist,
+          tags: [...new Set([...existingTags, ...tagIds])],
+        }),
+      });
+    }
+  }
+
+  async function addAlbumTags(albumId, tagNames = [], options = {}) {
+    const id = Number(albumId || 0);
+    if (!id) return null;
+    const timeoutMs = Number(options.timeoutMs || 15000);
+    const tagIds = await ensureTagIds(tagNames, { timeoutMs });
+    if (!tagIds.length) return null;
+    try {
+      return await request('/album/editor', {
+        method: 'PUT',
+        timeoutMs,
+        body: JSON.stringify({
+          albumIds: [id],
+          tags: tagIds,
+          applyTags: 'add',
+        }),
+      });
+    } catch (editorErr) {
+      const album = options.album && typeof options.album === 'object'
+        ? options.album
+        : await getAlbum(id, { timeoutMs });
+      if (!album) throw editorErr;
+      const existingTags = Array.isArray(album?.tags)
+        ? album.tags.map((value) => Number(value || 0)).filter((value) => value > 0)
+        : [];
+      return request('/album', {
+        method: 'PUT',
+        timeoutMs,
+        body: JSON.stringify({
+          ...album,
+          tags: [...new Set([...existingTags, ...tagIds])],
+        }),
+      });
+    }
+  }
+
+  async function tagCuratorrManagedItems(options = {}) {
+    const sourceKind = normalizeSourceKind(options.sourceKind);
+    const tagNames = CURATORR_LIDARR_TAGS[sourceKind] || CURATORR_LIDARR_TAGS.manual;
+    const artistId = Number(options.artistId || 0);
+    const albumId = Number(options.albumId || 0);
+    const tagArtist = options.tagArtist === true && artistId > 0;
+    const tagAlbum = options.tagAlbum === true && albumId > 0;
+    if (!tagArtist && !tagAlbum) return { ok: true, taggedArtist: false, taggedAlbum: false };
+
+    const tasks = [];
+    if (tagArtist) {
+      tasks.push(
+        addArtistTags(artistId, [tagNames.artist], { timeoutMs: 15000 }).then(() => ({ kind: 'artist', ok: true })).catch((err) => ({ kind: 'artist', ok: false, err }))
+      );
+    }
+    if (tagAlbum) {
+      tasks.push(
+        addAlbumTags(albumId, [tagNames.album], { timeoutMs: 15000 }).then(() => ({ kind: 'album', ok: true })).catch((err) => ({ kind: 'album', ok: false, err }))
+      );
+    }
+    const results = await Promise.all(tasks);
+    results.filter((result) => !result.ok).forEach((result) => {
+      logEvent('warn', 'tag.apply.error', `Failed to apply Curatorr ${result.kind} tag in Lidarr`, {
+        sourceKind,
+        artistId: tagArtist ? artistId : null,
+        albumId: tagAlbum ? albumId : null,
+        error: safeMessage(result.err),
+        code: result.err?.code || '',
+      });
+    });
+    return {
+      ok: results.every((result) => result.ok),
+      taggedArtist: results.some((result) => result.kind === 'artist' && result.ok),
+      taggedAlbum: results.some((result) => result.kind === 'album' && result.ok),
+    };
+  }
+
   async function triggerAlbumSearch(albumIds = []) {
     const ids = (Array.isArray(albumIds) ? albumIds : [])
       .map((value) => Number(value || 0))
@@ -988,6 +1215,11 @@ export function createLidarrService(ctx) {
     let repairedMonitoring = false;
     if (!liveMonitored) {
       await setAlbumMonitored(albumId, true);
+      await tagCuratorrManagedItems({
+        sourceKind: trackedAlbum?.sourceKind || baseReason?.artistAddedSourceKind || baseReason?.requestSourceKind || 'automatic',
+        albumId,
+        tagAlbum: true,
+      });
       repairedMonitoring = true;
     }
 
@@ -1095,6 +1327,7 @@ export function createLidarrService(ctx) {
     const userPlexId = String(options.userPlexId || '').trim();
     const artistName = String(options.artistName || '').trim();
     const forcedRole = String(options.role || '').trim();
+    const sourceKind = normalizeSourceKind(options.sourceKind || 'automatic');
     const force = options.force === true;
     const now = Date.now();
     if (!db) throw new Error('Database is not initialized');
@@ -1254,6 +1487,11 @@ export function createLidarrService(ctx) {
     try {
       quota = assertQuotaAvailable(role, usage, { albums: 1 });
       await setAlbumMonitored(albumId, true);
+      await tagCuratorrManagedItems({
+        sourceKind,
+        albumId,
+        tagAlbum: true,
+      });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: now });
       quota = getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
       if (settings.autoTriggerManualSearch) {
@@ -1323,6 +1561,7 @@ export function createLidarrService(ctx) {
           ...baseReason,
           manualAction: 'catalog_review',
           manualActionAt: now,
+          requestSourceKind: sourceKind,
           albumWarning: null,
           latestAlbum: {
             albumId,
@@ -1331,6 +1570,8 @@ export function createLidarrService(ctx) {
             releaseDate: String(album.releaseDate || ''),
             selectionReason: nextAlbumPick.selectionReason,
             commandId: Number(searchCommand?.id || 0) || null,
+            sourceKind,
+            addedByCuratorr: true,
           },
           catalogProgress: {
             currentStage: nextProgress.currentStage,
@@ -1533,6 +1774,8 @@ export function createLidarrService(ctx) {
     const foreignArtistId = String(options.foreignArtistId || '').trim();
     const preferredAlbumTitle = String(options.preferredAlbumTitle || '').trim();
     const role = normalizeRole(options.role || resolveAutomationRoleForUserId(userPlexId));
+    const sourceKind = normalizeSourceKind(options.sourceKind);
+    const autoAdd = options.autoAdd === true;
     const requestId = Number(options.requestId || 0) || null;
     if (!userPlexId || !artistName) throw new Error('userPlexId and artistName are required');
 
@@ -1563,6 +1806,7 @@ export function createLidarrService(ctx) {
     const alreadyExists = Boolean(lookupMatch?.added && Number(lookupMatch?.id || 0) > 0);
     const usage = getCurrentLidarrUsage(db, userPlexId).usage || {};
     if (!alreadyExists) quota = assertQuotaAvailable(role, usage, { artists: 1 });
+    if (autoAdd && !alreadyExists) assertAutoAddQuotaAvailable(usage, { artists: 1 });
 
     const lidarrResult = await addArtistFromSuggestion(artistName, {
       searchForMissingAlbums: false,
@@ -1570,7 +1814,15 @@ export function createLidarrService(ctx) {
       lookupArtistResult: lookupMatch,
     });
     if (!lidarrResult.existing) {
+      await tagCuratorrManagedItems({
+        sourceKind,
+        artistId: lidarrResult.artistId,
+        tagArtist: true,
+      });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'artists', amount: 1, createdAt: now });
+      if (autoAdd) {
+        recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'auto_artists', amount: 1, createdAt: now });
+      }
       quota = getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
     }
 
@@ -1597,10 +1849,20 @@ export function createLidarrService(ctx) {
     const albumId = Number(album.id || 0);
     const albumTitle = String(album.title || '').trim();
     const alreadyMonitored = Boolean(album.monitored);
+    const albumSourceKind = pickedAlbum.selectionReason.startsWith('fallback_') ? 'automatic' : sourceKind;
     if (!alreadyMonitored) {
       quota = assertQuotaAvailable(role, getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
+      if (autoAdd) assertAutoAddQuotaAvailable(getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
       await setAlbumMonitored(albumId, true);
+      await tagCuratorrManagedItems({
+        sourceKind: albumSourceKind,
+        albumId,
+        tagAlbum: true,
+      });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: Date.now() });
+      if (autoAdd) {
+        recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'auto_albums', amount: 1, createdAt: Date.now() });
+      }
       quota = getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
     }
 
@@ -1640,9 +1902,12 @@ export function createLidarrService(ctx) {
     const baseReason = existingSuggestion?.reason && typeof existingSuggestion.reason === 'object' ? existingSuggestion.reason : {};
     const nextReason = {
       ...baseReason,
-      manualAction: options.sourceKind === 'automatic' ? 'queued_to_lidarr' : 'manual_add',
+      manualAction: sourceKind === 'automatic' ? 'queued_to_lidarr' : 'manual_add',
       manualActionAt: Date.now(),
+      requestSourceKind: sourceKind,
       lidarrExisting: Boolean(lidarrResult.existing),
+      artistAddedByCuratorr: !lidarrResult.existing,
+      artistAddedSourceKind: !lidarrResult.existing ? sourceKind : (baseReason?.artistAddedSourceKind || ''),
       starterAlbum: {
         albumId,
         albumTitle,
@@ -1651,6 +1916,10 @@ export function createLidarrService(ctx) {
         selectionReason: pickedAlbum.selectionReason,
         alreadyMonitored,
         commandId: Number(searchCommand?.id || 0) || null,
+        sourceKind: albumSourceKind,
+        addedByCuratorr: !alreadyMonitored,
+        requestedAlbumTitle: preferredAlbumTitle || '',
+        fellBackFromManualChoice: Boolean(preferredAlbumTitle) && albumSourceKind === 'automatic',
       },
       albumWarning: null,
     };
@@ -1674,7 +1943,8 @@ export function createLidarrService(ctx) {
           searchCommandId: Number(searchCommand?.id || 0) || null,
           alreadyMonitored,
           fallbackUsed: pickedAlbum.selectionReason.startsWith('fallback_'),
-          requestSource: String(options.sourceKind || 'manual'),
+          requestSource: sourceKind,
+          albumSource: albumSourceKind,
         },
       }, userPlexId);
     }
@@ -1700,9 +1970,10 @@ export function createLidarrService(ctx) {
   async function queueArtistAlbumRequest(options = {}) {
     const userPlexId = String(options.userPlexId || '').trim();
     const artistName = String(options.artistName || '').trim();
+    const sourceKind = normalizeSourceKind(options.sourceKind);
     if (!userPlexId || !artistName) throw new Error('userPlexId and artistName are required');
     const request = enqueueLidarrRequest(db, userPlexId, {
-      sourceKind: String(options.sourceKind || 'manual'),
+      sourceKind,
       requestKind: 'artist_album',
       artistName,
       albumTitle: String(options.preferredAlbumTitle || ''),
@@ -1711,6 +1982,7 @@ export function createLidarrService(ctx) {
       detail: {
         preferredAlbumTitle: String(options.preferredAlbumTitle || ''),
         allowCuratorrFallback: options.allowCuratorrFallback !== false,
+        autoAdd: options.autoAdd === true,
         note: String(options.note || ''),
       },
     });
@@ -1722,6 +1994,8 @@ export function createLidarrService(ctx) {
           queuedRequestId: request.id,
           manualAction: 'queued_for_lidarr',
           manualActionAt: Date.now(),
+          requestSourceKind: sourceKind,
+          queuedSourceKind: sourceKind,
         },
       });
     }
@@ -1738,13 +2012,41 @@ export function createLidarrService(ctx) {
     const perUserLimit = Math.max(1, Math.min(5, Number(options.perUserLimit || 1)));
     const userIds = listUsersWithSuggestedArtists(db);
     const results = [];
+    let existingArtistsByName = null;
+    try {
+      const currentArtists = await listArtists({ pageSize: 2000, timeoutMs: 15000 });
+      existingArtistsByName = new Map(
+        currentArtists
+          .map((artist) => [normalizeTitle(artist?.artistName), artist])
+          .filter(([name]) => Boolean(name))
+      );
+    } catch (err) {
+      logEvent('warn', 'auto_add.artist_list_failed', 'Failed to fetch current Lidarr artist list before auto-queueing.', {
+        error: safeMessage(err),
+      });
+    }
     for (const userPlexId of userIds) {
       const role = resolveAutomationRoleForUserId(userPlexId);
       if (!['admin', 'co-admin', 'power-user'].includes(role)) continue;
       const usage = getCurrentLidarrUsage(db, userPlexId).usage || {};
       const quota = getRoleQuota(role, usage);
+      const pendingReservations = getPendingAutoAddReservations(userPlexId);
+      const autoQuotaUsage = {
+        ...usage,
+        auto_artists: Math.max(0, Number(usage.auto_artists || 0)) + pendingReservations.artists,
+        auto_albums: Math.max(0, Number(usage.auto_albums || 0)) + pendingReservations.albums,
+      };
+      const autoQuota = getAutoAddQuota(autoQuotaUsage);
       if (!quota.weeklyArtists.unlimited && quota.weeklyArtists.used >= quota.weeklyArtists.limit) {
         logEvent('info', 'auto_add.quota_reached', `Auto-add skipped for ${userPlexId}: artist quota reached (${quota.weeklyArtists.used}/${quota.weeklyArtists.limit})`);
+        continue;
+      }
+      if (!autoQuota.weeklyArtists.unlimited && autoQuota.weeklyArtists.used >= autoQuota.weeklyArtists.limit) {
+        logEvent('info', 'auto_add.auto_quota_reached', `Auto-add skipped for ${userPlexId}: automatic artist quota reached (${autoQuota.weeklyArtists.used}/${autoQuota.weeklyArtists.limit})`);
+        continue;
+      }
+      if (!autoQuota.weeklyAlbums.unlimited && autoQuota.weeklyAlbums.used >= autoQuota.weeklyAlbums.limit) {
+        logEvent('info', 'auto_add.auto_album_quota_reached', `Auto-add skipped for ${userPlexId}: automatic album quota reached (${autoQuota.weeklyAlbums.used}/${autoQuota.weeklyAlbums.limit})`);
         continue;
       }
       const candidates = listSuggestedArtists(db, userPlexId, { status: 'suggested', limit: 25 })
@@ -1753,10 +2055,27 @@ export function createLidarrService(ctx) {
       for (const candidate of candidates) {
         if (queued >= perUserLimit) break;
         try {
+          const existingArtist = existingArtistsByName?.get(normalizeTitle(candidate.artistName)) || null;
+          if (existingArtist) {
+            setSuggestedArtistStatus(db, userPlexId, candidate.artistName, 'already_in_lidarr', {
+              reason: {
+                ...(candidate.reason || {}),
+                manualAction: 'already_in_lidarr',
+                manualActionAt: Date.now(),
+                lidarrExisting: true,
+              },
+              lidarrArtistId: Number(existingArtist.id || 0) || null,
+            });
+            logEvent('info', 'auto_add.skip_existing', `Auto-queue skipped for ${userPlexId}: ${candidate.artistName} already exists in Lidarr.`, {
+              lidarrArtistId: Number(existingArtist.id || 0) || null,
+            });
+            continue;
+          }
           const request = await queueArtistAlbumRequest({
             userPlexId,
             artistName: candidate.artistName,
             sourceKind: 'automatic',
+            autoAdd: true,
             allowCuratorrFallback: true,
           });
           logEvent('info', 'auto_add.queued', `Auto-queued artist for ${userPlexId}: ${candidate.artistName}`, {
@@ -1796,11 +2115,17 @@ export function createLidarrService(ctx) {
           foreignArtistId: request.foreignArtistId,
           preferredAlbumTitle: request.albumTitle,
           sourceKind: request.sourceKind,
+          autoAdd: request.detail?.autoAdd === true,
           requestId: request.id,
         });
         results.push({ requestId: request.id, ...result, artistName: request.artistName });
       } catch (err) {
-        if (err?.code === 'ARTIST_QUOTA_REACHED' || err?.code === 'ALBUM_QUOTA_REACHED') {
+        if ([
+          'ARTIST_QUOTA_REACHED',
+          'ALBUM_QUOTA_REACHED',
+          'AUTO_ARTIST_QUOTA_REACHED',
+          'AUTO_ALBUM_QUOTA_REACHED',
+        ].includes(String(err?.code || ''))) {
           updateLidarrRequest(db, request.id, {
             status: 'queued',
             detail: {
@@ -1861,6 +2186,7 @@ export function createLidarrService(ctx) {
     reconcileArtistAcquisition,
     reviewArtistProgression,
     reviewDueArtists,
+    tagCuratorrManagedItems,
     executeArtistAlbumRequest,
     queueArtistAlbumRequest,
     processQueuedRequests,

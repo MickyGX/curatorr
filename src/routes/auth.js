@@ -370,6 +370,7 @@ export function registerAuth(app, ctx) {
 
   app.get('/auth/plex', async (req, res) => {
     try {
+      const popupRequested = String(req.query?.popup || '').trim() === '1';
       // Always use the request's actual Host header for the callback URL so the
       // forwardUrl matches the origin the browser is accessing from.  This keeps
       // the session cookie in scope when Plex redirects back.  Fall back to the
@@ -384,6 +385,7 @@ export function registerAuth(app, ctx) {
         req.session.plexState = plexState;
         req.session.pinIssuedAt = null; // reset any stale pin from a previous flow
         req.session.pinId = null;
+        req.session.plexAuthMode = popupRequested ? 'popup' : 'redirect';
       }
       pushLog({
         level: 'info',
@@ -479,7 +481,16 @@ export function registerAuth(app, ctx) {
       }
 
       await completePlexLogin(req, authToken);
-      res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+      const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
+      if (req.session) delete req.session.plexAuthMode;
+      const redirectTarget = consumePostLoginRedirect(req, '/dashboard');
+      if (authMode === 'popup') {
+        return res.render('plex-auth-complete', {
+          title: 'Plex Login Complete',
+          redirectTarget,
+        });
+      }
+      return res.redirect(redirectTarget);
     } catch (err) {
       pushLog({
         level: 'error',
@@ -494,12 +505,17 @@ export function registerAuth(app, ctx) {
 
   app.get('/api/plex/pin/status', async (req, res) => {
     try {
+      const redirectFallback = normalizePostLoginRedirectPath(req.query?.next, '/dashboard');
       const ip = getClientIp(req);
       const plexPinBlocked = checkPlexPinStatusRateLimit(ip);
       if (plexPinBlocked !== null) {
         return res.status(429).json({ error: `Too many requests. Try again in ${plexPinBlocked} minute${plexPinBlocked === 1 ? '' : 's'}.` });
       }
       recordPlexPinStatusRequest(ip);
+
+      if (req.session?.user) {
+        return res.json({ ok: true, redirect: redirectFallback });
+      }
 
       const pinId = String(req.session?.pinId || '').trim();
       if (!isValidPlexPinId(pinId)) return res.status(400).json({ error: 'Missing pinId.' });
@@ -512,7 +528,7 @@ export function registerAuth(app, ctx) {
       const authToken = await exchangePin(pinId);
       if (!authToken) return res.json({ ok: false });
       await completePlexLogin(req, authToken);
-      return res.json({ ok: true, redirect: consumePostLoginRedirect(req, '/dashboard') });
+      return res.json({ ok: true, redirect: consumePostLoginRedirect(req, redirectFallback) });
     } catch (err) {
       const status = err?.status || 500;
       return res.status(status).json({ error: safeMessage(err) || 'PIN status check failed.' });

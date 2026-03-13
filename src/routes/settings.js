@@ -48,14 +48,35 @@ export function registerSettings(app, ctx) {
     loadDisabledUsers,
     saveDisabledUsers,
     parsePlexUsers,
+    buildAppApiUrl,
     buildConfiguredWebhookUrl,
+    getWebhookSharedSecret,
     LOCAL_AUTH_MIN_PASSWORD,
     db,
     jobService,
     makeGlobalPlaylistId,
     DEFAULT_SMART_PLAYLIST_SETTINGS,
     playlistService,
+    resolvePublicBaseUrl,
   } = ctx;
+
+  function buildReachableWebhookUrl(config, req, webhookPath) {
+    const configuredBase = normalizeBaseUrl(
+      String(
+        config?.tautulli?.curatorrUrl
+        || config?.general?.remoteUrl
+        || config?.general?.localUrl
+        || ''
+      ).trim()
+    );
+    if (configuredBase) return buildConfiguredWebhookUrl(config, webhookPath);
+    const requestBase = normalizeBaseUrl(resolvePublicBaseUrl(req));
+    if (!requestBase) return buildConfiguredWebhookUrl(config, webhookPath);
+    const url = buildAppApiUrl(requestBase, webhookPath);
+    const secret = String(getWebhookSharedSecret(config) || '').trim();
+    if (secret) url.searchParams.set('key', secret);
+    return url.toString();
+  }
 
   // ── GET /settings ─────────────────────────────────────────────────────────
 
@@ -113,8 +134,8 @@ export function registerSettings(app, ctx) {
       actualRole,
       canViewServiceSecrets,
       webhookUrls: canViewServiceSecrets ? {
-        plex: buildConfiguredWebhookUrl(config, 'webhook/plex'),
-        tautulli: buildConfiguredWebhookUrl(config, 'webhook/tautulli'),
+        plex: buildReachableWebhookUrl(config, req, 'webhook/plex'),
+        tautulli: buildReachableWebhookUrl(config, req, 'webhook/tautulli'),
       } : null,
       config: renderedConfig,
       users,
@@ -174,12 +195,15 @@ export function registerSettings(app, ctx) {
     const serverName = String(req.body?.serverName || 'Curatorr').trim() || 'Curatorr';
     const remoteUrl = normalizeBaseUrl(String(req.body?.remoteUrl || '').trim());
     const localUrl = normalizeBaseUrl(String(req.body?.localUrl || '').trim());
+    const playbackSource = String(req.body?.playbackSource || config.general?.playbackSource || 'plex').trim().toLowerCase() === 'tautulli'
+      ? 'tautulli'
+      : 'plex';
     // normalizeBasePath is on ctx only for settings; inline it here
     const rawPath = String(req.body?.basePath || '').trim();
     const basePath = rawPath ? (rawPath.startsWith('/') ? rawPath.replace(/\/+$/, '') : `/${rawPath}`.replace(/\/+$/, '')) : '';
     // Checkbox: present = checked, absent = unchecked (form always submits this field via hidden sentinel)
     const restrictGuests = Boolean(req.body?.restrictGuests);
-    const updated = { ...config, general: { ...config.general, serverName, remoteUrl, localUrl, basePath, restrictGuests } };
+    const updated = { ...config, general: { ...config.general, serverName, remoteUrl, localUrl, basePath, playbackSource, restrictGuests } };
     saveConfig(updated);
     return res.redirect('/settings?tab=general&success=1');
   });
@@ -255,6 +279,10 @@ export function registerSettings(app, ctx) {
         weeklyAlbums: normalizeQuota(req.body?.userWeeklyAlbums, 0),
       },
     };
+    const autoAddQuotas = {
+      weeklyArtists: normalizeQuota(req.body?.autoAddWeeklyArtists, 1),
+      weeklyAlbums: normalizeQuota(req.body?.autoAddWeeklyAlbums, 1),
+    };
     const updated = {
       ...config,
       lidarr: {
@@ -266,6 +294,7 @@ export function registerSettings(app, ctx) {
         automationEnabled,
         autoTriggerManualSearch,
         autoAddArtists,
+        autoAddQuotas,
         manualSearchFallbackAttempts,
         manualSearchFallbackHours,
         minimumReleasePeers,

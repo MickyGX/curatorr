@@ -46,12 +46,124 @@
           </form>
           <div class="login-divider">or sign in with</div>
         <% } %>
-        <a class="plex-button" href="/auth/plex" aria-label="Sign in with Plex">
+        <a class="plex-button" id="plex-login-button" href="/auth/plex" aria-label="Sign in with Plex">
           <img src="/icons/plex-login-white.svg" alt="Sign in with Plex" />
         </a>
       </div>
     </div>
   </main>
+  <script>
+    (function() {
+      var plexButton = document.getElementById("plex-login-button");
+      if (!plexButton) return;
+      var plexPopup = null;
+      var plexPollTimer = null;
+      var plexPollStartedAt = 0;
+
+      function stopPlexPolling() {
+        if (plexPollTimer) {
+          window.clearInterval(plexPollTimer);
+          plexPollTimer = null;
+        }
+      }
+
+      function closePlexPopup() {
+        if (!plexPopup || plexPopup.closed) return;
+        try { plexPopup.close(); } catch (_closeErr) {}
+      }
+
+      async function pollPlexLoginStatus() {
+        try {
+          if (plexPopup && plexPopup.closed) {
+            stopPlexPolling();
+            plexPopup = null;
+            return;
+          }
+
+          var nextTarget = "";
+          try {
+            nextTarget = String(new URLSearchParams(window.location.search).get("next") || "").trim();
+          } catch (_nextErr) {}
+
+          var statusUrl = "/api/plex/pin/status";
+          if (nextTarget) {
+            statusUrl += "?next=" + encodeURIComponent(nextTarget);
+          }
+
+          const res = await fetch(statusUrl, {
+            credentials: "same-origin",
+            headers: { Accept: "application/json" }
+          });
+          if (!res.ok) {
+            if (res.status === 400 || res.status === 401) return;
+            throw new Error("Polling failed with status " + res.status);
+          }
+
+          const data = await res.json();
+          if (!data || data.ok !== true) return;
+
+          stopPlexPolling();
+          closePlexPopup();
+          plexPopup = null;
+          window.location.assign(typeof data.redirect === "string" && data.redirect ? data.redirect : "/dashboard");
+        } catch (_err) {
+          if (Date.now() - plexPollStartedAt > 180000) stopPlexPolling();
+        }
+      }
+
+      function startPlexPolling() {
+        stopPlexPolling();
+        plexPollStartedAt = Date.now();
+        plexPollTimer = window.setInterval(pollPlexLoginStatus, 3000);
+        window.setTimeout(pollPlexLoginStatus, 1200);
+      }
+
+      window.addEventListener("message", function(event) {
+        var payload = event && event.data && typeof event.data === "object" ? event.data : null;
+        if (!payload || payload.type !== "curatorr-plex-auth-complete") return;
+        stopPlexPolling();
+        closePlexPopup();
+        plexPopup = null;
+        var redirect = typeof payload.redirect === "string" && payload.redirect ? payload.redirect : "/dashboard";
+        window.location.assign(redirect);
+      });
+
+      var isEmbedded = document.documentElement.dataset.embedded === "1"
+        || document.documentElement.dataset.launcharrEmbed === "1";
+      if (!isEmbedded) return;
+
+      plexButton.addEventListener("click", function(event) {
+        event.preventDefault();
+        var authUrl = new URL(plexButton.getAttribute("href"), window.location.origin);
+        authUrl.searchParams.set("popup", "1");
+
+        var popup = null;
+        try {
+          popup = window.open(
+            authUrl.toString(),
+            "curatorr-plex-auth",
+            "width=520,height=760,resizable=yes,scrollbars=yes"
+          );
+        } catch (_popupErr) {}
+
+        if (popup && !popup.closed) {
+          plexPopup = popup;
+          startPlexPolling();
+          try { popup.focus(); } catch (_focusErr) {}
+          return;
+        }
+
+        try {
+          if (window.top && window.top !== window) {
+            window.top.location.assign(authUrl.toString());
+            return;
+          }
+        } catch (_topErr) {}
+
+        window.location.assign(authUrl.toString());
+      });
+    })();
+  </script>
   <script src="/starfield-3d.js"></script>
 </body>
 </html>

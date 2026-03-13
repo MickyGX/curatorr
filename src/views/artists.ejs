@@ -74,12 +74,10 @@
                   <span class="cur-cell-actions cur-suggest-actions">
                     <% if ((a.status || 'suggested') === 'suggested' && _lidarrAutomationEligible) { %>
                       <button class="btn btn-sm btn-primary" type="button" onclick="queueSuggestedArtist('<%= encodeURIComponent(a.artistName) %>', this)">Add to Lidarr</button>
+                    <% } else if (a.lidarrStatusKey && a.lidarrStatusKey !== 'suggested') { %>
+                      <span class="cur-panel-meta"><%= a.lidarrStatusDetail || a.lidarrStatusLabel %></span>
                     <% } else if ((a.status || '') === 'quota_blocked') { %>
                       <span class="cur-panel-meta"><%= a.lidarrStatusDetail || 'Weekly quota reached.' %></span>
-                    <% } else if ((a.status || '') === 'queued_for_lidarr') { %>
-                      <span class="cur-panel-meta">Queued for later Lidarr review</span>
-                    <% } else if ((a.status || '') === 'added_to_lidarr') { %>
-                      <span class="cur-panel-meta">Added to Lidarr</span>
                     <% } else if (!_lidarrAutomationEligible) { %>
                       <span class="cur-panel-meta">Lidarr automation is not enabled for this role.</span>
                     <% } %>

@@ -53,7 +53,7 @@
       <% } else if (step === 2) { %>
         <div class="wizard-body">
           <h2 class="wizard-title">Connect Plex</h2>
-          <p class="wizard-desc">Enter your Plex server URL and access token. Curatorr uses this to fetch your music libraries and manage playlists.</p>
+          <p class="wizard-desc">Enter your Plex server URL and access token. Plex powers Now Playing and primary live play tracking, and Curatorr will try to register its Plex webhook automatically once connected.</p>
           <form method="post" action="/wizard/plex" class="wizard-form" id="wsf2">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <div class="wizard-field">
@@ -112,7 +112,7 @@
       <% } else if (step === 4) { %>
         <div class="wizard-body">
           <h2 class="wizard-title">Tautulli <span class="wizard-optional">optional</span></h2>
-          <p class="wizard-desc">Connect Tautulli for detailed playback tracking (recommended). Curatorr will automatically create the webhook notifier in Tautulli.</p>
+          <p class="wizard-desc">Connect Tautulli as an optional daily backup source. Curatorr can create the Tautulli webhook automatically and use scheduled syncs to fill gaps without overwriting plays already recorded by Plex.</p>
           <form method="post" action="/wizard/tautulli" class="wizard-form" id="wsf4">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <div class="wizard-field">
@@ -139,7 +139,7 @@
             <form method="post" action="/wizard/tautulli">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <input type="hidden" name="skip" value="1" />
-              <button type="submit" class="btn btn-secondary">Skip (use Plex webhooks)</button>
+              <button type="submit" class="btn btn-secondary">Skip Tautulli for now</button>
             </form>
             <button type="submit" form="wsf4" class="btn btn-primary">Connect &amp; continue →</button>
           </div>

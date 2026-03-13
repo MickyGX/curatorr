@@ -2895,6 +2895,12 @@ input[type="checkbox"]{
   color:var(--muted);
 }
 
+.settings-toggle-row{
+  display:flex;
+  align-items:center;
+  margin-top:12px;
+}
+
 .settings-toggle--smart-playlist{
   display:inline-flex;
   align-items:center;

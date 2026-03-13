@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><%= title %></title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: #0b0e15;
+        color: #e8eef7;
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+      }
+      .wrap {
+        max-width: 520px;
+        padding: 32px;
+        text-align: center;
+      }
+      .title {
+        font-weight: 700;
+        font-size: 20px;
+        margin-bottom: 8px;
+      }
+      .sub {
+        color: rgba(232, 238, 247, 0.7);
+        font-size: 14px;
+        margin-bottom: 16px;
+      }
+      a {
+        color: #7dd3fc;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="title">Plex login complete</div>
+      <div class="sub">You can close this window if it does not close automatically.</div>
+      <a href="<%= redirectTarget %>">Continue to Curatorr</a>
+    </div>
+    <script>
+      (function() {
+        var redirectTarget = <%- JSON.stringify(redirectTarget) %>;
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({
+              type: "curatorr-plex-auth-complete",
+              redirect: redirectTarget
+            }, window.location.origin);
+          }
+        } catch (_err) {}
+        try {
+          window.close();
+        } catch (_closeErr) {}
+        window.setTimeout(function() {
+          if (!window.closed) window.location.replace(redirectTarget);
+        }, 400);
+      })();
+    </script>
+  </body>
+</html>

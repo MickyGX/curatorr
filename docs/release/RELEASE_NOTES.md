@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.7 (2026-03-13)
+
+- Switched Curatorr to a Plex-first playback model with a selectable live playback source, so Plex webhooks can drive now-playing and play scoring while Tautulli remains available as an optional backup source.
+- Reworked Plex play ingestion to accumulate session progress across play, pause, resume, scrobble, and next-track transitions, reducing false skips, duplicate recent-play rows, and bad track-length assumptions.
+- Brought Tautulli webhook ingestion onto the same session-accumulator model and limited Tautulli daily sync to gap-fill and repair work instead of overwriting plays already recorded by Plex.
+- Added automatic Plex webhook registration during setup and from Settings, including server-side webhook enablement and clearer Plex/Tautulli setup guidance in the UI.
+- Expanded Lidarr recommendation handling with clearer recommendation wording, fixed stale queue states, separate automatic-add caps, manual vs automatic source labels, and Curatorr-applied Lidarr tags for artist and album adds.
+
 ## v0.1.6 (2026-03-12)
 
 - Hardened inbound webhook handling with a shared-secret protected URL for Plex and Tautulli, and surfaced the secure webhook URL directly in Settings.

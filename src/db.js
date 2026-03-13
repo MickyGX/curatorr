@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS open_sessions (
   album_name      TEXT NOT NULL DEFAULT '',
   library_key     TEXT NOT NULL DEFAULT '',
   track_duration_ms INTEGER DEFAULT 0,
+  player_scope    TEXT NOT NULL DEFAULT '',
+  playback_state  TEXT NOT NULL DEFAULT 'playing',
+  last_position_ms INTEGER NOT NULL DEFAULT 0,
+  max_position_ms INTEGER NOT NULL DEFAULT 0,
+  accumulated_ms  INTEGER NOT NULL DEFAULT 0,
+  playing_since   INTEGER,
+  last_event_at   INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
   started_at      INTEGER NOT NULL,
   event_source    TEXT NOT NULL DEFAULT 'tautulli',
   created_at      INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
@@ -363,6 +370,23 @@ export function initDb(dbPath) {
   if (!masterCols.includes('view_count'))
     db.exec('ALTER TABLE master_tracks ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
 
+  const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
+  if (!openSessionCols.includes('player_scope'))
+    db.exec("ALTER TABLE open_sessions ADD COLUMN player_scope TEXT NOT NULL DEFAULT ''");
+  if (!openSessionCols.includes('playback_state'))
+    db.exec("ALTER TABLE open_sessions ADD COLUMN playback_state TEXT NOT NULL DEFAULT 'playing'");
+  if (!openSessionCols.includes('last_position_ms'))
+    db.exec('ALTER TABLE open_sessions ADD COLUMN last_position_ms INTEGER NOT NULL DEFAULT 0');
+  if (!openSessionCols.includes('max_position_ms'))
+    db.exec('ALTER TABLE open_sessions ADD COLUMN max_position_ms INTEGER NOT NULL DEFAULT 0');
+  if (!openSessionCols.includes('accumulated_ms'))
+    db.exec('ALTER TABLE open_sessions ADD COLUMN accumulated_ms INTEGER NOT NULL DEFAULT 0');
+  if (!openSessionCols.includes('playing_since'))
+    db.exec('ALTER TABLE open_sessions ADD COLUMN playing_since INTEGER');
+  if (!openSessionCols.includes('last_event_at'))
+    db.exec('ALTER TABLE open_sessions ADD COLUMN last_event_at INTEGER NOT NULL DEFAULT 0');
+  db.exec('UPDATE open_sessions SET last_event_at = COALESCE(NULLIF(last_event_at, 0), created_at, started_at) WHERE last_event_at = 0');
+
   // system_job_runs has no migrations needed — created fresh via SCHEMA above
 
   return db;
@@ -374,16 +398,34 @@ export function openSession(db, {
   sessionKey, userPlexId, plexRatingKey,
   trackTitle, artistName, albumName, libraryKey,
   trackDurationMs, startedAt, eventSource,
+  playerScope = '',
+  playbackState = 'playing',
+  lastPositionMs = 0,
+  maxPositionMs = 0,
+  accumulatedMs = 0,
+  playingSince = null,
+  lastEventAt = Date.now(),
 }) {
   db.prepare(`
     INSERT OR REPLACE INTO open_sessions
       (session_key, user_plex_id, plex_rating_key, track_title, artist_name,
-       album_name, library_key, track_duration_ms, started_at, event_source)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       album_name, library_key, track_duration_ms, player_scope, playback_state,
+       last_position_ms, max_position_ms, accumulated_ms, playing_since, last_event_at,
+       started_at, event_source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     sessionKey, userPlexId, plexRatingKey,
     trackTitle || '', artistName || '', albumName || '', libraryKey || '',
-    trackDurationMs || 0, startedAt, eventSource || 'tautulli',
+    trackDurationMs || 0,
+    playerScope || '',
+    playbackState || 'playing',
+    Math.max(0, Number(lastPositionMs || 0)),
+    Math.max(0, Number(maxPositionMs || 0)),
+    Math.max(0, Number(accumulatedMs || 0)),
+    playingSince || null,
+    lastEventAt || Date.now(),
+    startedAt,
+    eventSource || 'tautulli',
   );
 }
 
@@ -645,6 +687,247 @@ export function adjustArtistScore(db, { userPlexId, artistName, scoreDelta }) {
   db.prepare(
     'UPDATE artist_stats SET ranking_score = ?, updated_at = ? WHERE artist_name = ? AND user_plex_id = ?',
   ).run(newScore, Date.now(), artistName, userPlexId);
+}
+
+function _eventTime(event) {
+  return Number(event?.ended_at || event?.started_at || Date.now());
+}
+
+function _rebuildTrackSnapshot(existing, events, { songSkipLimit, smartConfig }) {
+  const manualExcluded = Number(existing?.manually_excluded || 0);
+  const manualIncluded = Number(existing?.manually_included || 0);
+  let playCount = 0;
+  let skipCount = 0;
+  let consecutiveSkips = 0;
+  let autoExcluded = 0;
+  let lastPlayedAt = null;
+  let lastSkippedAt = null;
+  let trackTitle = String(existing?.track_title || '').trim();
+  let artistName = String(existing?.artist_name || '').trim();
+  let albumName = String(existing?.album_name || '').trim();
+  let tier = existing?.tier || 'curatorr';
+  let tierWeight = existing?.tier_weight ?? 0;
+
+  for (const event of events) {
+    const eventTier = classifyTier(event.duration_ms || 0, event.track_duration_ms || 0, smartConfig);
+    const isSkip = eventTier === 'skip';
+    const eventAt = _eventTime(event);
+
+    if (event.track_title) trackTitle = event.track_title;
+    if (event.artist_name) artistName = event.artist_name;
+    if (event.album_name) albumName = event.album_name;
+
+    if (isSkip) {
+      skipCount += 1;
+      consecutiveSkips += 1;
+      lastSkippedAt = eventAt;
+      if (!manualIncluded && consecutiveSkips >= songSkipLimit) autoExcluded = 1;
+    } else {
+      playCount += 1;
+      lastPlayedAt = eventAt;
+      const alreadyExcluded = (manualExcluded || autoExcluded) === 1 && manualIncluded !== 1;
+      consecutiveSkips = alreadyExcluded ? consecutiveSkips : Math.max(0, consecutiveSkips - 1);
+    }
+
+    tier = eventTier;
+    tierWeight = _tierWeight(eventTier, smartConfig);
+  }
+
+  return {
+    trackTitle,
+    artistName,
+    albumName,
+    playCount,
+    skipCount,
+    consecutiveSkips,
+    excludedFromSmart: manualIncluded ? 0 : (manualExcluded ? 1 : autoExcluded),
+    manuallyExcluded: manualExcluded,
+    manuallyIncluded: manualIncluded,
+    tier,
+    tierWeight,
+    lastPlayedAt,
+    lastSkippedAt,
+  };
+}
+
+export function rebuildTrackStatsFromEvents(db, {
+  userPlexId, plexRatingKey, songSkipLimit, smartConfig,
+}) {
+  const existing = db.prepare(
+    'SELECT * FROM track_stats WHERE plex_rating_key = ? AND user_plex_id = ?',
+  ).get(plexRatingKey, userPlexId);
+  const events = db.prepare(`
+    SELECT id, track_title, artist_name, album_name, started_at, ended_at, duration_ms, track_duration_ms
+    FROM play_events
+    WHERE user_plex_id = ? AND plex_rating_key = ?
+    ORDER BY started_at ASC, id ASC
+  `).all(userPlexId, plexRatingKey);
+
+  if (!events.length) {
+    if (existing && !existing.manually_excluded && !existing.manually_included) {
+      db.prepare('DELETE FROM track_stats WHERE plex_rating_key = ? AND user_plex_id = ?').run(plexRatingKey, userPlexId);
+    }
+    return null;
+  }
+
+  const snapshot = _rebuildTrackSnapshot(existing, events, { songSkipLimit, smartConfig });
+  const now = Date.now();
+
+  if (existing) {
+    db.prepare(`
+      UPDATE track_stats SET
+        track_title = ?, artist_name = ?, album_name = ?,
+        play_count = ?, skip_count = ?, consecutive_skips = ?,
+        excluded_from_smart = ?, manually_excluded = ?, manually_included = ?,
+        tier = ?, tier_weight = ?,
+        last_played_at = ?, last_skipped_at = ?, updated_at = ?
+      WHERE plex_rating_key = ? AND user_plex_id = ?
+    `).run(
+      snapshot.trackTitle,
+      snapshot.artistName,
+      snapshot.albumName,
+      snapshot.playCount,
+      snapshot.skipCount,
+      snapshot.consecutiveSkips,
+      snapshot.excludedFromSmart,
+      snapshot.manuallyExcluded,
+      snapshot.manuallyIncluded,
+      snapshot.tier,
+      snapshot.tierWeight,
+      snapshot.lastPlayedAt,
+      snapshot.lastSkippedAt,
+      now,
+      plexRatingKey,
+      userPlexId,
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO track_stats
+        (plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+         play_count, skip_count, consecutive_skips, excluded_from_smart,
+         manually_excluded, manually_included, tier, tier_weight,
+         last_played_at, last_skipped_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      plexRatingKey,
+      userPlexId,
+      snapshot.trackTitle,
+      snapshot.artistName,
+      snapshot.albumName,
+      snapshot.playCount,
+      snapshot.skipCount,
+      snapshot.consecutiveSkips,
+      snapshot.excludedFromSmart,
+      snapshot.manuallyExcluded,
+      snapshot.manuallyIncluded,
+      snapshot.tier,
+      snapshot.tierWeight,
+      snapshot.lastPlayedAt,
+      snapshot.lastSkippedAt,
+      now,
+    );
+  }
+
+  return snapshot;
+}
+
+export function rebuildArtistStatsFromEvents(db, { userPlexId, artistName, smartConfig }) {
+  const existing = db.prepare(
+    'SELECT * FROM artist_stats WHERE artist_name = ? AND user_plex_id = ?',
+  ).get(artistName, userPlexId);
+  const events = db.prepare(`
+    SELECT id, started_at, ended_at, duration_ms, track_duration_ms
+    FROM play_events
+    WHERE user_plex_id = ? AND artist_name = ?
+    ORDER BY started_at ASC, id ASC
+  `).all(userPlexId, artistName);
+
+  if (!events.length) {
+    if (existing && !existing.manually_excluded && !existing.manually_included) {
+      db.prepare('DELETE FROM artist_stats WHERE artist_name = ? AND user_plex_id = ?').run(artistName, userPlexId);
+    }
+    return null;
+  }
+
+  const manualExcluded = Number(existing?.manually_excluded || 0);
+  const manualIncluded = Number(existing?.manually_included || 0);
+  let playCount = 0;
+  let skipCount = 0;
+  let consecutiveSkips = 0;
+  let rankingScore = 5.0;
+  let lastPlayedAt = null;
+  let lastSkippedAt = null;
+
+  for (const event of events) {
+    const tier = classifyTier(event.duration_ms || 0, event.track_duration_ms || 0, smartConfig);
+    const weight = _tierWeight(tier, smartConfig);
+    const isSkip = tier === 'skip';
+    const eventAt = _eventTime(event);
+    rankingScore = Math.min(10, Math.max(0, rankingScore + weight));
+    if (isSkip) {
+      skipCount += 1;
+      consecutiveSkips += 1;
+      lastSkippedAt = eventAt;
+    } else {
+      playCount += 1;
+      consecutiveSkips = 0;
+      lastPlayedAt = eventAt;
+    }
+  }
+
+  const now = Date.now();
+  if (existing) {
+    db.prepare(`
+      UPDATE artist_stats SET
+        play_count = ?, skip_count = ?, consecutive_skips = ?,
+        excluded_from_smart = ?, manually_excluded = ?, manually_included = ?,
+        ranking_score = ?, last_played_at = ?, last_skipped_at = ?, updated_at = ?
+      WHERE artist_name = ? AND user_plex_id = ?
+    `).run(
+      playCount,
+      skipCount,
+      consecutiveSkips,
+      manualExcluded ? 1 : 0,
+      manualExcluded,
+      manualIncluded,
+      rankingScore,
+      lastPlayedAt,
+      lastSkippedAt,
+      now,
+      artistName,
+      userPlexId,
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO artist_stats
+        (artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+         excluded_from_smart, manually_excluded, manually_included,
+         ranking_score, last_played_at, last_skipped_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      artistName,
+      userPlexId,
+      playCount,
+      skipCount,
+      consecutiveSkips,
+      manualExcluded ? 1 : 0,
+      manualExcluded,
+      manualIncluded,
+      rankingScore,
+      lastPlayedAt,
+      lastSkippedAt,
+      now,
+    );
+  }
+
+  return {
+    playCount,
+    skipCount,
+    consecutiveSkips,
+    rankingScore,
+    lastPlayedAt,
+    lastSkippedAt,
+  };
 }
 
 // ─── Query helpers ────────────────────────────────────────────────────────────
@@ -1731,8 +2014,13 @@ function _normalizeLidarrRequestRow(row) {
 }
 
 export function listLidarrRequests(db, userPlexId, { statuses = [], limit = 50 } = {}) {
-  const where = ['user_plex_id = ?'];
-  const params = [userPlexId];
+  const where = [];
+  const params = [];
+  const normalizedUserPlexId = String(userPlexId || '').trim();
+  if (normalizedUserPlexId) {
+    where.push('user_plex_id = ?');
+    params.push(normalizedUserPlexId);
+  }
   const wanted = Array.isArray(statuses)
     ? statuses.map((value) => String(value || '').trim()).filter(Boolean)
     : [];
@@ -1744,7 +2032,7 @@ export function listLidarrRequests(db, userPlexId, { statuses = [], limit = 50 }
   return db.prepare(`
     SELECT *
     FROM lidarr_requests
-    WHERE ${where.join(' AND ')}
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY
       CASE
         WHEN status = 'queued' THEN 0

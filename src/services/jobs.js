@@ -29,8 +29,8 @@ export const JOB_DEFS = {
     defaultIntervalMinutes: 1440,
   },
   tautulliDailySync: {
-    label: 'Tautulli History Sync',
-    description: 'Fetches recent play history from Tautulli and backfills any plays missed by real-time webhooks.',
+    label: 'Tautulli Gap-Fill Sync',
+    description: 'Optional backup job that fetches recent Tautulli history and fills in plays missed by Plex webhooks without overwriting Plex-recorded listens.',
     defaultIntervalMinutes: 1440,
   },
 };
@@ -68,7 +68,13 @@ export function createJobService(ctx, jobFunctions) {
     handles[jobId].unref();
   }
 
-  function startAll(runImmediately = false) {
+  function startAll(options = false) {
+    const runImmediately = typeof options === 'boolean'
+      ? options
+      : options?.runImmediately === true;
+    const skipImmediate = new Set(
+      Array.isArray(options?.skipImmediate) ? options.skipImmediate : [],
+    );
     const jobsCfg = loadConfig().jobs || {};
     for (const jobId of Object.keys(JOB_DEFS)) {
       if (!jobFunctions[jobId]) continue;
@@ -77,7 +83,7 @@ export function createJobService(ctx, jobFunctions) {
       const intervalMinutes = Number(cfg.intervalMinutes) || JOB_DEFS[jobId].defaultIntervalMinutes;
       if (enabled) {
         _scheduleOne(jobId, intervalMinutes);
-        if (runImmediately) runJob(jobId).catch(() => {});
+        if (runImmediately && !skipImmediate.has(jobId)) runJob(jobId).catch(() => {});
       }
     }
   }

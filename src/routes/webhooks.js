@@ -6,7 +6,21 @@ import crypto from 'crypto';
 
 // Middleware: capture raw body buffer (only when body not already parsed)
 function readRawBody(req, res, next) {
-  if (req.body !== undefined) return next(); // already parsed by express.json/urlencoded
+  const contentType = String(req.headers?.['content-type'] || '');
+  const isMultipart = /multipart\/form-data/i.test(contentType);
+  const parsedBody = req.body;
+  const hasParsedPayload = Boolean(
+    parsedBody
+    && typeof parsedBody === 'object'
+    && !Buffer.isBuffer(parsedBody)
+    && Object.keys(parsedBody).length > 0,
+  );
+  if (!isMultipart && parsedBody !== undefined) return next();
+  if (isMultipart && hasParsedPayload) return next();
+  if (req.readableEnded) {
+    req.rawBody = Buffer.alloc(0);
+    return next();
+  }
   const chunks = [];
   req.on('data', (c) => chunks.push(c));
   req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
@@ -46,6 +60,55 @@ function resolveWebhookKey(req) {
       || '',
   ).trim();
 }
+
+function inferTautulliTrackDurationMs(body) {
+  const durationMinutesMs = Number(body.duration || 0) * 60 * 1000;
+  const viewOffsetMs = Number(body.view_offset || 0);
+  const progressPct = Number(body.progress_percent || 0);
+  const inferredFromProgressMs = (
+    viewOffsetMs > 0
+    && progressPct > 0
+    && progressPct <= 100
+  ) ? Math.round(viewOffsetMs / (progressPct / 100)) : 0;
+  if (durationMinutesMs > 0 && inferredFromProgressMs > 0) {
+    return Math.min(durationMinutesMs, inferredFromProgressMs);
+  }
+  return inferredFromProgressMs || durationMinutesMs || 0;
+}
+
+function resolvePlexSessionKey(payload, userPlexId, plexRatingKey) {
+  const explicitSessionKey = String(
+    payload?.PlaySessionStateNotification?.sessionKey
+    || payload?.Session?.id
+    || payload?.sessionKey
+    || '',
+  ).trim();
+  if (explicitSessionKey) return `plex-${explicitSessionKey}`;
+
+  const playerUuid = String(payload?.Player?.uuid || '').trim();
+  if (playerUuid) return `plex-${userPlexId}-${playerUuid}-${plexRatingKey}`;
+
+  return `plex-${userPlexId}-${plexRatingKey}`;
+}
+
+function resolvePlexPlayerScope(payload, userPlexId) {
+  const playerUuid = String(payload?.Player?.uuid || '').trim();
+  return playerUuid ? `plex-${userPlexId}-${playerUuid}-` : '';
+}
+
+function resolveTautulliPlayerScope(body, userPlexId) {
+  const playerIdentity = String(
+    body?.machine_id
+      || body?.machineId
+      || body?.player
+      || body?.player_title
+      || body?.device
+      || '',
+  ).trim();
+  return playerIdentity
+    ? `tautulli-${userPlexId}-${playerIdentity}-`
+    : `tautulli-${userPlexId}-`;
+}
 // Both sources emit play/stop/pause/resume events; we deduplicate by session_key.
 // Skip detection: if a track stops before skipThresholdSeconds, it's a skip.
 
@@ -56,8 +119,6 @@ import {
   recordPlayEvent,
   updateTrackStats,
   updateArtistStats,
-  updateTrackTierOnly,
-  adjustArtistScore,
   expireOldSessions,
   resolveUserSmartConfig,
 } from '../db.js';
@@ -108,7 +169,40 @@ async function triggerSmartPlaylistRebuild(ctx, userPlexId) {
 // }
 
 export function registerWebhooks(app, ctx) {
-  const { db, loadConfig, pushLog, safeMessage, getWebhookSharedSecret } = ctx;
+  const {
+    db,
+    loadConfig,
+    pushLog,
+    safeMessage,
+    getWebhookSharedSecret,
+    buildAppApiUrl,
+    buildPlexAuthHeaders,
+  } = ctx;
+  const plexDurationCache = new Map();
+
+  function resolveLivePlaybackSource() {
+    const config = loadConfig();
+    return String(config?.general?.playbackSource || 'plex').trim().toLowerCase() === 'tautulli'
+      ? 'tautulli'
+      : 'plex';
+  }
+
+  function purgeInactiveSourceSessions(activeSource = resolveLivePlaybackSource()) {
+    const activeEventSource = activeSource === 'tautulli' ? 'tautulli' : 'plex_webhook';
+    const stale = db.prepare(
+      'SELECT session_key, event_source FROM open_sessions WHERE event_source != ?',
+    ).all(activeEventSource);
+    if (!stale.length) return 0;
+    db.prepare('DELETE FROM open_sessions WHERE event_source != ?').run(activeEventSource);
+    pushLog({
+      level: 'info',
+      app: 'webhook',
+      action: 'sessions.purged',
+      message: `Purged ${stale.length} stale open session(s) for inactive playback sources.`,
+      meta: { activeSource, purged: stale.map((row) => ({ sessionKey: row.session_key, eventSource: row.event_source })) },
+    });
+    return stale.length;
+  }
 
   function requireWebhookKey(req, res, source) {
     const config = loadConfig();
@@ -125,15 +219,245 @@ export function registerWebhooks(app, ctx) {
     return false;
   }
 
+  async function resolvePlexTrackDurationMs(plexRatingKey, fallbackDurationMs = 0) {
+    const fallback = Math.max(0, Number(fallbackDurationMs || 0));
+    if (fallback > 0) return fallback;
+    const ratingKey = String(plexRatingKey || '').trim();
+    if (!ratingKey) return 0;
+
+    const cached = plexDurationCache.get(ratingKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.durationMs;
+
+    const config = loadConfig();
+    const plexUrl = String(config?.plex?.localUrl || config?.plex?.url || '').trim();
+    const token = String(config?.plex?.token || '').trim();
+    if (!plexUrl || !token) return 0;
+
+    try {
+      const metaUrl = buildAppApiUrl(plexUrl, `library/metadata/${encodeURIComponent(ratingKey)}`);
+      const response = await fetch(metaUrl.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) return 0;
+      const json = await response.json();
+      const durationMs = Math.max(0, Number(json?.MediaContainer?.Metadata?.[0]?.duration || 0));
+      if (durationMs > 0) {
+        plexDurationCache.set(ratingKey, {
+          durationMs,
+          expiresAt: Date.now() + (12 * 60 * 60 * 1000),
+        });
+      }
+      return durationMs;
+    } catch (_err) {
+      return 0;
+    }
+  }
+
+  function saveSessionState(session, fallbackEventSource = 'plex_webhook') {
+    openSession(db, {
+      sessionKey: session.session_key,
+      userPlexId: session.user_plex_id,
+      plexRatingKey: session.plex_rating_key,
+      trackTitle: session.track_title || '',
+      artistName: session.artist_name || '',
+      albumName: session.album_name || '',
+      libraryKey: session.library_key || '',
+      trackDurationMs: Number(session.track_duration_ms || 0),
+      startedAt: Number(session.started_at || Date.now()),
+      eventSource: session.event_source || fallbackEventSource,
+      playerScope: session.player_scope || '',
+      playbackState: session.playback_state || 'playing',
+      lastPositionMs: Number(session.last_position_ms || 0),
+      maxPositionMs: Number(session.max_position_ms || 0),
+      accumulatedMs: Number(session.accumulated_ms || 0),
+      playingSince: Number(session.playing_since || 0) > 0 ? Number(session.playing_since) : null,
+      lastEventAt: Number(session.last_event_at || Date.now()),
+    });
+  }
+
+  function settleSessionProgress(session, endedAt, observedPositionMs = 0) {
+    const observed = Math.max(0, Number(observedPositionMs || 0));
+    const currentStart = Math.max(0, Number(session?.last_position_ms || 0));
+    const currentAccumulated = Math.max(0, Number(session?.accumulated_ms || 0));
+    const currentMax = Math.max(0, Number(session?.max_position_ms || 0));
+    const playingSince = Number(session?.playing_since || 0) > 0 ? Number(session.playing_since) : null;
+
+    let accumulatedMs = currentAccumulated;
+    if (playingSince) {
+      if (observed > 0 || currentStart > 0) {
+        accumulatedMs += Math.max(0, observed - currentStart);
+      } else {
+        accumulatedMs += Math.max(0, Number(endedAt || 0) - playingSince);
+      }
+    }
+
+    const maxPositionMs = Math.max(currentMax, observed, accumulatedMs);
+    return {
+      accumulatedMs,
+      maxPositionMs,
+      lastPositionMs: observed > 0 ? observed : currentStart,
+    };
+  }
+
+  function continueSession(session, {
+    endedAt,
+    observedPositionMs = 0,
+    playbackState = 'playing',
+    trackDurationMs = 0,
+    trackTitle = '',
+    artistName = '',
+    albumName = '',
+  }) {
+    const observed = Math.max(0, Number(observedPositionMs || 0));
+    const settled = settleSessionProgress(session, endedAt, observed);
+    const nextTrackDurationMs = Math.max(
+      Number(session?.track_duration_ms || 0),
+      Number(trackDurationMs || 0),
+    );
+    const nextMaxPositionMs = Math.max(settled.maxPositionMs, observed);
+    const nextLastPositionMs = observed > 0
+      ? observed
+      : Math.max(0, Number(session?.last_position_ms || 0));
+
+    return {
+      ...session,
+      track_title: trackTitle || session?.track_title || '',
+      artist_name: artistName || session?.artist_name || '',
+      album_name: albumName || session?.album_name || '',
+      track_duration_ms: nextTrackDurationMs,
+      playback_state: playbackState,
+      accumulated_ms: settled.accumulatedMs,
+      max_position_ms: nextMaxPositionMs,
+      last_position_ms: nextLastPositionMs,
+      playing_since: playbackState === 'playing' ? Number(endedAt || Date.now()) : null,
+      last_event_at: Number(endedAt || Date.now()),
+    };
+  }
+
+  function recordOrUpdateSessionPlay({
+    session,
+    endedAt,
+    playbackPositionMs = 0,
+    smartSettings,
+    eventSource = 'plex_webhook',
+  }) {
+    if (!session) return { duplicate: true, listenedMs: 0, isSkip: false };
+    const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
+    const songSkipLimit = Number(smartSettings.songSkipLimit) || 3;
+    const completionThresholdMs = (Number(smartSettings.completionThresholdSeconds) || 20) * 1000;
+
+    const settled = settleSessionProgress(session, endedAt, playbackPositionMs);
+    let listenedMs = Math.max(
+      settled.accumulatedMs,
+      settled.maxPositionMs,
+      Math.max(0, Number(playbackPositionMs || 0)),
+    );
+    const resolvedTrackDuration = Math.max(0, Number(session.track_duration_ms || 0));
+    if (resolvedTrackDuration > 0) listenedMs = Math.min(listenedMs, resolvedTrackDuration);
+
+    const isSkip = Boolean(
+      resolvedTrackDuration > 0
+      && listenedMs < skipThresholdMs,
+    );
+
+    const recentCutoff = Date.now() - 10 * 60 * 1000;
+    const existing = db.prepare(`
+      SELECT id, duration_ms
+      FROM play_events
+      WHERE session_key = ?
+        AND plex_rating_key = ?
+        AND ended_at > ?
+        AND started_at >= ?
+      ORDER BY ended_at DESC, id DESC
+      LIMIT 1
+    `).get(
+      session.session_key,
+      session.plex_rating_key,
+      recentCutoff,
+      Number(session.started_at || endedAt) - 60 * 1000,
+    );
+
+    if (existing) {
+      if (listenedMs <= Number(existing.duration_ms || 0)) {
+        closeSession(db, session.session_key);
+        return { duplicate: true, listenedMs, isSkip };
+      }
+      db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ?, track_duration_ms = COALESCE(NULLIF(?, 0), track_duration_ms) WHERE id = ?')
+        .run(listenedMs, endedAt, isSkip ? 1 : 0, resolvedTrackDuration, existing.id);
+    } else {
+      recordPlayEvent(db, {
+        userPlexId: session.user_plex_id,
+        plexRatingKey: session.plex_rating_key,
+        trackTitle: session.track_title || '',
+        artistName: session.artist_name || '',
+        albumName: session.album_name || '',
+        libraryKey: session.library_key || '',
+        startedAt: Number(session.started_at || endedAt),
+        endedAt,
+        durationMs: listenedMs,
+        trackDurationMs: resolvedTrackDuration,
+        isSkip,
+        eventSource,
+        sessionKey: session.session_key,
+      });
+    }
+
+    let effectiveIsSkip = isSkip;
+    if (session.artist_name) {
+      const trackResult = updateTrackStats(db, {
+        userPlexId: session.user_plex_id,
+        plexRatingKey: session.plex_rating_key,
+        trackTitle: session.track_title || '',
+        artistName: session.artist_name || '',
+        albumName: session.album_name || '',
+        listenedMs,
+        trackDurationMs: resolvedTrackDuration,
+        playedAt: endedAt,
+        songSkipLimit,
+        smartConfig: smartSettings,
+      });
+      effectiveIsSkip = trackResult.isSkip;
+      updateArtistStats(db, {
+        userPlexId: session.user_plex_id,
+        artistName: session.artist_name || '',
+        isSkip: effectiveIsSkip,
+        playedAt: endedAt,
+        scoreDelta: trackResult.scoreDelta,
+      });
+    }
+
+    closeSession(db, session.session_key);
+    const isCompletion = !effectiveIsSkip
+      && resolvedTrackDuration > 0
+      && listenedMs >= resolvedTrackDuration - completionThresholdMs;
+    if (effectiveIsSkip || isCompletion) scheduleRebuild(ctx, session.user_plex_id);
+    return { duplicate: false, listenedMs, isSkip: effectiveIsSkip };
+  }
+
   // Expire stale open sessions on startup and periodically
+  purgeInactiveSourceSessions();
   expireOldSessions(db);
-  setInterval(() => expireOldSessions(db), 30 * 60 * 1000).unref();
+  setInterval(() => {
+    purgeInactiveSourceSessions();
+    expireOldSessions(db);
+  }, 30 * 60 * 1000).unref();
 
   // ── Tautulli ─────────────────────────────────────────────────────────────
 
   app.post('/webhook/tautulli', (req, res) => {
     try {
       if (!requireWebhookKey(req, res, 'tautulli')) return;
+      if (resolveLivePlaybackSource() !== 'tautulli') {
+        purgeInactiveSourceSessions('plex');
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'tautulli.ignored',
+          message: 'Ignored Tautulli webhook because live playback source is set to Plex.',
+        });
+        return res.json({ ok: true, ignored: 'disabled_source' });
+      }
       const body = req.body || {};
 
       // Only process music tracks
@@ -153,93 +477,200 @@ export function registerWebhooks(app, ctx) {
       const albumName = String(body.parent_title || '').trim();
       const libraryKey = String(body.section_id || '').trim();
 
-      // Tautulli {duration} returns duration in minutes (integer); convert to ms
-      const trackDurationMs = Number(body.duration || 0) * 60 * 1000;
+      // Tautulli's duration field is coarse; progress_percent + view_offset gives a
+      // better real-time estimate for near-complete tracks, so prefer the smaller
+      // plausible value when both are present.
+      const trackDurationMs = inferTautulliTrackDurationMs(body);
       // view_offset is current position in ms
       const viewOffsetMs = Number(body.view_offset || 0);
 
       const config = loadConfig();
       const smartSettings = resolveUserSmartConfig(db, config, userPlexId);
-      const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
-      const songSkipLimit = Number(smartSettings.songSkipLimit) || 3;
-
       const now = Date.now();
       const effectiveSessionKey = sessionKey || `tautulli-${userPlexId}-${plexRatingKey}-${Math.floor(now / 60000)}`;
+      const playerScope = resolveTautulliPlayerScope(body, userPlexId);
+
+      if (action === 'play' && playerScope) {
+        const previous = db.prepare(`
+          SELECT *
+          FROM open_sessions
+          WHERE user_plex_id = ?
+            AND event_source = 'tautulli'
+            AND player_scope LIKE ?
+            AND plex_rating_key != ?
+          ORDER BY started_at DESC
+          LIMIT 1
+        `).get(userPlexId, `${playerScope}%`, plexRatingKey);
+
+        if (previous) {
+          const result = recordOrUpdateSessionPlay({
+            session: previous,
+            endedAt: now,
+            smartSettings,
+            eventSource: 'tautulli',
+          });
+          if (result.duplicate) {
+            pushLog({
+              level: 'info',
+              app: 'webhook',
+              action: 'tautulli.play-finalized-previous',
+              message: `Skipped duplicate finalize for previous Tautulli session "${previous.track_title}" [session=${previous.session_key}]`,
+            });
+          }
+        }
+      }
 
       if (action === 'play' || action === 'resume') {
-        // On resume, adjust startedAt backwards by the current viewOffset so that the
-        // "now - startedAt" fallback at stop time reflects accumulated playtime rather
-        // than just time-since-resume. This matches the Plex webhook's approach and
-        // handles clients that send view_offset=0 on the stop event.
-        openSession(db, {
-          sessionKey: effectiveSessionKey,
-          userPlexId, plexRatingKey,
-          trackTitle, artistName, albumName, libraryKey,
-          trackDurationMs,
-          startedAt: action === 'resume' ? now - viewOffsetMs : now,
-          eventSource: 'tautulli',
-        });
-      } else if (action === 'stop' || action === 'watched' || action === 'scrobble') {
-        // Deduplicate: stop + watched both fire for the same track in the same session — only record once per (session, track)
-        const alreadyRecorded = db.prepare('SELECT id FROM play_events WHERE session_key = ? AND plex_rating_key = ? LIMIT 1').get(effectiveSessionKey, plexRatingKey);
-        if (alreadyRecorded) {
-          pushLog({ level: 'info', app: 'webhook', action: `tautulli.${action}`, message: `duplicate skipped — "${trackTitle}" [session=${effectiveSessionKey}]` });
-          return res.json({ ok: true, ignored: 'duplicate' });
-        }
-
+        const existingSession = getOpenSession(db, effectiveSessionKey);
+        const resumedPositionMs = viewOffsetMs > 0
+          ? viewOffsetMs
+          : Math.max(0, Number(existingSession?.last_position_ms || 0));
+        const nextSession = existingSession ? {
+          ...existingSession,
+          track_title: trackTitle || existingSession.track_title || '',
+          artist_name: artistName || existingSession.artist_name || '',
+          album_name: albumName || existingSession.album_name || '',
+          library_key: libraryKey || existingSession.library_key || '',
+          track_duration_ms: Math.max(
+            Number(existingSession.track_duration_ms || 0),
+            trackDurationMs,
+          ),
+          player_scope: playerScope || existingSession.player_scope || '',
+          playback_state: 'playing',
+          last_position_ms: resumedPositionMs,
+          max_position_ms: Math.max(
+            Math.max(0, Number(existingSession.max_position_ms || 0)),
+            resumedPositionMs,
+          ),
+          playing_since: now,
+          last_event_at: now,
+        } : {
+          session_key: effectiveSessionKey,
+          user_plex_id: userPlexId,
+          plex_rating_key: plexRatingKey,
+          track_title: trackTitle,
+          artist_name: artistName,
+          album_name: albumName,
+          library_key: libraryKey,
+          track_duration_ms: trackDurationMs,
+          player_scope: playerScope,
+          playback_state: 'playing',
+          last_position_ms: viewOffsetMs,
+          max_position_ms: viewOffsetMs,
+          accumulated_ms: 0,
+          playing_since: now,
+          last_event_at: now,
+          started_at: viewOffsetMs > 0 ? now - viewOffsetMs : now,
+          event_source: 'tautulli',
+        };
+        saveSessionState(nextSession, 'tautulli');
+      } else if (action === 'pause') {
         const session = getOpenSession(db, effectiveSessionKey);
-        const startedAt = session ? session.started_at : now - viewOffsetMs;
-        const listenedMs = viewOffsetMs || (now - startedAt);
-        const resolvedTrackDuration = trackDurationMs || (session?.track_duration_ms) || 0;
-
-        // A track is a skip if: we know the full duration AND the user listened for < threshold
-        const isSkip = Boolean(
-          resolvedTrackDuration > 0
-          && listenedMs < skipThresholdMs
-          && action !== 'watched'
-          && action !== 'scrobble',
-        );
-
-        recordPlayEvent(db, {
-          userPlexId, plexRatingKey,
-          trackTitle: trackTitle || session?.track_title || '',
-          artistName: artistName || session?.artist_name || '',
-          albumName: albumName || session?.album_name || '',
-          libraryKey: libraryKey || session?.library_key || '',
-          startedAt, endedAt: now,
-          durationMs: listenedMs,
-          trackDurationMs: resolvedTrackDuration,
-          isSkip,
-          eventSource: 'tautulli',
-          sessionKey: effectiveSessionKey,
-        });
-
-        const resolvedArtist = artistName || session?.artist_name || '';
-        let effectiveIsSkip = isSkip;
-        if (resolvedArtist) {
-          const trackResult = updateTrackStats(db, {
-            userPlexId, plexRatingKey,
-            trackTitle: trackTitle || session?.track_title || '',
-            artistName: resolvedArtist,
-            albumName: albumName || session?.album_name || '',
-            listenedMs, trackDurationMs: resolvedTrackDuration,
-            playedAt: now, songSkipLimit, smartConfig: smartSettings,
+        if (session) {
+          saveSessionState(continueSession(session, {
+            endedAt: now,
+            observedPositionMs: viewOffsetMs,
+            playbackState: 'paused',
+            trackDurationMs,
+            trackTitle,
+            artistName,
+            albumName,
+          }), 'tautulli');
+        }
+      } else if (action === 'scrobble' || action === 'watched') {
+        const session = getOpenSession(db, effectiveSessionKey);
+        if (session) {
+          const nextSession = viewOffsetMs > 0
+            ? continueSession(session, {
+              endedAt: now,
+              observedPositionMs: viewOffsetMs,
+              playbackState: 'playing',
+              trackDurationMs,
+              trackTitle,
+              artistName,
+              albumName,
+            })
+            : {
+              ...session,
+              track_title: trackTitle || session.track_title || '',
+              artist_name: artistName || session.artist_name || '',
+              album_name: albumName || session.album_name || '',
+              library_key: libraryKey || session.library_key || '',
+              track_duration_ms: Math.max(Number(session.track_duration_ms || 0), trackDurationMs),
+              last_event_at: now,
+            };
+          saveSessionState(nextSession, 'tautulli');
+        } else if (action === 'watched') {
+          const fallbackSession = {
+            session_key: effectiveSessionKey,
+            user_plex_id: userPlexId,
+            plex_rating_key: plexRatingKey,
+            track_title: trackTitle,
+            artist_name: artistName,
+            album_name: albumName,
+            library_key: libraryKey,
+            track_duration_ms: trackDurationMs,
+            player_scope: playerScope,
+            playback_state: 'playing',
+            last_position_ms: viewOffsetMs,
+            max_position_ms: viewOffsetMs,
+            accumulated_ms: 0,
+            playing_since: viewOffsetMs > 0 ? now - viewOffsetMs : now,
+            last_event_at: now,
+            started_at: viewOffsetMs > 0 ? now - viewOffsetMs : now,
+            event_source: 'tautulli',
+          };
+          recordOrUpdateSessionPlay({
+            session: fallbackSession,
+            endedAt: now,
+            playbackPositionMs: viewOffsetMs,
+            smartSettings,
+            eventSource: 'tautulli',
           });
-          effectiveIsSkip = trackResult.isSkip;
-          updateArtistStats(db, {
-            userPlexId, artistName: resolvedArtist,
-            isSkip: effectiveIsSkip, playedAt: now,
-            scoreDelta: trackResult.scoreDelta,
+        } else {
+          pushLog({
+            level: 'info',
+            app: 'webhook',
+            action: 'tautulli.scrobble-without-session',
+            message: `Observed Tautulli scrobble without an open session for "${trackTitle}" [user=${userPlexId}]`,
           });
         }
-
-        closeSession(db, effectiveSessionKey);
-
-        // Trigger rebuild on skip OR on completion (listened to within threshold of end)
-        const completionThresholdMs = (Number(smartSettings.completionThresholdSeconds) || 20) * 1000;
-        const isCompletion = !effectiveIsSkip && resolvedTrackDuration > 0
-          && listenedMs >= resolvedTrackDuration - completionThresholdMs;
-        if (effectiveIsSkip || isCompletion) scheduleRebuild(ctx, userPlexId);
+      } else if (action === 'stop') {
+        const session = getOpenSession(db, effectiveSessionKey);
+        const fallbackSession = session || {
+          session_key: effectiveSessionKey,
+          user_plex_id: userPlexId,
+          plex_rating_key: plexRatingKey,
+          track_title: trackTitle,
+          artist_name: artistName,
+          album_name: albumName,
+          library_key: libraryKey,
+          track_duration_ms: trackDurationMs,
+          player_scope: playerScope,
+          playback_state: 'playing',
+          last_position_ms: viewOffsetMs,
+          max_position_ms: viewOffsetMs,
+          accumulated_ms: 0,
+          playing_since: viewOffsetMs > 0 ? now - viewOffsetMs : now,
+          last_event_at: now,
+          started_at: viewOffsetMs > 0 ? now - viewOffsetMs : now,
+          event_source: 'tautulli',
+        };
+        const result = recordOrUpdateSessionPlay({
+          session: {
+            ...fallbackSession,
+            track_title: trackTitle || fallbackSession.track_title || '',
+            artist_name: artistName || fallbackSession.artist_name || '',
+            album_name: albumName || fallbackSession.album_name || '',
+            library_key: libraryKey || fallbackSession.library_key || '',
+            track_duration_ms: Math.max(Number(fallbackSession.track_duration_ms || 0), trackDurationMs),
+          },
+          endedAt: now,
+          playbackPositionMs: viewOffsetMs,
+          smartSettings,
+          eventSource: 'tautulli',
+        });
+        if (result.duplicate) return res.json({ ok: true, ignored: 'duplicate' });
       }
 
       pushLog({
@@ -263,9 +694,19 @@ export function registerWebhooks(app, ctx) {
   //
   // Plex sends multipart/form-data with a "payload" field containing JSON.
 
-  app.post('/webhook/plex', readRawBody, (req, res) => {
+  app.post('/webhook/plex', readRawBody, async (req, res) => {
     try {
       if (!requireWebhookKey(req, res, 'plex')) return;
+      if (resolveLivePlaybackSource() !== 'plex') {
+        purgeInactiveSourceSessions('tautulli');
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'plex.ignored',
+          message: 'Ignored Plex webhook because live playback source is set to Tautulli.',
+        });
+        return res.json({ ok: true, ignored: 'disabled_source' });
+      }
       let payload = null;
 
       // Plex sends multipart/form-data. We read the raw body and parse it.
@@ -282,120 +723,244 @@ export function registerWebhooks(app, ctx) {
         }
       }
 
-      if (!payload) return res.json({ ok: true, ignored: true });
+      if (!payload) {
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'plex.ignored',
+          message: 'Ignored Plex webhook without a parseable payload.',
+          meta: {
+            contentType: String(req.headers?.['content-type'] || ''),
+            bodyKeys: Object.keys(req.body || {}),
+            rawBytes: Number(req.rawBody?.length || 0),
+          },
+        });
+        return res.json({ ok: true, ignored: 'missing_payload' });
+      }
 
       const event = String(payload.event || '').toLowerCase();
       const metadata = payload.Metadata || {};
       const account = payload.Account || {};
 
       // Only process music tracks
-      if (metadata.type !== 'track') return res.json({ ok: true, ignored: true });
+      if (metadata.type !== 'track') {
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'plex.ignored',
+          message: 'Ignored Plex webhook for a non-track item.',
+          meta: { event, mediaType: metadata.type || '' },
+        });
+        return res.json({ ok: true, ignored: 'non_track' });
+      }
       if (!['media.play', 'media.pause', 'media.resume', 'media.stop', 'media.scrobble'].includes(event)) {
-        return res.json({ ok: true, ignored: true });
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'plex.ignored',
+          message: 'Ignored unsupported Plex webhook event.',
+          meta: { event },
+        });
+        return res.json({ ok: true, ignored: 'unsupported_event' });
       }
 
       const userPlexId = String(account.title || account.id || '').trim();
       const plexRatingKey = String(metadata.ratingKey || '').trim();
-      if (!userPlexId || !plexRatingKey) return res.json({ ok: true, ignored: true });
+      if (!userPlexId || !plexRatingKey) {
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'plex.ignored',
+          message: 'Ignored Plex webhook without a user or rating key.',
+          meta: {
+            event,
+            userPlexId,
+            plexRatingKey,
+            accountId: String(account.id || ''),
+            accountTitle: String(account.title || ''),
+          },
+        });
+        return res.json({ ok: true, ignored: 'missing_identity' });
+      }
 
       const trackTitle = String(metadata.title || '').trim();
       const artistName = String(metadata.originalTitle || metadata.grandparentTitle || '').trim();
       const albumName = String(metadata.parentTitle || '').trim();
       const trackDurationMs = Number(metadata.duration || 0);
       const viewOffsetMs = Number(metadata.viewOffset || 0);
+      const observedPositionMs = Math.max(0, viewOffsetMs);
 
       const config = loadConfig();
       const smartSettings = resolveUserSmartConfig(db, config, userPlexId);
-      const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
-      const songSkipLimit = Number(smartSettings.songSkipLimit) || 3;
 
       const now = Date.now();
-      const sessionKey = `plex-${userPlexId}-${plexRatingKey}`;
+      const sessionKey = resolvePlexSessionKey(payload, userPlexId, plexRatingKey);
+      const playerScope = resolvePlexPlayerScope(payload, userPlexId);
+
+      if (event === 'media.play' && playerScope) {
+        const previous = db.prepare(`
+          SELECT *
+          FROM open_sessions
+          WHERE user_plex_id = ?
+            AND event_source = 'plex_webhook'
+            AND session_key LIKE ?
+            AND plex_rating_key != ?
+          ORDER BY started_at DESC
+          LIMIT 1
+        `).get(userPlexId, `${playerScope}%`, plexRatingKey);
+
+        if (previous) {
+          const previousTrackDurationMs = await resolvePlexTrackDurationMs(
+            previous.plex_rating_key,
+            previous.track_duration_ms || 0,
+          );
+          recordOrUpdateSessionPlay({
+            session: {
+              ...previous,
+              track_duration_ms: previousTrackDurationMs,
+            },
+            endedAt: now,
+            smartSettings,
+            eventSource: 'plex_webhook',
+          });
+        }
+      }
 
       if (event === 'media.play' || event === 'media.resume') {
-        openSession(db, {
-          sessionKey, userPlexId, plexRatingKey,
-          trackTitle, artistName, albumName, libraryKey: '',
-          trackDurationMs, startedAt: now - viewOffsetMs,
-          eventSource: 'plex_webhook',
-        });
-      } else if (event === 'media.stop' || event === 'media.scrobble') {
-        const session = getOpenSession(db, sessionKey);
-        const startedAt = session ? session.started_at : now - viewOffsetMs;
-        const listenedMs = viewOffsetMs || (now - startedAt);
-        const resolvedTrackDuration = trackDurationMs || session?.track_duration_ms || 0;
-        const resolvedArtist = artistName || session?.artist_name || '';
-
-        const isSkip = Boolean(
-          resolvedTrackDuration > 0
-          && listenedMs < skipThresholdMs
-          && event !== 'media.scrobble',
+        const existingSession = getOpenSession(db, sessionKey);
+        const hydratedTrackDurationMs = await resolvePlexTrackDurationMs(
+          plexRatingKey,
+          trackDurationMs || existingSession?.track_duration_ms || 0,
         );
+        const resumedPositionMs = observedPositionMs > 0
+          ? observedPositionMs
+          : Math.max(0, Number(existingSession?.last_position_ms || 0));
 
-        // Deduplicate within a short window to catch stop+scrobble double-fires.
-        // However, if a network blip caused an earlier stop to be recorded with a lower
-        // listenedMs, accept the new event and update the record rather than ignoring it.
-        const recentCutoff = Date.now() - 10 * 60 * 1000;
-        const existing = db.prepare('SELECT id, duration_ms FROM play_events WHERE session_key = ? AND ended_at > ? LIMIT 1').get(sessionKey, recentCutoff);
-
-        if (existing) {
-          if (listenedMs <= existing.duration_ms) {
-            // Same or shorter — genuine stop+scrobble double-fire; ignore.
-            return res.json({ ok: true, ignored: 'duplicate' });
-          }
-          // Longer — a resumed play went further (e.g. after a network blip).
-          // Update the existing record with the better measurement.
-          db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ? WHERE id = ?')
-            .run(listenedMs, now, isSkip ? 1 : 0, existing.id);
-          if (resolvedArtist) {
-            const { scoreDelta } = updateTrackTierOnly(db, {
-              userPlexId, plexRatingKey, listenedMs,
-              trackDurationMs: resolvedTrackDuration, smartConfig: smartSettings,
-            });
-            if (scoreDelta) adjustArtistScore(db, { userPlexId, artistName: resolvedArtist, scoreDelta });
-          }
-          closeSession(db, sessionKey);
+        const nextSession = existingSession ? {
+          ...existingSession,
+          track_title: trackTitle || existingSession.track_title || '',
+          artist_name: artistName || existingSession.artist_name || '',
+          album_name: albumName || existingSession.album_name || '',
+          track_duration_ms: hydratedTrackDurationMs,
+          player_scope: playerScope || existingSession.player_scope || '',
+          playback_state: 'playing',
+          last_position_ms: resumedPositionMs,
+          max_position_ms: Math.max(
+            Math.max(0, Number(existingSession.max_position_ms || 0)),
+            resumedPositionMs,
+          ),
+          playing_since: now,
+          last_event_at: now,
+        } : {
+          session_key: sessionKey,
+          user_plex_id: userPlexId,
+          plex_rating_key: plexRatingKey,
+          track_title: trackTitle,
+          artist_name: artistName,
+          album_name: albumName,
+          library_key: '',
+          track_duration_ms: hydratedTrackDurationMs,
+          player_scope: playerScope,
+          playback_state: 'playing',
+          last_position_ms: observedPositionMs,
+          max_position_ms: observedPositionMs,
+          accumulated_ms: 0,
+          playing_since: now,
+          last_event_at: now,
+          started_at: observedPositionMs > 0 ? now - observedPositionMs : now,
+          event_source: 'plex_webhook',
+        };
+        saveSessionState(nextSession, 'plex_webhook');
+      } else if (event === 'media.pause') {
+        const session = getOpenSession(db, sessionKey);
+        if (session) {
+          const hydratedTrackDurationMs = await resolvePlexTrackDurationMs(
+            plexRatingKey,
+            trackDurationMs || session.track_duration_ms || 0,
+          );
+          saveSessionState(continueSession(session, {
+            endedAt: now,
+            observedPositionMs,
+            playbackState: 'paused',
+            trackDurationMs: hydratedTrackDurationMs,
+            trackTitle,
+            artistName,
+            albumName,
+          }), 'plex_webhook');
+        }
+      } else if (event === 'media.scrobble') {
+        const session = getOpenSession(db, sessionKey);
+        if (session) {
+          const hydratedTrackDurationMs = await resolvePlexTrackDurationMs(
+            plexRatingKey,
+            trackDurationMs || session.track_duration_ms || 0,
+          );
+          const nextSession = observedPositionMs > 0
+            ? continueSession(session, {
+              endedAt: now,
+              observedPositionMs,
+              playbackState: 'playing',
+              trackDurationMs: hydratedTrackDurationMs,
+              trackTitle,
+              artistName,
+              albumName,
+            })
+            : {
+              ...session,
+              track_title: trackTitle || session.track_title || '',
+              artist_name: artistName || session.artist_name || '',
+              album_name: albumName || session.album_name || '',
+              track_duration_ms: hydratedTrackDurationMs,
+              last_event_at: now,
+            };
+          saveSessionState(nextSession, 'plex_webhook');
+        } else {
           pushLog({
-            level: 'info', app: 'webhook', action: `plex.${event}`,
-            message: `${event} updated (longer) — "${trackTitle}" by ${resolvedArtist} [user=${userPlexId}] ${existing.duration_ms}ms→${listenedMs}ms`,
+            level: 'info',
+            app: 'webhook',
+            action: 'plex.scrobble-without-session',
+            message: `Observed Plex scrobble without an open session for "${trackTitle}" [user=${userPlexId}]`,
           });
-          return res.json({ ok: true });
         }
-
-        recordPlayEvent(db, {
-          userPlexId, plexRatingKey,
-          trackTitle: trackTitle || session?.track_title || '',
-          artistName: resolvedArtist,
-          albumName: albumName || session?.album_name || '',
-          libraryKey: '',
-          startedAt, endedAt: now,
-          durationMs: listenedMs,
-          trackDurationMs: resolvedTrackDuration,
-          isSkip,
+      } else if (event === 'media.stop') {
+        const session = getOpenSession(db, sessionKey);
+        const fallbackSession = session || {
+          session_key: sessionKey,
+          user_plex_id: userPlexId,
+          plex_rating_key: plexRatingKey,
+          track_title: trackTitle,
+          artist_name: artistName,
+          album_name: albumName,
+          library_key: '',
+          track_duration_ms: 0,
+          player_scope: playerScope,
+          playback_state: 'playing',
+          last_position_ms: observedPositionMs,
+          max_position_ms: observedPositionMs,
+          accumulated_ms: 0,
+          playing_since: observedPositionMs > 0 ? now - observedPositionMs : now,
+          last_event_at: now,
+          started_at: observedPositionMs > 0 ? now - observedPositionMs : now,
+          event_source: 'plex_webhook',
+        };
+        const resolvedTrackDuration = await resolvePlexTrackDurationMs(
+          plexRatingKey,
+          trackDurationMs || fallbackSession.track_duration_ms || 0,
+        );
+        const result = recordOrUpdateSessionPlay({
+          session: {
+            ...fallbackSession,
+            track_title: trackTitle || fallbackSession.track_title || '',
+            artist_name: artistName || fallbackSession.artist_name || '',
+            album_name: albumName || fallbackSession.album_name || '',
+            track_duration_ms: resolvedTrackDuration,
+          },
+          endedAt: now,
+          playbackPositionMs: observedPositionMs,
+          smartSettings,
           eventSource: 'plex_webhook',
-          sessionKey,
         });
-
-        let effectiveIsSkip = isSkip;
-        if (resolvedArtist) {
-          const trackResult = updateTrackStats(db, {
-            userPlexId, plexRatingKey,
-            trackTitle: trackTitle || session?.track_title || '',
-            artistName: resolvedArtist,
-            albumName: albumName || session?.album_name || '',
-            listenedMs, trackDurationMs: resolvedTrackDuration,
-            playedAt: now, songSkipLimit, smartConfig: smartSettings,
-          });
-          effectiveIsSkip = trackResult.isSkip;
-          updateArtistStats(db, {
-            userPlexId, artistName: resolvedArtist,
-            isSkip: effectiveIsSkip, playedAt: now,
-            scoreDelta: trackResult.scoreDelta,
-          });
-        }
-
-        closeSession(db, sessionKey);
-        if (effectiveIsSkip) scheduleRebuild(ctx, userPlexId);
+        if (result.duplicate) return res.json({ ok: true, ignored: 'duplicate' });
       }
 
       pushLog({

@@ -556,6 +556,7 @@ const DEFAULT_JOBS_CONFIG = {
   smartPlaylistSync:   { intervalMinutes: 30,  enabled: true },
   lidarrReviewArtists: { intervalMinutes: 30,  enabled: true },
   lidarrProcessQueue:  { intervalMinutes: 20,  enabled: true },
+  tautulliDailySync:   { intervalMinutes: 1440, enabled: true },
 };
 
 const DEFAULT_CONFIG = {
@@ -567,7 +568,7 @@ const DEFAULT_CONFIG = {
   smartPlaylist: { ...DEFAULT_SMART_PLAYLIST_SETTINGS },
   discovery: { lastfmApiKey: '', region: 'united states', showTrendingArtists: true, showTrendingTracks: true, showSimilarArtists: true },
   filters: { mustIncludeArtists: [], neverIncludeArtists: [] },
-  general: { serverName: 'Curatorr', remoteUrl: '', localUrl: '', basePath: '', restrictGuests: false },
+  general: { serverName: 'Curatorr', remoteUrl: '', localUrl: '', basePath: '', playbackSource: 'plex', restrictGuests: false },
   users: [],
   theme: {},
   logs: { ...DEFAULT_LOG_SETTINGS },
@@ -924,6 +925,18 @@ function normalizeLidarrAutomationScope(value) {
 function resolveLidarrAutomationSettings(config) {
   const source = (config?.lidarr && typeof config.lidarr === 'object') ? config.lidarr : {};
   const enabledUsers = normalizeIdentityList(source.enabledUsers || []);
+  const normalizeAutoAddQuotas = (value = {}) => {
+    const quotas = value && typeof value === 'object' ? value : {};
+    const normalizeLimit = (input, fallback) => {
+      const parsed = Number(input);
+      if (!Number.isFinite(parsed)) return fallback;
+      return Math.max(-1, Math.min(999, Math.round(parsed)));
+    };
+    return {
+      weeklyArtists: normalizeLimit(quotas.weeklyArtists, DEFAULT_LIDARR_AUTOMATION_SETTINGS.autoAddQuotas.weeklyArtists),
+      weeklyAlbums: normalizeLimit(quotas.weeklyAlbums, DEFAULT_LIDARR_AUTOMATION_SETTINGS.autoAddQuotas.weeklyAlbums),
+    };
+  };
   const normalizeRoleQuotas = (value = {}) => {
     const quotas = value && typeof value === 'object' ? value : {};
     return {
@@ -956,6 +969,7 @@ function resolveLidarrAutomationSettings(config) {
     automationEnabled,
     automationScope: automationEnabled ? automationScope : 'off',
     enabledUsers,
+    autoAddQuotas: normalizeAutoAddQuotas(source.autoAddQuotas),
     roleQuotas: normalizeRoleQuotas(source.roleQuotas),
   };
 }
@@ -1688,7 +1702,10 @@ export async function start() {
 
     const config0 = loadConfig();
     if (config0.wizard?.completed) {
-      _routeCtx.jobService.startAll(true); // start intervals + run each job immediately once
+      _routeCtx.jobService.startAll({
+        runImmediately: true,
+        skipImmediate: ['tautulliDailySync'],
+      }); // start intervals + run most jobs immediately once
     }
 
     // Register all routes

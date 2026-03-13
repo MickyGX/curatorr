@@ -369,6 +369,109 @@ async function configureTautulliWebhook(tautulliUrl, apiKey, ctx) {
   return { ok: true, notifierId, created: !reusableNotifierId };
 }
 
+function isLoopbackHostname(hostname) {
+  const value = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  return (
+    value === 'localhost'
+    || value === '::1'
+    || value === '0.0.0.0'
+    || value.startsWith('127.')
+    || value === '::ffff:127.0.0.1'
+  );
+}
+
+function buildReachableWebhookUrl(ctx, config, req, webhookPath) {
+  const {
+    buildAppApiUrl,
+    buildConfiguredWebhookUrl,
+    getWebhookSharedSecret,
+    normalizeBaseUrl,
+    resolvePublicBaseUrl,
+  } = ctx;
+  const configuredBase = normalizeBaseUrl(
+    String(
+      config?.tautulli?.curatorrUrl
+      || config?.general?.remoteUrl
+      || config?.general?.localUrl
+      || ''
+    ).trim()
+  );
+  if (configuredBase) return { ok: true, url: buildConfiguredWebhookUrl(config, webhookPath), derivedFromRequest: false };
+  const requestBase = normalizeBaseUrl(resolvePublicBaseUrl(req));
+  if (!requestBase) return { ok: false, reason: 'Curatorr base URL is not configured.' };
+  let parsed = null;
+  try { parsed = new URL(requestBase); } catch (_) { parsed = null; }
+  if (!parsed || isLoopbackHostname(parsed.hostname)) {
+    return { ok: false, reason: 'Set a Curatorr local or remote URL, or open Curatorr via a reachable LAN address before registering the Plex webhook.' };
+  }
+  const url = buildAppApiUrl(requestBase, webhookPath);
+  const secret = String(getWebhookSharedSecret(config) || '').trim();
+  if (secret) url.searchParams.set('key', secret);
+  return { ok: true, url: url.toString(), derivedFromRequest: true };
+}
+
+function normalizePlexWebhookUrls(payload) {
+  const items = Array.isArray(payload) ? payload : (Array.isArray(payload?.urls) ? payload.urls : []);
+  return [...new Set(items.map((entry) => {
+    if (typeof entry === 'string') return entry.trim();
+    return String(entry?.url || '').trim();
+  }).filter(Boolean))];
+}
+
+async function enablePlexServerWebhooks(plexUrl, plexToken, ctx) {
+  const { buildAppApiUrl, buildPlexAuthHeaders } = ctx;
+  const prefsUrl = buildAppApiUrl(plexUrl, ':/prefs');
+  prefsUrl.searchParams.set('WebHooksEnabled', '1');
+  const response = await fetch(prefsUrl.toString(), {
+    method: 'PUT',
+    headers: buildPlexAuthHeaders(plexToken, { Accept: 'application/json' }),
+  });
+  if (!response.ok) throw new Error(`Plex returned HTTP ${response.status} while enabling webhooks`);
+}
+
+async function configurePlexWebhook(plexUrl, plexToken, ctx, req) {
+  const { plexHeaders, buildPlexAuthHeaders, loadConfig, pushLog } = ctx;
+  const config = loadConfig();
+  const resolved = buildReachableWebhookUrl(ctx, config, req, 'webhook/plex');
+  if (!plexUrl || !plexToken) return { ok: false, reason: 'missing config' };
+  if (!resolved.ok) return resolved;
+
+  const accountUrl = 'https://plex.tv/api/v2/user/webhooks';
+  const headers = {
+    ...plexHeaders(),
+    ...buildPlexAuthHeaders(plexToken, {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }),
+  };
+
+  const listResponse = await fetch(accountUrl, { headers });
+  if (!listResponse.ok) throw new Error(`Plex account API returned HTTP ${listResponse.status}`);
+  const existingUrls = normalizePlexWebhookUrls(await listResponse.json());
+  const hasWebhook = existingUrls.includes(resolved.url);
+
+  if (!hasWebhook) {
+    const nextUrls = [...existingUrls, resolved.url];
+    const saveResponse = await fetch(accountUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ urls: nextUrls }),
+    });
+    if (!saveResponse.ok) throw new Error(`Plex account API returned HTTP ${saveResponse.status}`);
+    await saveResponse.json();
+  }
+
+  await enablePlexServerWebhooks(plexUrl, plexToken, ctx);
+
+  pushLog({
+    level: 'info',
+    app: 'wizard',
+    action: hasWebhook ? 'plex.webhook.exists' : 'plex.webhook.created',
+    message: `Plex webhook ${hasWebhook ? 'already configured' : 'registered'} → ${resolved.url}`,
+  });
+  return { ok: true, created: !hasWebhook, webhookUrl: resolved.url };
+}
+
 export function registerWizard(app, ctx) {
   const {
     requireAdmin,
@@ -466,6 +569,27 @@ export function registerWizard(app, ctx) {
     const updated = { ...config, plex: { ...config.plex, url, token, machineId, availableLibraries: libraries } };
     saveConfig(updated);
     pushLog({ level: 'info', app: 'wizard', action: 'plex.connected', message: `Plex connected: ${url}` });
+
+    configurePlexWebhook(url, token, ctx, req)
+      .then((result) => {
+        if (!result?.ok) {
+          pushLog({
+            level: 'warn',
+            app: 'wizard',
+            action: 'plex.webhook.auto-register',
+            message: `Plex connected, but webhook auto-registration was skipped: ${result?.reason || 'unknown reason'}`,
+          });
+        }
+      })
+      .catch((err) => {
+        pushLog({
+          level: 'warn',
+          app: 'wizard',
+          action: 'plex.webhook.auto-register',
+          message: `Plex connected, but webhook auto-registration failed: ${safeMessage(err)}`,
+        });
+      });
+
     return renderServerWizard(res, updated, 3, null);
   });
 
@@ -701,6 +825,21 @@ export function registerWizard(app, ctx) {
       return res.json({ ok: true, musicLibraries: libs });
     } catch (err) {
       return res.status(400).json({ error: safeMessage(err) });
+    }
+  });
+
+  // Auto-configure Plex webhook (admin, callable from settings)
+  app.post('/api/wizard/configure-plex-webhook', requireAdmin, async (req, res) => {
+    const config = loadConfig();
+    const plexUrl = normalizeBaseUrl(String(config.plex?.url || config.plex?.localUrl || config.plex?.remoteUrl || '').trim());
+    const plexToken = String(config.plex?.token || '').trim();
+    if (!plexUrl || !plexToken) return res.status(400).json({ error: 'Plex is not configured.' });
+    try {
+      const result = await configurePlexWebhook(plexUrl, plexToken, ctx, req);
+      if (!result.ok) return res.status(400).json(result);
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
     }
   });
 

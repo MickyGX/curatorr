@@ -979,6 +979,11 @@ export function registerApiMusic(app, ctx) {
           searchForMissingAlbums: false,
         });
         if (!lidarrResult.existing) {
+          await lidarrService.tagCuratorrManagedItems({
+            sourceKind: 'manual',
+            artistId: lidarrResult.artistId,
+            tagArtist: true,
+          });
           recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'artists', amount: 1 });
           quota = lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
         }
@@ -987,7 +992,7 @@ export function registerApiMusic(app, ctx) {
           const queuedRequest = await lidarrService.queueArtistAlbumRequest({
             userPlexId,
             artistName,
-            sourceKind: 'automatic',
+            sourceKind: 'manual',
             allowCuratorrFallback: true,
             note: 'Queued from suggested artists because weekly quota was reached.',
           });
@@ -1050,6 +1055,11 @@ export function registerApiMusic(app, ctx) {
             if (!alreadyMonitored) {
               albumQuota = lidarrService.assertQuotaAvailable(role, latestUsage, { albums: 1 });
               await lidarrService.setAlbumMonitored(albumId, true);
+              await lidarrService.tagCuratorrManagedItems({
+                sourceKind: 'manual',
+                albumId,
+                tagAlbum: true,
+              });
               recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1 });
               latestUsage = getCurrentLidarrUsage(db, userPlexId).usage || {};
               albumQuota = lidarrService.getRoleQuota(role, latestUsage);
@@ -1078,6 +1088,8 @@ export function registerApiMusic(app, ctx) {
               selectionReason: pickedAlbum.selectionReason,
               alreadyMonitored,
               commandId: Number(searchCommand?.id || 0) || null,
+              sourceKind: 'manual',
+              addedByCuratorr: !alreadyMonitored,
             };
             nextProgress = {
               ...nextProgress,
@@ -1146,7 +1158,10 @@ export function registerApiMusic(app, ctx) {
         ...(existing.reason || {}),
         manualAction: lidarrResult.existing ? 'already_in_lidarr' : 'added_to_lidarr',
         manualActionAt: Date.now(),
+        requestSourceKind: 'manual',
         lidarrExisting: Boolean(lidarrResult.existing),
+        artistAddedByCuratorr: !lidarrResult.existing,
+        artistAddedSourceKind: !lidarrResult.existing ? 'manual' : (existing.reason?.artistAddedSourceKind || ''),
         starterAlbum,
         albumWarning,
       };
@@ -1168,7 +1183,7 @@ export function registerApiMusic(app, ctx) {
         meta: { lidarrArtistId: lidarrResult.artistId || null, quota, starterAlbum, albumWarning },
       });
       enqueueLidarrRequest(db, userPlexId, {
-        sourceKind: 'automatic',
+        sourceKind: 'manual',
         requestKind: 'artist_album',
         artistName,
         albumTitle: String(starterAlbum?.albumTitle || ''),
@@ -1180,7 +1195,8 @@ export function registerApiMusic(app, ctx) {
         detail: {
           selectionReason: String(starterAlbum?.selectionReason || ''),
           commandId: Number(starterAlbum?.commandId || 0) || null,
-          note: 'Completed from suggested artist automation.',
+          requestSource: 'manual',
+          note: 'Completed from manual suggested artist add.',
         },
       });
       return res.json({ ok: true, artist: updated, lidarr: lidarrResult, starterAlbum, albumWarning, quota });
