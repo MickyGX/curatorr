@@ -13,6 +13,10 @@
 html[data-launcharr-embed="1"] .dash-body{
   background:transparent;
   overflow:auto;
+  overflow-x:hidden;
+  min-height:100vh;
+  min-height:100svh;
+  min-height:100dvh;
 }
 
 html[data-launcharr-embed="1"][data-theme="night"] .dash-body{
@@ -184,13 +188,15 @@ html[data-launcharr-embed="1"] .dash-frame{
   max-width:100% !important;
   margin:0 !important;
   padding:0 !important;
-  height:100vh !important;
-  height:100svh !important;
-  height:100dvh !important;
+  height:auto !important;
+  min-height:100vh !important;
+  min-height:100svh !important;
+  min-height:100dvh !important;
   border:0 !important;
   border-radius:0 !important;
   box-shadow:none !important;
   background:transparent !important;
+  overflow:visible !important;
 }
 
 html[data-launcharr-embed="1"] .dash-frame{
@@ -1185,6 +1191,10 @@ html[data-launcharr-embed="1"] .dash-main{
   padding:0 !important;
   gap:0 !important;
   box-shadow:none !important;
+  overflow:visible !important;
+  min-height:100vh;
+  min-height:100svh;
+  min-height:100dvh;
 }
 
 html[data-hide-scrollbars="1"] .dash-main{
@@ -1232,6 +1242,7 @@ html[data-hide-scrollbars="1"] .dash-main::-webkit-scrollbar{
 
 html[data-launcharr-embed="1"] .dash-content{
   padding:18px 20px 20px;
+  overflow:visible;
 }
 
 html[data-launcharr-embed="1"] .dash-main > .dash-panel{

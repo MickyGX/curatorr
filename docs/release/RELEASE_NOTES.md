@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.8 (2026-03-13)
+
+- Fixed Launcharr embed scrolling so long Curatorr pages, including Ages, can scroll to the real bottom of the content instead of being clipped inside a fixed-height iframe shell.
+- Updated the embedded layout to use document-level scrolling in Launcharr mode while keeping the standalone Curatorr layout unchanged.
+
 ## v0.1.7 (2026-03-13)
 
 - Switched Curatorr to a Plex-first playback model with a selectable live playback source, so Plex webhooks can drive now-playing and play scoring while Tautulli remains available as an optional backup source.
