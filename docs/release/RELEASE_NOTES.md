@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.12 (2026-03-16)
+
+- Fixed Crescive and Curative manual rebuilds so they now perform a true full rebuild from current user preferences instead of only evolving the existing playlist state.
+- Fixed always-include artists so playlist rebuilds now reapply the configured favorite-artist track percentages correctly across both generated playlists.
+- Refreshed the README and wiki with current product screenshots for dashboard, login, discovery, and playlists, and added a generated PNG app icon for docs and release assets.
+
 ## v0.1.11 (2026-03-16)
 
 - Fixed Lidarr artist tagging so Curatorr now tags artists even when the artist already exists in Lidarr or the request path reaches an already-monitored item.

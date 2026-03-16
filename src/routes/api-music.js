@@ -1734,11 +1734,11 @@ export function registerApiMusic(app, ctx) {
         return res.json({ ok: true });
       }
       if (playlistType === 'crescive') {
-        await playlistService.syncCrescive(userPlexId);
+        await playlistService.syncCrescive(userPlexId, { forceFullRebuild: true });
         return res.json({ ok: true });
       }
       if (playlistType === 'curative') {
-        await playlistService.syncCurative(userPlexId);
+        await playlistService.syncCurative(userPlexId, { forceFullRebuild: true });
         return res.json({ ok: true });
       }
       if (playlistType === 'daily-mix') {

@@ -421,9 +421,10 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
 
 // ─── Full crescive / curative sync ───────────────────────────────────────────
 
-async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig) {
+async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options = {}) {
   const { db, loadConfig, pushLog } = ctx;
   const config = loadConfig();
+  const forceFullRebuild = Boolean(options?.forceFullRebuild);
   // Skip local-only users — they have no personal Plex token so any playlist
   // operation would fall back to the admin token and appear on the wrong account.
   if (!ctx.userHasOwnPlexToken(config, userId)) return;
@@ -449,6 +450,8 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
 
   const title = `${userId}'s ${playlistType === CRESCIVE_PLAYLIST_TYPE ? 'Crescive' : 'Curative'} Playlist`;
   const playlistRow = await ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, title, machineId);
+
+  if (forceFullRebuild) clearPlaylistState(db, userId, playlistKey);
 
   const existing = getPlaylistTracks(db, userId, playlistKey);
   let finalTrackList;
@@ -811,16 +814,16 @@ export function createPlaylistService(ctx) {
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
-  async function syncCrescive(userId) {
+  async function syncCrescive(userId, options = {}) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
     const playlistCfg = { ...{ favouriteArtistTrackPct: 0.80, favouriteGenreArtistPct: 0.80, favouriteGenreTrackPct: 0.20, otherGenreArtistPct: 0.20, otherGenreTrackPct: 0.20 }, ...(smartConfig.crescive || {}) };
-    return syncSmartPlaylistForUser(ctx, userId, CRESCIVE_PLAYLIST_TYPE, CRESCIVE_PLAYLIST_KEY, playlistCfg, smartConfig);
+    return syncSmartPlaylistForUser(ctx, userId, CRESCIVE_PLAYLIST_TYPE, CRESCIVE_PLAYLIST_KEY, playlistCfg, smartConfig, options);
   }
 
-  async function syncCurative(userId) {
+  async function syncCurative(userId, options = {}) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
     const playlistCfg = { ...{ favouriteArtistTrackPct: 1.00, favouriteGenreArtistPct: 1.00, favouriteGenreTrackPct: 0.80, otherGenreArtistPct: 0.50, otherGenreTrackPct: 0.50 }, ...(smartConfig.curative || {}) };
-    return syncSmartPlaylistForUser(ctx, userId, CURATIVE_PLAYLIST_TYPE, CURATIVE_PLAYLIST_KEY, playlistCfg, smartConfig);
+    return syncSmartPlaylistForUser(ctx, userId, CURATIVE_PLAYLIST_TYPE, CURATIVE_PLAYLIST_KEY, playlistCfg, smartConfig, options);
   }
 
   async function syncBothForUser(userId) {
