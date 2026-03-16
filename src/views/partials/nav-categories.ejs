@@ -8,6 +8,10 @@
   <img class="nav-icon" src="/icons/dashboard.svg" alt="" />
   <span class="nav-label">Dashboard</span>
 </a>
+<a class="nav-item<%= _navActivePage === 'discover' ? ' active' : '' %>" href="/discover">
+  <img class="nav-icon" src="/icons/search.svg" alt="" />
+  <span class="nav-label">Discover</span>
+</a>
 <a class="nav-item<%= _navActivePage === 'history' ? ' active' : '' %>" href="/history">
   <img class="nav-icon" src="/icons/activity-queue.svg" alt="" />
   <span class="nav-label">History</span>
@@ -15,10 +19,6 @@
 <a class="nav-item<%= _navActivePage === 'artists' ? ' active' : '' %>" href="/artists">
   <img class="nav-icon" src="/icons/user-profile.svg" alt="" />
   <span class="nav-label">Artists</span>
-</a>
-<a class="nav-item<%= _navActivePage === 'discover' ? ' active' : '' %>" href="/discover">
-  <img class="nav-icon" src="/icons/search.svg" alt="" />
-  <span class="nav-label">Discover</span>
 </a>
 <a class="nav-item<%= _navActivePage === 'tracks' ? ' active' : '' %>" href="/tracks">
   <img class="nav-icon" src="/icons/vinyl-record.svg" alt="" />

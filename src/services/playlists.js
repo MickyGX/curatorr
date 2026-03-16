@@ -525,7 +525,14 @@ export function createPlaylistService(ctx) {
     const favorites = pickFavoriteTracks(db, userPlexId, favoriteLimit);
     const suggestions = pickSuggestedTracks(db, userPlexId, suggestedLimit);
     const fresh = pickFreshLibraryTracks(db, userPlexId, freshLimit);
-    const combined = dedupeByRatingKey([...favorites, ...suggestions, ...fresh]).slice(0, maxTracks);
+    const deduped = dedupeByRatingKey([...favorites, ...suggestions, ...fresh]);
+    const seenArtists = new Set();
+    const combined = deduped.filter((track) => {
+      const artist = String(track.artistName || '').trim().toLowerCase();
+      if (!artist || seenArtists.has(artist)) return false;
+      seenArtists.add(artist);
+      return true;
+    }).slice(0, maxTracks);
 
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,

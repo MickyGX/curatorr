@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.9 (2026-03-16)
+
+- Reworked playlist management around a card carousel, inline rebuild actions, background full-playlist loading, and sortable track tables that keep the visible slice small while sorting against the full playlist.
+- Unified the playlist, tracks, artists, and history tables around the same compact media-table pattern with artwork-aware columns, sortable headers, consistent filtering, and shared panel controls.
+- Refreshed the dashboard and discovery surfaces with playlist and active-stream carousels, cleaner recommendation panels, and tighter mobile behavior for discovery ledgers, dashboard widgets, and playlist views.
+- Improved discovery artwork loading and caching so recommendation art renders more reliably without blocking the page on repeated upstream lookups.
+
 ## v0.1.8 (2026-03-13)
 
 - Fixed Launcharr embed scrolling so long Curatorr pages, including Ages, can scroll to the real bottom of the content instead of being clipped inside a fixed-height iframe shell.

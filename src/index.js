@@ -13,7 +13,7 @@ import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
-import { initDb, getUserPreferences, getAllUserIds } from './db.js';
+import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest } from './db.js';
 import { createRecommendationService } from './services/recommendations.js';
 import { createLidarrService, DEFAULT_LIDARR_AUTOMATION_SETTINGS } from './services/lidarr.js';
 import { createPlaylistService } from './services/playlists.js';
@@ -552,11 +552,12 @@ function csrfProtectionMiddleware(req, res, next) {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const DEFAULT_JOBS_CONFIG = {
-  masterTrackRefresh:  { intervalMinutes: 360, enabled: true },
-  smartPlaylistSync:   { intervalMinutes: 30,  enabled: true },
-  lidarrReviewArtists: { intervalMinutes: 30,  enabled: true },
-  lidarrProcessQueue:  { intervalMinutes: 20,  enabled: true },
+  masterTrackRefresh:  { intervalMinutes: 360,  enabled: true },
+  smartPlaylistSync:   { intervalMinutes: 30,   enabled: true },
+  lidarrReviewArtists: { intervalMinutes: 30,   enabled: true },
+  lidarrProcessQueue:  { intervalMinutes: 20,   enabled: true },
   tautulliDailySync:   { intervalMinutes: 1440, enabled: true },
+  lidarrRetryFailed:   { intervalMinutes: 1440, enabled: true },
 };
 
 const DEFAULT_CONFIG = {
@@ -1411,6 +1412,10 @@ async function fetchPlexPlaylistsForToken(plexUrl, token) {
     title: String(pl.title || ''),
     smart: Boolean(pl.smart),
     leafCount: Number(pl.leafCount || 0),
+    thumb: String(pl.thumb || ''),
+    composite: String(pl.composite || ''),
+    art: String(pl.art || ''),
+    updatedAt: Number(pl.updatedAt || 0),
   }));
 }
 
@@ -1689,6 +1694,36 @@ export async function start() {
         return _routeCtx.lidarrService?.reviewDueArtists({ limit: 20 });
       },
       lidarrProcessQueue: () => _routeCtx.lidarrService?.processQueuedRequests({ limit: 10 }),
+      lidarrRetryFailed: async () => {
+        const MAX_RETRIES = 3;
+        const STUCK_PROCESSING_MS = 60 * 60 * 1000; // 1 hour
+        const now = Date.now();
+        const userIds = getAllUserIds(db);
+        let requeued = 0;
+        let unstuck = 0;
+        for (const userId of userIds) {
+          // Reset requests stuck in processing for over an hour
+          const processing = listLidarrRequests(db, userId, { statuses: ['processing'], limit: 100 });
+          for (const req of processing) {
+            if (now - Number(req.updatedAt || req.createdAt || 0) > STUCK_PROCESSING_MS) {
+              updateLidarrRequest(db, req.id, { status: 'queued' }, userId);
+              unstuck++;
+            }
+          }
+          // Re-queue failed requests under the retry limit
+          const failed = listLidarrRequests(db, userId, { statuses: ['failed'], limit: 100 });
+          for (const req of failed) {
+            const retryCount = Number(req.detail?.retryCount || 0);
+            if (retryCount >= MAX_RETRIES) continue;
+            updateLidarrRequest(db, req.id, {
+              status: 'queued',
+              detail: { ...req.detail, retryCount: retryCount + 1, lastRetryAt: now },
+            }, userId);
+            requeued++;
+          }
+        }
+        return { requeued, unstuck };
+      },
       dailyMixSync: async () => {
         const userIds = getAllUserIds(db);
         for (const userId of userIds) {

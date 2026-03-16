@@ -52,43 +52,58 @@
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Play history</h3>
             <div class="cur-panel-actions">
-              <% if (page > 0) { %><a href="/history?page=<%= page - 1 %>" class="btn btn-secondary btn-sm">Previous</a><% } %>
-              <% if (_history.length >= limit) { %><a href="/history?page=<%= page + 1 %>" class="btn btn-secondary btn-sm">Next</a><% } %>
+              <span class="cur-panel-meta" id="historyCountLabel"></span>
+              <input id="historySearch" class="cur-input cur-input--sm" type="search" placeholder="Filter history…" style="width:180px" />
             </div>
           </div>
-
-          <% if (_history.length) { %>
-            <div class="cur-history-table cur-history-table--full">
-              <div class="cur-history-head">
-                <span>Track</span>
-                <span>Artist</span>
-                <span>Album</span>
-                <span>Listened</span>
-                <span>When</span>
+          <div class="cur-panel-body">
+            <details class="cur-score-explainer">
+              <summary>What is this table?</summary>
+              <div class="cur-score-explainer-body">
+                <p>A chronological log of every play and skip event Curatorr has recorded, newest first. The table loads 100 events at a time.</p>
+                <ul>
+                  <li><strong>Listened</strong> — how long you actually listened before stopping or skipping.</li>
+                  <li><strong>When</strong> — the date and time the play started.</li>
+                  <li>Rows highlighted in a muted style indicate a skip — the track was stopped early.</li>
+                  <li>The tier badge (Belter, Decent, etc.) reflects the track's <em>current</em> status, not what it was at the time of the play.</li>
+                </ul>
               </div>
-              <% _history.forEach(function(h) { %>
-                <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
-                  <span class="cur-history-track">
-                    <span class="cur-history-track-main">
-                      <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.track_title || '—' %></span>
-                      <% if (h.curatorrTier) { %><span class="cur-badge cur-badge--<%= h.curatorrTier.tone %>"><%= h.curatorrTier.label %></span><% } %>
-                    </span>
-                    <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
-                  </span>
-                  <span class="cur-history-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
-                  <% if (h.album_name) { %>
-                    <span class="cur-history-album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= h.artist_name || '' %>" data-cur-overview-album="<%= h.album_name %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.album_name %></span>
-                  <% } else { %>
-                    <span class="cur-history-album">—</span>
-                  <% } %>
-                  <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
-                  <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
+            </details>
+            <% if (_history.length) { %>
+              <div class="cur-hi-shell">
+                <div class="cur-hi-table">
+                  <div class="cur-hi-head">
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="track">
+                      <span>Track</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="artist">
+                      <span>Artist</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="album">
+                      <span>Album</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="listened">
+                      <span>Listened</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="when">
+                      <span>When</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                  </div>
+                  <div class="cur-hi-body" id="historyTableBody"></div>
+                  <div id="historyLoadMoreWrap" style="display:none; text-align:center; padding:16px">
+                    <button class="btn btn-ghost" id="historyLoadMoreBtn" type="button" onclick="loadMoreHistory()">Load more</button>
+                  </div>
                 </div>
-              <% }) %>
-            </div>
-          <% } else { %>
-            <div class="cur-empty">No play history yet. Configure Tautulli or Plex webhooks to start tracking.</div>
-          <% } %>
+              </div>
+            <% } else { %>
+              <div class="cur-empty">No play history yet. Configure Tautulli or Plex webhooks to start tracking.</div>
+            <% } %>
+          </div>
         </div>
       </div>
     </section>
@@ -100,5 +115,278 @@
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script src="/starfield-3d.js"></script>
+  <script>
+    const HISTORY_DATA = <%- JSON.stringify(_history.map(function(h, index) {
+      return {
+        index,
+        plex_rating_key: String(h.plex_rating_key || ''),
+        user_plex_id: String(h.user_plex_id || ''),
+        track_title: h.track_title || '',
+        artist_name: h.artist_name || '',
+        album_name: h.album_name || '',
+        duration_ms: Number(h.duration_ms || 0),
+        started_at: Number(h.started_at || 0),
+        is_skip: Boolean(h.is_skip),
+        curatorrTier: h.curatorrTier || null,
+      };
+    })).replace(/</g, '\\u003c') %>;
+
+    const historyTableBody = document.getElementById('historyTableBody');
+    const historyCountLabel = document.getElementById('historyCountLabel');
+    const historySearch = document.getElementById('historySearch');
+    const historyLoadMoreWrap = document.getElementById('historyLoadMoreWrap');
+    const historyLoadMoreBtn = document.getElementById('historyLoadMoreBtn');
+    const historySortButtons = Array.from(document.querySelectorAll('.cur-hi-head-btn[data-sort]'));
+    const HISTORY_LIMIT = <%= Number(limit || 100) %>;
+    const historyState = {
+      all: HISTORY_DATA.slice(),
+      sortKey: 'when',
+      sortDir: 'desc',
+      filter: '',
+      offset: <%= Number(offset || 0) %> + HISTORY_DATA.length,
+      hasMore: HISTORY_DATA.length >= HISTORY_LIMIT,
+      loadingMore: false,
+    };
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value);
+    }
+
+    function compareStrings(a, b) {
+      return String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
+    }
+
+    function formatListenTime(ms) {
+      const totalMs = Number(ms || 0);
+      if (!totalMs) return '—';
+      const s = Math.floor(totalMs / 1000);
+      const m = Math.floor(s / 60);
+      const h = Math.floor(m / 60);
+      if (h) return h + 'h ' + (m % 60) + 'm';
+      if (m) return m + 'm ' + (s % 60) + 's';
+      return s + 's';
+    }
+
+    function formatStartedAt(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function historyAlbumThumb(item) {
+      if (!item.artist_name || !item.album_name) return '';
+      return '/api/music/thumb/album?artist=' + encodeURIComponent(item.artist_name) + '&album=' + encodeURIComponent(item.album_name);
+    }
+
+    function historyArtistThumb(item) {
+      if (!item.artist_name) return '';
+      return '/api/music/thumb/artist/' + encodeURIComponent(item.artist_name);
+    }
+
+    function historySearchValue(item) {
+      return [
+        item.track_title,
+        item.artist_name,
+        item.album_name,
+        item.curatorrTier && item.curatorrTier.label,
+        item.is_skip ? 'skip' : 'play',
+      ].join(' ').toLowerCase();
+    }
+
+    function compareHistory(a, b) {
+      let result = 0;
+      switch (historyState.sortKey) {
+        case 'track':
+          result = compareStrings(a.track_title, b.track_title);
+          break;
+        case 'artist':
+          result = compareStrings(a.artist_name, b.artist_name) || compareStrings(a.track_title, b.track_title);
+          break;
+        case 'album':
+          result = compareStrings(a.album_name, b.album_name) || compareStrings(a.track_title, b.track_title);
+          break;
+        case 'listened':
+          result = Number(a.duration_ms || 0) - Number(b.duration_ms || 0);
+          break;
+        case 'when':
+          result = Number(a.started_at || 0) - Number(b.started_at || 0);
+          break;
+        default:
+          result = a.index - b.index;
+          break;
+      }
+      if (result === 0) result = a.index - b.index;
+      return historyState.sortDir === 'asc' ? result : -result;
+    }
+
+    function renderHistoryTrack(item) {
+      const parts = [];
+      if (item.curatorrTier) {
+        parts.push('<span class="cur-badge cur-badge--' + escapeAttr(item.curatorrTier.tone) + '">' + escapeHtml(item.curatorrTier.label) + '</span>');
+      }
+      return [
+        '<span class="cur-hi-track-wrap">',
+          '<span class="cur-hi-track-main">',
+            '<span class="cur-hi-track-name">' + escapeHtml(item.track_title || '—') + '</span>',
+            parts.join(''),
+          '</span>',
+        '</span>'
+      ].join('');
+    }
+
+    function renderArtworkCell(type, url, label) {
+      if (!label) return '<span class="cur-pl-cell-empty">—</span>';
+      const safeUrl = escapeAttr(url);
+      const safeLabel = escapeHtml(label);
+      const fallback = type === 'artist' ? '◎' : '♪';
+      return [
+        '<span class="cur-pl-inline-media">',
+          '<span class="cur-pl-col-art cur-pl-col-art--' + type + '">',
+            safeUrl ? '<img src="' + safeUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'" />' : '',
+            '<span class="cur-pl-no-art"' + (safeUrl ? ' style="display:none"' : '') + '>' + fallback + '</span>',
+          '</span>',
+          '<span class="cur-pl-' + type + '-name">' + safeLabel + '</span>',
+        '</span>'
+      ].join('');
+    }
+
+    function renderHistoryRow(item) {
+      const trackKey = escapeAttr(item.plex_rating_key || '');
+      const userId = escapeAttr(item.user_plex_id || '');
+      const artistName = escapeAttr(item.artist_name || '');
+      const albumName = escapeAttr(item.album_name || '');
+      return [
+        '<div class="cur-hi-row' + (item.is_skip ? ' cur-hi-row--skip' : '') + '">',
+          '<span class="cur-hi-col-track cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="' + trackKey + '" data-cur-overview-user="' + userId + '">' + renderHistoryTrack(item) + '</span>',
+          '<span class="cur-hi-col-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + artistName + '" data-cur-overview-user="' + userId + '">' + renderArtworkCell('artist', historyArtistThumb(item), item.artist_name || '—') + '</span>',
+          '<span class="cur-hi-col-album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="' + artistName + '" data-cur-overview-album="' + albumName + '" data-cur-overview-user="' + userId + '">' + renderArtworkCell('album', historyAlbumThumb(item), item.album_name || '—') + '</span>',
+          '<span class="cur-hi-col-num">' + escapeHtml(formatListenTime(item.duration_ms)) + '</span>',
+          '<span class="cur-hi-col-when">' + escapeHtml(formatStartedAt(item.started_at)) + '</span>',
+        '</div>'
+      ].join('');
+    }
+
+    function updateHistorySortButtons() {
+      historySortButtons.forEach(function(btn) {
+        const isActive = btn.dataset.sort === historyState.sortKey;
+        btn.classList.toggle('is-active', isActive);
+        const arrow = btn.querySelector('.cur-pl-sort-arrow');
+        if (!arrow) return;
+        arrow.textContent = !isActive ? '↕' : (historyState.sortDir === 'asc' ? '↑' : '↓');
+      });
+    }
+
+    function visibleHistory() {
+      return historyState.all
+        .filter(function(item) {
+          return !historyState.filter || historySearchValue(item).includes(historyState.filter);
+        })
+        .slice()
+        .sort(compareHistory);
+    }
+
+    function renderHistory() {
+      if (!historyTableBody) return;
+      const history = visibleHistory();
+      updateHistorySortButtons();
+      if (historyCountLabel) {
+        historyCountLabel.textContent = history.length === historyState.all.length
+          ? history.length.toLocaleString() + ' events'
+          : history.length.toLocaleString() + ' / ' + historyState.all.length.toLocaleString() + ' events';
+      }
+      if (!history.length) {
+        historyTableBody.innerHTML = '<div class="cur-empty cur-hi-empty">No history matches the current filter.</div>';
+      } else {
+        historyTableBody.innerHTML = history.map(renderHistoryRow).join('');
+      }
+      updateHistoryLoadMore(history.length);
+    }
+
+    function updateHistoryLoadMore(visibleCount) {
+      if (!historyLoadMoreWrap || !historyLoadMoreBtn) return;
+      if (!historyState.hasMore) {
+        historyLoadMoreWrap.style.display = 'none';
+        return;
+      }
+      historyLoadMoreWrap.style.display = '';
+      historyLoadMoreBtn.disabled = historyState.loadingMore;
+      historyLoadMoreBtn.textContent = historyState.loadingMore
+        ? 'Loading…'
+        : 'Load more' + (visibleCount ? '' : '');
+    }
+
+    function normalizeHistoryItem(item, index) {
+      return {
+        index,
+        plex_rating_key: String(item.plex_rating_key || ''),
+        user_plex_id: String(item.user_plex_id || ''),
+        track_title: item.track_title || '',
+        artist_name: item.artist_name || '',
+        album_name: item.album_name || '',
+        duration_ms: Number(item.duration_ms || 0),
+        started_at: Number(item.started_at || 0),
+        is_skip: Boolean(item.is_skip),
+        curatorrTier: item.curatorrTier || null,
+      };
+    }
+
+    function loadMoreHistory() {
+      if (historyState.loadingMore || !historyState.hasMore) return;
+      historyState.loadingMore = true;
+      updateHistoryLoadMore(visibleHistory().length);
+      fetch('/api/music/history?limit=' + encodeURIComponent(HISTORY_LIMIT) + '&offset=' + encodeURIComponent(historyState.offset), {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' }
+      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+        .then(function(result) {
+          if (!result.ok || !result.data || result.data.ok !== true || !Array.isArray(result.data.history)) {
+            throw new Error((result.data && result.data.error) || 'Failed to load history.');
+          }
+          const nextItems = result.data.history.map(function(item, idx) {
+            return normalizeHistoryItem(item, historyState.all.length + idx);
+          });
+          historyState.all = historyState.all.concat(nextItems);
+          historyState.offset += nextItems.length;
+          historyState.hasMore = nextItems.length >= HISTORY_LIMIT;
+          historyState.loadingMore = false;
+          renderHistory();
+        })
+        .catch(function() {
+          historyState.loadingMore = false;
+          updateHistoryLoadMore(visibleHistory().length);
+        });
+    }
+
+    if (historySearch) {
+      historySearch.addEventListener('input', function() {
+        historyState.filter = this.value.trim().toLowerCase();
+        renderHistory();
+      });
+    }
+
+    historySortButtons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const key = btn.dataset.sort;
+        if (!key) return;
+        if (historyState.sortKey === key) {
+          historyState.sortDir = historyState.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          historyState.sortKey = key;
+          historyState.sortDir = ['track', 'artist', 'album'].includes(key) ? 'asc' : 'desc';
+        }
+        renderHistory();
+      });
+    });
+
+    renderHistory();
+  </script>
 </body>
 </html>

@@ -12,10 +12,12 @@ import {
   getCurrentLidarrUsage,
   listLidarrArtistProgress,
   listLidarrRequests,
+  getSuggestedArtist,
   getArtistsFromMaster,
   dedupeMasterArtistNames,
   getResolvedUserArtistFilters,
   getUserPreferences,
+  listSuggestedAlbums,
 } from '../db.js';
 
 // Returns the DB filter key for a user:
@@ -33,6 +35,69 @@ function stripArtistSuffix(title, artist) {
   return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title;
 }
 
+function enrichDiscoverRequests(db, userPlexId, requests = []) {
+  const libraryArtistSet = new Set(
+    db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
+  );
+  const addedAlbumMap = new Map();
+  for (const status of ['added_to_lidarr', 'already_monitored']) {
+    for (const album of listSuggestedAlbums(db, userPlexId, { status, limit: 500 })) {
+      const key = String(album?.artistName || '').trim().toLowerCase();
+      if (!key || addedAlbumMap.has(key)) continue;
+      addedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+    }
+  }
+  const suggestedAlbumMap = new Map();
+  for (const album of listSuggestedAlbums(db, userPlexId, { limit: 500 })) {
+    const key = String(album?.artistName || '').trim().toLowerCase();
+    if (!key || suggestedAlbumMap.has(key)) continue;
+    suggestedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+  }
+  return (Array.isArray(requests) ? requests : []).map((request) => {
+    const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
+    const currentAlbumTitle = String(
+      request?.albumTitle
+      || detail.selectedAlbumTitle
+      || detail.starterAlbumTitle
+      || detail.latestAlbumTitle
+      || detail.preferredAlbumTitle
+      || ''
+    ).trim();
+    const artistKey = String(request?.artistName || '').trim().toLowerCase();
+    const inLibrary = libraryArtistSet.has(artistKey);
+    if (currentAlbumTitle) return { ...request, detail, inLibrary };
+    const addedAlbumTitle = addedAlbumMap.get(artistKey) || '';
+    if (addedAlbumTitle) {
+      return {
+        ...request,
+        detail: { ...detail, selectedAlbumTitle: addedAlbumTitle },
+        inLibrary,
+      };
+    }
+    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
+    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
+    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
+    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
+    const fallbackAlbumTitle = String(
+      starterAlbum?.albumTitle
+      || latestAlbum?.albumTitle
+      || suggestedAlbumMap.get(artistKey)
+      || ''
+    ).trim();
+    if (!fallbackAlbumTitle) return { ...request, detail, inLibrary };
+    return {
+      ...request,
+      detail: {
+        ...detail,
+        selectedAlbumTitle: detail.selectedAlbumTitle || fallbackAlbumTitle,
+        starterAlbumTitle: detail.starterAlbumTitle || String(starterAlbum?.albumTitle || '').trim(),
+        latestAlbumTitle: detail.latestAlbumTitle || String(latestAlbum?.albumTitle || '').trim(),
+      },
+      inLibrary,
+    };
+  });
+}
+
 export function registerPages(app, ctx) {
   const {
     requireUser,
@@ -47,6 +112,7 @@ export function registerPages(app, ctx) {
     recommendationService,
     playlistService,
     lidarrService,
+    fetchPlexPlaylistsForToken,
   } = ctx;
 
   // Root redirect
@@ -100,7 +166,36 @@ export function registerPages(app, ctx) {
       track_title: stripArtistSuffix(event.track_title, event.artist_name),
       curatorrTier: deriveHistoryTier(event, config),
     }));
-    const lastSync = getLastPlaylistSync(db, userPlexId);
+    const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: true }) || [];
+    let dashboardPlaylists = generatedPlaylists.map((playlist) => ({
+      ...playlist,
+      artPath: '',
+      curatorrUpdatedAt: Number(playlist.lastBuiltAt || playlist.lastSyncedAt || playlist.updatedAt || playlist.createdAt || 0),
+    }));
+    const { url: plexUrl, token: plexToken } = config.plex || {};
+    if (dashboardPlaylists.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
+      try {
+        const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
+        const plexPlaylistMap = new Map(
+          plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]),
+        );
+        dashboardPlaylists = dashboardPlaylists.map((playlist) => {
+          const plexPlaylist = plexPlaylistMap.get(String(playlist.plexPlaylistId || '')) || null;
+          return {
+            ...playlist,
+            artPath: String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || ''),
+            plexUpdatedAt: Number(plexPlaylist?.updatedAt || 0),
+          };
+        });
+      } catch (_err) {
+        // Fall back to placeholder art; dashboard playlist metadata still renders.
+      }
+    }
+    dashboardPlaylists.sort((a, b) => {
+      const byUpdated = Number(b.curatorrUpdatedAt || 0) - Number(a.curatorrUpdatedAt || 0);
+      if (byUpdated) return byUpdated;
+      return String(a.playlistTitle || '').localeCompare(String(b.playlistTitle || ''));
+    });
     const dashboardSuggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 8 });
     const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, suggestionUserId, dashboardSuggestions.artists);
     const lidarrAutomationEligible = canUserAccessLidarrAutomation(loadConfig(), { ...req.session.user, role });
@@ -120,7 +215,7 @@ export function registerPages(app, ctx) {
       topArtists,
       topTracks,
       recentHistory,
-      lastSync,
+      dashboardPlaylists,
       lidarrStatus,
       lidarrQuota,
       lidarrAutomationEligible,
@@ -134,9 +229,9 @@ export function registerPages(app, ctx) {
     const config = loadConfig();
     const user = req.session.user;
     const userPlexId = resolveUserFilter(user, getEffectiveRole(req));
-    const page = Math.max(0, Number(req.query?.page || 0));
-    const limit = 50;
-    const history = getRecentHistory(db, userPlexId, limit, page * limit).map((event) => ({
+    const offset = Math.max(0, Number(req.query?.offset || 0));
+    const limit = 100;
+    const history = getRecentHistory(db, userPlexId, limit, offset).map((event) => ({
       ...event,
       track_title: stripArtistSuffix(event.track_title, event.artist_name),
       curatorrTier: deriveHistoryTier(event, config),
@@ -149,7 +244,7 @@ export function registerPages(app, ctx) {
       actualRole: getActualRole(req),
       config: safeConfig(config),
       history,
-      page,
+      offset,
       limit,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
@@ -208,9 +303,18 @@ export function registerPages(app, ctx) {
     const lidarrQuota = lidarrService?.isConfigured() && lidarrAutomationEligible
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {})
       : null;
-    const queuedRequests = listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 200 });
-    const requestHistory = listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 });
-    const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, userPlexId, []);
+    const queuedRequests = enrichDiscoverRequests(
+      db,
+      userPlexId,
+      listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 200 }),
+    );
+    const requestHistory = enrichDiscoverRequests(
+      db,
+      userPlexId,
+      listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 }),
+    ).filter((r) => r?.detail?.reconciledAction !== 'already_in_lidarr');
+    const discoverSuggestions = loadSuggestionBundle(recommendationService, userPlexId, { artistLimit: 16 });
+    const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, userPlexId, discoverSuggestions.artists);
     const disc = config.discovery || {};
     const discoveryConfig = {
       enabled: Boolean(disc.lastfmApiKey),
@@ -227,6 +331,7 @@ export function registerPages(app, ctx) {
       config: safeConfig(config),
       lidarrAutomationEligible,
       lidarrQuota,
+      suggestedArtists: lidarrStatus.actionableSuggestions,
       queuedRequests,
       requestHistory,
       lidarrStatus,
@@ -253,7 +358,7 @@ export function registerPages(app, ctx) {
     const completedKeys = getCompletedTrackKeys(db, userPlexId, completionThresholdMs);
     const suggestions = loadSuggestionBundle(recommendationService, suggestionUserId, {
       trackLimit: 10,
-      albumLimit: 8,
+      albumLimit: 10,
     });
 
     res.render('tracks', {
@@ -272,20 +377,57 @@ export function registerPages(app, ctx) {
 
   // ── Playlists ─────────────────────────────────────────────────────────────
 
-  app.get('/playlists', requireUser, requireWizardComplete, requireUserWizardComplete, (req, res) => {
+  app.get('/playlists', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
     const userPlexId = String(user.username || '').trim();
     const role = getEffectiveRole(req);
     const lastSync = getLastPlaylistSync(db, userPlexId);
-    const playlistJob = getPlaylistJob(db, userPlexId);
-    const suggestions = loadSuggestionBundle(recommendationService, userPlexId, {
-      artistLimit: 6,
-      albumLimit: 6,
-      trackLimit: 12,
-    });
     const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: false }) || [];
     const canonicalPlaylists = playlistService?.getCanonicalPlaylist(userPlexId) || { legacy: null, generated: [], curatorred: null };
+    const generatedCards = generatedPlaylists
+      .map((playlist) => ({
+        playlistKind: 'generated',
+        playlistKey: String(playlist.playlistKey || ''),
+        playlistType: String(playlist.playlistType || ''),
+        plexPlaylistId: String(playlist.plexPlaylistId || ''),
+        playlistTitle: String(playlist.playlistTitle || playlist.playlistKey || 'Playlist'),
+        trackCount: Number(playlist.trackCount || 0),
+        curatorrUpdatedAt: Number(playlist.lastBuiltAt || playlist.lastSyncedAt || playlist.updatedAt || playlist.createdAt || 0),
+        state: playlist.plexPlaylistId ? 'synced' : 'pending',
+        description: String(playlist.playlistType || 'generated'),
+        artPath: '',
+      }))
+      .sort((a, b) => Number(b.curatorrUpdatedAt || 0) - Number(a.curatorrUpdatedAt || 0) || a.playlistTitle.localeCompare(b.playlistTitle));
+    const playlistCards = [];
+    if (canonicalPlaylists.legacy) {
+      playlistCards.push({
+        playlistKind: 'legacy',
+        playlistKey: '',
+        playlistType: 'legacy',
+        plexPlaylistId: String(canonicalPlaylists.legacy.playlist_id || ''),
+        playlistTitle: String(canonicalPlaylists.legacy.playlist_title || 'Curatorred Playlist'),
+        trackCount: Number(lastSync?.track_count || 0),
+        curatorrUpdatedAt: Number(lastSync?.synced_at || 0),
+        state: canonicalPlaylists.legacy.playlist_id ? 'synced' : 'pending',
+        description: 'Current Curatorr playlist',
+        artPath: '',
+      });
+    }
+    playlistCards.push(...generatedCards);
+    const { url: plexUrl, token: plexToken } = config.plex || {};
+    if (playlistCards.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
+      try {
+        const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
+        const plexPlaylistMap = new Map(plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]));
+        playlistCards.forEach((playlist) => {
+          const plexPlaylist = plexPlaylistMap.get(String(playlist.plexPlaylistId || '')) || null;
+          playlist.artPath = String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || '');
+        });
+      } catch (_err) {
+        // Leave cards on placeholder artwork if Plex metadata is unavailable.
+      }
+    }
 
     res.render('playlists', {
       title: 'Playlists — Curatorr',
@@ -294,14 +436,8 @@ export function registerPages(app, ctx) {
       actualRole: getActualRole(req),
       config: safeConfig(config),
       lastSync,
-      playlistJob,
-      suggestionSummary: {
-        artists: suggestions.artists.length,
-        albums: suggestions.albums.length,
-        tracks: suggestions.tracks.length,
-      },
-      generatedPlaylists,
-      canonicalPlaylists,
+      playlistCards,
+      plexMachineId: String(config.plex?.machineId || ''),
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });
@@ -420,7 +556,12 @@ function deriveHistoryTier(event, config = {}) {
 
 function loadSuggestionBundle(recommendationService, userPlexId, options = {}) {
   if (!recommendationService || !userPlexId) return { artists: [], albums: [], tracks: [] };
-  let cached = recommendationService.listCachedSuggestions(userPlexId, options);
+  let cached = { artists: [], albums: [], tracks: [] };
+  try {
+    cached = recommendationService.listCachedSuggestions(userPlexId, options) || cached;
+  } catch (_err) {
+    cached = { artists: [], albums: [], tracks: [] };
+  }
   const count = (cached.artists?.length || 0) + (cached.albums?.length || 0) + (cached.tracks?.length || 0);
   if (count > 0) return cached;
   try {

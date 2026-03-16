@@ -1,5 +1,5 @@
 <%- include('partials/head', { pageTitle: title || 'Artists — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
-<body class="dash-body">
+<body class="dash-body cur-artists-page">
   <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
@@ -33,150 +33,78 @@
       <div class="dash-content">
         <%
           const _artists = Array.isArray(artists) ? artists : [];
-          const _suggestedArtists = Array.isArray(suggestedArtists) ? suggestedArtists : [];
-          const _lidarrAutomationEligible = Boolean(lidarrAutomationEligible);
-          const _lidarrStatus = lidarrStatus && typeof lidarrStatus === 'object' ? lidarrStatus : { items: [], counts: {} };
-          const _lidarrQuota = lidarrQuota && typeof lidarrQuota === 'object' ? lidarrQuota : null;
-
-          function fmtQuota(metric, label) {
-            if (!metric) return '';
-            if (metric.unlimited) return label + ' unlimited';
-            return label + ' ' + metric.used + '/' + metric.limit;
-          }
         %>
 
-        <div class="cur-panel">
+        <div class="cur-panel cur-panel--artists-table">
           <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Suggested Artists <span class="cur-count"><%= _suggestedArtists.length %></span></h3>
+            <h3 class="cur-panel-title">Artists</h3>
             <div class="cur-panel-actions">
-              <% if (_lidarrQuota) { %>
-                <span class="cur-status-chip"><strong><%= fmtQuota(_lidarrQuota.weeklyArtists, 'Artists') %></strong></span>
-                <span class="cur-status-chip"><strong><%= fmtQuota(_lidarrQuota.weeklyAlbums, 'Albums') %></strong></span>
-              <% } %>
-            </div>
-          </div>
-          <% if (_suggestedArtists.length) { %>
-            <ul class="cur-list">
-              <% _suggestedArtists.forEach(function(a) { const topGenres = Array.isArray(a.reason?.topGenres) ? a.reason.topGenres.filter(Boolean).slice(0, 3) : []; %>
-                <li class="cur-list-item cur-suggest-item">
-                  <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>">
-                    <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-                  </span>
-                  <span class="cur-list-primary">
-                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>"><%= a.artistName %></span>
-                    <span class="cur-list-sub">
-                      <%= topGenres.length ? topGenres.join(' · ') : 'Suggested from your current library taste profile' %>
-                      <% if (a.reason?.albumCount) { %> · <%= a.reason.albumCount %> album<%= a.reason.albumCount === 1 ? '' : 's' %><% } %>
-                    </span>
-                  </span>
-                  <span class="cur-list-meta cur-suggest-score">Score <strong><%= Number(a.totalScore || 0).toFixed(1) %></strong></span>
-                  <span class="cur-badge cur-badge--<%= a.lidarrStatusTone || 'curatorr' %>"><%= a.lidarrStatusLabel || a.status || 'Suggested' %></span>
-                  <span class="cur-cell-actions cur-suggest-actions">
-                    <% if ((a.status || 'suggested') === 'suggested' && _lidarrAutomationEligible) { %>
-                      <button class="btn btn-sm btn-primary" type="button" onclick="queueSuggestedArtist('<%= encodeURIComponent(a.artistName) %>', this)">Add to Lidarr</button>
-                    <% } else if (a.lidarrStatusKey && a.lidarrStatusKey !== 'suggested') { %>
-                      <span class="cur-panel-meta"><%= a.lidarrStatusDetail || a.lidarrStatusLabel %></span>
-                    <% } else if ((a.status || '') === 'quota_blocked') { %>
-                      <span class="cur-panel-meta"><%= a.lidarrStatusDetail || 'Weekly quota reached.' %></span>
-                    <% } else if (!_lidarrAutomationEligible) { %>
-                      <span class="cur-panel-meta">Lidarr automation is not enabled for this role.</span>
-                    <% } %>
-                  </span>
-                </li>
-              <% }) %>
-            </ul>
-          <% } else { %>
-            <div class="cur-empty">No actionable artist suggestions right now. Curatorr checks this list automatically and moves existing Lidarr artists into the activity panel below.</div>
-          <% } %>
-          <div class="cur-panel-foot">
-            <span id="artistSuggestionStatus" class="cur-panel-meta"></span>
-          </div>
-        </div>
-
-        <div class="cur-panel">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Lidarr Activity <span class="cur-count"><%= (_lidarrStatus.items || []).length %></span></h3>
-            <div class="cur-panel-actions">
-              <% Object.keys(_lidarrStatus.counts || {}).forEach(function(label) { %>
-                <span class="cur-status-chip"><strong><%= _lidarrStatus.counts[label] %></strong> <%= label %></span>
-              <% }) %>
-            </div>
-          </div>
-          <% if ((_lidarrStatus.items || []).length) { %>
-            <ul class="cur-list">
-              <% _lidarrStatus.items.forEach(function(item) { %>
-                <li class="cur-list-item cur-list-item--stack">
-                  <span class="cur-list-primary">
-                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
-                    <% if (item.detail) { %>
-                      <span class="cur-list-sub"><%= item.detail %></span>
-                    <% } %>
-                  </span>
-                  <% if (_lidarrAutomationEligible && item.reviewable) { %>
-                    <span class="cur-cell-actions">
-                      <button class="btn btn-sm btn-ghost" type="button" onclick="reviewLidarrProgression('<%= encodeURIComponent(item.artistName) %>', this)">Review now</button>
-                    </span>
-                  <% } %>
-                  <span class="cur-badge cur-badge--<%= item.tone || 'neutral' %>"><%= item.label %></span>
-                </li>
-              <% }) %>
-            </ul>
-          <% } else { %>
-            <div class="cur-empty">No Lidarr actions recorded yet. Added artists and album activity will appear here.</div>
-          <% } %>
-          <div class="cur-panel-foot">
-            <span id="lidarrReviewStatus" class="cur-panel-meta"></span>
-          </div>
-        </div>
-
-        <div class="cur-panel">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Artists <span class="cur-count"><%= _artists.length %></span></h3>
-            <div class="cur-search-wrap">
-              <input type="search" class="cur-search" id="artistSearch" placeholder="Filter artists…" />
-            </div>
-          </div>
-
-          <% if (_artists.length) { %>
-            <div class="cur-artist-table" id="artistTable">
-              <div class="cur-table-head">
-                <span></span>
-                <span>Artist</span>
-                <span>Plays</span>
-                <span>Skips</span>
-                <span>Skip streak</span>
-                <span>Status</span>
-                <span>Actions</span>
-              </div>
-              <% _artists.forEach(function(a) { %>
-                <div class="cur-table-row" data-artist-name="<%= a.artist_name.toLowerCase() %>">
-                  <span class="cur-cell-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" onerror="this.style.visibility='hidden'" loading="lazy" /></span>
-                  <span class="cur-cell-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
-                  <span class="cur-cell"><%= a.total_plays %></span>
-                  <span class="cur-cell"><%= a.total_skips %></span>
-                  <span class="cur-cell">
-                    <% if (a.skip_streak > 0) { %>
-                      <span class="cur-skip-streak<%= a.skip_streak >= 3 ? ' cur-skip-streak--danger' : ' cur-skip-streak--warn' %>"><%= a.skip_streak %></span>
-                    <% } else { %>
-                      <span class="cur-cell-muted">0</span>
-                    <% } %>
-                  </span>
-                  <span class="cur-cell">
-                    <% if (a.curatorrTier) { %>
-                      <span class="cur-badge cur-badge--<%= a.curatorrTier.tone %>"><%= a.curatorrTier.label %></span>
-                    <% } %>
-                  </span>
-                  <span class="cur-cell-actions">
-                    <% if (a.skip_streak > 0) { %>
-                      <button class="btn btn-sm btn-ghost" onclick="resetArtistSkips('<%= encodeURIComponent(a.artist_name) %>', this)">Reset skips</button>
-                    <% } %>
-                  </span>
+              <span class="cur-panel-meta" id="artistCountLabel"></span>
+              <input type="search" class="cur-input cur-input--sm" id="artistSearch" placeholder="Filter artists…" style="width:180px" />
+              <div class="cur-filter-menu" data-cur-filter-menu>
+                <button class="plex-iconbtn cur-filter-menu-toggle" type="button" data-cur-filter-toggle aria-label="Open artist filters" aria-haspopup="true" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M4 6.5c0-.83.67-1.5 1.5-1.5h13c.83 0 1.5.67 1.5 1.5 0 .35-.12.69-.35.96L14 13.88V18c0 .32-.15.62-.41.81l-2.4 1.8A1 1 0 0 1 9.6 19.8v-5.92L4.35 7.46A1.5 1.5 0 0 1 4 6.5Z" />
+                  </svg>
+                </button>
+                <div class="cur-filter-popover" data-cur-filter-popover hidden>
+                  <div class="cur-filter-popover-heading">Filter artists</div>
+                  <div class="cur-filter-popover-options" role="menu" aria-label="Artist filters">
+                    <button class="cur-filter-option is-active" type="button" data-artist-filter="all" data-cur-filter-close>
+                      <span>All</span>
+                      <span class="cur-filter-option-note">Everything</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-artist-filter="played" data-cur-filter-close>
+                      <span>Played</span>
+                      <span class="cur-filter-option-note">Has plays</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-artist-filter="skipped" data-cur-filter-close>
+                      <span>Skipped</span>
+                      <span class="cur-filter-option-note">Has skips</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-artist-filter="belter" data-cur-filter-close>
+                      <span>Belter</span>
+                      <span class="cur-filter-option-note">Top tier</span>
+                    </button>
+                  </div>
                 </div>
-              <% }) %>
+              </div>
             </div>
-          <% } else { %>
-            <div class="cur-empty">No artist data yet. Plays will appear once Tautulli or Plex webhooks start sending events.</div>
-          <% } %>
+          </div>
+          <div class="cur-panel-body">
+            <% if (_artists.length) { %>
+              <div class="cur-ar-shell">
+                <div class="cur-ar-table" id="artistTable">
+                  <div class="cur-ar-head">
+                    <button type="button" class="cur-pl-head-btn cur-ar-head-btn" data-sort="artist">
+                      <span>Artist</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-ar-head-btn cur-pl-head-btn--right" data-sort="plays">
+                      <span>Plays</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-ar-head-btn cur-pl-head-btn--right" data-sort="skips">
+                      <span>Skips</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-ar-head-btn cur-pl-head-btn--right" data-sort="streak">
+                      <span>Skip streak</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-ar-head-btn" data-sort="status">
+                      <span>Status</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <span class="cur-ar-head-label">Actions</span>
+                  </div>
+                  <div class="cur-ar-body" id="artistTableBody"></div>
+                </div>
+              </div>
+            <% } else { %>
+              <div class="cur-empty">No artist data yet. Plays will appear once Tautulli or Plex webhooks start sending events.</div>
+            <% } %>
+          </div>
         </div>
       </div>
     </section>
@@ -189,19 +117,210 @@
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script src="/starfield-3d.js"></script>
   <script>
-    // Client-side artist search
+    const ARTISTS_DATA = <%- JSON.stringify(_artists.map(function(a, index) {
+      return {
+        index,
+        artist_name: a.artist_name || '',
+        total_plays: Number(a.total_plays || 0),
+        total_skips: Number(a.total_skips || 0),
+        skip_streak: Number(a.skip_streak || 0),
+        curatorrTier: a.curatorrTier || null,
+      };
+    })).replace(/</g, '\\u003c') %>;
+
     const artistSearch = document.getElementById('artistSearch');
-    if (artistSearch) {
-      artistSearch.addEventListener('input', function() {
-        const q = this.value.toLowerCase();
-        document.querySelectorAll('#artistTable .cur-table-row').forEach(function(row) {
-          const name = row.dataset.artistName || '';
-          row.style.display = name.includes(q) ? '' : 'none';
-        });
+    const artistCountLabel = document.getElementById('artistCountLabel');
+    const artistTableBody = document.getElementById('artistTableBody');
+    const artistSortButtons = Array.from(document.querySelectorAll('.cur-ar-head-btn[data-sort]'));
+    const artistFilterButtons = Array.from(document.querySelectorAll('[data-artist-filter]'));
+    const artistState = {
+      all: ARTISTS_DATA.slice(),
+      sortKey: 'plays',
+      sortDir: 'desc',
+      filter: '',
+      tierFilter: 'all',
+    };
+
+    const STATUS_SORT_WEIGHT = {
+      skip: 1,
+      'half-decent': 2,
+      decent: 3,
+      curatorr: 4,
+      belter: 5,
+    };
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value);
+    }
+
+    function artistThumb(artist) {
+      return artist.artist_name ? '/api/music/thumb/artist/' + encodeURIComponent(artist.artist_name) : '';
+    }
+
+    function artistSearchValue(artist) {
+      return [
+        artist.artist_name,
+        artist.curatorrTier && artist.curatorrTier.label,
+      ].join(' ').toLowerCase();
+    }
+
+    function artistStatusWeight(artist) {
+      const tierKey = artist.curatorrTier && artist.curatorrTier.key;
+      return STATUS_SORT_WEIGHT[tierKey] || 0;
+    }
+
+    function compareStrings(a, b) {
+      return String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
+    }
+
+    function compareArtists(a, b) {
+      let result = 0;
+      switch (artistState.sortKey) {
+        case 'artist':
+          result = compareStrings(a.artist_name, b.artist_name);
+          break;
+        case 'plays':
+          result = a.total_plays - b.total_plays;
+          break;
+        case 'skips':
+          result = a.total_skips - b.total_skips;
+          break;
+        case 'streak':
+          result = a.skip_streak - b.skip_streak;
+          break;
+        case 'status':
+          result = artistStatusWeight(a) - artistStatusWeight(b);
+          break;
+        default:
+          result = a.index - b.index;
+          break;
+      }
+      if (result === 0) result = compareStrings(a.artist_name, b.artist_name);
+      if (result === 0) result = a.index - b.index;
+      return artistState.sortDir === 'asc' ? result : -result;
+    }
+
+    function renderArtistStatus(artist) {
+      if (!artist.curatorrTier) return '<span class="cur-pl-cell-empty">—</span>';
+      return '<span class="cur-badge cur-badge--' + escapeAttr(artist.curatorrTier.tone) + '">' + escapeHtml(artist.curatorrTier.label) + '</span>';
+    }
+
+    function renderArtistStreak(artist) {
+      if (artist.skip_streak > 0) {
+        const tone = artist.skip_streak >= 3 ? 'danger' : 'warn';
+        return '<span class="cur-skip-streak cur-skip-streak--' + tone + '">' + escapeHtml(artist.skip_streak) + '</span>';
+      }
+      return '<span class="cur-pl-cell-empty">0</span>';
+    }
+
+    function renderArtistRow(artist) {
+      const artistName = escapeAttr(artist.artist_name || '');
+      const thumb = escapeAttr(artistThumb(artist));
+      const actionButton = artist.skip_streak > 0
+        ? '<button class="btn btn-sm btn-ghost" onclick="resetArtistSkips(\'' + encodeURIComponent(artist.artist_name || '') + '\', this)">Reset skips</button>'
+        : '';
+      return [
+        '<div class="cur-ar-row">',
+          '<span class="cur-ar-col-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + artistName + '">',
+            '<span class="cur-pl-inline-media">',
+              '<span class="cur-pl-col-art cur-pl-col-art--artist">',
+                thumb ? '<img src="' + thumb + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'" />' : '',
+                '<span class="cur-pl-no-art"' + (thumb ? ' style="display:none"' : '') + '>◎</span>',
+              '</span>',
+              '<span class="cur-pl-artist-name">' + escapeHtml(artist.artist_name || '—') + '</span>',
+            '</span>',
+          '</span>',
+          '<span class="cur-ar-col-num">' + escapeHtml(artist.total_plays) + '</span>',
+          '<span class="cur-ar-col-num">' + escapeHtml(artist.total_skips) + '</span>',
+          '<span class="cur-ar-col-streak">' + renderArtistStreak(artist) + '</span>',
+          '<span class="cur-ar-col-status">' + renderArtistStatus(artist) + '</span>',
+          '<span class="cur-ar-col-actions">' + actionButton + '</span>',
+        '</div>'
+      ].join('');
+    }
+
+    function visibleArtists() {
+      return artistState.all
+        .filter(function(artist) {
+          const matchesSearch = !artistState.filter || artistSearchValue(artist).includes(artistState.filter);
+          const matchesFilter =
+            artistState.tierFilter === 'all'
+              || (artistState.tierFilter === 'played' && artist.total_plays > 0)
+              || (artistState.tierFilter === 'skipped' && (artist.total_skips > 0 || artist.skip_streak > 0))
+              || (artistState.tierFilter === 'belter' && artist.curatorrTier && artist.curatorrTier.tone === 'belter');
+          return matchesSearch && matchesFilter;
+        })
+        .slice()
+        .sort(compareArtists);
+    }
+
+    function updateArtistSortButtons() {
+      artistSortButtons.forEach(function(btn) {
+        const isActive = btn.dataset.sort === artistState.sortKey;
+        btn.classList.toggle('is-active', isActive);
+        const arrow = btn.querySelector('.cur-pl-sort-arrow');
+        if (!arrow) return;
+        arrow.textContent = !isActive ? '↕' : (artistState.sortDir === 'asc' ? '↑' : '↓');
       });
     }
 
+    function renderArtists() {
+      if (!artistTableBody) return;
+      const artists = visibleArtists();
+      updateArtistSortButtons();
+      if (artistCountLabel) {
+        artistCountLabel.textContent = artists.length === artistState.all.length
+          ? artists.length.toLocaleString() + ' artists'
+          : artists.length.toLocaleString() + ' / ' + artistState.all.length.toLocaleString() + ' artists';
+      }
+      if (!artists.length) {
+        artistTableBody.innerHTML = '<div class="cur-empty cur-ar-empty">No artists match the current filter.</div>';
+        return;
+      }
+      artistTableBody.innerHTML = artists.map(renderArtistRow).join('');
+    }
 
+    if (artistSearch) {
+      artistSearch.addEventListener('input', function() {
+        artistState.filter = this.value.trim().toLowerCase();
+        renderArtists();
+      });
+    }
+
+    artistSortButtons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const key = btn.dataset.sort;
+        if (!key) return;
+        if (artistState.sortKey === key) {
+          artistState.sortDir = artistState.sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          artistState.sortKey = key;
+          artistState.sortDir = key === 'artist' ? 'asc' : 'desc';
+        }
+        renderArtists();
+      });
+    });
+
+    artistFilterButtons.forEach(function(button) {
+      button.addEventListener('click', function() {
+        artistState.tierFilter = button.getAttribute('data-artist-filter') || 'all';
+        artistFilterButtons.forEach(function(other) {
+          other.classList.toggle('is-active', other === button);
+        });
+        renderArtists();
+      });
+    });
+
+    renderArtists();
 
     function resetArtistSkips(encodedName, btn) {
       fetch('/api/music/artists/' + encodedName + '/reset-skips', {
@@ -210,44 +329,6 @@
       }).then(function(r) { if (r.ok) location.reload(); });
     }
 
-    function queueSuggestedArtist(encodedName, btn) {
-      var status = document.getElementById('artistSuggestionStatus');
-      if (btn) btn.disabled = true;
-      if (status) status.textContent = 'Adding artist to Lidarr…';
-      fetch('/api/music/suggestions/artists/' + encodedName + '/queue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
-      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
-        .then(function(result) {
-          if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Failed to add artist.');
-          if (status) status.textContent = 'Artist added to Lidarr.';
-          location.reload();
-        })
-        .catch(function(err) {
-          if (status) status.textContent = err.message || 'Failed to add artist.';
-          if (btn) btn.disabled = false;
-        });
-    }
-
-    function reviewLidarrProgression(encodedName, btn) {
-      var status = document.getElementById('lidarrReviewStatus');
-      if (btn) btn.disabled = true;
-      if (status) status.textContent = 'Reviewing artist progression…';
-      fetch('/api/music/lidarr/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
-        body: JSON.stringify({ artistName: decodeURIComponent(encodedName), force: true }),
-      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
-        .then(function(result) {
-          if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Review failed.');
-          if (status) status.textContent = 'Artist progression reviewed.';
-          location.reload();
-        })
-        .catch(function(err) {
-          if (status) status.textContent = err.message || 'Review failed.';
-          if (btn) btn.disabled = false;
-        });
-    }
   </script>
 </body>
 </html>

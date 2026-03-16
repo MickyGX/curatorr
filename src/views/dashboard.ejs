@@ -34,7 +34,7 @@
         </div>
       </div>
 
-      <div class="dash-content">
+      <div class="dash-content dash-content--dashboard">
         <%
           const _stats7d = stats7d || { plays: 0, skips: 0, skipRate: 0 };
           const _stats30d = stats30d || { plays: 0, skips: 0, skipRate: 0 };
@@ -42,6 +42,7 @@
           const _topArtists = Array.isArray(topArtists) ? topArtists : [];
           const _topTracks = Array.isArray(topTracks) ? topTracks : [];
           const _recentHistory = Array.isArray(recentHistory) ? recentHistory : [];
+          const _dashboardPlaylists = Array.isArray(dashboardPlaylists) ? dashboardPlaylists : [];
           const _lidarrStatus = lidarrStatus && typeof lidarrStatus === 'object' ? lidarrStatus : { items: [], counts: {} };
           const _maxPlays = _byDay.reduce((m, d) => Math.max(m, d.plays || 0), 1);
 
@@ -60,31 +61,38 @@
           }
         %>
 
-        <%# ── Stat cards ─────────────────────────────────────────────────── %>
-        <div class="cur-stat-row">
-          <div class="cur-stat-card">
-            <div class="cur-stat-label">Plays (7d)</div>
-            <div class="cur-stat-value"><%= _stats7d.plays %></div>
+        <%# ── Stat cards widget bar ─────────────────────────────────────── %>
+        <div class="cur-panel cur-panel--stats" data-panel-key="dashboard-stats">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Overview Stats</h3>
           </div>
-          <div class="cur-stat-card cur-stat-card--skip">
-            <div class="cur-stat-label">Skips (7d)</div>
-            <div class="cur-stat-value"><%= _stats7d.skips %></div>
-          </div>
-          <div class="cur-stat-card">
-            <div class="cur-stat-label">Skip rate (7d)</div>
-            <div class="cur-stat-value"><%= _stats7d.plays ? Math.round(_stats7d.skipRate * 100) : 0 %>%</div>
-          </div>
-          <div class="cur-stat-card">
-            <div class="cur-stat-label">Plays (30d)</div>
-            <div class="cur-stat-value"><%= _stats30d.plays %></div>
-          </div>
-          <div class="cur-stat-card cur-stat-card--skip">
-            <div class="cur-stat-label">Skips (30d)</div>
-            <div class="cur-stat-value"><%= _stats30d.skips %></div>
-          </div>
-          <div class="cur-stat-card">
-            <div class="cur-stat-label">Skip rate (30d)</div>
-            <div class="cur-stat-value"><%= _stats30d.plays ? Math.round(_stats30d.skipRate * 100) : 0 %>%</div>
+          <div class="cur-panel-body">
+            <div class="cur-stat-row">
+              <div class="cur-stat-card">
+                <div class="cur-stat-label">Plays (7d)</div>
+                <div class="cur-stat-value"><%= _stats7d.plays %></div>
+              </div>
+              <div class="cur-stat-card cur-stat-card--skip">
+                <div class="cur-stat-label">Skips (7d)</div>
+                <div class="cur-stat-value"><%= _stats7d.skips %></div>
+              </div>
+              <div class="cur-stat-card">
+                <div class="cur-stat-label">Skip rate (7d)</div>
+                <div class="cur-stat-value"><%= _stats7d.plays ? Math.round(_stats7d.skipRate * 100) : 0 %>%</div>
+              </div>
+              <div class="cur-stat-card">
+                <div class="cur-stat-label">Plays (30d)</div>
+                <div class="cur-stat-value"><%= _stats30d.plays %></div>
+              </div>
+              <div class="cur-stat-card cur-stat-card--skip">
+                <div class="cur-stat-label">Skips (30d)</div>
+                <div class="cur-stat-value"><%= _stats30d.skips %></div>
+              </div>
+              <div class="cur-stat-card">
+                <div class="cur-stat-label">Skip rate (30d)</div>
+                <div class="cur-stat-value"><%= _stats30d.plays ? Math.round(_stats30d.skipRate * 100) : 0 %>%</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -96,38 +104,52 @@
               <span class="cur-stream-dot" id="cur-stream-dot"></span>
               Now playing
             </h3>
-            <span class="cur-streams-count" id="cur-streams-count" style="display:none"></span>
+            <div class="cur-panel-actions">
+              <span class="cur-streams-count" id="cur-streams-count" style="display:none"></span>
+              <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="curStreamsPrev" aria-label="Previous">
+                <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+              </button>
+              <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="curStreamsNext" aria-label="Next">
+                <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+              </button>
+            </div>
           </div>
-          <div id="cur-streams-body" class="cur-streams-body">
-            <div class="cur-empty cur-streams-empty">No music playing right now.</div>
+          <div class="cur-panel-body cur-panel-body--streams">
+            <div id="cur-streams-body" class="cur-streams-body">
+              <div class="cur-streams-viewport plex-carousel-viewport" id="cur-streams-viewport">
+                <div id="cur-streams-track" class="cur-streams-track plex-carousel-track"></div>
+              </div>
+            </div>
           </div>
         </div>
 
         <%# ── Activity chart ──────────────────────────────────────────────── %>
-        <div class="cur-panel">
+        <div class="cur-panel cur-panel--plays-chart">
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Plays last 14 days</h3>
           </div>
-          <div class="cur-bar-chart">
-            <% _byDay.forEach(function(day) { %>
-              <%
-                const barPct = _maxPlays > 0 ? Math.round((day.plays / _maxPlays) * 100) : 0;
-                const skipPct = day.plays > 0 ? Math.round((day.skips / day.plays) * 100) : 0;
-              %>
-              <div class="cur-bar-col" title="<%= day.label %>: <%= day.plays %> plays, <%= day.skips %> skips">
-                <div class="cur-bar-wrap">
-                  <div class="cur-bar" style="height:<%= barPct %>%">
-                    <% if (day.skips > 0) { %>
-                      <div class="cur-bar-skip" style="height:<%= skipPct %>%"></div>
-                    <% } %>
+          <div class="cur-panel-body cur-panel-body--plays-chart">
+            <div class="cur-bar-chart">
+              <% _byDay.forEach(function(day) { %>
+                <%
+                  const barPct = _maxPlays > 0 ? Math.round((day.plays / _maxPlays) * 100) : 0;
+                  const skipPct = day.plays > 0 ? Math.round((day.skips / day.plays) * 100) : 0;
+                %>
+                <div class="cur-bar-col" title="<%= day.label %>: <%= day.plays %> plays, <%= day.skips %> skips">
+                  <div class="cur-bar-wrap">
+                    <div class="cur-bar" style="height:<%= barPct %>%">
+                      <% if (day.skips > 0) { %>
+                        <div class="cur-bar-skip" style="height:<%= skipPct %>%"></div>
+                      <% } %>
+                    </div>
                   </div>
+                  <div class="cur-bar-label"><%= day.label %></div>
                 </div>
-                <div class="cur-bar-label"><%= day.label %></div>
-              </div>
-            <% }) %>
-            <% if (!_byDay.length) { %>
-              <div class="cur-empty">No play data yet. Plays will appear here once Tautulli or Plex webhooks start sending events.</div>
-            <% } %>
+              <% }) %>
+              <% if (!_byDay.length) { %>
+                <div class="cur-empty">No play data yet. Plays will appear here once Tautulli or Plex webhooks start sending events.</div>
+              <% } %>
+            </div>
           </div>
         </div>
         </div><%# end cur-two-col--streams-chart %>
@@ -136,31 +158,33 @@
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Artist recommendations</h3>
             <div class="cur-panel-actions">
-              <a href="/artists" class="cur-panel-link">View recommendations</a>
+              <a href="/artists" class="cur-panel-link">View all</a>
             </div>
           </div>
-          <% if ((_lidarrStatus.items || []).length) { %>
-            <ul class="cur-list">
-              <% _lidarrStatus.items.slice(0, 5).forEach(function(item) { %>
-                <li class="cur-list-item cur-list-item--stack">
-                  <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>">
-                    <img src="/api/music/thumb/artist/<%= encodeURIComponent(item.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-                  </span>
-                  <span class="cur-list-primary">
-                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
-                    <% if (item.detail) { %>
-                      <span class="cur-list-sub"><%= item.detail %></span>
-                    <% } %>
-                  </span>
-                  <span class="cur-badge cur-badge--<%= item.tone || 'neutral' %>"><%= item.label %></span>
-                </li>
-              <% }) %>
-            </ul>
-          <% } else if (Object.keys(_lidarrStatus.counts || {}).length) { %>
-            <div class="cur-panel-foot">
-              <span class="cur-panel-meta">No artist rows yet, but Lidarr activity has been recorded.</span>
-            </div>
-          <% } %>
+          <div class="cur-panel-body">
+            <% if ((_lidarrStatus.items || []).length) { %>
+              <ul class="cur-list">
+                <% _lidarrStatus.items.slice(0, 5).forEach(function(item) { %>
+                  <li class="cur-list-item cur-list-item--stack">
+                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>">
+                      <img src="/api/music/thumb/artist/<%= encodeURIComponent(item.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                    </span>
+                    <span class="cur-list-primary">
+                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
+                      <% if (item.detail) { %>
+                        <span class="cur-list-sub"><%= item.detail %></span>
+                      <% } %>
+                    </span>
+                    <span class="cur-badge cur-badge--<%= item.tone || 'neutral' %>"><%= item.label %></span>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else if (Object.keys(_lidarrStatus.counts || {}).length) { %>
+              <div class="cur-panel-foot">
+                <span class="cur-panel-meta">No artist rows yet, but Lidarr activity has been recorded.</span>
+              </div>
+            <% } %>
+          </div>
         </div>
 
         <div class="cur-two-col">
@@ -170,22 +194,28 @@
               <h3 class="cur-panel-title">Top artists (30d)</h3>
               <a href="/artists" class="cur-panel-link">View all</a>
             </div>
-            <% if (_topArtists.length) { %>
-              <ul class="cur-list">
-                <% _topArtists.forEach(function(a) { %>
-                  <li class="cur-list-item">
-                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>">
-                      <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-                    </span>
-                    <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
-                    <span class="cur-list-meta"><%= a.total_plays %> plays</span>
-                    <% if (a.curatorrTier) { %><span class="cur-badge cur-badge--<%= a.curatorrTier.tone %>"><%= a.curatorrTier.label %></span><% } %>
-                  </li>
-                <% }) %>
-              </ul>
-            <% } else { %>
-              <div class="cur-empty">No artist data yet.</div>
-            <% } %>
+            <div class="cur-panel-body">
+              <% if (_topArtists.length) { %>
+                <ul class="cur-list">
+                  <% _topArtists.forEach(function(a) { %>
+                    <li class="cur-list-item">
+                      <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>">
+                        <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                      </span>
+                      <span class="cur-list-primary">
+                        <span class="cur-list-titleline">
+                          <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
+                          <% if (a.curatorrTier) { %><span class="cur-badge cur-badge--<%= a.curatorrTier.tone %>"><%= a.curatorrTier.label %></span><% } %>
+                        </span>
+                      </span>
+                      <span class="cur-list-meta"><%= a.total_plays %> plays</span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <div class="cur-empty">No artist data yet.</div>
+              <% } %>
+            </div>
           </div>
 
           <%# ── Top tracks ───────────────────────────────────────────────── %>
@@ -194,25 +224,29 @@
               <h3 class="cur-panel-title">Top tracks (30d)</h3>
               <a href="/tracks" class="cur-panel-link">View all</a>
             </div>
-            <% if (_topTracks.length) { %>
-              <ul class="cur-list">
-                <% _topTracks.forEach(function(t) { %>
-                  <li class="cur-list-item">
-                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>">
-                      <img src="/api/music/thumb/track/<%= encodeURIComponent(t.rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-                    </span>
-                    <div class="cur-list-primary">
-                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>"><%= t.track_title %></span>
-                      <span class="cur-list-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= t.artist_name %>"><%= t.artist_name %></span>
-                    </div>
-                    <span class="cur-list-meta"><%= t.total_plays %> plays</span>
-                    <% if (t.curatorrTier) { %><span class="cur-badge cur-badge--<%= t.curatorrTier.tone %>"><%= t.curatorrTier.label %></span><% } %>
-                  </li>
-                <% }) %>
-              </ul>
-            <% } else { %>
-              <div class="cur-empty">No track data yet.</div>
-            <% } %>
+            <div class="cur-panel-body">
+              <% if (_topTracks.length) { %>
+                <ul class="cur-list">
+                  <% _topTracks.forEach(function(t) { %>
+                    <li class="cur-list-item">
+                      <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>">
+                        <img src="/api/music/thumb/track/<%= encodeURIComponent(t.rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                      </span>
+                      <div class="cur-list-primary">
+                        <span class="cur-list-titleline">
+                          <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>"><%= t.track_title %></span>
+                          <% if (t.curatorrTier) { %><span class="cur-badge cur-badge--<%= t.curatorrTier.tone %>"><%= t.curatorrTier.label %></span><% } %>
+                        </span>
+                        <span class="cur-list-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= t.artist_name %>"><%= t.artist_name %></span>
+                      </div>
+                      <span class="cur-list-meta"><%= t.total_plays %> plays</span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <div class="cur-empty">No track data yet.</div>
+              <% } %>
+            </div>
           </div>
         </div>
 
@@ -222,48 +256,77 @@
             <h3 class="cur-panel-title">Recent plays</h3>
             <a href="/history" class="cur-panel-link">View all</a>
           </div>
-          <% if (_recentHistory.length) { %>
-            <div class="cur-history-table">
-              <div class="cur-history-head">
-                <span>Track</span>
-                <span>Artist</span>
-                <span>Listened</span>
-                <span>When</span>
-              </div>
-              <% _recentHistory.forEach(function(h) { %>
-                <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
-                  <span class="cur-history-track">
-                    <span class="cur-history-track-main">
-                      <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.track_title || '—' %></span>
-                      <% if (h.curatorrTier) { %><span class="cur-badge cur-badge--<%= h.curatorrTier.tone %>"><%= h.curatorrTier.label %></span><% } %>
-                    </span>
-                    <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
-                  </span>
-                  <span class="cur-history-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
-                  <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
-                  <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
+          <div class="cur-panel-body">
+            <% if (_recentHistory.length) { %>
+              <div class="cur-history-table">
+                <div class="cur-history-head">
+                  <span>Track</span>
+                  <span>Artist</span>
+                  <span>Listened</span>
+                  <span>When</span>
                 </div>
-              <% }) %>
-            </div>
-          <% } else { %>
-            <div class="cur-empty">No play history yet. Configure Tautulli or Plex webhooks to start tracking.</div>
-          <% } %>
+                <% _recentHistory.forEach(function(h) { %>
+                  <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
+                    <span class="cur-history-track">
+                      <span class="cur-history-track-main">
+                        <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.track_title || '—' %></span>
+                        <% if (h.curatorrTier) { %><span class="cur-badge cur-badge--<%= h.curatorrTier.tone %>"><%= h.curatorrTier.label %></span><% } %>
+                      </span>
+                      <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
+                    </span>
+                    <span class="cur-history-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
+                    <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
+                    <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
+                  </div>
+                <% }) %>
+              </div>
+            <% } else { %>
+              <div class="cur-empty">No play history yet. Configure Tautulli or Plex webhooks to start tracking.</div>
+            <% } %>
+          </div>
         </div>
 
-        <%# ── Playlist sync status ────────────────────────────────────────── %>
-        <% if (lastSync) { %>
-          <div class="cur-panel cur-panel--sync">
-            <div class="cur-panel-header">
-              <h3 class="cur-panel-title">Last playlist sync</h3>
+        <%# ── Playlists carousel ──────────────────────────────────────────── %>
+        <div class="cur-panel cur-panel--dashboard-playlists">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Playlists</h3>
+            <div class="cur-panel-actions">
               <a href="/playlists" class="cur-panel-link">Manage</a>
-            </div>
-            <div class="cur-sync-info">
-              <span class="cur-sync-playlist"><%= lastSync.playlist_title || 'Smart Mix' %></span>
-              <span class="cur-sync-meta"><%= lastSync.track_count %> tracks · <%= lastSync.excluded_tracks %> tracks excluded · <%= lastSync.excluded_artists %> artists excluded</span>
-              <span class="cur-sync-when">Synced <%= fmtDate(lastSync.synced_at) %></span>
+              <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="curDashboardPlaylistsPrev" aria-label="Previous">
+                <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+              </button>
+              <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="curDashboardPlaylistsNext" aria-label="Next">
+                <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+              </button>
             </div>
           </div>
-        <% } %>
+          <div class="cur-panel-body cur-panel-body--dashboard-playlists">
+            <% if (_dashboardPlaylists.length) { %>
+              <div class="cur-dashboard-playlists-viewport plex-carousel-viewport" id="curDashboardPlaylistsViewport">
+                <div class="cur-dashboard-playlists-track plex-carousel-track" id="curDashboardPlaylistsTrack">
+                  <% _dashboardPlaylists.forEach(function(p) { %>
+                    <article class="plex-card cur-discover-result-card cur-dashboard-playlist-card">
+                      <div class="plex-poster-wrap cur-discover-poster-wrap cur-dashboard-playlist-poster-wrap">
+                        <div class="plex-poster-well cur-discover-result-art cur-dashboard-playlist-art<%= p.artPath ? '' : ' is-empty' %>">
+                          <% if (p.artPath) { %>
+                            <img src="/api/plex/art?path=<%= encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
+                          <% } %>
+                        </div>
+                      </div>
+                      <div class="plex-footer cur-discover-result-main cur-dashboard-playlist-main">
+                        <div class="plex-name cur-discover-result-name cur-dashboard-playlist-title"><%= p.playlistTitle || 'Playlist' %></div>
+                        <div class="plex-meta cur-discover-result-meta cur-dashboard-playlist-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks</div>
+                        <div class="plex-meta cur-discover-result-meta cur-dashboard-playlist-meta">Curatorr updated <%= fmtDate(p.curatorrUpdatedAt) %></div>
+                      </div>
+                    </article>
+                  <% }) %>
+                </div>
+              </div>
+            <% } else { %>
+              <div class="cur-empty">No Curatorr playlists have been built yet.</div>
+            <% } %>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -276,8 +339,13 @@
   <script>
   (function() {
     var body   = document.getElementById('cur-streams-body');
+    var vp     = document.getElementById('cur-streams-viewport');
+    var track  = document.getElementById('cur-streams-track');
     var dot    = document.getElementById('cur-stream-dot');
     var cnt    = document.getElementById('cur-streams-count');
+    var prev   = document.getElementById('curStreamsPrev');
+    var next   = document.getElementById('curStreamsNext');
+    var dragBound = false;
 
     function fmtMs(ms) {
       if (!ms) return '0:00';
@@ -292,6 +360,94 @@
       return path ? '/api/plex/art?path=' + encodeURIComponent(path) : '';
     }
 
+    function updateNav() {
+      if (!vp || !prev || !next) return;
+      var maxLeft = Math.max(0, vp.scrollWidth - vp.clientWidth - 2);
+      prev.disabled = vp.scrollLeft <= 2;
+      next.disabled = vp.scrollLeft >= maxLeft;
+    }
+
+    function bindDrag() {
+      if (!vp || dragBound) return;
+      dragBound = true;
+      var down = false, startX = 0, startScroll = 0, moved = false;
+      vp.addEventListener('pointerdown', function(e) {
+        if (e.pointerType === 'mouse') return;
+        down = true;
+        moved = false;
+        startX = e.clientX;
+        startScroll = vp.scrollLeft;
+        vp.classList.add('is-dragging');
+        if (vp.setPointerCapture) vp.setPointerCapture(e.pointerId);
+      });
+      vp.addEventListener('pointermove', function(e) {
+        if (!down) return;
+        var d = e.clientX - startX;
+        if (Math.abs(d) > 6) moved = true;
+        vp.scrollLeft = startScroll - d;
+        updateNav();
+      });
+      function end(e) {
+        if (!down) return;
+        down = false;
+        vp.classList.remove('is-dragging');
+        updateNav();
+        if (e && vp.releasePointerCapture) try { vp.releasePointerCapture(e.pointerId); } catch(_) {}
+      }
+      vp.addEventListener('pointerup', end);
+      vp.addEventListener('pointercancel', end);
+      vp.addEventListener('pointerleave', function(e) { if (e.pointerType !== 'mouse') end(e); });
+      vp.addEventListener('click', function(e) {
+        if (moved) {
+          e.preventDefault();
+          e.stopPropagation();
+          moved = false;
+        }
+      }, true);
+      vp.addEventListener('scroll', updateNav, { passive: true });
+    }
+
+    function scrollStreams(dir) {
+      if (!vp) return;
+      vp.scrollBy({ left: dir * Math.max(280, Math.floor(vp.clientWidth * 0.82)), behavior: 'smooth' });
+      window.setTimeout(updateNav, 220);
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function escAttr(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    }
+
+    function handleStreamImageError(img) {
+      if (!img) return;
+      var frame = img.parentElement;
+      if (frame) frame.classList.add('is-empty');
+      img.remove();
+    }
+
+    window.handleStreamImageError = handleStreamImageError;
+
+    function renderEmptyCard() {
+      if (!track) return;
+      track.innerHTML =
+        '<div class="plex-card cur-discover-result-card cur-stream-card cur-stream-card--empty">' +
+          '<div class="plex-poster-wrap cur-discover-poster-wrap cur-stream-card-poster-wrap">' +
+            '<div class="plex-poster-well cur-discover-result-art cur-stream-card-art is-empty">' +
+              '<div class="cur-stream-empty-copy">' +
+                '<div class="cur-stream-empty-title">No active streams</div>' +
+                '<div class="cur-stream-empty-sub">Start a track in Plex and it will appear here.</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="plex-footer cur-discover-result-main cur-stream-card-main">' +
+            '<div class="cur-discover-result-name cur-stream-card-title">Nothing playing</div>' +
+            '<div class="cur-discover-result-meta cur-stream-card-meta">Waiting for a music session</div>' +
+          '</div>' +
+        '</div>';
+    }
+
     function render(sessions) {
       dot.className = 'cur-stream-dot' + (sessions.length ? ' cur-stream-dot--live' : '');
       if (sessions.length) {
@@ -302,52 +458,141 @@
       }
 
       if (!sessions.length) {
-        body.innerHTML = '<div class="cur-empty cur-streams-empty">No music playing right now.</div>';
+        renderEmptyCard();
+        if (prev) prev.disabled = true;
+        if (next) next.disabled = true;
+        updateNav();
         return;
       }
-      body.innerHTML = sessions.map(function(s) {
+      if (!track) return;
+      track.innerHTML = sessions.map(function(s) {
         var p = pct(s.viewOffset, s.duration);
         var isPaused = s.state === 'paused';
-        var stateLabel = isPaused ? '⏸ Paused' : '▶ Playing';
+        var stateLabel = isPaused ? 'Paused' : 'Playing';
         var albumImg = artUrl(s.albumThumb || s.artistThumb);
-        return '<div class="cur-stream-row' + (isPaused ? ' cur-stream-row--paused' : '') + '">' +
-          '<div class="cur-stream-content">' +
-            (albumImg
-              ? '<img class="cur-stream-album-art" src="' + escAttr(albumImg) + '" alt="" loading="lazy" />'
-              : '<div class="cur-stream-album-art cur-stream-album-art--empty"></div>') +
-            '<div class="cur-stream-details">' +
-              '<div class="cur-stream-track"><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="' + escAttr(s.ratingKey || '') + '">' + escHtml(s.title) + '</span></div>' +
-              '<div class="cur-stream-meta"><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escAttr(s.artist || '') + '">' + escHtml(s.artist) + '</span>' +
-                (s.album ? '<span class="cur-stream-album-sep"> · </span><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="' + escAttr(s.artist || '') + '" data-cur-overview-album="' + escAttr(s.album || '') + '">' + escHtml(s.album) + '</span>' : '') + '</div>' +
-              '<div class="cur-stream-footer">' +
-                '<span class="cur-stream-user">' + escHtml(s.userName || 'Unknown') + '</span>' +
-                '<span class="cur-stream-device">' + escHtml(s.playerTitle || '') + '</span>' +
-                '<span class="cur-stream-state ' + (isPaused ? 'cur-stream-state--paused' : '') + '">' + stateLabel + '</span>' +
-                '<span class="cur-stream-time">' + fmtMs(s.viewOffset) + ' / ' + fmtMs(s.duration) + '</span>' +
+        return '<div class="plex-card cur-discover-result-card cur-stream-card' + (isPaused ? ' cur-stream-card--paused' : '') + '">' +
+          '<div class="plex-poster-wrap cur-discover-poster-wrap cur-stream-card-poster-wrap">' +
+            '<div class="plex-poster-well cur-discover-result-art cur-stream-card-art">' +
+              (albumImg
+                ? '<img src="' + escAttr(albumImg) + '" alt="" loading="lazy" onerror="handleStreamImageError(this)" />'
+                : '') +
+              '<div class="cur-stream-card-badges">' +
+                '<span class="cur-stream-card-user">@' + escHtml(s.userName || 'unknown') + '</span>' +
+                '<span class="cur-stream-card-state' + (isPaused ? ' cur-stream-card-state--paused' : '') + '">' + escHtml(stateLabel) + '</span>' +
               '</div>' +
-              '<div class="cur-stream-progress"><div class="cur-stream-bar" style="width:' + p + '%"></div></div>' +
+              '<div class="cur-stream-card-progress"><div class="cur-stream-card-progress-bar" style="width:' + p + '%"></div></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="plex-footer cur-discover-result-main cur-stream-card-main">' +
+            '<div class="cur-discover-result-name cur-stream-card-title"><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="' + escAttr(s.key || '') + '">' + escHtml(s.title) + '</span></div>' +
+            '<div class="cur-discover-result-meta cur-stream-card-meta"><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escAttr(s.artist || '') + '">' + escHtml(s.artist || 'Unknown artist') + '</span>' +
+              (s.album ? '<span class="cur-stream-card-sep"> · </span><span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="' + escAttr(s.artist || '') + '" data-cur-overview-album="' + escAttr(s.album || '') + '">' + escHtml(s.album) + '</span>' : '') +
+            '</div>' +
+            '<div class="cur-stream-card-submeta">' +
+              (s.playerTitle ? '<span>' + escHtml(s.playerTitle) + '</span>' : '') +
+              '<span>' + escHtml(fmtMs(s.viewOffset) + ' / ' + fmtMs(s.duration)) + '</span>' +
             '</div>' +
           '</div>' +
         '</div>';
       }).join('');
+      bindDrag();
+      if (prev) prev.disabled = false;
+      if (next) next.disabled = false;
+      updateNav();
     }
 
-    function escHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    if (prev) {
+      prev.addEventListener('click', function() { scrollStreams(-1); });
     }
-    function escAttr(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    if (next) {
+      next.addEventListener('click', function() { scrollStreams(1); });
     }
+    window.addEventListener('resize', updateNav);
 
     function poll() {
-      fetch('/api/plex/sessions')
+      fetch('/api/plex/sessions', { cache: 'no-store', headers: { Accept: 'application/json' } })
         .then(function(r){ return r.json(); })
         .then(function(d){ if (d.ok) render(d.sessions); })
-        .catch(function(){});
+        .catch(function(){ render([]); });
     }
 
+    render([]);
     poll();
     setInterval(poll, 12000);
+  })();
+
+  (function() {
+    var vp = document.getElementById('curDashboardPlaylistsViewport');
+    var prev = document.getElementById('curDashboardPlaylistsPrev');
+    var next = document.getElementById('curDashboardPlaylistsNext');
+    if (!vp) {
+      if (prev) prev.style.display = 'none';
+      if (next) next.style.display = 'none';
+      return;
+    }
+
+    var dragBound = false;
+
+    function updateNav() {
+      if (!prev || !next) return;
+      var maxLeft = Math.max(0, vp.scrollWidth - vp.clientWidth - 2);
+      prev.disabled = vp.scrollLeft <= 2;
+      next.disabled = vp.scrollLeft >= maxLeft;
+    }
+
+    function bindDrag() {
+      if (dragBound) return;
+      dragBound = true;
+      var down = false;
+      var startX = 0;
+      var startScroll = 0;
+      var moved = false;
+      vp.addEventListener('pointerdown', function(e) {
+        if (e.pointerType === 'mouse') return;
+        down = true;
+        moved = false;
+        startX = e.clientX;
+        startScroll = vp.scrollLeft;
+        vp.classList.add('is-dragging');
+        if (vp.setPointerCapture) vp.setPointerCapture(e.pointerId);
+      });
+      vp.addEventListener('pointermove', function(e) {
+        if (!down) return;
+        var d = e.clientX - startX;
+        if (Math.abs(d) > 6) moved = true;
+        vp.scrollLeft = startScroll - d;
+        updateNav();
+      });
+      function end(e) {
+        if (!down) return;
+        down = false;
+        vp.classList.remove('is-dragging');
+        updateNav();
+        if (e && vp.releasePointerCapture) try { vp.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      vp.addEventListener('pointerup', end);
+      vp.addEventListener('pointercancel', end);
+      vp.addEventListener('pointerleave', function(e) { if (e.pointerType !== 'mouse') end(e); });
+      vp.addEventListener('click', function(e) {
+        if (moved) {
+          e.preventDefault();
+          e.stopPropagation();
+          moved = false;
+        }
+      }, true);
+      vp.addEventListener('scroll', updateNav, { passive: true });
+    }
+
+    function scroll(dir) {
+      vp.scrollBy({ left: dir * Math.max(280, Math.floor(vp.clientWidth * 0.82)), behavior: 'smooth' });
+      window.setTimeout(updateNav, 220);
+    }
+
+    if (prev) prev.addEventListener('click', function() { scroll(-1); });
+    if (next) next.addEventListener('click', function() { scroll(1); });
+    window.addEventListener('resize', updateNav);
+    bindDrag();
+    updateNav();
   })();
   </script>
   <script src="/starfield-3d.js"></script>

@@ -1,5 +1,7 @@
 // Music stats, smart playlist management, and Lidarr integration
 
+import path from 'path';
+import Database from 'better-sqlite3';
 import {
   getTopArtists,
   getTopTracks,
@@ -41,9 +43,206 @@ import {
   addPlaylistTracks,
   listAllGeneratedPlaylists,
   clearGeneratedPlaylistPlexId,
+  listSuggestedAlbums,
 } from '../db.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const DISCOVERY_ART_CACHE_MAX = 300;
+const DISCOVERY_ART_URL_VERSION = 'discover-art-v4';
+const discoveryArtCache = new Map();
+
+function stripArtistSuffix(title, artist) {
+  if (!title || !artist) return title || '';
+  const suffix = ' - ' + artist;
+  return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title;
+}
+
+function normalizeTierKey(value) {
+  const key = String(value || '').trim().toLowerCase();
+  if (key === 'half decent') return 'half-decent';
+  return key;
+}
+
+function buildTierBadge(key = 'decent') {
+  const normalized = normalizeTierKey(key);
+  if (normalized === 'skip') return { key: 'skip', label: 'Skip', tone: 'skip' };
+  if (normalized === 'half-decent') return { key: 'half-decent', label: 'Half Decent', tone: 'half-decent' };
+  if (normalized === 'belter') return { key: 'belter', label: 'Belter', tone: 'belter' };
+  if (normalized === 'decent') return { key: 'decent', label: 'Decent', tone: 'decent' };
+  if (normalized === 'curatorr') return { key: 'curatorr', label: 'Curatorr', tone: 'curatorr' };
+  return { key: 'decent', label: 'Decent', tone: 'decent' };
+}
+
+function deriveTrackTier(track) {
+  if (!track || typeof track !== 'object') return null;
+  if (track.excluded) return buildTierBadge('skip');
+  const tier = normalizeTierKey(track.tier);
+  if (['skip', 'half-decent', 'decent', 'belter'].includes(tier)) {
+    return buildTierBadge(tier);
+  }
+  if (Number(track.total_skips || 0) > 0) return buildTierBadge('half-decent');
+  if (Number(track.total_plays || 0) > 0) return buildTierBadge('decent');
+  return null;
+}
+
+function deriveHistoryTier(event, config = {}) {
+  if (!event || typeof event !== 'object') return buildTierBadge('decent');
+  if (event.is_skip) return buildTierBadge('skip');
+  const listenedMs = Number(event.duration_ms || 0);
+  const trackDurationMs = Number(event.track_duration_ms || 0);
+  const completionThresholdMs = (Number(config?.smartPlaylist?.completionThresholdSeconds) || 30) * 1000;
+  if (trackDurationMs > 0) {
+    if (listenedMs >= Math.max(0, trackDurationMs - completionThresholdMs)) return buildTierBadge('belter');
+    if (listenedMs >= trackDurationMs * 0.5) return buildTierBadge('decent');
+    return buildTierBadge('half-decent');
+  }
+  return deriveTrackTier({
+    excluded: Boolean(event.current_excluded),
+    force_included: Boolean(event.current_force_included),
+    tier: event.current_tier,
+  });
+}
+
+function getDiscoveryArtCache(key) {
+  const entry = discoveryArtCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    discoveryArtCache.delete(key);
+    return null;
+  }
+  discoveryArtCache.delete(key);
+  discoveryArtCache.set(key, entry);
+  return entry;
+}
+
+function setDiscoveryArtCache(key, entry) {
+  discoveryArtCache.set(key, entry);
+  while (discoveryArtCache.size > DISCOVERY_ART_CACHE_MAX) {
+    const oldestKey = discoveryArtCache.keys().next().value;
+    if (!oldestKey) break;
+    discoveryArtCache.delete(oldestKey);
+  }
+}
+
+function buildDiscoveryArtistArtUrl(name) {
+  return `/api/discovery/artist-art/${encodeURIComponent(String(name || '').trim())}?v=${DISCOVERY_ART_URL_VERSION}`;
+}
+
+function isKnownPlaceholderImageUrl(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return true;
+  return raw.includes('/2a96cbd8b46e442fc41c2b86b821562f.png');
+}
+
+async function lookupDeezerArtistArtUrl(artistName) {
+  const deezerUrl = new URL('https://api.deezer.com/search/artist');
+  deezerUrl.searchParams.set('q', artistName);
+  const deezerRes = await fetch(deezerUrl.toString(), {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Curatorr/1.0',
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!deezerRes.ok) return '';
+  const deezerJson = await deezerRes.json();
+  const candidates = Array.isArray(deezerJson?.data) ? deezerJson.data : [];
+  const picked = candidates.find((item) => artistNamesMatch(item?.name, artistName))
+    || candidates.find((item) => getArtistLookupTerms(artistName).some((term) => normalizeArtistMatchText(item?.name).startsWith(normalizeArtistMatchText(term))))
+    || candidates[0];
+  const remoteThumb = String(picked?.picture_big || picked?.picture_medium || picked?.picture || '').trim();
+  return isKnownPlaceholderImageUrl(remoteThumb) ? '' : remoteThumb;
+}
+
+async function lookupLastfmArtistArtUrl(artistName, apiKey) {
+  if (!apiKey) return '';
+  const infoUrl = new URL('https://ws.audioscrobbler.com/2.0/');
+  infoUrl.searchParams.set('method', 'artist.getinfo');
+  infoUrl.searchParams.set('artist', artistName);
+  infoUrl.searchParams.set('api_key', apiKey);
+  infoUrl.searchParams.set('format', 'json');
+  const infoRes = await fetch(infoUrl.toString(), {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Curatorr/1.0',
+    },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!infoRes.ok) return '';
+  const infoJson = await infoRes.json();
+  const images = Array.isArray(infoJson?.artist?.image) ? infoJson.artist.image : [];
+  const remoteThumb =
+    images.find((img) => String(img?.size || '').toLowerCase() === 'extralarge')?.['#text']
+    || images.find((img) => String(img?.size || '').toLowerCase() === 'large')?.['#text']
+    || images.find((img) => String(img?.size || '').toLowerCase() === 'medium')?.['#text']
+    || images.find((img) => String(img?.size || '').toLowerCase() === 'small')?.['#text']
+    || '';
+  return isKnownPlaceholderImageUrl(remoteThumb) ? '' : String(remoteThumb || '').trim();
+}
+
+function enrichDiscoverRequests(db, userPlexId, requests = []) {
+  const libraryArtistSet = new Set(
+    db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
+  );
+  const addedAlbumMap = new Map();
+  for (const status of ['added_to_lidarr', 'already_monitored']) {
+    for (const album of listSuggestedAlbums(db, userPlexId, { status, limit: 500 })) {
+      const key = String(album?.artistName || '').trim().toLowerCase();
+      if (!key || addedAlbumMap.has(key)) continue;
+      addedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+    }
+  }
+  const suggestedAlbumMap = new Map();
+  for (const album of listSuggestedAlbums(db, userPlexId, { limit: 500 })) {
+    const key = String(album?.artistName || '').trim().toLowerCase();
+    if (!key || suggestedAlbumMap.has(key)) continue;
+    suggestedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+  }
+  return (Array.isArray(requests) ? requests : []).map((request) => {
+    const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
+    const currentAlbumTitle = String(
+      request?.albumTitle
+      || detail.selectedAlbumTitle
+      || detail.starterAlbumTitle
+      || detail.latestAlbumTitle
+      || detail.preferredAlbumTitle
+      || ''
+    ).trim();
+    const artistKey = String(request?.artistName || '').trim().toLowerCase();
+    const inLibrary = libraryArtistSet.has(artistKey);
+    if (currentAlbumTitle) return { ...request, detail, inLibrary };
+    const addedAlbumTitle = addedAlbumMap.get(artistKey) || '';
+    if (addedAlbumTitle) {
+      return {
+        ...request,
+        detail: { ...detail, selectedAlbumTitle: addedAlbumTitle },
+        inLibrary,
+      };
+    }
+    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
+    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
+    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
+    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
+    const fallbackAlbumTitle = String(
+      starterAlbum?.albumTitle
+      || latestAlbum?.albumTitle
+      || suggestedAlbumMap.get(artistKey)
+      || ''
+    ).trim();
+    if (!fallbackAlbumTitle) return { ...request, detail, inLibrary };
+    return {
+      ...request,
+      detail: {
+        ...detail,
+        selectedAlbumTitle: detail.selectedAlbumTitle || fallbackAlbumTitle,
+        starterAlbumTitle: detail.starterAlbumTitle || String(starterAlbum?.albumTitle || '').trim(),
+        latestAlbumTitle: detail.latestAlbumTitle || String(latestAlbum?.albumTitle || '').trim(),
+      },
+      inLibrary,
+    };
+  });
+}
 
 // ── Smart playlist rebuild ────────────────────────────────────────────────────
 // Called after skip events (debounced) and on demand.
@@ -59,7 +258,7 @@ function artistInSet(fullName, nameSet) {
 
 function isAllowedLidarrImagePath(value) {
   const raw = String(value || '').trim();
-  return /^\/(?:api\/v\d+\/)?MediaCover\//.test(raw);
+  return /^\/(?:api\/v\d+\/)?(?:MediaCover|MediaCoverProxy)\//.test(raw);
 }
 
 export async function rebuildSmartPlaylist(ctx, userPlexId) {
@@ -224,13 +423,57 @@ export function registerApiMusic(app, ctx) {
       .trim();
   }
 
+  function normalizeAlbumMatchText(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  const ARTIST_NAME_ALIASES = new Map([
+    ['kanye west', ['Ye']],
+    ['ye', ['Kanye West']],
+  ]);
+
+  function getArtistLookupTerms(value) {
+    const queue = [String(value || '').trim()];
+    const terms = [];
+    const seen = new Set();
+    while (queue.length) {
+      const term = String(queue.shift() || '').trim();
+      const key = normalizeArtistMatchText(term);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      terms.push(term);
+      const aliases = ARTIST_NAME_ALIASES.get(key) || [];
+      for (const alias of aliases) queue.push(alias);
+    }
+    return terms;
+  }
+
+  function artistNamesMatch(left, right) {
+    const leftKeys = new Set(getArtistLookupTerms(left).map((item) => normalizeArtistMatchText(item)).filter(Boolean));
+    if (!leftKeys.size) return false;
+    return getArtistLookupTerms(right)
+      .map((item) => normalizeArtistMatchText(item))
+      .filter(Boolean)
+      .some((item) => leftKeys.has(item));
+  }
+
   function scoreLookupArtistResult(item, term) {
     const query = normalizeLookupText(term);
     const artistName = normalizeLookupText(item?.artistName);
     const sortName = normalizeLookupText(item?.sortName);
     const disambiguation = normalizeLookupText(item?.disambiguation);
+    const queryArtistKeys = new Set(getArtistLookupTerms(term).map((item) => normalizeArtistMatchText(item)).filter(Boolean));
+    const artistNameKey = normalizeArtistMatchText(item?.artistName);
+    const sortNameKey = normalizeArtistMatchText(item?.sortName);
     let score = 0;
     if (!query) return score;
+    if (queryArtistKeys.has(artistNameKey)) score += 1100;
+    if (queryArtistKeys.has(sortNameKey)) score += 1020;
     if (artistName === query) score += 1000;
     else if (sortName === query) score += 920;
     else if (artistName.startsWith(query)) score += 780;
@@ -245,19 +488,35 @@ export function registerApiMusic(app, ctx) {
 
   async function getLidarrArtistImageUrl(name) {
     if (!lidarrService?.isConfigured() || !name) return null;
-    try {
-      const results = await lidarrService.lookupArtist(name);
-      const items = Array.isArray(results) ? results : [];
-      const best = items
-        .map((item) => ({ item, score: scoreLookupArtistResult(item, name) }))
-        .sort((a, b) => b.score - a.score)[0]?.item;
-      const imagePath = Array.isArray(best?.images)
-        ? (best.images.find((img) => /poster|fanart/i.test(String(img?.coverType || '')))?.url || '')
-        : '';
-      return imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}` : null;
-    } catch {
-      return null;
+    const seen = new Set();
+    const items = [];
+    for (const term of getArtistLookupTerms(name)) {
+      try {
+        const results = await lidarrService.lookupArtist(term);
+        for (const item of (Array.isArray(results) ? results : [])) {
+          const key = String(item?.foreignArtistId || '').trim().toLowerCase()
+            || normalizeArtistMatchText(item?.artistName)
+            || normalizeArtistMatchText(item?.sortName);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          items.push(item);
+        }
+      } catch {
+        // Ignore individual lookup failures and fall through to other aliases.
+      }
     }
+    const best = items
+      .map((item) => ({ item, score: scoreLookupArtistResult(item, name) }))
+      .sort((a, b) => b.score - a.score)[0]?.item;
+    const imagePath = Array.isArray(best?.images)
+      ? (
+          best.images.find((img) => /poster/i.test(String(img?.coverType || '')))?.url
+          || best.images.find((img) => /fanart|banner/i.test(String(img?.coverType || '')))?.url
+          || best.images[0]?.url
+          || ''
+        )
+      : '';
+    return imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}` : null;
   }
 
   function normalizeTierKey(value) {
@@ -321,10 +580,15 @@ export function registerApiMusic(app, ctx) {
   // ── Play history ──────────────────────────────────────────────────────────
 
   app.get('/api/music/history', requireUser, (req, res) => {
+    const config = loadConfig();
     const userPlexId = resolveQueryUserId(req);
-    const limit = Math.min(200, Number(req.query?.limit || 50));
+    const limit = Math.min(200, Number(req.query?.limit || 100));
     const offset = Number(req.query?.offset || 0);
-    const history = getRecentHistory(db, userPlexId, limit, offset);
+    const history = getRecentHistory(db, userPlexId, limit, offset).map((event) => ({
+      ...event,
+      track_title: stripArtistSuffix(event.track_title, event.artist_name),
+      curatorrTier: deriveHistoryTier(event, config),
+    }));
     return res.json({ ok: true, history });
   });
 
@@ -455,8 +719,16 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveQueryUserId(req);
     return res.json({
       ok: true,
-      queued: listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 200 }),
-      history: listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 }),
+      queued: enrichDiscoverRequests(
+        db,
+        userPlexId,
+        listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 200 }),
+      ),
+      history: enrichDiscoverRequests(
+        db,
+        userPlexId,
+        listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 }),
+      ).filter((r) => r?.detail?.reconciledAction !== 'already_in_lidarr'),
     });
   });
 
@@ -1324,7 +1596,8 @@ export function registerApiMusic(app, ctx) {
         artistName: t.originalTitle || t.grandparentTitle || '',
         albumName: t.parentTitle || '',
         duration: t.duration || 0,
-        thumb: t.thumb || t.parentThumb || '',
+        albumThumb: t.parentThumb || t.thumb || '',
+        artistThumb: t.grandparentThumb || '',
         playlistItemID: t.playlistItemID,
       }));
       return res.json({
@@ -1347,6 +1620,53 @@ export function registerApiMusic(app, ctx) {
       await rebuildSmartPlaylist(ctx, userPlexId);
       const lastSync = getLastPlaylistSync(db, userPlexId);
       return res.json({ ok: true, lastSync });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/playlists/rebuild', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const playlistKind = String(req.body?.playlistKind || '').trim().toLowerCase();
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+
+    try {
+      if (playlistKind === 'legacy' || !playlistKey) {
+        await rebuildSmartPlaylist(ctx, userPlexId);
+        return res.json({ ok: true });
+      }
+
+      const generated = playlistService?.getGeneratedByKey(userPlexId, playlistKey);
+      if (!generated) return res.status(404).json({ error: 'Playlist not found.' });
+
+      const playlistType = String(generated.playlistType || '').trim().toLowerCase();
+      if (playlistType === 'curatorred') {
+        await rebuildSmartPlaylist(ctx, userPlexId);
+        return res.json({ ok: true });
+      }
+      if (playlistType === 'crescive') {
+        await playlistService.syncCrescive(userPlexId);
+        return res.json({ ok: true });
+      }
+      if (playlistType === 'curative') {
+        await playlistService.syncCurative(userPlexId);
+        return res.json({ ok: true });
+      }
+      if (playlistType === 'daily-mix') {
+        await playlistService.syncDailyMix(userPlexId);
+        return res.json({ ok: true });
+      }
+      if (playlistType === 'global') {
+        const globalId = playlistKey.replace(/^global:/, '');
+        const playlistDef = (loadConfig().globalPlaylists || []).find((entry) => String(entry?.id || '') === globalId);
+        if (!playlistDef) return res.status(404).json({ error: 'Global playlist definition not found.' });
+        await playlistService.syncGlobalPlaylist(userPlexId, playlistDef);
+        return res.json({ ok: true });
+      }
+      if (playlistType === 'custom') {
+        return res.status(400).json({ error: 'Custom playlists do not have an automatic rebuild.' });
+      }
+      return res.status(400).json({ error: 'This playlist does not support rebuilding.' });
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
     }
@@ -1650,7 +1970,7 @@ export function registerApiMusic(app, ctx) {
     if (!url || !token) return res.status(404).end();
     const artistName = decodeURIComponent(req.params.name);
     const base = url.replace(/\/$/, '');
-    const trackRows = db.prepare(`
+    const trackRowsForArtist = db.prepare(`
       SELECT rating_key, album_name
       FROM master_tracks
       WHERE artist_name = ?
@@ -1662,33 +1982,75 @@ export function registerApiMusic(app, ctx) {
         album_name,
         rating_key
       LIMIT 12
-    `).all(artistName);
-    if (!trackRows.length) return res.status(404).end();
+    `);
+    const trackRows = [];
+    const seenTrackKeys = new Set();
+    for (const candidate of getArtistLookupTerms(artistName)) {
+      for (const row of trackRowsForArtist.all(candidate)) {
+        const key = String(row?.rating_key || '').trim();
+        if (!key || seenTrackKeys.has(key)) continue;
+        seenTrackKeys.add(key);
+        trackRows.push(row);
+      }
+      if (trackRows.length >= 12) break;
+    }
+    if (!trackRows.length) {
+      // Artist not in library yet — try Deezer for queue/discovery artwork
+      try {
+        const deezerUrl = new URL('https://api.deezer.com/search/artist');
+        deezerUrl.searchParams.set('q', artistName);
+        const deezerRes = await fetch(deezerUrl.toString(), {
+          headers: { Accept: 'application/json', 'User-Agent': 'Curatorr/1.0' },
+        });
+        if (deezerRes.ok) {
+          const deezerJson = await deezerRes.json();
+          const candidates = Array.isArray(deezerJson?.data) ? deezerJson.data : [];
+          const picked = candidates.find((item) => artistNamesMatch(item?.name, artistName))
+            || candidates.find((item) => getArtistLookupTerms(artistName).some((term) => normalizeArtistMatchText(item?.name).startsWith(normalizeArtistMatchText(term))))
+            || candidates[0];
+          const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
+          if (remoteThumb) {
+            const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' } });
+            if (ir.ok) {
+              const buf = await ir.arrayBuffer();
+              res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
+              res.set('Cache-Control', 'public, max-age=86400');
+              return res.send(Buffer.from(buf));
+            }
+          }
+        }
+      } catch (_) {
+        // Ignore and fall through to 404
+      }
+      res.set('Cache-Control', 'no-store');
+      return res.status(404).end();
+    }
 
     try {
-      const requestedArtist = normalizeArtistMatchText(artistName);
-      for (const key of selectedKeys) {
-        const searchUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
-        searchUrl.searchParams.set('type', '8');
-        searchUrl.searchParams.set('title', artistName);
-        const searchRes = await fetch(searchUrl.toString(), {
-          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-        });
-        if (!searchRes.ok) continue;
-        const searchJson = await searchRes.json();
-        const artistMeta = (searchJson?.MediaContainer?.Metadata || []).find((item) => {
-          return normalizeArtistMatchText(item?.title) === requestedArtist;
-        });
-        const artistThumb = artistMeta?.thumb || artistMeta?.art;
-        if (!artistThumb) continue;
-        const ir = await fetch(`${base}${artistThumb}`, {
-          headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
-        });
-        if (!ir.ok) continue;
-        const buf = await ir.arrayBuffer();
-        res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-        res.set('Cache-Control', 'public, max-age=86400');
-        return res.send(Buffer.from(buf));
+      for (const searchTerm of getArtistLookupTerms(artistName)) {
+        for (const key of selectedKeys) {
+          const searchUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
+          searchUrl.searchParams.set('type', '8');
+          searchUrl.searchParams.set('title', searchTerm);
+          const searchRes = await fetch(searchUrl.toString(), {
+            headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          });
+          if (!searchRes.ok) continue;
+          const searchJson = await searchRes.json();
+          const artistMeta = (searchJson?.MediaContainer?.Metadata || []).find((item) => {
+            return artistNamesMatch(item?.title, artistName);
+          });
+          const artistThumb = artistMeta?.thumb || artistMeta?.art;
+          if (!artistThumb) continue;
+          const ir = await fetch(`${base}${artistThumb}`, {
+            headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+          });
+          if (!ir.ok) continue;
+          const buf = await ir.arrayBuffer();
+          res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
+          res.set('Cache-Control', 'public, max-age=86400');
+          return res.send(Buffer.from(buf));
+        }
       }
 
       for (const trackRow of trackRows) {
@@ -1711,10 +2073,8 @@ export function registerApiMusic(app, ctx) {
           if (artistMetaRes.ok) {
             const artistMetaJson = await artistMetaRes.json();
             const artistMeta = (artistMetaJson?.MediaContainer?.Metadata || [])[0];
-            const artistTitle = normalizeArtistMatchText(artistMeta?.title);
-            const requestedTitle = requestedArtist;
             const artistThumb = artistMeta?.thumb || artistMeta?.art;
-            if (artistThumb && (!artistTitle || artistTitle === requestedTitle)) {
+            if (artistThumb && (!artistMeta?.title || artistNamesMatch(artistMeta?.title, artistName))) {
               const ir = await fetch(`${base}${artistThumb}`, {
                 headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
               });
@@ -1727,9 +2087,8 @@ export function registerApiMusic(app, ctx) {
           }
         }
 
-        const fallbackArtistTitle = normalizeArtistMatchText(trackMeta?.grandparentTitle);
         const fallbackThumb = trackMeta?.grandparentThumb;
-        if (fallbackThumb && fallbackArtistTitle && fallbackArtistTitle === requestedArtist) {
+        if (fallbackThumb && artistNamesMatch(trackMeta?.grandparentTitle, artistName)) {
           const ir = await fetch(`${base}${fallbackThumb}`, {
             headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
           });
@@ -1755,8 +2114,8 @@ export function registerApiMusic(app, ctx) {
         if (deezerRes.ok) {
           const deezerJson = await deezerRes.json();
           const candidates = Array.isArray(deezerJson?.data) ? deezerJson.data : [];
-          const picked = candidates.find((item) => normalizeArtistMatchText(item?.name) === requestedArtist)
-            || candidates.find((item) => normalizeArtistMatchText(item?.name).startsWith(requestedArtist))
+          const picked = candidates.find((item) => artistNamesMatch(item?.name, artistName))
+            || candidates.find((item) => getArtistLookupTerms(artistName).some((term) => normalizeArtistMatchText(item?.name).startsWith(normalizeArtistMatchText(term))))
             || candidates[0];
           const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
           if (remoteThumb) {
@@ -1794,31 +2153,64 @@ export function registerApiMusic(app, ctx) {
     const albumName = String(req.query?.album || '').trim();
     if (!artistName || !albumName) return res.status(404).end();
     const base = url.replace(/\/$/, '');
-    const trackRow = db.prepare(
-      'SELECT rating_key FROM master_tracks WHERE artist_name = ? AND album_name = ? LIMIT 1',
-    ).get(artistName, albumName);
-    if (!trackRow?.rating_key) return res.status(404).end();
+    const fallbackArtistThumb = () => res.redirect(302, `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-album-fallback-1`);
+    const trackRows = db.prepare(
+      'SELECT rating_key, album_name FROM master_tracks WHERE artist_name = ? LIMIT 500',
+    ).all(artistName);
+    const lidarrDbFallback = async () => {
+      try {
+        const lidarrDbPath = path.join(process.env.DATA_DIR || '/app/data', 'lidarr.db');
+        const ldb = new Database(lidarrDbPath, { readonly: true, fileMustExist: true });
+        const wanted = normalizeAlbumMatchText(albumName);
+        const artistRow = ldb.prepare('SELECT Id FROM ArtistMetadata WHERE Name = ? COLLATE NOCASE LIMIT 1').get(artistName);
+        if (!artistRow) { ldb.close(); return fallbackArtistThumb(); }
+        const albumRows = ldb.prepare('SELECT Title, Images FROM Albums WHERE ArtistMetadataId = ?').all(artistRow.Id);
+        ldb.close();
+        const matched = albumRows.find((r) => normalizeAlbumMatchText(r.Title) === wanted)
+          || albumRows.find((r) => normalizeAlbumMatchText(r.Title).includes(wanted) || wanted.includes(normalizeAlbumMatchText(r.Title)))
+          || null;
+        if (!matched) return fallbackArtistThumb();
+        const images = JSON.parse(matched.Images || '[]');
+        const coverUrl = (images.find((i) => i?.coverType === 'cover') || images[0])?.url || '';
+        if (!coverUrl) return fallbackArtistThumb();
+        const ir = await fetch(coverUrl, { headers: { Accept: 'image/*,*/*' } });
+        if (!ir.ok) return fallbackArtistThumb();
+        const buf = await ir.arrayBuffer();
+        res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.send(Buffer.from(buf));
+      } catch (_) {
+        return fallbackArtistThumb();
+      }
+    };
+    if (!trackRows.length) return lidarrDbFallback();
+    const wanted = normalizeAlbumMatchText(albumName);
+    const trackRow = trackRows.find((row) => normalizeAlbumMatchText(row?.album_name) === wanted)
+      || trackRows.find((row) => normalizeAlbumMatchText(row?.album_name).startsWith(wanted))
+      || trackRows.find((row) => normalizeAlbumMatchText(row?.album_name).includes(wanted) || wanted.includes(normalizeAlbumMatchText(row?.album_name)))
+      || null;
+    if (!trackRow?.rating_key) return lidarrDbFallback();
 
     try {
       const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}`, {
         headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
       });
-      if (!mr.ok) return res.status(404).end();
+      if (!mr.ok) return fallbackArtistThumb();
       const meta = await mr.json();
       const trackMeta = (meta?.MediaContainer?.Metadata || [])[0];
       const thumb = trackMeta?.parentThumb || trackMeta?.thumb;
-      if (!thumb) return res.status(404).end();
+      if (!thumb) return fallbackArtistThumb();
 
       const ir = await fetch(`${base}${thumb}`, {
         headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
       });
-      if (!ir.ok) return res.status(404).end();
+      if (!ir.ok) return fallbackArtistThumb();
       const buf = await ir.arrayBuffer();
       res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
       res.set('Cache-Control', 'public, max-age=86400');
       return res.send(Buffer.from(buf));
     } catch (_) {
-      return res.status(404).end();
+      return fallbackArtistThumb();
     }
   });
 
@@ -1871,90 +2263,56 @@ export function registerApiMusic(app, ctx) {
     const disc = config.discovery || {};
     const artistName = decodeURIComponent(req.params.name || '').trim();
     if (!artistName) return res.status(404).end();
+    const cacheKey = artistName.toLowerCase();
+    const cached = getDiscoveryArtCache(cacheKey);
+    if (cached) {
+      if (cached.kind === 'image') {
+        res.set('Content-Type', cached.contentType || 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=21600');
+        return res.send(cached.buffer);
+      }
+      if (cached.kind === 'redirect') {
+        return res.redirect(302, cached.location);
+      }
+    }
 
     try {
-      if (disc.lastfmApiKey) {
-        const infoUrl = new URL('https://ws.audioscrobbler.com/2.0/');
-        infoUrl.searchParams.set('method', 'artist.getinfo');
-        infoUrl.searchParams.set('artist', artistName);
-        infoUrl.searchParams.set('api_key', disc.lastfmApiKey);
-        infoUrl.searchParams.set('format', 'json');
-        const infoRes = await fetch(infoUrl.toString(), {
-          headers: {
-            Accept: 'application/json',
-            'User-Agent': 'Curatorr/1.0',
-          },
-          signal: AbortSignal.timeout(8000),
+      const deezerThumb = await lookupDeezerArtistArtUrl(artistName);
+      if (deezerThumb) {
+        setDiscoveryArtCache(cacheKey, {
+          kind: 'redirect',
+          location: deezerThumb,
+          expiresAt: Date.now() + DISCOVERY_ART_CACHE_TTL_MS,
         });
-        if (infoRes.ok) {
-          const infoJson = await infoRes.json();
-          const images = Array.isArray(infoJson?.artist?.image) ? infoJson.artist.image : [];
-          const remoteThumb =
-            images.find((img) => String(img?.size || '').toLowerCase() === 'extralarge')?.['#text']
-            || images.find((img) => String(img?.size || '').toLowerCase() === 'large')?.['#text']
-            || images.find((img) => String(img?.size || '').toLowerCase() === 'medium')?.['#text']
-            || images.find((img) => String(img?.size || '').toLowerCase() === 'small')?.['#text']
-            || '';
-          if (remoteThumb) {
-            const ir = await fetch(remoteThumb, {
-              headers: {
-                Accept: 'image/*',
-                'User-Agent': 'Curatorr/1.0',
-              },
-              signal: AbortSignal.timeout(8000),
-            });
-            if (ir.ok) {
-              const buf = await ir.arrayBuffer();
-              res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-              res.set('Cache-Control', 'public, max-age=21600');
-              return res.send(Buffer.from(buf));
-            }
-          }
-        }
+        res.set('Cache-Control', 'public, max-age=21600');
+        return res.redirect(302, deezerThumb);
       }
     } catch (_) {
       // Ignore and fall through.
     }
 
     try {
-      const deezerUrl = new URL('https://api.deezer.com/search/artist');
-      deezerUrl.searchParams.set('q', artistName);
-      const deezerRes = await fetch(deezerUrl.toString(), {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'Curatorr/1.0',
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (deezerRes.ok) {
-        const deezerJson = await deezerRes.json();
-        const requestedArtist = normalizeArtistMatchText(artistName);
-        const candidates = Array.isArray(deezerJson?.data) ? deezerJson.data : [];
-        const picked = candidates.find((item) => normalizeArtistMatchText(item?.name) === requestedArtist)
-          || candidates.find((item) => normalizeArtistMatchText(item?.name).startsWith(requestedArtist))
-          || candidates[0];
-        const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
-        if (remoteThumb) {
-          const ir = await fetch(remoteThumb, {
-            headers: {
-              Accept: 'image/*',
-              'User-Agent': 'Curatorr/1.0',
-            },
-            signal: AbortSignal.timeout(8000),
-          });
-          if (ir.ok) {
-            const buf = await ir.arrayBuffer();
-            res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-            res.set('Cache-Control', 'public, max-age=21600');
-            return res.send(Buffer.from(buf));
-          }
-        }
+      const lastfmThumb = await lookupLastfmArtistArtUrl(artistName, disc.lastfmApiKey);
+      if (lastfmThumb) {
+        setDiscoveryArtCache(cacheKey, {
+          kind: 'redirect',
+          location: lastfmThumb,
+          expiresAt: Date.now() + DISCOVERY_ART_CACHE_TTL_MS,
+        });
+        res.set('Cache-Control', 'public, max-age=21600');
+        return res.redirect(302, lastfmThumb);
       }
     } catch (_) {
       // Ignore and fall through.
     }
 
-    return res.redirect(302, `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-artist-fallback-1`);
+    const fallbackLocation = `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-artist-fallback-1`;
+    setDiscoveryArtCache(cacheKey, {
+      kind: 'redirect',
+      location: fallbackLocation,
+      expiresAt: Date.now() + DISCOVERY_ART_CACHE_TTL_MS,
+    });
+    return res.redirect(302, fallbackLocation);
   });
 
   app.get('/api/discovery/trending', requireUser, async (req, res) => {
@@ -1972,20 +2330,25 @@ export function registerApiMusic(app, ctx) {
     url.searchParams.set('api_key', disc.lastfmApiKey);
     url.searchParams.set('format', 'json');
     try {
-      const r = await fetch(url.toString(), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+      const r = await fetch(url.toString(), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
       if (!r.ok) return res.status(502).json({ ok: false, error: 'Last.fm upstream error.' });
       const data = await r.json();
       let rawItems;
       if (type === 'artists') {
-        rawItems = (data?.topartists?.artist || []).map((a) => ({ name: a.name, listeners: Number(a.listeners || 0) }));
+        rawItems = (data?.topartists?.artist || []).map((a) => ({
+          name: a.name,
+          listeners: Number(a.listeners || 0),
+        }));
       } else {
-        rawItems = (data?.tracks?.track || []).map((t) => ({ name: t.name, artistName: t.artist?.name || '', listeners: Number(t.listeners || 0) }));
+        rawItems = (data?.tracks?.track || []).map((t) => ({
+          name: t.name,
+          artistName: t.artist?.name || '',
+          listeners: Number(t.listeners || 0),
+        }));
       }
-      const thumbNames = rawItems.map((item) => item.artistName || item.name);
-      const thumbUrls = await Promise.all(thumbNames.map((n) => getLidarrArtistImageUrl(n)));
-      const items = rawItems.map((item, i) => ({
+      const items = rawItems.map((item) => ({
         ...item,
-        image: thumbUrls[i] || `/api/discovery/artist-art/${encodeURIComponent(item.artistName || item.name)}`,
+        image: buildDiscoveryArtistArtUrl(item.artistName || item.name),
       }));
       return res.json({ ok: true, items });
     } catch (err) {
@@ -2009,7 +2372,7 @@ export function registerApiMusic(app, ctx) {
         u.searchParams.set('limit', '10');
         u.searchParams.set('api_key', disc.lastfmApiKey);
         u.searchParams.set('format', 'json');
-        return fetch(u.toString(), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) })
+        return fetch(u.toString(), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) })
           .then((r) => r.ok ? r.json() : null).catch(() => null);
       });
       const results = await Promise.all(calls);
@@ -2024,18 +2387,13 @@ export function registerApiMusic(app, ctx) {
           items.push({
             name: a.name,
             match: Number(a.match || 0),
-            image: `/api/discovery/artist-art/${encodeURIComponent(a.name)}`,
+            image: buildDiscoveryArtistArtUrl(a.name),
           });
         }
       }
       items.sort((a, b) => b.match - a.match);
       const top20 = items.slice(0, 20);
-      const thumbUrls = await Promise.all(top20.map((item) => getLidarrArtistImageUrl(item.name)));
-      const enriched = top20.map((item, i) => ({
-        ...item,
-        image: thumbUrls[i] || `/api/discovery/artist-art/${encodeURIComponent(item.name)}`,
-      }));
-      return res.json({ ok: true, items: enriched, basedOn: seedArtists });
+      return res.json({ ok: true, items: top20, basedOn: seedArtists });
     } catch (err) {
       return res.status(502).json({ ok: false, error: 'Failed to fetch similar artists.' });
     }

@@ -4,13 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= locals.pageTitle || 'Curatorr' %></title>
+  <% const uiAssetVersion = String(assetVersion || 'dev') + '-ui-launcharr-61'; %>
   <%- include('./theme-init') %>
-  <link rel="stylesheet" href="/styles.css?v=<%= assetVersion %>" />
+  <link rel="stylesheet" href="/styles.css?v=<%= uiAssetVersion %>" />
   <% (locals.extraCss || []).forEach(function(href) { %>
-    <link rel="stylesheet" href="<%= href %>?v=<%= assetVersion %>" />
+    <link rel="stylesheet" href="<%= href %>?v=<%= uiAssetVersion %>" />
   <% }); %>
+  <script defer src="/panel-controls.js?v=<%= uiAssetVersion %>"></script>
+  <script defer src="/filter-popovers.js?v=<%= uiAssetVersion %>"></script>
   <link rel="icon" type="image/svg+xml" href="/icons/curatorr-icon.svg" />
   <meta name="theme-color" content="#8b5cf6" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 </head>
