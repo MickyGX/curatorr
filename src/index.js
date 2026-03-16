@@ -9,6 +9,7 @@ import { registerApiUtil } from './routes/api-util.js';
 import { registerAuth } from './routes/auth.js';
 import { registerApiPlex } from './routes/api-plex.js';
 import { registerWizard, refreshMasterTrackCache } from './routes/wizard.js';
+import { syncLastfmTags } from './services/lastfm-tags.js';
 import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
@@ -552,12 +553,13 @@ function csrfProtectionMiddleware(req, res, next) {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const DEFAULT_JOBS_CONFIG = {
-  masterTrackRefresh:  { intervalMinutes: 360,  enabled: true },
-  smartPlaylistSync:   { intervalMinutes: 30,   enabled: true },
-  lidarrReviewArtists: { intervalMinutes: 30,   enabled: true },
-  lidarrProcessQueue:  { intervalMinutes: 20,   enabled: true },
-  tautulliDailySync:   { intervalMinutes: 1440, enabled: true },
-  lidarrRetryFailed:   { intervalMinutes: 1440, enabled: true },
+  masterTrackRefresh:  { intervalMinutes: 360,   enabled: true },
+  smartPlaylistSync:   { intervalMinutes: 30,    enabled: true },
+  lidarrReviewArtists: { intervalMinutes: 30,    enabled: true },
+  lidarrProcessQueue:  { intervalMinutes: 20,    enabled: true },
+  tautulliDailySync:   { intervalMinutes: 1440,  enabled: true },
+  lidarrRetryFailed:   { intervalMinutes: 1440,  enabled: true },
+  lastfmTagSync:       { intervalMinutes: 10080, enabled: true },
 };
 
 const DEFAULT_CONFIG = {
@@ -1732,6 +1734,7 @@ export async function start() {
           await _routeCtx.playlistService.syncDailyMix(userId).catch(() => {});
         }
       },
+      lastfmTagSync: () => syncLastfmTags(_routeCtx),
     };
     _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
 
@@ -1739,7 +1742,7 @@ export async function start() {
     if (config0.wizard?.completed) {
       _routeCtx.jobService.startAll({
         runImmediately: true,
-        skipImmediate: ['tautulliDailySync'],
+        skipImmediate: ['tautulliDailySync', 'lastfmTagSync'],
       }); // start intervals + run most jobs immediately once
     }
 

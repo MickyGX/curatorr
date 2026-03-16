@@ -235,14 +235,56 @@ export async function refreshMasterTrackCache(ctx) {
           trackTitle: String(t.title || ''),
           albumName: String(t.parentTitle || ''),
           genres: (t.Genre || []).map((g) => g.tag),
+          moods: [],
           libraryKey: String(key),
           ratingCount: Number(t.ratingCount || 0),
           viewCount: Number(t.viewCount || 0),
         });
       }
     }
+
+    // Plex omits Mood from bulk track listings — build ratingKey→moods map via the mood directory
+    const moodMap = new Map(); // ratingKey → Set<moodTag>
+    for (const key of selectedKeys) {
+      try {
+        const moodDirUrl = buildAppApiUrl(url, `library/sections/${key}/mood`);
+        moodDirUrl.searchParams.set('type', '10');
+        const mr = await fetch(moodDirUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
+        if (!mr.ok) continue;
+        const moodJson = await mr.json();
+        const moodTags = moodJson?.MediaContainer?.Directory || [];
+
+        // Fetch tracks per mood in batches of 10
+        for (let i = 0; i < moodTags.length; i += 10) {
+          await Promise.all(moodTags.slice(i, i + 10).map(async (mood) => {
+            try {
+              const tracksUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
+              tracksUrl.searchParams.set('type', '10');
+              tracksUrl.searchParams.set('mood', mood.key);
+              const tr = await fetch(tracksUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
+              if (!tr.ok) return;
+              const tj = await tr.json();
+              for (const t of tj?.MediaContainer?.Metadata || []) {
+                const rk = String(t.ratingKey || '');
+                if (!rk) continue;
+                if (!moodMap.has(rk)) moodMap.set(rk, new Set());
+                moodMap.get(rk).add(mood.title);
+              }
+            } catch { /* non-fatal */ }
+          }));
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // Apply moods to tracks
+    for (const t of tracks) {
+      const moods = moodMap.get(t.ratingKey);
+      if (moods) t.moods = [...moods];
+    }
+
     refreshMasterTracks(db, tracks);
-    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${tracks.length} tracks` });
+    const moodCount = tracks.filter((t) => t.moods.length > 0).length;
+    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${tracks.length} tracks, ${moodCount} with moods` });
     return tracks.length;
   } catch (err) {
     pushLog({ level: 'error', app: 'wizard', action: 'master.refresh.error', message: safeMessage(err) });

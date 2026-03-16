@@ -119,12 +119,16 @@ import {
   recordPlayEvent,
   updateTrackStats,
   updateArtistStats,
+  rebuildTrackStatsFromEvents,
+  rebuildArtistStatsFromEvents,
+  classifyTier,
   expireOldSessions,
   resolveUserSmartConfig,
 } from '../db.js';
 
 // Debounce map: after a skip event, schedule a smart-playlist rebuild
 const rebuildTimers = new Map(); // userId → timeout handle
+const RECENT_PLAY_CONSOLIDATION_WINDOW = 10;
 
 function scheduleRebuild(ctx, userPlexId) {
   const existing = rebuildTimers.get(userPlexId);
@@ -335,6 +339,45 @@ export function registerWebhooks(app, ctx) {
     };
   }
 
+  function buildPlayEventMatchKey(event) {
+    const userPlexId = String(event?.user_plex_id || '').trim();
+    const plexRatingKey = String(event?.plex_rating_key || '').trim();
+    if (plexRatingKey) return `${userPlexId}::${plexRatingKey}`;
+    return [
+      userPlexId,
+      String(event?.track_title || '').trim().toLowerCase(),
+      String(event?.artist_name || '').trim().toLowerCase(),
+      String(event?.album_name || '').trim().toLowerCase(),
+    ].join('::');
+  }
+
+  function findRecentPlayMergeCandidate(session) {
+    const recentEvents = db.prepare(`
+      SELECT id, user_plex_id, plex_rating_key, track_title, artist_name, album_name, library_key,
+             started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      FROM play_events
+      WHERE user_plex_id = ?
+      ORDER BY started_at DESC, id DESC
+      LIMIT ?
+    `).all(session.user_plex_id, RECENT_PLAY_CONSOLIDATION_WINDOW);
+    const targetKey = buildPlayEventMatchKey(session);
+    return recentEvents.find((event) => buildPlayEventMatchKey(event) === targetKey) || null;
+  }
+
+  function rebuildAffectedPlayStats({ userPlexId, plexRatingKey, artistName, smartSettings }) {
+    const songSkipLimit = Number(smartSettings.songSkipLimit) || 3;
+    const trackSnapshot = rebuildTrackStatsFromEvents(db, {
+      userPlexId,
+      plexRatingKey,
+      songSkipLimit,
+      smartConfig: smartSettings,
+    });
+    const artistSnapshot = artistName
+      ? rebuildArtistStatsFromEvents(db, { userPlexId, artistName, smartConfig: smartSettings })
+      : null;
+    return { trackSnapshot, artistSnapshot };
+  }
+
   function recordOrUpdateSessionPlay({
     session,
     endedAt,
@@ -378,6 +421,11 @@ export function registerWebhooks(app, ctx) {
       Number(session.started_at || endedAt) - 60 * 1000,
     );
 
+    let finalizedListenedMs = listenedMs;
+    let finalizedTrackDurationMs = resolvedTrackDuration;
+    let effectiveIsSkip = isSkip;
+    let usedRebuildPath = false;
+
     if (existing) {
       if (listenedMs <= Number(existing.duration_ms || 0)) {
         closeSession(db, session.session_key);
@@ -385,54 +433,97 @@ export function registerWebhooks(app, ctx) {
       }
       db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ?, track_duration_ms = COALESCE(NULLIF(?, 0), track_duration_ms) WHERE id = ?')
         .run(listenedMs, endedAt, isSkip ? 1 : 0, resolvedTrackDuration, existing.id);
+      usedRebuildPath = true;
     } else {
-      recordPlayEvent(db, {
-        userPlexId: session.user_plex_id,
-        plexRatingKey: session.plex_rating_key,
-        trackTitle: session.track_title || '',
-        artistName: session.artist_name || '',
-        albumName: session.album_name || '',
-        libraryKey: session.library_key || '',
-        startedAt: Number(session.started_at || endedAt),
-        endedAt,
-        durationMs: listenedMs,
-        trackDurationMs: resolvedTrackDuration,
-        isSkip,
-        eventSource,
-        sessionKey: session.session_key,
-      });
+      const mergeCandidate = findRecentPlayMergeCandidate(session);
+      if (mergeCandidate) {
+        finalizedTrackDurationMs = Math.max(
+          Number(mergeCandidate.track_duration_ms || 0),
+          resolvedTrackDuration,
+        );
+        finalizedListenedMs = Math.max(0, Number(mergeCandidate.duration_ms || 0)) + listenedMs;
+        if (finalizedTrackDurationMs > 0) {
+          finalizedListenedMs = Math.min(finalizedListenedMs, finalizedTrackDurationMs);
+        }
+        effectiveIsSkip = classifyTier(finalizedListenedMs, finalizedTrackDurationMs, smartSettings) === 'skip';
+        db.prepare(`
+          UPDATE play_events SET
+            track_title = ?, artist_name = ?, album_name = ?, library_key = ?,
+            started_at = ?, ended_at = ?, duration_ms = ?, track_duration_ms = ?, is_skip = ?,
+            event_source = ?, session_key = ?
+          WHERE id = ?
+        `).run(
+          session.track_title || mergeCandidate.track_title || '',
+          session.artist_name || mergeCandidate.artist_name || '',
+          session.album_name || mergeCandidate.album_name || '',
+          session.library_key || mergeCandidate.library_key || '',
+          Number(session.started_at || endedAt),
+          endedAt,
+          finalizedListenedMs,
+          finalizedTrackDurationMs,
+          effectiveIsSkip ? 1 : 0,
+          eventSource,
+          session.session_key,
+          mergeCandidate.id,
+        );
+        usedRebuildPath = true;
+      } else {
+        recordPlayEvent(db, {
+          userPlexId: session.user_plex_id,
+          plexRatingKey: session.plex_rating_key,
+          trackTitle: session.track_title || '',
+          artistName: session.artist_name || '',
+          albumName: session.album_name || '',
+          libraryKey: session.library_key || '',
+          startedAt: Number(session.started_at || endedAt),
+          endedAt,
+          durationMs: listenedMs,
+          trackDurationMs: resolvedTrackDuration,
+          isSkip,
+          eventSource,
+          sessionKey: session.session_key,
+        });
+      }
     }
-
-    let effectiveIsSkip = isSkip;
     if (session.artist_name) {
-      const trackResult = updateTrackStats(db, {
-        userPlexId: session.user_plex_id,
-        plexRatingKey: session.plex_rating_key,
-        trackTitle: session.track_title || '',
-        artistName: session.artist_name || '',
-        albumName: session.album_name || '',
-        listenedMs,
-        trackDurationMs: resolvedTrackDuration,
-        playedAt: endedAt,
-        songSkipLimit,
-        smartConfig: smartSettings,
-      });
-      effectiveIsSkip = trackResult.isSkip;
-      updateArtistStats(db, {
-        userPlexId: session.user_plex_id,
-        artistName: session.artist_name || '',
-        isSkip: effectiveIsSkip,
-        playedAt: endedAt,
-        scoreDelta: trackResult.scoreDelta,
-      });
+      if (usedRebuildPath) {
+        const { trackSnapshot } = rebuildAffectedPlayStats({
+          userPlexId: session.user_plex_id,
+          plexRatingKey: session.plex_rating_key,
+          artistName: session.artist_name || '',
+          smartSettings,
+        });
+        effectiveIsSkip = trackSnapshot?.tier === 'skip';
+      } else {
+        const trackResult = updateTrackStats(db, {
+          userPlexId: session.user_plex_id,
+          plexRatingKey: session.plex_rating_key,
+          trackTitle: session.track_title || '',
+          artistName: session.artist_name || '',
+          albumName: session.album_name || '',
+          listenedMs,
+          trackDurationMs: resolvedTrackDuration,
+          playedAt: endedAt,
+          songSkipLimit,
+          smartConfig: smartSettings,
+        });
+        effectiveIsSkip = trackResult.isSkip;
+        updateArtistStats(db, {
+          userPlexId: session.user_plex_id,
+          artistName: session.artist_name || '',
+          isSkip: effectiveIsSkip,
+          playedAt: endedAt,
+          scoreDelta: trackResult.scoreDelta,
+        });
+      }
     }
 
     closeSession(db, session.session_key);
     const isCompletion = !effectiveIsSkip
-      && resolvedTrackDuration > 0
-      && listenedMs >= resolvedTrackDuration - completionThresholdMs;
+      && finalizedTrackDurationMs > 0
+      && finalizedListenedMs >= finalizedTrackDurationMs - completionThresholdMs;
     if (effectiveIsSkip || isCompletion) scheduleRebuild(ctx, session.user_plex_id);
-    return { duplicate: false, listenedMs, isSkip: effectiveIsSkip };
+    return { duplicate: false, listenedMs: finalizedListenedMs, isSkip: effectiveIsSkip };
   }
 
   // Expire stale open sessions on startup and periodically

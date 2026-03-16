@@ -331,6 +331,23 @@ CREATE INDEX IF NOT EXISTS idx_lidarr_requests_user_status
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lidarr_requests_user_active
   ON lidarr_requests(user_plex_id, artist_name, album_title, status)
   WHERE status IN ('queued', 'processing');
+
+CREATE TABLE IF NOT EXISTS artist_tags (
+  artist_name  TEXT NOT NULL PRIMARY KEY,
+  tags         TEXT NOT NULL DEFAULT '[]',
+  updated_at   INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+);
+
+CREATE TABLE IF NOT EXISTS user_personal_playlists (
+  id           TEXT NOT NULL PRIMARY KEY,
+  user_plex_id TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  rules        TEXT NOT NULL DEFAULT '{}',
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  created_at   INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+  updated_at   INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+);
+CREATE INDEX IF NOT EXISTS idx_user_personal_playlists_user ON user_personal_playlists(user_plex_id);
 `;
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -369,6 +386,8 @@ export function initDb(dbPath) {
     db.exec('ALTER TABLE master_tracks ADD COLUMN rating_count INTEGER NOT NULL DEFAULT 0');
   if (!masterCols.includes('view_count'))
     db.exec('ALTER TABLE master_tracks ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
+  if (!masterCols.includes('moods'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
 
   const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
   if (!openSessionCols.includes('player_scope'))
@@ -1310,17 +1329,17 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, genres, library_key, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, genres, moods, library_key, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
-      album_name = excluded.album_name, genres = excluded.genres,
+      album_name = excluded.album_name, genres = excluded.genres, moods = excluded.moods,
       library_key = excluded.library_key, rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
   `);
   const run = db.transaction((rows) => {
     for (const r of rows)
-      upsert.run(r.ratingKey, r.artistName, r.trackTitle, r.albumName, JSON.stringify(r.genres || []), r.libraryKey, r.ratingCount ?? 0, r.viewCount ?? 0, Date.now());
+      upsert.run(r.ratingKey, r.artistName, r.trackTitle, r.albumName, JSON.stringify(r.genres || []), JSON.stringify(r.moods || []), r.libraryKey, r.ratingCount ?? 0, r.viewCount ?? 0, Date.now());
   });
   run(tracks);
 }
@@ -1328,8 +1347,8 @@ export function refreshMasterTracks(db, tracks) {
 export function getMasterTracks(db) {
   return db.prepare('SELECT * FROM master_tracks').all().map((r) => ({
     ratingKey: r.rating_key, artistName: r.artist_name, trackTitle: r.track_title,
-    albumName: r.album_name, genres: JSON.parse(r.genres || '[]'), libraryKey: r.library_key,
-    ratingCount: r.rating_count, viewCount: r.view_count,
+    albumName: r.album_name, genres: JSON.parse(r.genres || '[]'), moods: JSON.parse(r.moods || '[]'),
+    libraryKey: r.library_key, ratingCount: r.rating_count, viewCount: r.view_count,
   }));
 }
 
@@ -1418,6 +1437,65 @@ export function clearPlaylistState(db, userId, playlistKey) {
 export function getGenresFromMaster(db) {
   const rows = db.prepare('SELECT DISTINCT value FROM master_tracks, json_each(master_tracks.genres) ORDER BY value').all();
   return rows.map((r) => r.value).filter(Boolean);
+}
+
+export function getMoodsFromMaster(db) {
+  const rows = db.prepare('SELECT DISTINCT value FROM master_tracks, json_each(master_tracks.moods) ORDER BY value').all();
+  return rows.map((r) => r.value).filter(Boolean);
+}
+
+// ─── Artist tags (Last.fm) ────────────────────────────────────────────────────
+
+export function saveArtistTags(db, artistName, tags) {
+  db.prepare(`
+    INSERT INTO artist_tags (artist_name, tags, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(artist_name) DO UPDATE SET tags = excluded.tags, updated_at = excluded.updated_at
+  `).run(artistName, JSON.stringify(tags || []), Date.now());
+}
+
+export function getArtistTagMap(db) {
+  return new Map(
+    db.prepare('SELECT artist_name, tags FROM artist_tags').all()
+      .map((r) => [r.artist_name.toLowerCase(), JSON.parse(r.tags || '[]')]),
+  );
+}
+
+export function getAllLastfmTags(db) {
+  const rows = db.prepare('SELECT DISTINCT value FROM artist_tags, json_each(artist_tags.tags) ORDER BY value').all();
+  return rows.map((r) => r.value).filter(Boolean);
+}
+
+export function getLastfmTagSyncStats(db) {
+  const total = db.prepare('SELECT COUNT(*) as n FROM artist_tags').get().n;
+  const withTags = db.prepare("SELECT COUNT(*) as n FROM artist_tags WHERE tags != '[]'").get().n;
+  return { total, withTags };
+}
+
+// ─── User personal playlists ──────────────────────────────────────────────────
+
+function parsePersonalPlaylist(r) {
+  return { id: r.id, userPlexId: r.user_plex_id, name: r.name, rules: JSON.parse(r.rules || '{}'), enabled: Boolean(r.enabled), createdAt: r.created_at, updatedAt: r.updated_at };
+}
+
+export function listUserPersonalPlaylists(db, userPlexId) {
+  return db.prepare('SELECT * FROM user_personal_playlists WHERE user_plex_id = ? ORDER BY created_at ASC').all(userPlexId).map(parsePersonalPlaylist);
+}
+
+export function getUserPersonalPlaylist(db, id, userPlexId) {
+  const row = db.prepare('SELECT * FROM user_personal_playlists WHERE id = ? AND user_plex_id = ?').get(id, userPlexId);
+  return row ? parsePersonalPlaylist(row) : null;
+}
+
+export function createUserPersonalPlaylist(db, userPlexId, { id, name, rules }) {
+  db.prepare(`
+    INSERT INTO user_personal_playlists (id, user_plex_id, name, rules, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, userPlexId, name, JSON.stringify(rules || {}), Date.now(), Date.now());
+}
+
+export function deleteUserPersonalPlaylist(db, id, userPlexId) {
+  db.prepare('DELETE FROM user_personal_playlists WHERE id = ? AND user_plex_id = ?').run(id, userPlexId);
 }
 
 export function cleanMasterArtistName(value) {
@@ -2197,6 +2275,7 @@ export function reorderQueuedLidarrRequests(db, userPlexId, requestIds = []) {
 // smartSettings: { artistSkipRank, artistBelterRank }
 export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
   const masterTracks = getMasterTracks(db);
+  const artistTagMap = getArtistTagMap(db);
   const skipRank = Number(smartSettings?.artistSkipRank ?? 2);
   const belterRank = Number(smartSettings?.artistBelterRank ?? 8);
 
@@ -2210,6 +2289,9 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
 
   const artistTierFilter = Array.isArray(rules?.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
   const trackTierFilter  = Array.isArray(rules?.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
+  const genreFilter      = Array.isArray(rules?.genres)       && rules.genres.length       ? new Set(rules.genres)       : null;
+  const moodFilter       = Array.isArray(rules?.moods)        && rules.moods.length        ? new Set(rules.moods)        : null;
+  const tagFilter        = Array.isArray(rules?.tags)         && rules.tags.length         ? new Set(rules.tags)         : null;
   const topN = rules?.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules?.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
 
@@ -2233,6 +2315,13 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
       const rawTier = stat?.tier || 'curatorr';
       const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
       if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
+
+      if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
+      if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
+      if (tagFilter) {
+        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+        if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
+      }
 
       if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
       byArtist.get(t.artistName).push({ rc: t.ratingCount || 0, tw: stat?.tier_weight || 0 });

@@ -1390,6 +1390,12 @@ body.cur-modal-open {
   border: 1px solid rgba(45, 212, 191, .25);
 }
 
+.cur-badge--muted {
+  background: rgba(255,255,255,.05);
+  color: var(--text-muted, rgba(255,255,255,.45));
+  border: 1px solid rgba(255,255,255,.1);
+}
+
 /* ── Tier table (Curatorr Rules settings) ────────────────────────────────── */
 
 .cur-tier-table-wrap {
@@ -5649,3 +5655,190 @@ html[data-square-corners="1"] .cur-discover-album-art,
 html[data-square-corners="1"] .cur-discover-fallback-card{
   border-radius: 0 !important;
 }
+
+/* ── Smart Playlist Modal ──────────────────────────────────────────────────── */
+.spm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.spm-dialog {
+  background: var(--surface-0, #141414);
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 14px;
+  width: min(680px, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+.spm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.1));
+  flex-shrink: 0;
+}
+.spm-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #e0e0e0);
+}
+.spm-close {
+  background: none;
+  border: none;
+  color: var(--muted, #888);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.spm-close:hover { color: var(--text, #e0e0e0); background: rgba(255,255,255,0.07); }
+.spm-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+.spm-tiers-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.spm-tiers-row .spm-filter-section {
+  flex: 1 1 45%;
+  min-width: 0;
+}
+.spm-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.spm-filter-section--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.spm-filter-section--inline .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.spm-filter-section--inline .field span {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted, #888);
+}
+.spm-filter-section--inline input,
+.spm-filter-section--inline select {
+  background: var(--surface-1, #1e1e1e);
+  color: var(--text, #e0e0e0);
+  border: 1px solid var(--border, rgba(255,255,255,0.15));
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.spm-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted, #888);
+}
+.spm-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.spm-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text, #e0e0e0);
+}
+.spm-preview-label {
+  font-weight: 600;
+  color: var(--muted, #888);
+  margin-right: 4px;
+}
+.spm-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border, rgba(255,255,255,0.1));
+  flex-shrink: 0;
+}
+.spm-footer .btn { min-width: 90px; }
+
+/* Checklist — shared with settings page, duplicated here for playlists page */
+.gp-checklist-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gp-checklist-search {
+  width: 100%;
+  background: var(--surface-1, #1e1e1e);
+  color: var(--text, #e0e0e0);
+  border: 1px solid var(--border, rgba(255,255,255,0.15));
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.gp-checklist-search::placeholder { opacity: 0.5; }
+.gp-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 130px;
+  overflow-y: auto;
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: var(--surface-1, #1a1a1a);
+}
+.gp-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+.gp-checklist-item:hover { background: var(--surface-2, rgba(255,255,255,0.06)); }
+.gp-checklist-item:has(input:checked) {
+  background: var(--accent-subtle, rgba(99,102,241,0.15));
+  color: var(--accent, #818cf8);
+}
+.gp-checklist-item input[type="checkbox"] { accent-color: var(--accent, #818cf8); cursor: pointer; }
+.gp-chip-label { display: inline-flex; align-items: center; cursor: pointer; }
+.gp-chip-label input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
+.gp-chip-label:has(input:checked) .cur-badge {
+  outline: 2px solid var(--accent, #818cf8);
+  outline-offset: 1px;
+}
+.gp-filter-hint { font-size: 10px; font-weight: 400; opacity: 0.6; text-transform: none; letter-spacing: 0; }

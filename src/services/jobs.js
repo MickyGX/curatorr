@@ -33,6 +33,11 @@ export const JOB_DEFS = {
     description: 'Optional backup job that fetches recent Tautulli history and fills in plays missed by Plex webhooks without overwriting Plex-recorded listens.',
     defaultIntervalMinutes: 1440,
   },
+  lastfmTagSync: {
+    label: 'Last.fm Tag Sync',
+    description: 'Fetches genre/mood tags from Last.fm for every artist in your library and stores them for use in global playlist filters.',
+    defaultIntervalMinutes: 10080,
+  },
   lidarrRetryFailed: {
     label: 'Lidarr: Retry Failed Requests',
     description: 'Re-queues failed Lidarr add requests so they are picked up by the next queue processing run. Requests that have already been retried 3 times are skipped.',

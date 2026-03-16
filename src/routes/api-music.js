@@ -44,7 +44,14 @@ import {
   listAllGeneratedPlaylists,
   clearGeneratedPlaylistPlexId,
   listSuggestedAlbums,
+  listUserPersonalPlaylists,
+  getUserPersonalPlaylist,
+  createUserPersonalPlaylist,
+  deleteUserPersonalPlaylist,
+  previewGlobalPlaylist,
+  getArtistTagMap,
 } from '../db.js';
+import { paginateRolledHistory } from '../history-rollup.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -584,12 +591,15 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveQueryUserId(req);
     const limit = Math.min(200, Number(req.query?.limit || 100));
     const offset = Number(req.query?.offset || 0);
-    const history = getRecentHistory(db, userPlexId, limit, offset).map((event) => ({
-      ...event,
-      track_title: stripArtistSuffix(event.track_title, event.artist_name),
-      curatorrTier: deriveHistoryTier(event, config),
-    }));
-    return res.json({ ok: true, history });
+    const { history, hasMore } = paginateRolledHistory(
+      (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
+        ...event,
+        track_title: stripArtistSuffix(event.track_title, event.artist_name),
+        curatorrTier: deriveHistoryTier(event, config),
+      })),
+      { limit, offset },
+    );
+    return res.json({ ok: true, history, hasMore });
   });
 
   // ── Artists ───────────────────────────────────────────────────────────────
@@ -1663,6 +1673,13 @@ export function registerApiMusic(app, ctx) {
         await playlistService.syncGlobalPlaylist(userPlexId, playlistDef);
         return res.json({ ok: true });
       }
+      if (playlistType === 'personal') {
+        const personalId = playlistKey.replace(/^personal:/, '');
+        const personalDef = getUserPersonalPlaylist(db, personalId, userPlexId);
+        if (!personalDef) return res.status(404).json({ error: 'Personal playlist definition not found.' });
+        await playlistService.syncPersonalPlaylist(userPlexId, personalDef);
+        return res.json({ ok: true });
+      }
       if (playlistType === 'custom') {
         return res.status(400).json({ error: 'Custom playlists do not have an automatic rebuild.' });
       }
@@ -2397,6 +2414,59 @@ export function registerApiMusic(app, ctx) {
     } catch (err) {
       return res.status(502).json({ ok: false, error: 'Failed to fetch similar artists.' });
     }
+  });
+
+  // ── Personal playlists ────────────────────────────────────────────────────
+
+  function makePersonalPlaylistId() {
+    return 'pp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  // GET /api/music/playlists/personal/preview
+  app.get('/api/music/playlists/personal/preview', requireUser, (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    let rules;
+    try { rules = JSON.parse(String(req.query?.rules || '{}')); } catch { return res.status(400).json({ error: 'Invalid rules JSON' }); }
+    const config = loadConfig();
+    const smartSettings = config.smartPlaylist || {};
+    const result = previewGlobalPlaylist(db, rules, userPlexId, smartSettings);
+    const counts = result.forUser || { artistCount: 0, trackCount: 0 };
+    res.json({ ok: true, artistCount: counts.artistCount, trackCount: counts.trackCount });
+  });
+
+  // POST /api/music/playlists/personal
+  app.post('/api/music/playlists/personal', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const rules = {
+      artistTiers:  Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
+      trackTiers:   Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
+      genres:       Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : [],
+      moods:        Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : [],
+      tags:         Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : [],
+      topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
+      sortBy: String(req.body?.sortBy || 'ratingCount'),
+    };
+    const playlistDef = { id: makePersonalPlaylistId(), name, rules };
+    createUserPersonalPlaylist(db, userPlexId, playlistDef);
+    pushLog({ level: 'info', app: 'playlist', action: 'personal.create', message: `Personal playlist created: ${name} for ${userPlexId}` });
+    res.json({ ok: true, playlist: playlistDef });
+    setImmediate(async () => {
+      await playlistService?.syncPersonalPlaylist(userPlexId, playlistDef).catch(() => {});
+    });
+  });
+
+  // DELETE /api/music/playlists/personal/:id
+  app.delete('/api/music/playlists/personal/:id', requireUser, (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const id = String(req.params.id || '');
+    const existing = getUserPersonalPlaylist(db, id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    deleteUserPersonalPlaylist(db, id, userPlexId);
+    pushLog({ level: 'info', app: 'playlist', action: 'personal.delete', message: `Personal playlist deleted: ${id} for ${userPlexId}` });
+    res.json({ ok: true });
   });
 
 }

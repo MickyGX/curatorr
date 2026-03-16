@@ -13,6 +13,8 @@ import {
   getPlaylistArtistState,
   setPlaylistArtistState,
   clearPlaylistState,
+  getArtistTagMap,
+  getUserPersonalPlaylist,
 } from '../db.js';
 
 const DAILY_MIX_PLAYLIST_KEY = 'daily-mix';
@@ -632,6 +634,10 @@ export function createPlaylistService(ctx) {
 
     const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
     const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
+    const genreFilter      = Array.isArray(rules.genres)      && rules.genres.length      ? new Set(rules.genres)      : null;
+    const moodFilter       = Array.isArray(rules.moods)       && rules.moods.length       ? new Set(rules.moods)       : null;
+    const tagFilter        = Array.isArray(rules.tags)        && rules.tags.length        ? new Set(rules.tags)        : null;
+    const artistTagMap     = tagFilter ? getArtistTagMap(db) : null;
     const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
     const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
     const sortBy = rules.sortBy || 'ratingCount';
@@ -646,6 +652,13 @@ export function createPlaylistService(ctx) {
       const rawTier = stat?.tier || 'curatorr';
       const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
       if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
+
+      if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
+      if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
+      if (tagFilter) {
+        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+        if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
+      }
 
       if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
       byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });
@@ -694,6 +707,110 @@ export function createPlaylistService(ctx) {
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
+  async function syncPersonalPlaylist(userId, playlistDef) {
+    const config = ctx.loadConfig();
+    if (!ctx.userHasOwnPlexToken(config, userId)) return;
+    const { url, machineId: storedMid = '' } = config.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userId);
+    if (!url || !token) return;
+
+    const masterTracks = getMasterTracks(db);
+    if (!masterTracks.length) return;
+
+    const smartSettings = config.smartPlaylist || {};
+    const skipRank   = Number(smartSettings.artistSkipRank   ?? 2);
+    const belterRank = Number(smartSettings.artistBelterRank ?? 8);
+    const rules = playlistDef.rules || {};
+
+    function classifyArtist(score) {
+      if (score === null || score === undefined) return 'unranked';
+      if (score >= belterRank) return 'belter';
+      if (score >= 5) return 'decent';
+      if (score > skipRank) return 'halfDecent';
+      return 'skip';
+    }
+
+    const artistMap = new Map(
+      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId)
+        .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
+    );
+    const trackMap = new Map(
+      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(userId)
+        .map((r) => [r.plex_rating_key, r]),
+    );
+
+    const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
+    const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
+    const genreFilter      = Array.isArray(rules.genres)      && rules.genres.length      ? new Set(rules.genres)      : null;
+    const moodFilter       = Array.isArray(rules.moods)       && rules.moods.length       ? new Set(rules.moods)       : null;
+    const tagFilter        = Array.isArray(rules.tags)        && rules.tags.length        ? new Set(rules.tags)        : null;
+    const artistTagMap     = tagFilter ? getArtistTagMap(db) : null;
+    const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
+    const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
+    const sortBy = rules.sortBy || 'ratingCount';
+
+    const byArtist = new Map();
+    for (const t of masterTracks) {
+      const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
+      const artistTier = classifyArtist(score);
+      if (artistTierFilter && !artistTierFilter.has(artistTier)) continue;
+
+      const stat = trackMap.get(t.ratingKey);
+      const rawTier = stat?.tier || 'curatorr';
+      const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
+      if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
+
+      if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
+      if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
+      if (tagFilter) {
+        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+        if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
+      }
+
+      if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
+      byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });
+    }
+
+    let ratingKeys = [];
+    for (const [, tracks] of byArtist) {
+      const sorted = [...tracks].sort((a, b) => {
+        if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);
+        if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc);
+        return (b.rc - a.rc) || (b.tw - a.tw);
+      });
+      ratingKeys.push(...(topN ? sorted.slice(0, topN) : sorted).map((t) => t.ratingKey));
+    }
+    if (maxT) ratingKeys = ratingKeys.slice(0, maxT);
+    if (!ratingKeys.length) return;
+
+    const adminToken = String(config.plex?.token || '').trim() || token;
+    let machineId = storedMid;
+    if (!machineId) {
+      try {
+        const r = await fetch(url.replace(/\/$/, ''), { headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }) });
+        if (r.ok) machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
+      } catch { /* non-fatal */ }
+    }
+    if (!machineId) throw new Error('Could not determine Plex machine ID');
+
+    const playlistKey   = `personal:${playlistDef.id}`;
+    const playlistTitle = playlistDef.name;
+    const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'personal', playlistKey, playlistTitle, machineId);
+    await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+
+    const now = Date.now();
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'personal', playlistKey,
+      plexPlaylistId: playlistRow.plexPlaylistId,
+      playlistTitle,
+      algorithmVersion: 'personal-playlist-v1',
+      lastBuiltAt: now, lastSyncedAt: now,
+      trackCount: ratingKeys.length,
+      active: true, updatedAt: now,
+    });
+    ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
+  }
+
   async function syncCrescive(userId) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
     const playlistCfg = { ...{ favouriteArtistTrackPct: 0.80, favouriteGenreArtistPct: 0.80, favouriteGenreTrackPct: 0.20, otherGenreArtistPct: 0.20, otherGenreTrackPct: 0.20 }, ...(smartConfig.crescive || {}) };
@@ -719,6 +836,7 @@ export function createPlaylistService(ctx) {
     buildDailyMix,
     syncDailyMix,
     syncGlobalPlaylist,
+    syncPersonalPlaylist,
     syncCrescive,
     syncCurative,
     syncBothForUser,

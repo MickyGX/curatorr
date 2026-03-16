@@ -18,7 +18,12 @@ import {
   getResolvedUserArtistFilters,
   getUserPreferences,
   listSuggestedAlbums,
+  getGenresFromMaster,
+  getMoodsFromMaster,
+  getAllLastfmTags,
+  listUserPersonalPlaylists,
 } from '../db.js';
+import { paginateRolledHistory } from '../history-rollup.js';
 
 // Returns the DB filter key for a user:
 // - local admin accounts can inspect global activity
@@ -231,11 +236,14 @@ export function registerPages(app, ctx) {
     const userPlexId = resolveUserFilter(user, getEffectiveRole(req));
     const offset = Math.max(0, Number(req.query?.offset || 0));
     const limit = 100;
-    const history = getRecentHistory(db, userPlexId, limit, offset).map((event) => ({
-      ...event,
-      track_title: stripArtistSuffix(event.track_title, event.artist_name),
-      curatorrTier: deriveHistoryTier(event, config),
-    }));
+    const { history, hasMore } = paginateRolledHistory(
+      (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
+        ...event,
+        track_title: stripArtistSuffix(event.track_title, event.artist_name),
+        curatorrTier: deriveHistoryTier(event, config),
+      })),
+      { limit, offset },
+    );
 
     res.render('history', {
       title: 'Play History — Curatorr',
@@ -244,6 +252,7 @@ export function registerPages(app, ctx) {
       actualRole: getActualRole(req),
       config: safeConfig(config),
       history,
+      hasMore,
       offset,
       limit,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
@@ -438,6 +447,10 @@ export function registerPages(app, ctx) {
       lastSync,
       playlistCards,
       plexMachineId: String(config.plex?.machineId || ''),
+      allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
+      allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
+      allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
+      userPersonalPlaylists: (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })(),
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });

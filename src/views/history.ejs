@@ -33,6 +33,7 @@
       <div class="dash-content">
         <%
           const _history = Array.isArray(history) ? history : [];
+          const _hasMore = Boolean(hasMore);
           function fmtTime(ms) {
             if (!ms) return '—';
             const s = Math.floor(ms / 1000);
@@ -60,10 +61,10 @@
             <details class="cur-score-explainer">
               <summary>What is this table?</summary>
               <div class="cur-score-explainer-body">
-                <p>A chronological log of every play and skip event Curatorr has recorded, newest first. The table loads 100 events at a time.</p>
+                <p>A chronological log of your recent play history, newest first. Repeat plays of the same track inside the latest 10 recorded events are grouped into the newest row. The table loads 100 rows at a time.</p>
                 <ul>
-                  <li><strong>Listened</strong> — how long you actually listened before stopping or skipping.</li>
-                  <li><strong>When</strong> — the date and time the play started.</li>
+                  <li><strong>Listened</strong> — the total listen time across the grouped row.</li>
+                  <li><strong>When</strong> — the date and time of the newest play in the row.</li>
                   <li>Rows highlighted in a muted style indicate a skip — the track was stopped early.</li>
                   <li>The tier badge (Belter, Decent, etc.) reflects the track's <em>current</em> status, not what it was at the time of the play.</li>
                 </ul>
@@ -127,6 +128,7 @@
         duration_ms: Number(h.duration_ms || 0),
         started_at: Number(h.started_at || 0),
         is_skip: Boolean(h.is_skip),
+        rollup_count: Math.max(1, Number(h.rollup_count || 1)),
         curatorrTier: h.curatorrTier || null,
       };
     })).replace(/</g, '\\u003c') %>;
@@ -144,7 +146,7 @@
       sortDir: 'desc',
       filter: '',
       offset: <%= Number(offset || 0) %> + HISTORY_DATA.length,
-      hasMore: HISTORY_DATA.length >= HISTORY_LIMIT,
+      hasMore: <%= _hasMore ? 'true' : 'false' %>,
       loadingMore: false,
     };
 
@@ -232,6 +234,9 @@
       if (item.curatorrTier) {
         parts.push('<span class="cur-badge cur-badge--' + escapeAttr(item.curatorrTier.tone) + '">' + escapeHtml(item.curatorrTier.label) + '</span>');
       }
+      if (Number(item.rollup_count || 1) > 1) {
+        parts.push('<span class="cur-badge cur-badge--muted">' + escapeHtml(item.rollup_count) + ' plays</span>');
+      }
       return [
         '<span class="cur-hi-track-wrap">',
           '<span class="cur-hi-track-main">',
@@ -299,8 +304,8 @@
       updateHistorySortButtons();
       if (historyCountLabel) {
         historyCountLabel.textContent = history.length === historyState.all.length
-          ? history.length.toLocaleString() + ' events'
-          : history.length.toLocaleString() + ' / ' + historyState.all.length.toLocaleString() + ' events';
+          ? history.length.toLocaleString() + ' rows'
+          : history.length.toLocaleString() + ' / ' + historyState.all.length.toLocaleString() + ' rows';
       }
       if (!history.length) {
         historyTableBody.innerHTML = '<div class="cur-empty cur-hi-empty">No history matches the current filter.</div>';
@@ -334,6 +339,7 @@
         duration_ms: Number(item.duration_ms || 0),
         started_at: Number(item.started_at || 0),
         is_skip: Boolean(item.is_skip),
+        rollup_count: Math.max(1, Number(item.rollup_count || 1)),
         curatorrTier: item.curatorrTier || null,
       };
     }
@@ -355,7 +361,7 @@
           });
           historyState.all = historyState.all.concat(nextItems);
           historyState.offset += nextItems.length;
-          historyState.hasMore = nextItems.length >= HISTORY_LIMIT;
+          historyState.hasMore = Boolean(result.data.hasMore);
           historyState.loadingMore = false;
           renderHistory();
         })

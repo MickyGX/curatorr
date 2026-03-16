@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds } from '../db.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags } from '../db.js';
 import { JOB_DEFS } from '../services/jobs.js';
 
 // Settings routes — GET /settings and all POST /settings/*
@@ -154,6 +154,9 @@ export function registerSettings(app, ctx) {
       aboutReleases,
       globalPlaylists: config.globalPlaylists || [],
       allUserIds: (() => { try { return db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats').all().map((r) => r.user_plex_id); } catch { return []; } })(),
+      allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
+      allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
+      allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       tab: req.query?.tab || 'general',
@@ -794,6 +797,9 @@ export function registerSettings(app, ctx) {
     const rules = {
       artistTiers: Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
       trackTiers:  Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
+      genres:      Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : [],
+      moods:       Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : [],
+      tags:        Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : [],
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy: String(req.body?.sortBy || 'ratingCount'),
@@ -830,6 +836,9 @@ export function registerSettings(app, ctx) {
       rules: {
         artistTiers: Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : existing.rules?.artistTiers || [],
         trackTiers:  Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : existing.rules?.trackTiers  || [],
+        genres:      Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : existing.rules?.genres      || [],
+        moods:       Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : existing.rules?.moods       || [],
+        tags:        Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : existing.rules?.tags        || [],
         topNPerArtist: req.body?.topNPerArtist !== undefined ? (req.body.topNPerArtist ? Number(req.body.topNPerArtist) : null) : existing.rules?.topNPerArtist,
         maxTracks:     req.body?.maxTracks     !== undefined ? (req.body.maxTracks     ? Number(req.body.maxTracks)     : null) : existing.rules?.maxTracks,
         sortBy: req.body?.sortBy !== undefined ? String(req.body.sortBy) : existing.rules?.sortBy || 'ratingCount',

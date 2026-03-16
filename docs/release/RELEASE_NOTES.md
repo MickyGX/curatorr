@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.10 (2026-03-16)
+
+- Added user-created personal smart playlists with inline previewing, build/sync support, and richer playlist management controls.
+- Expanded playlist filtering with genres, Plex moods, and stored Last.fm artist tags across settings, playlist creation, and preview flows.
+- Improved playback tracking by consolidating split listens within a 10-event lookback so pause/resume or quick restart sequences accumulate into one play instead of creating false skips.
+- Added a scheduled Last.fm tag sync job plus mood ingestion in the master track refresh pipeline, so playlist filters have richer metadata to work with.
+
 ## v0.1.9 (2026-03-16)
 
 - Reworked playlist management around a card carousel, inline rebuild actions, background full-playlist loading, and sortable track tables that keep the visible slice small while sorting against the full playlist.

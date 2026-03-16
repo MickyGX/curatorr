@@ -705,6 +705,57 @@
                   </div>
                 </div>
 
+                <% if ((allGenres || []).length) { %>
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Genres <span class="gp-filter-hint">(none = all)</span></div>
+                  <div class="gp-checklist-wrap">
+                    <input type="text" class="gp-checklist-search" placeholder="Filter genres…" data-target="gp-genres-list" />
+                    <div class="gp-checklist" id="gp-genres-list">
+                      <% (allGenres || []).forEach(function(g) { %>
+                      <label class="gp-checklist-item">
+                        <input type="checkbox" class="gp-genre-cb" value="<%= g %>" />
+                        <span><%= g %></span>
+                      </label>
+                      <% }); %>
+                    </div>
+                  </div>
+                </div>
+                <% } %>
+
+                <% if ((allMoods || []).length) { %>
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Moods <span class="gp-filter-hint">(none = all)</span></div>
+                  <div class="gp-checklist-wrap">
+                    <input type="text" class="gp-checklist-search" placeholder="Filter moods…" data-target="gp-moods-list" />
+                    <div class="gp-checklist" id="gp-moods-list">
+                      <% (allMoods || []).forEach(function(m) { %>
+                      <label class="gp-checklist-item">
+                        <input type="checkbox" class="gp-mood-cb" value="<%= m %>" />
+                        <span><%= m %></span>
+                      </label>
+                      <% }); %>
+                    </div>
+                  </div>
+                </div>
+                <% } %>
+
+                <% if ((allLastfmTags || []).length) { %>
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Last.fm Tags <span class="gp-filter-hint">(none = all)</span></div>
+                  <div class="gp-checklist-wrap">
+                    <input type="text" class="gp-checklist-search" placeholder="Filter tags… e.g. britpop" data-target="gp-tags-list" />
+                    <div class="gp-checklist" id="gp-tags-list">
+                      <% (allLastfmTags || []).forEach(function(t) { %>
+                      <label class="gp-checklist-item">
+                        <input type="checkbox" class="gp-tag-cb" value="<%= t %>" />
+                        <span><%= t %></span>
+                      </label>
+                      <% }); %>
+                    </div>
+                  </div>
+                </div>
+                <% } %>
+
                 <div class="gp-filter-section gp-filter-section--inline">
                   <label class="field" style="flex:1">
                     <span>Top N per artist</span>
@@ -767,9 +818,12 @@
                   </div>
                 </div>
                 <div class="gp-card-rules">
-                  <% const _at = (gp.rules?.artistTiers || []); const _tt = (gp.rules?.trackTiers || []); %>
+                  <% const _at = (gp.rules?.artistTiers || []); const _tt = (gp.rules?.trackTiers || []); const _gr = (gp.rules?.genres || []); const _mo = (gp.rules?.moods || []); const _tg = (gp.rules?.tags || []); %>
                   <span class="gp-rule-chip">Artists: <%= _at.length ? _at.join(', ') : 'all' %></span>
                   <span class="gp-rule-chip">Tracks: <%= _tt.length ? _tt.join(', ') : 'all' %></span>
+                  <% if (_gr.length) { %><span class="gp-rule-chip">Genres: <%= _gr.join(', ') %></span><% } %>
+                  <% if (_mo.length) { %><span class="gp-rule-chip">Moods: <%= _mo.join(', ') %></span><% } %>
+                  <% if (_tg.length) { %><span class="gp-rule-chip">Tags: <%= _tg.join(', ') %></span><% } %>
                   <% if (gp.rules?.topNPerArtist) { %><span class="gp-rule-chip">Top <%= gp.rules.topNPerArtist %>/artist</span><% } %>
                   <% if (gp.rules?.maxTracks) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracks %> tracks</span><% } %>
                 </div>
@@ -794,9 +848,18 @@
                 if (!document.querySelector('.gp-track-tier-all').checked) {
                   document.querySelectorAll('.gp-track-tier:checked').forEach(function(c) { trackTiers.push(c.value); });
                 }
+                var genres = [];
+                document.querySelectorAll('.gp-genre-cb:checked').forEach(function(c) { genres.push(c.value); });
+                var moods = [];
+                document.querySelectorAll('.gp-mood-cb:checked').forEach(function(c) { moods.push(c.value); });
+                var tags = [];
+                document.querySelectorAll('.gp-tag-cb:checked').forEach(function(c) { tags.push(c.value); });
                 return {
                   artistTiers: artistTiers,
                   trackTiers: trackTiers,
+                  genres: genres,
+                  moods: moods,
+                  tags: tags,
                   topNPerArtist: document.getElementById('gp-top-n').value ? parseInt(document.getElementById('gp-top-n').value) : null,
                   maxTracks: document.getElementById('gp-max-tracks').value ? parseInt(document.getElementById('gp-max-tracks').value) : null,
                   sortBy: document.getElementById('gp-sort-by').value,
@@ -852,6 +915,19 @@
                 if (el) el.addEventListener('change', schedulePreview);
                 if (el && el.tagName === 'INPUT') el.addEventListener('input', schedulePreview);
               });
+              document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb').forEach(function(c) {
+                c.addEventListener('change', schedulePreview);
+              });
+              document.querySelectorAll('.gp-checklist-search').forEach(function(input) {
+                input.addEventListener('input', function() {
+                  var q = input.value.toLowerCase();
+                  var list = document.getElementById(input.dataset.target);
+                  if (!list) return;
+                  list.querySelectorAll('.gp-checklist-item').forEach(function(item) {
+                    item.style.display = item.querySelector('span').textContent.toLowerCase().includes(q) ? '' : 'none';
+                  });
+                });
+              });
 
               document.querySelectorAll('.gp-delete-btn').forEach(function(btn) {
                 btn.addEventListener('click', function() {
@@ -896,6 +972,7 @@
                   var empty = document.getElementById('gp-empty');
                   if (empty) empty.remove();
                   var at = (d.playlist.rules?.artistTiers || []); var tt = (d.playlist.rules?.trackTiers || []);
+                  var gr = (d.playlist.rules?.genres || []); var mo = (d.playlist.rules?.moods || []); var tg = (d.playlist.rules?.tags || []);
                   var card = document.createElement('div');
                   card.className = 'settings-card gp-card'; card.dataset.gpId = d.playlist.id;
                   card.innerHTML = '<div class="gp-card-header"><span class="settings-card-title gp-card-name">' + d.playlist.name + '</span>'
@@ -903,6 +980,9 @@
                     + '<button class="btn btn-sm btn-ghost-danger gp-delete-btn" data-gp-id="' + d.playlist.id + '">Delete</button></div></div>'
                     + '<div class="gp-card-rules"><span class="gp-rule-chip">Artists: ' + (at.length ? at.join(', ') : 'all') + '</span>'
                     + '<span class="gp-rule-chip">Tracks: ' + (tt.length ? tt.join(', ') : 'all') + '</span>'
+                    + (gr.length ? '<span class="gp-rule-chip">Genres: ' + gr.join(', ') + '</span>' : '')
+                    + (mo.length ? '<span class="gp-rule-chip">Moods: ' + mo.join(', ') + '</span>' : '')
+                    + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
                     + (d.playlist.rules?.topNPerArtist ? '<span class="gp-rule-chip">Top ' + d.playlist.rules.topNPerArtist + '/artist</span>' : '')
                     + (d.playlist.rules?.maxTracks ? '<span class="gp-rule-chip">Max ' + d.playlist.rules.maxTracks + ' tracks</span>' : '')
                     + '</div>';

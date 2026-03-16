@@ -44,6 +44,7 @@
           <div class="cur-panel-header cur-panel-header--playlist-carousel">
             <h3 class="cur-panel-title">Playlists</h3>
             <div class="cur-panel-actions">
+              <button class="btn btn-sm btn-ghost" type="button" onclick="openSmartPlaylistModal()">+ Smart Playlist</button>
               <span class="cur-sync-status" id="syncStatus"></span>
               <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="playlistCarouselPrev" aria-label="Previous">
                 <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
@@ -143,6 +144,129 @@
 
       </div>
     </section>
+  </div>
+
+  <%# ── Smart Playlist Modal ────────────────────────────────────────────────── %>
+  <div id="smartPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeSmartPlaylistModal()">
+    <div class="spm-dialog" role="dialog" aria-modal="true" aria-label="Create Smart Playlist">
+      <div class="spm-header">
+        <span class="spm-title">Create Smart Playlist</span>
+        <button class="spm-close" type="button" onclick="closeSmartPlaylistModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="spm-body">
+        <div class="field" style="margin-bottom:16px">
+          <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#888)">Playlist name</span>
+          <input type="text" id="spm-name" class="cur-input" placeholder="e.g. Britpop Belters" style="width:100%;margin-top:4px" />
+        </div>
+
+        <div class="spm-tiers-row">
+          <div class="spm-filter-section">
+            <div class="spm-filter-label">Artist tier</div>
+            <div class="spm-filter-chips">
+              <% [['belter','Belter','belter'],['decent','Decent','decent'],['halfDecent','Half-Decent','half-decent'],['skip','Skip','skip'],['unranked','Unranked','muted']].forEach(function(t) { %>
+              <label class="gp-chip-label">
+                <input type="checkbox" class="spm-artist-tier" value="<%= t[0] %>" />
+                <span class="cur-badge cur-badge--<%= t[2] %>"><%= t[1] %></span>
+              </label>
+              <% }); %>
+              <label class="gp-chip-label">
+                <input type="checkbox" class="spm-artist-tier-all" checked />
+                <span class="cur-badge cur-badge--neutral">All</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="spm-filter-section">
+            <div class="spm-filter-label">Track tier</div>
+            <div class="spm-filter-chips">
+              <% [['belter','Belter','belter'],['decent','Decent','decent'],['halfDecent','Half-Decent','half-decent'],['skip','Skip','skip'],['unplayed','Unplayed','muted']].forEach(function(t) { %>
+              <label class="gp-chip-label">
+                <input type="checkbox" class="spm-track-tier" value="<%= t[0] %>" />
+                <span class="cur-badge cur-badge--<%= t[2] %>"><%= t[1] %></span>
+              </label>
+              <% }); %>
+              <label class="gp-chip-label">
+                <input type="checkbox" class="spm-track-tier-all" checked />
+                <span class="cur-badge cur-badge--neutral">All</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <% if ((allGenres || []).length) { %>
+        <div class="spm-filter-section">
+          <div class="spm-filter-label">Genres <span class="gp-filter-hint">(none = all)</span></div>
+          <div class="gp-checklist-wrap">
+            <input type="text" class="gp-checklist-search" placeholder="Filter genres…" data-target="spm-genres-list" />
+            <div class="gp-checklist" id="spm-genres-list">
+              <% (allGenres || []).forEach(function(g) { %>
+              <label class="gp-checklist-item"><input type="checkbox" class="spm-genre-cb" value="<%= g %>" /><span><%= g %></span></label>
+              <% }); %>
+            </div>
+          </div>
+        </div>
+        <% } %>
+
+        <% if ((allMoods || []).length) { %>
+        <div class="spm-filter-section">
+          <div class="spm-filter-label">Moods <span class="gp-filter-hint">(none = all)</span></div>
+          <div class="gp-checklist-wrap">
+            <input type="text" class="gp-checklist-search" placeholder="Filter moods…" data-target="spm-moods-list" />
+            <div class="gp-checklist" id="spm-moods-list">
+              <% (allMoods || []).forEach(function(m) { %>
+              <label class="gp-checklist-item"><input type="checkbox" class="spm-mood-cb" value="<%= m %>" /><span><%= m %></span></label>
+              <% }); %>
+            </div>
+          </div>
+        </div>
+        <% } %>
+
+        <% if ((allLastfmTags || []).length) { %>
+        <div class="spm-filter-section">
+          <div class="spm-filter-label">Last.fm Tags <span class="gp-filter-hint">(none = all)</span></div>
+          <div class="gp-checklist-wrap">
+            <input type="text" class="gp-checklist-search" placeholder="Filter tags… e.g. britpop" data-target="spm-tags-list" />
+            <div class="gp-checklist" id="spm-tags-list">
+              <% (allLastfmTags || []).forEach(function(t) { %>
+              <label class="gp-checklist-item"><input type="checkbox" class="spm-tag-cb" value="<%= t %>" /><span><%= t %></span></label>
+              <% }); %>
+            </div>
+          </div>
+        </div>
+        <% } %>
+
+        <div class="spm-filter-section spm-filter-section--inline">
+          <label class="field" style="flex:1">
+            <span>Top N per artist</span>
+            <input type="number" id="spm-top-n" min="1" max="999" placeholder="All tracks" />
+          </label>
+          <label class="field" style="flex:1">
+            <span>Max total tracks</span>
+            <input type="number" id="spm-max-tracks" min="1" placeholder="No limit" />
+          </label>
+          <label class="field" style="flex:1">
+            <span>Sort tracks by</span>
+            <select id="spm-sort-by">
+              <option value="ratingCount">Global rating count</option>
+              <option value="tierWeight">Tier weight</option>
+              <option value="playCount">Play count</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="spm-preview">
+          <span class="spm-preview-label">Preview:</span>
+          <span id="spm-prev-artists">—</span> artists ·
+          <span id="spm-prev-tracks">—</span> tracks
+        </div>
+      </div>
+
+      <div class="spm-footer">
+        <button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>
+        <button class="btn btn-primary" type="button" id="spm-create-btn" onclick="createSmartPlaylist()">Create Playlist</button>
+        <span id="spm-msg" style="font-size:13px;margin-left:8px"></span>
+      </div>
+    </div>
   </div>
 
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
@@ -446,7 +570,7 @@
 
     function canRebuildSelection(kind, type) {
       if (kind === 'legacy') return true;
-      return ['curatorred', 'crescive', 'curative', 'daily-mix', 'global'].indexOf(String(type || '').toLowerCase()) !== -1;
+      return ['curatorred', 'crescive', 'curative', 'daily-mix', 'global', 'personal'].indexOf(String(type || '').toLowerCase()) !== -1;
     }
 
     function updateSelectionButtons() {
@@ -802,6 +926,162 @@
       window.addEventListener('resize', updateNav);
       updateNav();
     }
+
+    // ── Smart Playlist Modal ──────────────────────────────────────────────────
+
+    var _spmPreviewTimer = null;
+
+    function openSmartPlaylistModal() {
+      var modal = document.getElementById('smartPlModal');
+      if (!modal) return;
+      modal.style.display = '';
+      document.getElementById('spm-name').focus();
+      spmRunPreview();
+    }
+
+    function closeSmartPlaylistModal() {
+      var modal = document.getElementById('smartPlModal');
+      if (modal) modal.style.display = 'none';
+      if (_spmPreviewTimer) { clearTimeout(_spmPreviewTimer); _spmPreviewTimer = null; }
+      document.getElementById('spm-msg').textContent = '';
+      document.getElementById('spm-create-btn').disabled = false;
+    }
+
+    function getSpmRules() {
+      var artistTierAll = document.querySelector('.spm-artist-tier-all');
+      var trackTierAll = document.querySelector('.spm-track-tier-all');
+      var artistTiers = (artistTierAll && artistTierAll.checked)
+        ? []
+        : Array.from(document.querySelectorAll('.spm-artist-tier:checked')).map(function(el) { return el.value; });
+      var trackTiers = (trackTierAll && trackTierAll.checked)
+        ? []
+        : Array.from(document.querySelectorAll('.spm-track-tier:checked')).map(function(el) { return el.value; });
+      var genres = Array.from(document.querySelectorAll('.spm-genre-cb:checked')).map(function(el) { return el.value; });
+      var moods = Array.from(document.querySelectorAll('.spm-mood-cb:checked')).map(function(el) { return el.value; });
+      var tags = Array.from(document.querySelectorAll('.spm-tag-cb:checked')).map(function(el) { return el.value; });
+      var topN = parseInt(document.getElementById('spm-top-n').value, 10) || null;
+      var maxTracks = parseInt(document.getElementById('spm-max-tracks').value, 10) || null;
+      var sortBy = document.getElementById('spm-sort-by').value || 'ratingCount';
+      return { artistTiers: artistTiers, trackTiers: trackTiers, genres: genres, moods: moods, tags: tags, topNPerArtist: topN, maxTracks: maxTracks, sortBy: sortBy };
+    }
+
+    function spmSchedulePreview() {
+      if (_spmPreviewTimer) clearTimeout(_spmPreviewTimer);
+      _spmPreviewTimer = setTimeout(spmRunPreview, 600);
+    }
+
+    function spmRunPreview() {
+      if (_spmPreviewTimer) { clearTimeout(_spmPreviewTimer); _spmPreviewTimer = null; }
+      var rules = getSpmRules();
+      var params = new URLSearchParams();
+      params.set('rules', JSON.stringify(rules));
+      document.getElementById('spm-prev-artists').textContent = '…';
+      document.getElementById('spm-prev-tracks').textContent = '…';
+      fetch('/api/music/playlists/personal/preview?' + params.toString())
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          document.getElementById('spm-prev-artists').textContent = (data.artistCount || 0).toLocaleString();
+          document.getElementById('spm-prev-tracks').textContent = (data.trackCount || 0).toLocaleString();
+        })
+        .catch(function() {
+          document.getElementById('spm-prev-artists').textContent = '?';
+          document.getElementById('spm-prev-tracks').textContent = '?';
+        });
+    }
+
+    function createSmartPlaylist() {
+      var name = (document.getElementById('spm-name').value || '').trim();
+      if (!name) {
+        document.getElementById('spm-msg').textContent = 'Please enter a playlist name.';
+        document.getElementById('spm-name').focus();
+        return;
+      }
+      var rules = getSpmRules();
+      var msg = document.getElementById('spm-msg');
+      var btn = document.getElementById('spm-create-btn');
+      btn.disabled = true;
+      msg.textContent = 'Creating…';
+      fetch('/api/music/playlists/personal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify(Object.assign({ name: name }, rules)),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed');
+          var card = buildPlaylistCard({
+            plexPlaylistId: data.plexPlaylistId || '',
+            playlistKey: data.playlistKey || '',
+            playlistTitle: data.playlistTitle || name,
+            playlistKind: 'generated',
+            playlistType: 'personal',
+            trackCount: 0,
+            updatedAt: Date.now(),
+            artPath: '',
+          });
+          var carouselTrack = document.getElementById('playlistCarouselTrack');
+          if (carouselTrack) carouselTrack.appendChild(card);
+          closeSmartPlaylistModal();
+          selectPlaylist(card);
+        })
+        .catch(function(err) {
+          msg.textContent = 'Error: ' + (err.message || 'Unknown');
+          btn.disabled = false;
+        });
+    }
+
+    function initSmartPlaylistModal() {
+      var artistAll = document.querySelector('.spm-artist-tier-all');
+      if (artistAll) {
+        artistAll.addEventListener('change', function() {
+          document.querySelectorAll('.spm-artist-tier').forEach(function(cb) { cb.checked = false; });
+          spmSchedulePreview();
+        });
+        document.querySelectorAll('.spm-artist-tier').forEach(function(cb) {
+          cb.addEventListener('change', function() {
+            if (this.checked && artistAll) artistAll.checked = false;
+            spmSchedulePreview();
+          });
+        });
+      }
+
+      var trackAll = document.querySelector('.spm-track-tier-all');
+      if (trackAll) {
+        trackAll.addEventListener('change', function() {
+          document.querySelectorAll('.spm-track-tier').forEach(function(cb) { cb.checked = false; });
+          spmSchedulePreview();
+        });
+        document.querySelectorAll('.spm-track-tier').forEach(function(cb) {
+          cb.addEventListener('change', function() {
+            if (this.checked && trackAll) trackAll.checked = false;
+            spmSchedulePreview();
+          });
+        });
+      }
+
+      document.querySelectorAll('.spm-genre-cb, .spm-mood-cb, .spm-tag-cb').forEach(function(cb) {
+        cb.addEventListener('change', spmSchedulePreview);
+      });
+
+      ['spm-top-n', 'spm-max-tracks', 'spm-sort-by'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', spmSchedulePreview);
+      });
+
+      document.querySelectorAll('#smartPlModal .gp-checklist-search').forEach(function(input) {
+        input.addEventListener('input', function() {
+          var q = this.value.toLowerCase();
+          var targetId = this.getAttribute('data-target');
+          var list = targetId ? document.getElementById(targetId) : null;
+          if (!list) return;
+          list.querySelectorAll('.gp-checklist-item').forEach(function(item) {
+            item.style.display = item.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+          });
+        });
+      });
+    }
+
+    initSmartPlaylistModal();
 
     bindPlaylistCarousel();
     var initialCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card');
