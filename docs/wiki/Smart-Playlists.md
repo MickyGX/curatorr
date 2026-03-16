@@ -2,6 +2,8 @@
 
 Curatorr builds and maintains personalised playlists directly in Plex, based on your real listening behaviour. These update automatically on a schedule and reflect your actual taste — not just your most-played tracks.
 
+![Curatorr playlists page](../media/curatorr-playlists.png)
+
 ---
 
 ## Track Tiers

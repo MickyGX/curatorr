@@ -2,6 +2,8 @@
 
 The Discover page lets you find and add artists that do not yet exist in your Plex library. It is separate from the [Artist Suggestions](Artist-Suggestions-and-Lidarr-Activity) panel, which only surfaces artists already in your library.
 
+![Curatorr discover page](../media/curatorr-discover.png)
+
 ---
 
 ## Panels

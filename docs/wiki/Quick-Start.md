@@ -34,6 +34,8 @@ docker compose up -d
 
 Open `http://localhost:7676/wizard` in your browser.
 
+![Curatorr login page](../media/curatorr-login.png)
+
 The wizard walks you through:
 
 1. **Plex connection** — enter your Plex server URL, token, and machine ID

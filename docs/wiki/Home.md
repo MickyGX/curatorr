@@ -2,6 +2,8 @@
 
 Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart playlist generation, playback tracking, and optional Lidarr automation.
 
+![Curatorr dashboard overview](../media/curatorr-dashboard.png)
+
 ## Start Here
 
 1. [Quick Start](Quick-Start)

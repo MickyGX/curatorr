@@ -9,7 +9,7 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 - [What It Does](#what-it-does)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
-- [Tautulli Webhook Setup](#tautulli-webhook-setup)
+- [Playback Tracking](#playback-tracking)
 - [Lidarr Integration](#lidarr-integration)
 - [How Artist Suggestions Work](#how-artist-suggestions-work)
 - [How Lidarr Activity Works](#how-lidarr-activity-works)
@@ -25,11 +25,32 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 ## What It Does
 
 - **Smart Playlists** — builds and maintains per-user playlists in Plex based on your play history, skips, and listening trends
+- **Personal Playlists** — lets users build their own rule-based playlists on top of Curatorr's scoring and filter system
 - **Artist Suggestions** — scores every artist in your library against your taste profile and surfaces ones you have under-explored
 - **Track Tiers** — classifies each track as Belter, Decent, Half Decent, Skip, or Curatorr (unclassified) based on real playback behaviour
 - **Lidarr Automation** — when connected to Lidarr, suggested artists can be added with a starter album, monitored, and progressively expanded as you engage with them
-- **History** — full per-user playback log synced from Tautulli and real-time Plex webhooks
-- **Discover** — surfaces artists outside your library via Last.fm (trending and similar-artist data), and lets you manually search for and add any artist to Lidarr directly
+- **History** — full per-user playback log driven by Plex webhooks, with optional Tautulli repair and backfill
+- **Discover** — surfaces artists outside your library via Last.fm, includes manual artist search, queue handling, and per-user add history
+
+---
+
+## Screenshots
+
+### Dashboard
+
+![Curatorr dashboard overview](docs/media/curatorr-dashboard.png)
+
+### Discover
+
+![Curatorr discover page](docs/media/curatorr-discover.png)
+
+### Playlists
+
+![Curatorr playlists page](docs/media/curatorr-playlists.png)
+
+### Login
+
+![Curatorr login page](docs/media/curatorr-login.png)
 
 ---
 
@@ -65,7 +86,7 @@ docker compose up -d
 
 ### 3. Complete the setup wizard
 
-Open `http://localhost:7676/wizard` in your browser and follow the steps to connect Plex, Tautulli, and optionally Lidarr.
+Open `http://localhost:7676/wizard` in your browser and follow the steps to connect Plex, optionally Tautulli, and optionally Lidarr.
 
 ---
 
@@ -84,11 +105,27 @@ Open `http://localhost:7676/wizard` in your browser and follow the steps to conn
 
 ---
 
-## Tautulli Webhook Setup
+## Playback Tracking
 
-Curatorr uses Tautulli to receive real-time playback events and to backfill play history. Without it, no play or skip data will be recorded.
+Curatorr is Plex-first for playback tracking.
 
-**In Tautulli:**
+- **Plex webhooks** provide the primary real-time play, pause, resume, stop, and scrobble events
+- **Tautulli** is optional and is used for backfill and repair when you want an extra source of playback history
+- **Split listens** within a 10-event lookback are consolidated into one play event, which reduces false skips caused by pause/resume or quick restart flows
+
+### Plex webhook setup
+
+Curatorr can register the Plex webhook for you during setup or from **Settings → Plex**. If you are configuring it manually, point Plex to:
+
+```text
+http://your-curatorr-url:7676/webhook/plex
+```
+
+Use your public HTTPS URL instead if Curatorr is behind a reverse proxy.
+
+### Optional Tautulli webhook setup
+
+If you also want Tautulli backfill/repair support:
 
 1. Go to **Settings → Notification Agents → Add a new notification agent → Webhook**
 2. Set the **Webhook URL** to:
@@ -96,9 +133,9 @@ Curatorr uses Tautulli to receive real-time playback events and to backfill play
    http://your-curatorr-url:7676/webhook/tautulli
    ```
 3. Set the **Method** to `POST`
-4. Enable the following **Triggers**: Playback Start, Playback Stop, Playback Pause, Playback Resume, Watched
+4. Enable: **Playback Start**, **Playback Stop**, **Playback Pause**, **Playback Resume**, **Watched**
 
-Then in Curatorr's Settings → Tautulli tab, enter your Tautulli URL and API key.
+Then in Curatorr **Settings → Tautulli**, enter your Tautulli URL and API key.
 
 ---
 
@@ -116,9 +153,12 @@ Curatorr can connect to Lidarr to automate adding suggested artists to your musi
 **How automation works:**
 
 - When you click **Add to Lidarr** on a suggested artist, Curatorr adds the artist to Lidarr, picks a starter album based on your taste, and monitors it
+- Curatorr applies its own management tags to artists it adds in Lidarr and can backfill those tags for existing Curatorr-managed artists
 - If enabled, Curatorr immediately triggers a Lidarr `AlbumSearch` for the starter album
 - If the search returns no files, Curatorr can re-monitor, retry the search, and fall back to manually grabbing the best available release
 - As you engage with the artist, Curatorr progressively unlocks additional albums
+
+> Note: some Lidarr builds expose artist tags but not album tags. Curatorr detects that case and logs album tagging as unsupported instead of pretending it succeeded.
 
 **Weekly quotas** can be set per role to limit how many artists and albums each user tier can add each week (see [Roles and Permissions](#roles-and-permissions)).
 
@@ -238,6 +278,8 @@ The Discover page goes beyond your Plex library and lets you find and add artist
 
 All Discover adds are manual — you pick the artist, optionally choose a specific album, and click to add. Curatorr then handles the Lidarr add, monitors a starter album, and searches for it. Weekly role quotas apply. If your quota is full, the request is queued automatically and processed when quota resets.
 
+The Discover page also keeps a **Queue** panel for deferred requests and an **Added For You** panel so users can see what Curatorr has already added on their behalf.
+
 ### Last.fm setup
 
 To enable Trending and Similar Artist panels:
@@ -289,7 +331,7 @@ Curatorr runs several scheduled background jobs. Intervals can be adjusted in **
 | Lidarr: Review Due Artists | Every 30 minutes | Reviews suggested artists and queues Lidarr searches for artists that are due |
 | Lidarr: Process Queued Requests | Every 20 minutes | Processes pending Lidarr add and monitor requests |
 | Daily Mix Sync | Daily | Builds each user's Daily Mix playlist from recent favourites, suggestions, and fresh library tracks |
-| Tautulli History Sync | Daily | Backfills any plays missed by real-time webhooks |
+| Tautulli History Sync | Daily | If Tautulli is configured, backfills or repairs any plays missed by Plex webhook ingestion |
 
 ---
 
@@ -306,6 +348,8 @@ Curatorr uses role-based access for users connected via Plex authentication.
 | **Guest** | Read-only | None |
 
 Weekly quota limits are configurable per role in **Settings → Lidarr → Automation**. Set any quota to `-1` for unlimited.
+
+Local Curatorr admin accounts can view global listening data across users for dashboard, history, artists, and tracks. User-specific discovery queues, preferences, and playlists remain scoped per account.
 
 ---
 
