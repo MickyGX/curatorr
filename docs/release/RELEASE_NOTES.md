@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.11 (2026-03-16)
+
+- Fixed Lidarr artist tagging so Curatorr now tags artists even when the artist already exists in Lidarr or the request path reaches an already-monitored item.
+- Added a Lidarr tag backfill utility for existing Curatorr-managed artists and made album-tag failures explicit on Lidarr servers that do not expose album tag support.
+- Fixed local Curatorr admin scoping so dashboard, artists, tracks, and history stay globally scoped without generating fake per-admin discovery suggestions.
+- Fixed Settings so “Last Curatorr login” now surfaces existing Plex-auth login timestamps and records future Plex logins into the same Curatorr login store.
+- Improved history-page responsiveness by caching repeated artist and album artwork proxy requests, reducing expensive repeated upstream lookups during table renders.
+- Aligned history and artists table headers with their content columns for a cleaner media-table layout.
+
 ## v0.1.10 (2026-03-16)
 
 - Added user-created personal smart playlists with inline previewing, build/sync support, and richer playlist management controls.

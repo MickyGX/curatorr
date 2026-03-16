@@ -854,6 +854,15 @@ export function createLidarrService(ctx) {
     const timeoutMs = Number(options.timeoutMs || 15000);
     const tagIds = await ensureTagIds(tagNames, { timeoutMs });
     if (!tagIds.length) return null;
+    const album = options.album && typeof options.album === 'object'
+      ? options.album
+      : await getAlbum(id, { timeoutMs });
+    if (!album) throw new Error(`Album ${id} not found in Lidarr`);
+    if (!Object.prototype.hasOwnProperty.call(album, 'tags')) {
+      const err = new Error('Lidarr album tags are not supported by this server version');
+      err.code = 'LIDARR_ALBUM_TAGS_UNSUPPORTED';
+      throw err;
+    }
     try {
       return await request('/album/editor', {
         method: 'PUT',
@@ -865,10 +874,6 @@ export function createLidarrService(ctx) {
         }),
       });
     } catch (editorErr) {
-      const album = options.album && typeof options.album === 'object'
-        ? options.album
-        : await getAlbum(id, { timeoutMs });
-      if (!album) throw editorErr;
       const existingTags = Array.isArray(album?.tags)
         ? album.tags.map((value) => Number(value || 0)).filter((value) => value > 0)
         : [];
@@ -905,14 +910,25 @@ export function createLidarrService(ctx) {
     }
     const results = await Promise.all(tasks);
     results.filter((result) => !result.ok).forEach((result) => {
+      const unsupported = result.err?.code === 'LIDARR_ALBUM_TAGS_UNSUPPORTED';
       logEvent('warn', 'tag.apply.error', `Failed to apply Curatorr ${result.kind} tag in Lidarr`, {
         sourceKind,
         artistId: tagArtist ? artistId : null,
         albumId: tagAlbum ? albumId : null,
         error: safeMessage(result.err),
         code: result.err?.code || '',
+        unsupported,
       });
     });
+    if (results.every((result) => result.ok)) {
+      logEvent('info', 'tag.apply.success', 'Applied Curatorr Lidarr tags', {
+        sourceKind,
+        artistId: tagArtist ? artistId : null,
+        albumId: tagAlbum ? albumId : null,
+        taggedArtist: results.some((result) => result.kind === 'artist'),
+        taggedAlbum: results.some((result) => result.kind === 'album'),
+      });
+    }
     return {
       ok: results.every((result) => result.ok),
       taggedArtist: results.some((result) => result.kind === 'artist' && result.ok),
@@ -1813,12 +1829,12 @@ export function createLidarrService(ctx) {
       foreignArtistId,
       lookupArtistResult: lookupMatch,
     });
+    await tagCuratorrManagedItems({
+      sourceKind,
+      artistId: lidarrResult.artistId,
+      tagArtist: true,
+    });
     if (!lidarrResult.existing) {
-      await tagCuratorrManagedItems({
-        sourceKind,
-        artistId: lidarrResult.artistId,
-        tagArtist: true,
-      });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'artists', amount: 1, createdAt: now });
       if (autoAdd) {
         recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'auto_artists', amount: 1, createdAt: now });
@@ -1850,15 +1866,15 @@ export function createLidarrService(ctx) {
     const albumTitle = String(album.title || '').trim();
     const alreadyMonitored = Boolean(album.monitored);
     const albumSourceKind = pickedAlbum.selectionReason.startsWith('fallback_') ? 'automatic' : sourceKind;
+    await tagCuratorrManagedItems({
+      sourceKind: albumSourceKind,
+      albumId,
+      tagAlbum: true,
+    });
     if (!alreadyMonitored) {
       quota = assertQuotaAvailable(role, getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
       if (autoAdd) assertAutoAddQuotaAvailable(getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
       await setAlbumMonitored(albumId, true);
-      await tagCuratorrManagedItems({
-        sourceKind: albumSourceKind,
-        albumId,
-        tagAlbum: true,
-      });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: Date.now() });
       if (autoAdd) {
         recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'auto_albums', amount: 1, createdAt: Date.now() });

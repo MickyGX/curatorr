@@ -1333,7 +1333,7 @@ async function completePlexLogin(req, authToken) {
   }
 
   let config = loadConfig();
-  config = updateUserLogins(config, { identifier: loginIdentifier, plex: true });
+  config = updateUserLogins(config, { identifier: loginIdentifier, plex: true, curatorr: true });
 
   try {
     const resources = await fetchPlexResources(authToken);

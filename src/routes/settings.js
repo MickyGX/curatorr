@@ -548,8 +548,11 @@ export function registerSettings(app, ctx) {
     const { token, machineId } = config.plex || {};
     if (!token) return res.status(400).json({ error: 'Plex not configured.' });
 
-    const loginStore = config?.userLogins?.curatorr && typeof config.userLogins.curatorr === 'object'
+    const curatorrLoginStore = config?.userLogins?.curatorr && typeof config.userLogins.curatorr === 'object'
       ? config.userLogins.curatorr
+      : {};
+    const plexLoginStore = config?.userLogins?.plex && typeof config.userLogins.plex === 'object'
+      ? config.userLogins.plex
       : {};
     const admins = loadAdmins();
     const coAdmins = loadCoAdmins();
@@ -563,7 +566,10 @@ export function registerSettings(app, ctx) {
     };
     const resolveLogin = (ids) => {
       for (const id of ids) {
-        if (loginStore[id]) return loginStore[id];
+        if (curatorrLoginStore[id]) return curatorrLoginStore[id];
+      }
+      for (const id of ids) {
+        if (plexLoginStore[id]) return plexLoginStore[id];
       }
       return '';
     };

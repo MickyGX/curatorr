@@ -34,6 +34,12 @@ export function resolveUserFilter(user, role) {
   return String(user.username || '').trim();
 }
 
+function resolveSuggestionUser(user, role) {
+  const source = String(user?.source || '').trim().toLowerCase();
+  if (role === 'admin' && source === 'local') return '';
+  return String(user?.username || '').trim();
+}
+
 function stripArtistSuffix(title, artist) {
   if (!title || !artist) return title || '';
   const suffix = ' - ' + artist;
@@ -133,7 +139,7 @@ export function registerPages(app, ctx) {
     const user = req.session.user;
     const role = getEffectiveRole(req);
     const userPlexId = resolveUserFilter(user, role);
-    const suggestionUserId = String(user.username || '').trim();
+    const suggestionUserId = resolveSuggestionUser(user, role);
 
     const now = Date.now();
     const since7d = now - 7 * 24 * 60 * 60 * 1000;
@@ -266,7 +272,7 @@ export function registerPages(app, ctx) {
     const user = req.session.user;
     const role = getEffectiveRole(req);
     const userPlexId = resolveUserFilter(user, role);
-    const suggestionUserId = String(user.username || '').trim();
+    const suggestionUserId = resolveSuggestionUser(user, role);
     const artists = getTopArtists(db, userPlexId, 500).map((artist) => ({
       ...artist,
       curatorrTier: deriveArtistTier(artist, config),
@@ -308,6 +314,7 @@ export function registerPages(app, ctx) {
     const user = req.session.user;
     const role = getEffectiveRole(req);
     const userPlexId = String(user.username || '').trim();
+    const suggestionUserId = resolveSuggestionUser(user, role);
     const lidarrAutomationEligible = canUserAccessLidarrAutomation(loadConfig(), { ...req.session.user, role });
     const lidarrQuota = lidarrService?.isConfigured() && lidarrAutomationEligible
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {})
@@ -322,8 +329,8 @@ export function registerPages(app, ctx) {
       userPlexId,
       listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 }),
     ).filter((r) => r?.detail?.reconciledAction !== 'already_in_lidarr');
-    const discoverSuggestions = loadSuggestionBundle(recommendationService, userPlexId, { artistLimit: 16 });
-    const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, userPlexId, discoverSuggestions.artists);
+    const discoverSuggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 16 });
+    const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, suggestionUserId, discoverSuggestions.artists);
     const disc = config.discovery || {};
     const discoveryConfig = {
       enabled: Boolean(disc.lastfmApiKey),
@@ -356,7 +363,7 @@ export function registerPages(app, ctx) {
     const user = req.session.user;
     const role = getEffectiveRole(req);
     const userPlexId = resolveUserFilter(user, role);
-    const suggestionUserId = String(user.username || '').trim();
+    const suggestionUserId = resolveSuggestionUser(user, role);
     const tracks = getTopTracks(db, userPlexId, 500).map((track) => ({
       ...track,
       track_title: stripArtistSuffix(track.track_title, track.artist_name),

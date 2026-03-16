@@ -4264,8 +4264,29 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   text-transform: uppercase;
   letter-spacing: .06em;
   color: rgba(255,255,255,.35);
+  justify-self: start;
+  padding-right: 0;
+}
+
+.cur-ar-head-btn.cur-pl-head-btn--right,
+.cur-hi-head-btn.cur-pl-head-btn--right,
+.cur-ar-head-label {
   justify-self: end;
   padding-right: 4px;
+}
+
+.cur-ar-head-btn[data-sort="artist"],
+.cur-hi-head-btn[data-sort="artist"],
+.cur-hi-head-btn[data-sort="album"] {
+  padding-left: 36px;
+}
+
+.cur-ar-head-btn[data-sort="status"] {
+  justify-self: start;
+}
+
+.cur-ar-head-btn[data-sort="streak"] {
+  justify-self: center;
 }
 
 .cur-ar-body {

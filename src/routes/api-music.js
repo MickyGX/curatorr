@@ -58,6 +58,10 @@ const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_MAX = 300;
 const DISCOVERY_ART_URL_VERSION = 'discover-art-v4';
 const discoveryArtCache = new Map();
+const THUMB_CACHE_TTL_MS = 30 * 60 * 1000;
+const THUMB_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+const THUMB_CACHE_MAX = 600;
+const thumbCache = new Map();
 
 function stripArtistSuffix(title, artist) {
   if (!title || !artist) return title || '';
@@ -130,6 +134,73 @@ function setDiscoveryArtCache(key, entry) {
     if (!oldestKey) break;
     discoveryArtCache.delete(oldestKey);
   }
+}
+
+function getThumbCache(key) {
+  const entry = thumbCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    thumbCache.delete(key);
+    return null;
+  }
+  thumbCache.delete(key);
+  thumbCache.set(key, entry);
+  return entry;
+}
+
+function setThumbCache(key, entry) {
+  if (!key) return;
+  thumbCache.delete(key);
+  thumbCache.set(key, entry);
+  while (thumbCache.size > THUMB_CACHE_MAX) {
+    const oldestKey = thumbCache.keys().next().value;
+    if (!oldestKey) break;
+    thumbCache.delete(oldestKey);
+  }
+}
+
+function sendCachedThumbResponse(res, entry) {
+  if (!entry) return false;
+  if (entry.contentType) res.set('Content-Type', entry.contentType);
+  if (entry.cacheControl) res.set('Cache-Control', entry.cacheControl);
+  if (entry.location) return res.redirect(entry.status || 302, entry.location);
+  if (entry.body) return res.status(entry.status || 200).send(Buffer.from(entry.body));
+  return res.status(entry.status || 404).end();
+}
+
+function sendThumbImage(res, cacheKey, contentType, buffer, cacheControl = 'public, max-age=86400') {
+  const body = Buffer.from(buffer);
+  setThumbCache(cacheKey, {
+    status: 200,
+    contentType: contentType || 'image/jpeg',
+    cacheControl,
+    body,
+    expiresAt: Date.now() + THUMB_CACHE_TTL_MS,
+  });
+  res.set('Content-Type', contentType || 'image/jpeg');
+  res.set('Cache-Control', cacheControl);
+  return res.send(body);
+}
+
+function sendThumbNotFound(res, cacheKey) {
+  setThumbCache(cacheKey, {
+    status: 404,
+    cacheControl: 'no-store',
+    expiresAt: Date.now() + THUMB_NEGATIVE_CACHE_TTL_MS,
+  });
+  res.set('Cache-Control', 'no-store');
+  return res.status(404).end();
+}
+
+function sendThumbRedirect(res, cacheKey, location) {
+  setThumbCache(cacheKey, {
+    status: 302,
+    location,
+    cacheControl: 'public, max-age=3600',
+    expiresAt: Date.now() + THUMB_CACHE_TTL_MS,
+  });
+  res.set('Cache-Control', 'public, max-age=3600');
+  return res.redirect(302, location);
 }
 
 function buildDiscoveryArtistArtUrl(name) {
@@ -1142,29 +1213,37 @@ export function registerApiMusic(app, ctx) {
   // ── Suggestions ───────────────────────────────────────────────────────────
 
   app.get('/api/music/suggestions/artists', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveSuggestionUserId(req);
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 25)));
     const artists = recommendationService.listCachedSuggestions(userPlexId, { artistLimit: limit }).artists;
     return res.json({ ok: true, artists });
   });
 
   app.get('/api/music/suggestions/albums', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveSuggestionUserId(req);
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit || 25)));
     const albums = recommendationService.listCachedSuggestions(userPlexId, { albumLimit: limit }).albums;
     return res.json({ ok: true, albums });
   });
 
   app.get('/api/music/suggestions/tracks', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveSuggestionUserId(req);
     const limit = Math.min(200, Math.max(1, Number(req.query?.limit || 50)));
     const tracks = recommendationService.listCachedSuggestions(userPlexId, { trackLimit: limit }).tracks;
     return res.json({ ok: true, tracks });
   });
 
   app.post('/api/music/suggestions/rebuild', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveSuggestionUserId(req);
     try {
+      if (!userPlexId) {
+        return res.json({
+          ok: true,
+          generatedAt: Date.now(),
+          counts: { artists: 0, albums: 0, tracks: 0 },
+          cached: { artists: [], albums: [], tracks: [] },
+        });
+      }
       const rebuilt = recommendationService.rebuildSuggestionsForUser(userPlexId, {
         artistLimit: Math.min(100, Math.max(1, Number(req.body?.artistLimit || 12))),
         albumLimit: Math.min(100, Math.max(1, Number(req.body?.albumLimit || 12))),
@@ -1260,12 +1339,12 @@ export function registerApiMusic(app, ctx) {
         lidarrResult = await lidarrService.addArtistFromSuggestion(artistName, {
           searchForMissingAlbums: false,
         });
+        await lidarrService.tagCuratorrManagedItems({
+          sourceKind: 'manual',
+          artistId: lidarrResult.artistId,
+          tagArtist: true,
+        });
         if (!lidarrResult.existing) {
-          await lidarrService.tagCuratorrManagedItems({
-            sourceKind: 'manual',
-            artistId: lidarrResult.artistId,
-            tagArtist: true,
-          });
           recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'artists', amount: 1 });
           quota = lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
         }
@@ -1334,14 +1413,14 @@ export function registerApiMusic(app, ctx) {
             let latestUsage = getCurrentLidarrUsage(db, userPlexId).usage || {};
             let albumQuota = lidarrService.getRoleQuota(role, latestUsage);
 
+            await lidarrService.tagCuratorrManagedItems({
+              sourceKind: 'manual',
+              albumId,
+              tagAlbum: true,
+            });
             if (!alreadyMonitored) {
               albumQuota = lidarrService.assertQuotaAvailable(role, latestUsage, { albums: 1 });
               await lidarrService.setAlbumMonitored(albumId, true);
-              await lidarrService.tagCuratorrManagedItems({
-                sourceKind: 'manual',
-                albumId,
-                tagAlbum: true,
-              });
               recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1 });
               latestUsage = getCurrentLidarrUsage(db, userPlexId).usage || {};
               albumQuota = lidarrService.getRoleQuota(role, latestUsage);
@@ -1986,6 +2065,9 @@ export function registerApiMusic(app, ctx) {
     const { url, token, libraries: selectedKeys = [] } = config.plex || {};
     if (!url || !token) return res.status(404).end();
     const artistName = decodeURIComponent(req.params.name);
+    const cacheKey = `artist:${normalizeArtistMatchText(artistName)}`;
+    const cached = getThumbCache(cacheKey);
+    if (cached) return sendCachedThumbResponse(res, cached);
     const base = url.replace(/\/$/, '');
     const trackRowsForArtist = db.prepare(`
       SELECT rating_key, album_name
@@ -2030,17 +2112,14 @@ export function registerApiMusic(app, ctx) {
             const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' } });
             if (ir.ok) {
               const buf = await ir.arrayBuffer();
-              res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-              res.set('Cache-Control', 'public, max-age=86400');
-              return res.send(Buffer.from(buf));
+              return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
             }
           }
         }
       } catch (_) {
         // Ignore and fall through to 404
       }
-      res.set('Cache-Control', 'no-store');
-      return res.status(404).end();
+      return sendThumbNotFound(res, cacheKey);
     }
 
     try {
@@ -2064,9 +2143,7 @@ export function registerApiMusic(app, ctx) {
           });
           if (!ir.ok) continue;
           const buf = await ir.arrayBuffer();
-          res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-          res.set('Cache-Control', 'public, max-age=86400');
-          return res.send(Buffer.from(buf));
+          return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
         }
       }
 
@@ -2097,9 +2174,7 @@ export function registerApiMusic(app, ctx) {
               });
               if (!ir.ok) continue;
               const buf = await ir.arrayBuffer();
-              res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-              res.set('Cache-Control', 'public, max-age=86400');
-              return res.send(Buffer.from(buf));
+              return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
             }
           }
         }
@@ -2111,9 +2186,7 @@ export function registerApiMusic(app, ctx) {
           });
           if (!ir.ok) continue;
           const buf = await ir.arrayBuffer();
-          res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-          res.set('Cache-Control', 'public, max-age=86400');
-          return res.send(Buffer.from(buf));
+          return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
         }
       }
 
@@ -2144,9 +2217,7 @@ export function registerApiMusic(app, ctx) {
             });
             if (ir.ok) {
               const buf = await ir.arrayBuffer();
-              res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-              res.set('Cache-Control', 'public, max-age=86400');
-              return res.send(Buffer.from(buf));
+              return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
             }
           }
         }
@@ -2154,11 +2225,9 @@ export function registerApiMusic(app, ctx) {
         // Ignore external fallback failures and keep the endpoint safe.
       }
 
-      res.set('Cache-Control', 'no-store');
-      return res.status(404).end();
+      return sendThumbNotFound(res, cacheKey);
     } catch (_) {
-      res.set('Cache-Control', 'no-store');
-      return res.status(404).end();
+      return sendThumbNotFound(res, cacheKey);
     }
   });
 
@@ -2169,8 +2238,12 @@ export function registerApiMusic(app, ctx) {
     const artistName = String(req.query?.artist || '').trim();
     const albumName = String(req.query?.album || '').trim();
     if (!artistName || !albumName) return res.status(404).end();
+    const cacheKey = `album:${normalizeArtistMatchText(artistName)}::${normalizeAlbumMatchText(albumName)}`;
+    const cached = getThumbCache(cacheKey);
+    if (cached) return sendCachedThumbResponse(res, cached);
     const base = url.replace(/\/$/, '');
-    const fallbackArtistThumb = () => res.redirect(302, `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-album-fallback-1`);
+    const fallbackArtistLocation = `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-album-fallback-1`;
+    const fallbackArtistThumb = () => sendThumbRedirect(res, cacheKey, fallbackArtistLocation);
     const trackRows = db.prepare(
       'SELECT rating_key, album_name FROM master_tracks WHERE artist_name = ? LIMIT 500',
     ).all(artistName);
@@ -2193,9 +2266,7 @@ export function registerApiMusic(app, ctx) {
         const ir = await fetch(coverUrl, { headers: { Accept: 'image/*,*/*' } });
         if (!ir.ok) return fallbackArtistThumb();
         const buf = await ir.arrayBuffer();
-        res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-        res.set('Cache-Control', 'public, max-age=86400');
-        return res.send(Buffer.from(buf));
+        return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
       } catch (_) {
         return fallbackArtistThumb();
       }
@@ -2223,9 +2294,7 @@ export function registerApiMusic(app, ctx) {
       });
       if (!ir.ok) return fallbackArtistThumb();
       const buf = await ir.arrayBuffer();
-      res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
-      res.set('Cache-Control', 'public, max-age=86400');
-      return res.send(Buffer.from(buf));
+      return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
     } catch (_) {
       return fallbackArtistThumb();
     }
@@ -2476,5 +2545,13 @@ export function registerApiMusic(app, ctx) {
 function resolveQueryUserId(req) {
   // Always use username — this matches how the user wizard stores playlist/prefs rows
   const user = req.session?.user || {};
+  return String(user.username || '').trim();
+}
+
+function resolveSuggestionUserId(req) {
+  const user = req.session?.user || {};
+  const source = String(user.source || '').trim().toLowerCase();
+  const role = String(user.role || '').trim().toLowerCase();
+  if (role === 'admin' && source === 'local') return '';
   return String(user.username || '').trim();
 }
