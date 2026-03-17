@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.13 (2026-03-16)
+
+- Fixed the server wizard Tautulli skip path so choosing to skip Tautulli setup now renders the next wizard step correctly instead of calling the render helper with the wrong argument shape.
+
 ## v0.1.12 (2026-03-16)
 
 - Fixed Crescive and Curative manual rebuilds so they now perform a true full rebuild from current user preferences instead of only evolving the existing playlist state.

@@ -579,7 +579,7 @@ export function registerWizard(app, ctx) {
   app.post('/wizard/plex', async (req, res) => {
     const config = loadConfig();
     const url = normalizeBaseUrl(String(req.body?.plexUrl || '').trim());
-    const token = String(req.body?.plexToken || '').trim();
+    const token = String(req.body?.plexToken || '').trim() || String(config.plex?.token || '').trim();
 
     if (!url) return renderServerWizard(res, config, 2, 'Plex server URL is required.');
     if (!token) return renderServerWizard(res, config, 2, 'Plex token is required.');
@@ -657,7 +657,7 @@ export function registerWizard(app, ctx) {
     const config = loadConfig();
     if (req.body?.skip === '1') {
       saveConfig({ ...config, tautulli: { url: '', apiKey: '' } });
-      return renderServerWizard(loadConfig(), loadConfig(), 5, null);
+      return renderServerWizard(res, loadConfig(), 5, null);
     }
 
     const url = normalizeBaseUrl(String(req.body?.tautulliUrl || '').trim());
