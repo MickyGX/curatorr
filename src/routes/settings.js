@@ -158,6 +158,7 @@ export function registerSettings(app, ctx) {
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
+      localAuthMinPassword: LOCAL_AUTH_MIN_PASSWORD,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       tab: req.query?.tab || 'general',

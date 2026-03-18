@@ -1086,7 +1086,7 @@
                   </label>
                   <label class="field">
                     <span>Password</span>
-                    <input type="password" name="password" placeholder="Min 12 with upper/lower/number/symbol" minlength="12" required />
+                    <input type="password" name="password" placeholder="Min <%= localAuthMinPassword %> with upper/lower/number/symbol" minlength="<%= localAuthMinPassword %>" required />
                   </label>
                   <label class="field">
                     <span>Role</span>
