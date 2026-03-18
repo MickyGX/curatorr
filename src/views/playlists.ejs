@@ -78,6 +78,13 @@
                           <% if (p.artPath) { %>
                             <img src="/api/plex/art?path=<%= encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
                           <% } %>
+                          <% if (p.curatorrUpdatedAt > 0) { %>
+                            <div class="cur-delta-badge">
+                              <% if (p.tracksAdded > 0) { %><span class="cur-delta cur-delta--up">↑<%= p.tracksAdded %></span><% } %>
+                              <% if (p.tracksRemoved > 0) { %><span class="cur-delta cur-delta--down">↓<%= p.tracksRemoved %></span><% } %>
+                              <% if (!p.tracksAdded && !p.tracksRemoved) { %><span class="cur-delta cur-delta--neutral">=</span><% } %>
+                            </div>
+                          <% } %>
                           <button class="btn btn-sm btn-primary cur-playlist-carousel-rebuild" type="button" onclick="event.stopPropagation(); rebuildCurrentPlaylist()">Rebuild</button>
                         </div>
                       </div>

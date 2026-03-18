@@ -362,6 +362,7 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
   if (!playlistRow?.playlist_id) return; // user hasn't completed wizard yet
 
   const playlistId = playlistRow.playlist_id;
+  const previousSyncCount = getLastPlaylistSync(db, userPlexId)?.track_count ?? null;
   const { mustIncludeArtists, neverIncludeArtists } = getResolvedUserArtistFilters(db, config, userPlexId);
   const ignoredArtistSet = new Set(neverIncludeArtists.map((a) => cleanMasterArtistName(a).toLowerCase()));
   const likedArtistSet = new Set(mustIncludeArtists.map((a) => cleanMasterArtistName(a).toLowerCase()));
@@ -434,14 +435,17 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
       });
     }
 
+    const newCount = ratingKeys.length;
     recordPlaylistSync(db, {
       userPlexId,
       plexPlaylistId: playlistId,
       playlistTitle: playlistRow.playlist_title,
-      trackCount: ratingKeys.length,
+      trackCount: newCount,
       excludedTracks: excludedTrackCount,
       excludedArtists: excludedArtistNames.size,
       trigger: 'auto',
+      tracksAdded: previousSyncCount !== null ? Math.max(0, newCount - previousSyncCount) : 0,
+      tracksRemoved: previousSyncCount !== null ? Math.max(0, previousSyncCount - newCount) : 0,
     });
 
     pushLog({

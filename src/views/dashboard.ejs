@@ -45,6 +45,13 @@
           const _dashboardPlaylists = Array.isArray(dashboardPlaylists) ? dashboardPlaylists : [];
           const _lidarrStatus = lidarrStatus && typeof lidarrStatus === 'object' ? lidarrStatus : { items: [], counts: {} };
           const _maxPlays = _byDay.reduce((m, d) => Math.max(m, d.plays || 0), 1);
+          const _masterTrackCount = Number(masterTrackCount || 0);
+          const _masterArtistCount = Number(masterArtistCount || 0);
+          const _heardTrackCount = Number(heardTrackCount || 0);
+          const _belterTrackCount = Number(belterTrackCount || 0);
+          const _excludedTrackCount = Number(excludedTrackCount || 0);
+          const _skipTierArtistCount = Number(skipTierArtistCount || 0);
+          const _lastPlaylistSync = lastPlaylistSync || null;
 
           function fmtTime(ms) {
             if (!ms) return '—';
@@ -55,42 +62,145 @@
             if (m) return m + 'm ' + (s % 60) + 's';
             return s + 's';
           }
+          function fmtListenTime(ms) {
+            if (!ms) return '—';
+            const totalMins = Math.floor(ms / 60000);
+            const h = Math.floor(totalMins / 60);
+            const m = totalMins % 60;
+            if (h) return h + 'h ' + m + 'm';
+            return m + 'm';
+          }
           function fmtDate(ts) {
             if (!ts) return '—';
             return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
           }
+          function fmtRelative(ts) {
+            if (!ts) return 'never';
+            const diff = Date.now() - ts;
+            const mins = Math.floor(diff / 60000);
+            const hours = Math.floor(mins / 60);
+            const days = Math.floor(hours / 24);
+            if (mins < 2) return 'just now';
+            if (mins < 60) return mins + 'm ago';
+            if (hours < 24) return hours + 'h ago';
+            return days + 'd ago';
+          }
         %>
 
         <%# ── Stat cards widget bar ─────────────────────────────────────── %>
+        <%
+          const _statsAll = statsAll || { plays: 0, skips: 0, skipRate: 0, uniqueArtists: 0, uniqueTracks: 0, totalListenMs: 0 };
+          const _pFmt = {
+            '7d':  { plays: String(_stats7d.plays),  skips: String(_stats7d.skips),  skipRate: (_stats7d.plays  ? Math.round(_stats7d.skipRate  * 100) : 0) + '%', listenTime: fmtListenTime(_stats7d.totalListenMs),  artists: String(_stats7d.uniqueArtists  || 0), tracks: String(_stats7d.uniqueTracks  || 0) },
+            '30d': { plays: String(_stats30d.plays), skips: String(_stats30d.skips), skipRate: (_stats30d.plays ? Math.round(_stats30d.skipRate * 100) : 0) + '%', listenTime: fmtListenTime(_stats30d.totalListenMs), artists: String(_stats30d.uniqueArtists || 0), tracks: String(_stats30d.uniqueTracks || 0) },
+            'all': { plays: String(_statsAll.plays), skips: String(_statsAll.skips), skipRate: (_statsAll.plays ? Math.round(_statsAll.skipRate * 100) : 0) + '%', listenTime: fmtListenTime(_statsAll.totalListenMs), artists: String(_statsAll.uniqueArtists || 0), tracks: String(_statsAll.uniqueTracks || 0) },
+          };
+          const _statIcons = {
+            plays:      '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5V3z"/></svg>',
+            skips:      '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 3l7 5-7 5V3zm7 0h2v10h-2z"/></svg>',
+            skipRate:   '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5.2" cy="5.2" r="1.8"/><circle cx="10.8" cy="10.8" r="1.8"/><path d="M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>',
+            listenTime: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2.5 2"/></svg>',
+            artists:    '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M2 14c0-3.3 2.7-5 6-5s6 1.7 6 5H2z"/></svg>',
+            tracks:     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>',
+          };
+          const _statCards = [
+            { key: 'plays',      label: 'Plays',       mod: ''     },
+            { key: 'skips',      label: 'Skips',       mod: 'skip' },
+            { key: 'skipRate',   label: 'Skip rate',   mod: ''     },
+            { key: 'listenTime', label: 'Listen time', mod: ''     },
+            { key: 'artists',    label: 'Artists',     mod: ''     },
+            { key: 'tracks',     label: 'Tracks',      mod: ''     },
+          ];
+        %>
         <div class="cur-panel cur-panel--stats" data-panel-key="dashboard-stats">
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Overview Stats</h3>
+            <div class="cur-panel-actions">
+              <div class="cur-stats-filter-group" role="group" aria-label="Time period">
+                <button class="cur-stats-period-btn is-active" type="button" data-period="7d">7d</button>
+                <button class="cur-stats-period-btn" type="button" data-period="30d">30d</button>
+                <button class="cur-stats-period-btn" type="button" data-period="all">All</button>
+              </div>
+            </div>
           </div>
           <div class="cur-panel-body">
-            <div class="cur-stat-row">
-              <div class="cur-stat-card">
-                <div class="cur-stat-label">Plays (7d)</div>
-                <div class="cur-stat-value"><%= _stats7d.plays %></div>
+            <div class="cur-stat-row" id="cur-stats-row">
+              <% _statCards.forEach(function(card) { %>
+                <div class="cur-stat-card<%= card.mod ? ' cur-stat-card--' + card.mod : '' %>"
+                     data-stat-7d="<%= _pFmt['7d'][card.key] %>"
+                     data-stat-30d="<%= _pFmt['30d'][card.key] %>"
+                     data-stat-all="<%= _pFmt['all'][card.key] %>"
+                     data-sub-7d="30d: <%= _pFmt['30d'][card.key] %>"
+                     data-sub-30d="7d: <%= _pFmt['7d'][card.key] %>"
+                     data-sub-all="30d: <%= _pFmt['30d'][card.key] %>">
+                  <div class="cur-stat-body">
+                    <div class="cur-stat-label"><%= card.label %></div>
+                    <div class="cur-stat-value" data-stat-val><%= _pFmt['7d'][card.key] %></div>
+                    <div class="cur-stat-sub" data-stat-sub>30d: <%= _pFmt['30d'][card.key] %></div>
+                  </div>
+                  <div class="cur-stat-icon"><%- _statIcons[card.key] || '' %></div>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+        </div>
+
+        <%# ── Library at a glance ────────────────────────────────────────── %>
+        <div class="cur-panel cur-panel--library-glance" data-panel-key="dashboard-library">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Curatorr at a glance</h3>
+          </div>
+          <div class="cur-panel-body">
+            <div class="cur-stat-row cur-stat-row--glance">
+              <div class="cur-stat-card cur-stat-card--glance">
+                <div class="cur-stat-body">
+                  <div class="cur-stat-label">Library tracks</div>
+                  <div class="cur-stat-value"><%= _masterTrackCount.toLocaleString() %></div>
+                  <div class="cur-stat-sub">in master cache</div>
+                </div>
+                <div class="cur-stat-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.4"/><circle cx="8" cy="8" r=".9" fill="currentColor" stroke="none"/></svg></div>
               </div>
-              <div class="cur-stat-card cur-stat-card--skip">
-                <div class="cur-stat-label">Skips (7d)</div>
-                <div class="cur-stat-value"><%= _stats7d.skips %></div>
+              <div class="cur-stat-card cur-stat-card--glance">
+                <div class="cur-stat-body">
+                  <div class="cur-stat-label">Tracks heard</div>
+                  <div class="cur-stat-value"><%= _heardTrackCount.toLocaleString() %></div>
+                  <% if (_masterTrackCount > 0) { %>
+                    <div class="cur-stat-sub"><%= Math.round(_heardTrackCount / _masterTrackCount * 100) %>% of library</div>
+                  <% } else { %><div class="cur-stat-sub">—</div><% } %>
+                </div>
+                <div class="cur-stat-icon"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2a6 6 0 0 0-6 6v2.5A1.5 1.5 0 0 0 3.5 12H5V9H3a5 5 0 0 1 10 0h-2v3h1.5A1.5 1.5 0 0 0 14 10.5V8a6 6 0 0 0-6-6z"/></svg></div>
               </div>
-              <div class="cur-stat-card">
-                <div class="cur-stat-label">Skip rate (7d)</div>
-                <div class="cur-stat-value"><%= _stats7d.plays ? Math.round(_stats7d.skipRate * 100) : 0 %>%</div>
+              <div class="cur-stat-card cur-stat-card--glance cur-stat-card--belter">
+                <div class="cur-stat-body">
+                  <div class="cur-stat-label">Belter tracks</div>
+                  <div class="cur-stat-value"><%= _belterTrackCount.toLocaleString() %></div>
+                  <div class="cur-stat-sub">fully played</div>
+                </div>
+                <div class="cur-stat-icon"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5l1.6 3.4 3.7.5-2.7 2.6.7 3.8L8 10.1l-3.3 1.7.7-3.8-2.7-2.6 3.7-.5L8 1.5z"/></svg></div>
               </div>
-              <div class="cur-stat-card">
-                <div class="cur-stat-label">Plays (30d)</div>
-                <div class="cur-stat-value"><%= _stats30d.plays %></div>
+              <div class="cur-stat-card cur-stat-card--glance<%= _excludedTrackCount > 0 ? ' cur-stat-card--warn' : '' %>">
+                <div class="cur-stat-body">
+                  <div class="cur-stat-label">Excluded tracks</div>
+                  <div class="cur-stat-value"><%= _excludedTrackCount.toLocaleString() %></div>
+                  <div class="cur-stat-sub">skipped out</div>
+                </div>
+                <div class="cur-stat-icon"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3.5 7.75h-7v-1.5h7v1.5z"/></svg></div>
               </div>
-              <div class="cur-stat-card cur-stat-card--skip">
-                <div class="cur-stat-label">Skips (30d)</div>
-                <div class="cur-stat-value"><%= _stats30d.skips %></div>
+              <div class="cur-stat-card cur-stat-card--glance<%= _skipTierArtistCount > 0 ? ' cur-stat-card--warn' : '' %>">
+                <div class="cur-stat-body">
+                  <div class="cur-stat-label">Low-rated artists</div>
+                  <div class="cur-stat-value"><%= _skipTierArtistCount %></div>
+                  <div class="cur-stat-sub">below threshold</div>
+                </div>
+                <div class="cur-stat-icon"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5L1 14h14L8 1.5zM7.25 6.5h1.5V10h-1.5V6.5zm0 4.25h1.5v1.75h-1.5v-1.75z"/></svg></div>
               </div>
-              <div class="cur-stat-card">
-                <div class="cur-stat-label">Skip rate (30d)</div>
-                <div class="cur-stat-value"><%= _stats30d.plays ? Math.round(_stats30d.skipRate * 100) : 0 %>%</div>
+              <div class="cur-stat-card cur-stat-card--glance">
+                <div class="cur-stat-body">
+                  <div class="cur-stat-label">Library artists</div>
+                  <div class="cur-stat-value"><%= _masterArtistCount.toLocaleString() %></div>
+                  <div class="cur-stat-sub">unique in library</div>
+                </div>
+                <div class="cur-stat-icon"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="4.5" r="2.2"/><circle cx="10.5" cy="4.5" r="2.2"/><path d="M0.5 13.5c0-2.8 2.2-4.5 5-4.5s5 1.7 5 4.5H0.5z"/><path d="M10.5 9.2c1.7.3 3 1.7 3 4.3H13"/></svg></div>
               </div>
             </div>
           </div>
@@ -207,6 +317,10 @@
                           <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
                           <% if (a.curatorrTier) { %><span class="cur-badge cur-badge--<%= a.curatorrTier.tone %>"><%= a.curatorrTier.label %></span><% } %>
                         </span>
+                        <% const _score = Math.min(10, Math.max(0, Number(a.ranking_score || 5))); %>
+                        <span class="cur-artist-score-bar" title="Curatorr score: <%= _score.toFixed(1) %>/10">
+                          <span class="cur-artist-score-fill" style="width:<%= Math.round(_score * 10) %>%"></span>
+                        </span>
                       </span>
                       <span class="cur-list-meta"><%= a.total_plays %> plays</span>
                     </li>
@@ -266,6 +380,11 @@
                   <span>When</span>
                 </div>
                 <% _recentHistory.forEach(function(h) { %>
+                  <%
+                    const _completionPct = h.track_duration_ms > 0
+                      ? Math.min(100, Math.round(h.duration_ms / h.track_duration_ms * 100))
+                      : null;
+                  %>
                   <div class="cur-history-row<%= h.is_skip ? ' cur-history-row--skip' : '' %>">
                     <span class="cur-history-track">
                       <span class="cur-history-track-main">
@@ -275,7 +394,16 @@
                       <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
                     </span>
                     <span class="cur-history-artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>
-                    <span class="cur-history-dur"><%= fmtTime(h.duration_ms) %></span>
+                    <span class="cur-history-dur">
+                      <%= fmtTime(h.duration_ms) %>
+                      <% if (_completionPct !== null) { %>
+                        <span class="cur-history-completion" title="<%= _completionPct %>% of track">
+                          <span class="cur-history-completion-bar">
+                            <span class="cur-history-completion-fill<%= _completionPct >= 90 ? ' cur-history-completion-fill--full' : '' %>" style="width:<%= _completionPct %>%"></span>
+                          </span>
+                        </span>
+                      <% } %>
+                    </span>
                     <span class="cur-history-when"><%= fmtDate(h.started_at) %></span>
                   </div>
                 <% }) %>
@@ -310,6 +438,13 @@
                         <div class="plex-poster-well cur-discover-result-art cur-dashboard-playlist-art<%= p.artPath ? '' : ' is-empty' %>">
                           <% if (p.artPath) { %>
                             <img src="/api/plex/art?path=<%= encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
+                          <% } %>
+                          <% if (p.curatorrUpdatedAt > 0) { %>
+                            <div class="cur-delta-badge">
+                              <% if (p.tracksAdded > 0) { %><span class="cur-delta cur-delta--up">↑<%= p.tracksAdded %></span><% } %>
+                              <% if (p.tracksRemoved > 0) { %><span class="cur-delta cur-delta--down">↓<%= p.tracksRemoved %></span><% } %>
+                              <% if (!p.tracksAdded && !p.tracksRemoved) { %><span class="cur-delta cur-delta--neutral">=</span><% } %>
+                            </div>
                           <% } %>
                         </div>
                       </div>
@@ -596,5 +731,26 @@
   })();
   </script>
   <script src="/starfield-3d.js"></script>
+  <script>
+  (function() {
+    var panel = document.querySelector('[data-panel-key="dashboard-stats"]');
+    if (!panel) return;
+    var btns = panel.querySelectorAll('.cur-stats-period-btn');
+    var cards = panel.querySelectorAll('[data-stat-7d]');
+    btns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var period = btn.getAttribute('data-period');
+        btns.forEach(function(b) { b.classList.remove('is-active'); });
+        btn.classList.add('is-active');
+        cards.forEach(function(card) {
+          var valEl = card.querySelector('[data-stat-val]');
+          var subEl = card.querySelector('[data-stat-sub]');
+          if (valEl) valEl.textContent = card.getAttribute('data-stat-' + period) || '';
+          if (subEl) subEl.textContent = card.getAttribute('data-sub-' + period) || '';
+        });
+      });
+    });
+  })();
+  </script>
 </body>
 </html>

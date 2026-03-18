@@ -21,7 +21,8 @@ import {
 } from '../db.js';
 
 const LASTFM_API_BASE = 'https://ws.audioscrobbler.com/2.0/';
-const DEDUP_WINDOW_MS = 90_000;  // ±90 seconds around scrobble timestamp
+const DEDUP_FORWARD_MS  = 90_000;        // allow 90s after scrobble time
+const DEDUP_FALLBACK_MS = 15 * 60_000;  // fallback lookback when duration unknown
 const PAGE_SIZE = 200;           // Last.fm max results per page
 const MAX_PAGES = 50;            // safety cap per user per run
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -29,15 +30,32 @@ const PAGE_DELAY_MS = 250;       // respect Last.fm 5 req/sec rate limit
 
 // ─── DB helpers ──────────────────────────────────────────────────────────────
 
-function findExistingPlay(db, userPlexId, trackTitle, artistName, startedAtMs) {
+// Last.fm scrobbles at ~50% through a track; Curatorr records started_at at
+// track start. The gap is up to trackDurationMs. Use the known duration (plus
+// a small buffer) as the backward window so we don't create duplicates.
+// Normalise Unicode dash variants (U+2010–U+2015, minus sign, etc.) to ASCII hyphen.
+// Tautulli sometimes stores artist names with U+2010 non-breaking hyphens.
+function normaliseDashes(s) {
+  return String(s || '').replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-');
+}
+
+function findExistingPlay(db, userPlexId, trackTitle, artistName, scrobbleMs, knownDurationMs) {
+  const lookback = knownDurationMs > 0
+    ? knownDurationMs + DEDUP_FORWARD_MS
+    : DEDUP_FALLBACK_MS;
+  // Normalise dashes on both sides via SQLite REPLACE for U+2010, then compare.
+  // Also match title with a " - Artist" suffix that Tautulli sometimes appends.
   return db.prepare(`
     SELECT id FROM play_events
     WHERE user_plex_id = ?
-      AND LOWER(track_title) = LOWER(?)
-      AND LOWER(artist_name) = LOWER(?)
+      AND REPLACE(LOWER(artist_name), char(8208), '-') = LOWER(?)
+      AND (
+        LOWER(track_title) = LOWER(?)
+        OR LOWER(track_title) LIKE LOWER(?) || ' -%'
+      )
       AND started_at BETWEEN ? AND ?
     LIMIT 1
-  `).get(userPlexId, trackTitle, artistName, startedAtMs - DEDUP_WINDOW_MS, startedAtMs + DEDUP_WINDOW_MS);
+  `).get(userPlexId, normaliseDashes(artistName).toLowerCase(), trackTitle, trackTitle, scrobbleMs - lookback, scrobbleMs + DEDUP_FORWARD_MS);
 }
 
 function findMasterTrackMatch(db, artistName, trackTitle) {
@@ -105,17 +123,18 @@ async function syncUserHistory(ctx, { userPlexId, lastfmUsername, watermark, api
 
       if (!trackTitle || !artistName) continue;
 
-      // Already recorded?
-      if (findExistingPlay(db, userPlexId, trackTitle, artistName, startedAtMs)) {
-        skipped++;
-        continue;
-      }
-
-      // Try to match to Plex library
+      // Resolve master track first so we have the known duration for dedup window
       const masterMatch = findMasterTrackMatch(db, artistName, trackTitle);
       const plexRatingKey   = masterMatch?.rating_key ? String(masterMatch.rating_key) : '';
       const resolvedAlbum   = albumName || masterMatch?.album_name || '';
       const trackDurationMs = plexRatingKey ? lookupKnownTrackDuration(db, plexRatingKey) : 0;
+
+      // Already recorded? Use track duration to widen lookback window —
+      // Last.fm scrobbles at ~50% through, Curatorr stores started_at at track start.
+      if (findExistingPlay(db, userPlexId, trackTitle, artistName, startedAtMs, trackDurationMs)) {
+        skipped++;
+        continue;
+      }
 
       // Last.fm scrobbles = completed plays; treat listened = full duration if known
       const durationMs  = trackDurationMs;

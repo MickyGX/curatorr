@@ -23,8 +23,30 @@
   border-radius: var(--radius, 8px);
   padding: 8px 10px;
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.cur-stat-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.cur-stat-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  color: rgba(var(--brand-rgb), .22);
+  filter: drop-shadow(0 0 6px rgba(var(--brand-rgb), .35));
+}
+.cur-stat-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .cur-stat-card--skip {
@@ -5891,3 +5913,144 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   outline-offset: 1px;
 }
 .gp-filter-hint { font-size: 10px; font-weight: 400; opacity: 0.6; text-transform: none; letter-spacing: 0; }
+
+/* ── Playlist delta overlay badge ───────────────────────────────────────── */
+.cur-delta-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 3;
+  pointer-events: none;
+}
+.cur-delta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #081013;
+  font-size: 9.8px;
+  font-weight: 900;
+  border-radius: 8px;
+  padding: 6px 12px;
+  line-height: 1;
+  border: 2px solid #0b0e15;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.12);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.cur-delta--up   { background: #2bd56f; }
+.cur-delta--down { background: #ef4444; }
+.cur-delta--neutral { background: #f59e0b; }
+
+/* ── Overview Stats period toggle ───────────────────────────────────────── */
+.cur-stats-filter-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.cur-stats-period-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--brand-rgb), .34);
+  border-radius: 8px;
+  background: rgba(9,16,29,.9);
+  color: var(--plex-ink, #e8eef7);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  line-height: 1;
+}
+.cur-stats-period-btn:hover {
+  border-color: rgba(var(--brand-rgb), .6);
+}
+.cur-stats-period-btn.is-active {
+  background: rgb(var(--brand-rgb));
+  border-color: rgb(var(--brand-rgb));
+  color: var(--on-brand, #fff);
+}
+
+/* ── Dashboard: glance panel stat cards ─────────────────────────────────── */
+.cur-stat-sub {
+  font-size: 10px;
+  color: var(--text-muted, rgba(255,255,255,.4));
+  margin-top: 1px;
+}
+.cur-stat-value--sm {
+  font-size: 18px;
+}
+.cur-stat-card--glance {
+  min-width: 0;
+}
+.cur-stat-card--belter {
+  border-color: rgba(139, 92, 246, .35);
+}
+.cur-stat-card--warn {
+  border-color: rgba(239, 68, 68, .35);
+}
+[data-theme="day"] .cur-stat-sub {
+  color: var(--text-muted, rgba(0,0,0,.45));
+}
+
+/* ── Artist score bar ────────────────────────────────────────────────────── */
+.cur-artist-score-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border, rgba(255,255,255,.1));
+  overflow: hidden;
+  margin-top: 3px;
+  width: 100%;
+}
+.cur-artist-score-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, #818cf8);
+  transition: width .3s ease;
+}
+[data-theme="day"] .cur-artist-score-bar {
+  background: rgba(0,0,0,.1);
+}
+
+/* ── History completion bar ──────────────────────────────────────────────── */
+.cur-history-dur {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cur-history-completion {
+  display: block;
+}
+.cur-history-completion-bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border, rgba(255,255,255,.1));
+  overflow: hidden;
+  width: 100%;
+  min-width: 40px;
+}
+.cur-history-completion-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-muted, rgba(255,255,255,.3));
+  transition: width .3s ease;
+}
+.cur-history-completion-fill--full {
+  background: var(--accent, #818cf8);
+}
+[data-theme="day"] .cur-history-completion-bar {
+  background: rgba(0,0,0,.1);
+}
+[data-theme="day"] .cur-history-completion-fill {
+  background: rgba(0,0,0,.25);
+}
+[data-theme="day"] .cur-history-completion-fill--full {
+  background: var(--accent, #818cf8);
+}

@@ -22,6 +22,10 @@ import {
   getMoodsFromMaster,
   getAllLastfmTags,
   listUserPersonalPlaylists,
+  getMasterTrackCount,
+  getMasterArtistCount,
+  getExcludedTrackKeys,
+  getSkipTierArtists,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 
@@ -153,8 +157,9 @@ export function registerPages(app, ctx) {
       uniqueTracks: r?.unique_tracks || 0,
       totalListenMs: r?.total_listen_ms || 0,
     });
-    const stats7d = normalizeStats(getPlayStats(db, userPlexId, since7d));
+    const stats7d  = normalizeStats(getPlayStats(db, userPlexId, since7d));
     const stats30d = normalizeStats(getPlayStats(db, userPlexId, since30d));
+    const statsAll = normalizeStats(getPlayStats(db, userPlexId, 0));
     const byDayRaw = getPlayStatsByDay(db, userPlexId, 14);
     const byDayMap = Object.fromEntries(byDayRaw.map((r) => [r.day, r]));
     const byDay = Array.from({ length: 14 }, (_, i) => {
@@ -178,10 +183,13 @@ export function registerPages(app, ctx) {
       curatorrTier: deriveHistoryTier(event, config),
     }));
     const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: true }) || [];
+    const _dashLastSync = getLastPlaylistSync(db, suggestionUserId);
     let dashboardPlaylists = generatedPlaylists.map((playlist) => ({
       ...playlist,
       artPath: '',
       curatorrUpdatedAt: Number(playlist.lastBuiltAt || playlist.lastSyncedAt || playlist.updatedAt || playlist.createdAt || 0),
+      tracksAdded: Number(_dashLastSync?.tracks_added || 0),
+      tracksRemoved: Number(_dashLastSync?.tracks_removed || 0),
     }));
     const { url: plexUrl, token: plexToken } = config.plex || {};
     if (dashboardPlaylists.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
@@ -214,6 +222,14 @@ export function registerPages(app, ctx) {
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, suggestionUserId).usage || {})
       : null;
 
+    const masterTrackCount = getMasterTrackCount(db);
+    const masterArtistCount = getMasterArtistCount(db);
+    const lastPlaylistSync = getLastPlaylistSync(db, suggestionUserId);
+    const excludedTrackCount = getExcludedTrackKeys(db, suggestionUserId).length;
+    const skipTierArtistCount = getSkipTierArtists(db, suggestionUserId).length;
+    const belterTrackCount = db.prepare("SELECT COUNT(*) AS n FROM track_stats WHERE user_plex_id = ? AND tier = 'belter'").get(suggestionUserId)?.n || 0;
+    const heardTrackCount = db.prepare("SELECT COUNT(*) AS n FROM track_stats WHERE user_plex_id = ? AND tier != 'curatorr'").get(suggestionUserId)?.n || 0;
+
     res.render('dashboard', {
       title: 'Dashboard — Curatorr',
       user,
@@ -222,6 +238,7 @@ export function registerPages(app, ctx) {
       config: safeConfig(config),
       stats7d,
       stats30d,
+      statsAll,
       byDay,
       topArtists,
       topTracks,
@@ -230,6 +247,13 @@ export function registerPages(app, ctx) {
       lidarrStatus,
       lidarrQuota,
       lidarrAutomationEligible,
+      masterTrackCount,
+      masterArtistCount,
+      lastPlaylistSync,
+      excludedTrackCount,
+      skipTierArtistCount,
+      belterTrackCount,
+      heardTrackCount,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });
@@ -413,6 +437,8 @@ export function registerPages(app, ctx) {
         state: playlist.plexPlaylistId ? 'synced' : 'pending',
         description: String(playlist.playlistType || 'generated'),
         artPath: '',
+        tracksAdded: Number(lastSync?.tracks_added || 0),
+        tracksRemoved: Number(lastSync?.tracks_removed || 0),
       }))
       .sort((a, b) => Number(b.curatorrUpdatedAt || 0) - Number(a.curatorrUpdatedAt || 0) || a.playlistTitle.localeCompare(b.playlistTitle));
     const playlistCards = [];
@@ -428,6 +454,8 @@ export function registerPages(app, ctx) {
         state: canonicalPlaylists.legacy.playlist_id ? 'synced' : 'pending',
         description: 'Current Curatorr playlist',
         artPath: '',
+        tracksAdded: Number(lastSync?.tracks_added || 0),
+        tracksRemoved: Number(lastSync?.tracks_removed || 0),
       });
     }
     playlistCards.push(...generatedCards);

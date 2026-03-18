@@ -6,6 +6,7 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 
 ## Contents
 
+- [What's New in v0.1.17](#whats-new-in-v0117)
 - [What It Does](#what-it-does)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
@@ -20,6 +21,16 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 - [Roles and Permissions](#roles-and-permissions)
 - [Embed Mode](#embed-mode)
 - [Traefik Setup](#traefik-setup)
+
+---
+
+## What's New in v0.1.17
+
+- **Dashboard period toggle** — the Overview Stats panel has a `7d · 30d · All` toggle in the title bar. Each card shows the selected period's value with a comparison sub-line (e.g. "30d: 352"). All data is embedded at page load; switching periods is instant with no server round-trip.
+- **Stat card icons** — all stat cards now display a large theme-coloured icon on the right side of each card with a subtle brand-colour glow. Icons adapt automatically to your Curatorr theme colour.
+- **Library Artists glance card** — the "Curatorr at a glance" panel now shows a unique Library Artists count, including artists from Various Artists compilations but excluding duplicates and placeholder names.
+- **Playlist delta badges** — playlist artwork on the dashboard and Playlists page now shows a ↑/↓/= pill overlay tracking how many tracks were added or removed in the last sync. Persisted per sync via two new database columns.
+- **Last.fm dedup fix** — the scrobble backfill duplicate-detection window now uses the known track duration rather than a fixed 90 s window, handles Unicode hyphens in Tautulli-stored artist names, and matches Tautulli's `"Track - Artist"` title suffix pattern.
 
 ---
 

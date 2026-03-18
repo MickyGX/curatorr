@@ -414,6 +414,12 @@ export function initDb(dbPath) {
 
   // system_job_runs has no migrations needed — created fresh via SCHEMA above
 
+  const syncCols = db.prepare('PRAGMA table_info(playlist_syncs)').all().map((c) => c.name);
+  if (!syncCols.includes('tracks_added'))
+    db.exec('ALTER TABLE playlist_syncs ADD COLUMN tracks_added INTEGER NOT NULL DEFAULT 0');
+  if (!syncCols.includes('tracks_removed'))
+    db.exec('ALTER TABLE playlist_syncs ADD COLUMN tracks_removed INTEGER NOT NULL DEFAULT 0');
+
   return db;
 }
 
@@ -1143,16 +1149,18 @@ export function getAllUserIds(db) {
 
 export function recordPlaylistSync(db, {
   userPlexId, plexPlaylistId, playlistTitle, trackCount, excludedTracks, excludedArtists, trigger,
+  tracksAdded, tracksRemoved,
 }) {
   return db.prepare(`
     INSERT INTO playlist_syncs
       (user_plex_id, plex_playlist_id, playlist_title, track_count,
-       excluded_tracks, excluded_artists, trigger, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       excluded_tracks, excluded_artists, trigger, synced_at, tracks_added, tracks_removed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userPlexId, plexPlaylistId, playlistTitle || '',
     trackCount || 0, excludedTracks || 0, excludedArtists || 0,
     trigger || 'auto', Date.now(),
+    tracksAdded ?? 0, tracksRemoved ?? 0,
   );
 }
 
@@ -1366,6 +1374,15 @@ export function getMasterTracks(db) {
 
 export function getMasterTrackCount(db) {
   return db.prepare('SELECT COUNT(*) as n FROM master_tracks').get().n;
+}
+
+export function getMasterArtistCount(db) {
+  return db.prepare(`
+    SELECT COUNT(DISTINCT LOWER(TRIM(artist_name))) AS n
+    FROM master_tracks
+    WHERE TRIM(artist_name) != ''
+      AND LOWER(TRIM(artist_name)) NOT IN ('various artists', 'va', 'v/a', 'unknown')
+  `).get().n;
 }
 
 // ─── System job runs ──────────────────────────────────────────────────────────
