@@ -10,6 +10,7 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
 - [Playback Tracking](#playback-tracking)
+- [Last.fm Integration](#lastfm-integration)
 - [Lidarr Integration](#lidarr-integration)
 - [How Artist Suggestions Work](#how-artist-suggestions-work)
 - [How Lidarr Activity Works](#how-lidarr-activity-works)
@@ -30,6 +31,7 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 - **Track Tiers** — classifies each track as Belter, Decent, Half Decent, Skip, or Curatorr (unclassified) based on real playback behaviour
 - **Lidarr Automation** — when connected to Lidarr, suggested artists can be added with a starter album, monitored, and progressively expanded as you engage with them
 - **History** — full per-user playback log driven by Plex webhooks, with optional Tautulli repair and backfill
+- **Last.fm Sync** — optional backfill of scrobble history for users who have a Last.fm account, as a supplement to webhook-based tracking
 - **Discover** — surfaces artists outside your library via Last.fm, includes manual artist search, queue handling, and per-user add history
 
 ---
@@ -115,27 +117,77 @@ Curatorr is Plex-first for playback tracking.
 
 ### Plex webhook setup
 
-Curatorr can register the Plex webhook for you during setup or from **Settings → Plex**. If you are configuring it manually, point Plex to:
+Curatorr registers the Plex webhook automatically during the setup wizard and from **Settings → Plex → Register webhook in Plex**. When you click that button, Curatorr calls the Plex account API directly to add its own URL and also enables server webhooks on your Plex Media Server — no manual steps required.
+
+The registered URL includes a shared secret key as a query parameter for security:
 
 ```text
-http://your-curatorr-url:7676/webhook/plex
+http://your-curatorr-url:7676/webhook/plex?key=<your-webhook-secret>
 ```
 
-Use your public HTTPS URL instead if Curatorr is behind a reverse proxy.
+The secret is either taken from the `WEBHOOK_SECRET` environment variable or generated automatically by Curatorr on first run and stored in config. If you need to register manually, copy the exact URL (including the `?key=` parameter) from **Settings → Plex** — the full URL is shown there for admins.
+
+Use your public HTTPS URL if Curatorr is behind a reverse proxy.
 
 ### Optional Tautulli webhook setup
 
-If you also want Tautulli backfill/repair support:
+Tautulli is best used as a daily gap-fill backup rather than a live tracking source. Curatorr will fill in any plays missed by the Plex webhook without overwriting Plex-recorded listens.
+
+Curatorr can register the Tautulli webhook automatically: go to **Settings → Tautulli**, enter your Tautulli URL and API key, save, then click **Register webhook in Tautulli**. Curatorr calls the Tautulli API to create the notification agent for you.
+
+To configure manually instead:
 
 1. Go to **Settings → Notification Agents → Add a new notification agent → Webhook**
 2. Set the **Webhook URL** to:
    ```
-   http://your-curatorr-url:7676/webhook/tautulli
+   http://your-curatorr-url:7676/webhook/tautulli?key=<your-webhook-secret>
    ```
 3. Set the **Method** to `POST`
 4. Enable: **Playback Start**, **Playback Stop**, **Playback Pause**, **Playback Resume**, **Watched**
 
-Then in Curatorr **Settings → Tautulli**, enter your Tautulli URL and API key.
+> The `?key=` parameter must match the `WEBHOOK_SECRET` environment variable, or the secret Curatorr generated automatically (visible in **Settings → Plex** for admins).
+
+---
+
+## Last.fm Integration
+
+Curatorr uses Last.fm in two distinct ways: as a **discovery data source** for the Discover page, and as an **optional history backfill** for users who have a Last.fm account.
+
+### Last.fm API key
+
+Both features require a Last.fm API key. Create a free account at [last.fm](https://www.last.fm), generate an API key in your account settings, then enter it in **Settings → Discovery → Last.fm API key**.
+
+### Discovery (Trending and Similar Artists)
+
+The Discover page uses the Last.fm API to surface:
+
+- **Trending Artists and Tracks** — pulled from Last.fm's global charts
+- **Because You Like…** — artists similar to your most-played artists, personalised to your actual listening profile
+
+This requires only the shared Last.fm API key in Settings → Discovery and works without any per-user Last.fm account.
+
+### History Sync (optional, per-user)
+
+Each user can optionally connect their own Last.fm account to backfill scrobble history into Curatorr. This is useful if you have years of Last.fm history predating your Plex setup, or as a safety net for plays that occurred when Curatorr was not running.
+
+To enable, each user saves their Last.fm username in **User Profile → Last.fm username**. The background **Last.fm History Sync** job then periodically fetches recent scrobbles and inserts any plays not already recorded.
+
+The job is **disabled by default**. Enable it in **Settings → Jobs** once at least one user has saved a Last.fm username and the shared API key is configured.
+
+### Limitations of Last.fm sync vs. webhooks
+
+Last.fm sync is a best-effort backfill and has real limitations compared to webhook-based tracking:
+
+| | Plex webhook | Last.fm sync |
+|---|---|---|
+| Real-time | Yes — events arrive as you listen | No — batch job runs on a schedule |
+| Play duration | Full ms-accurate duration per event | Not available — scrobbles carry no duration |
+| Track tier accuracy | Full (Belter/Decent/Half Decent/Skip calculated from duration) | Assumed completed play — always treated as Belter |
+| Skip detection | Yes | No — skips are never scrobbled |
+| Artist-only fallback | N/A | Yes — unmatched tracks still contribute to artist stats |
+| Per-track stats | Full | Only if a prior Plex play exists to supply the duration |
+
+**Plex webhooks are the primary and most accurate tracking source.** Last.fm sync is a supplement — ideal for historical backfill and as a passive fallback, but it cannot replace real-time webhook tracking for accurate tier classification and skip detection.
 
 ---
 
@@ -280,15 +332,7 @@ All Discover adds are manual — you pick the artist, optionally choose a specif
 
 The Discover page also keeps a **Queue** panel for deferred requests and an **Added For You** panel so users can see what Curatorr has already added on their behalf.
 
-### Last.fm setup
-
-To enable Trending and Similar Artist panels:
-
-1. Create a free account at last.fm and generate an API key in your account settings
-2. In Curatorr go to **Settings → Discovery**
-3. Enter your Last.fm API key and choose which panels to show
-
-> Automatic adding of external artists (without a manual add action) is not currently implemented. The Discover page is a manual curation tool.
+> Automatic adding of external artists (without a manual add action) is not currently implemented. The Discover page is a manual curation tool. For Last.fm API key setup, see [Last.fm Integration](#lastfm-integration).
 
 ---
 
@@ -332,12 +376,16 @@ Curatorr runs several scheduled background jobs. Intervals can be adjusted in **
 | Lidarr: Process Queued Requests | Every 20 minutes | Processes pending Lidarr add and monitor requests |
 | Daily Mix Sync | Daily | Builds each user's Daily Mix playlist from recent favourites, suggestions, and fresh library tracks |
 | Tautulli History Sync | Daily | If Tautulli is configured, backfills or repairs any plays missed by Plex webhook ingestion |
+| Last.fm History Sync | Every 6 hours (disabled by default) | Fetches recent scrobbles from Last.fm for users with a Last.fm username saved, and backfills plays not already in Curatorr |
 
 ---
 
 ## Roles and Permissions
 
-Curatorr uses role-based access for users connected via Plex authentication.
+Curatorr supports two account types:
+
+- **Plex SSO accounts** — users sign in with their Plex account. Roles are assigned in **Settings → Users → Plex Users** and stored in Curatorr's config.
+- **Local Curatorr accounts** — created in **Settings → Users → Curatorr Users**. Local accounts can sign in without Plex and use the same role system. Useful for admin access when Plex is unavailable or for users who do not have a Plex account.
 
 | Role | Lidarr access | Weekly quota (default) |
 |---|---|---|
@@ -349,7 +397,9 @@ Curatorr uses role-based access for users connected via Plex authentication.
 
 Weekly quota limits are configurable per role in **Settings → Lidarr → Automation**. Set any quota to `-1` for unlimited.
 
-Local Curatorr admin accounts can view global listening data across users for dashboard, history, artists, and tracks. User-specific discovery queues, preferences, and playlists remain scoped per account.
+Admin accounts (both Plex and local) can view global listening data across users for the dashboard, history, artists, and tracks pages. User-specific discovery queues, preferences, and playlists remain scoped per account.
+
+> **Plex server owner note:** the Plex API excludes the server owner from the managed users list. Curatorr fetches the owner separately and shows them at the top of the Plex Users table, locked to the Admin role. If the owner was previously appearing as a normal user, set the **Plex Admin User** field in **Settings → Plex** to their Plex username or email — on next login via Plex SSO they will be automatically promoted and their identifier saved to the admin list.
 
 ---
 
