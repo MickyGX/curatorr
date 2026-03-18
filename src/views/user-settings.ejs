@@ -48,6 +48,7 @@
             'theme-updated': 'Theme saved.',
             'filters-updated': 'Artist filters updated.',
             'preset-updated': 'Curation style saved.',
+            'lastfm-updated': 'Last.fm username saved.',
           };
           const profileNote = error
             ? error
@@ -327,6 +328,19 @@
                 </select>
               </label>
               <button class="primary-button" type="submit">Save my style</button>
+            </form>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title">Last.fm</div>
+            <div class="settings-card-sub">Connect your Last.fm account to sync your scrobble history into Curatorr. Requires Last.fm History Sync to be enabled in Jobs settings.</div>
+            <form method="post" action="/user-settings/lastfm" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <label class="field">
+                <span>Last.fm username</span>
+                <input type="text" name="lastfmUsername" value="<%= lastfmUsername || '' %>" placeholder="your-lastfm-username" autocomplete="off" />
+              </label>
+              <button class="primary-button" type="submit">Save Last.fm username</button>
             </form>
           </div>
 

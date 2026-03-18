@@ -21,6 +21,7 @@ import { createPlaylistService } from './services/playlists.js';
 import { createJobService } from './services/jobs.js';
 import { rebuildSmartPlaylist } from './routes/api-music.js';
 import { runTautulliDailySync } from './services/tautulli-sync.js';
+import { runLastfmHistorySync } from './services/lastfm-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -560,6 +561,7 @@ const DEFAULT_JOBS_CONFIG = {
   tautulliDailySync:   { intervalMinutes: 1440,  enabled: true },
   lidarrRetryFailed:   { intervalMinutes: 1440,  enabled: true },
   lastfmTagSync:       { intervalMinutes: 10080, enabled: true },
+  lastfmHistorySync:   { intervalMinutes: 60,    enabled: false },
 };
 
 const DEFAULT_CONFIG = {
@@ -911,6 +913,14 @@ function resolveRole(plexUser) {
   if (matchesAdminList(loadCoAdmins(), ids)) return 'co-admin';
   if (matchesAdminList(loadPowerUsers(), ids)) return 'power-user';
   if (matchesAdminList(loadGuestUsers(), ids)) return 'guest';
+  // Auto-promote if they match config.plex.adminUser — handles the case where the
+  // server owner isn't in admins.json because plex.tv/api/users never returns the owner account.
+  const configuredAdmin = String(loadConfig()?.plex?.adminUser || '').trim();
+  if (configuredAdmin && matchesAdminList([configuredAdmin], ids)) {
+    const admins = loadAdmins();
+    if (!matchesAdminList(admins, ids)) saveAdmins([configuredAdmin, ...admins]);
+    return 'admin';
+  }
   if (!loadAdmins().length) {
     const key = ids[0];
     if (key) { saveAdmins([key]); return 'admin'; }
@@ -1735,6 +1745,7 @@ export async function start() {
         }
       },
       lastfmTagSync: () => syncLastfmTags(_routeCtx),
+      lastfmHistorySync: () => runLastfmHistorySync(_routeCtx),
     };
     _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
 
@@ -1742,7 +1753,7 @@ export async function start() {
     if (config0.wizard?.completed) {
       _routeCtx.jobService.startAll({
         runImmediately: true,
-        skipImmediate: ['tautulliDailySync', 'lastfmTagSync'],
+        skipImmediate: ['tautulliDailySync', 'lastfmTagSync', 'lastfmHistorySync'],
       }); // start intervals + run most jobs immediately once
     }
 

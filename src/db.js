@@ -380,6 +380,12 @@ export function initDb(dbPath) {
   const prefCols = db.prepare('PRAGMA table_info(user_preferences)').all().map((c) => c.name);
   if (!prefCols.includes('smart_config'))
     db.exec("ALTER TABLE user_preferences ADD COLUMN smart_config TEXT NOT NULL DEFAULT 'null'");
+  if (!prefCols.includes('lastfm_username'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN lastfm_username TEXT NOT NULL DEFAULT ''");
+  if (!prefCols.includes('lastfm_api_key'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN lastfm_api_key TEXT NOT NULL DEFAULT ''");
+  if (!prefCols.includes('lastfm_sync_watermark'))
+    db.exec('ALTER TABLE user_preferences ADD COLUMN lastfm_sync_watermark INTEGER NOT NULL DEFAULT 0');
 
   const masterCols = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (!masterCols.includes('rating_count'))
@@ -1228,7 +1234,7 @@ export function resetArtistSkipStreak(db, userPlexId, artistName) {
 
 export function getUserPreferences(db, userPlexId) {
   const row = db.prepare('SELECT * FROM user_preferences WHERE user_plex_id = ?').get(userPlexId);
-  if (!row) return { likedGenres: [], ignoredGenres: [], likedArtists: [], ignoredArtists: [], userWizardCompleted: false, smartConfig: null };
+  if (!row) return { likedGenres: [], ignoredGenres: [], likedArtists: [], ignoredArtists: [], userWizardCompleted: false, smartConfig: null, lastfmUsername: '', lastfmSyncWatermark: 0 };
   return {
     likedGenres: JSON.parse(row.liked_genres || '[]'),
     ignoredGenres: JSON.parse(row.ignored_genres || '[]'),
@@ -1236,15 +1242,19 @@ export function getUserPreferences(db, userPlexId) {
     ignoredArtists: JSON.parse(row.ignored_artists || '[]'),
     userWizardCompleted: Boolean(row.user_wizard_completed),
     smartConfig: JSON.parse(row.smart_config || 'null'),
+    lastfmUsername: String(row.lastfm_username || ''),
+    lastfmSyncWatermark: Number(row.lastfm_sync_watermark || 0),
   };
 }
 
-export function saveUserPreferences(db, userPlexId, { likedGenres = [], ignoredGenres = [], likedArtists = [], ignoredArtists = [], userWizardCompleted = false, smartConfig = undefined }) {
+export function saveUserPreferences(db, userPlexId, { likedGenres = [], ignoredGenres = [], likedArtists = [], ignoredArtists = [], userWizardCompleted = false, smartConfig = undefined, lastfmUsername = undefined, lastfmSyncWatermark = undefined }) {
   const existing = getUserPreferences(db, userPlexId);
   const resolvedSmartConfig = smartConfig !== undefined ? smartConfig : existing.smartConfig;
+  const resolvedLastfmUsername = lastfmUsername !== undefined ? String(lastfmUsername).trim() : existing.lastfmUsername;
+  const resolvedWatermark = lastfmSyncWatermark !== undefined ? Number(lastfmSyncWatermark) : existing.lastfmSyncWatermark;
   db.prepare(`
-    INSERT INTO user_preferences (user_plex_id, liked_genres, ignored_genres, liked_artists, ignored_artists, user_wizard_completed, smart_config, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO user_preferences (user_plex_id, liked_genres, ignored_genres, liked_artists, ignored_artists, user_wizard_completed, smart_config, lastfm_username, lastfm_sync_watermark, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id) DO UPDATE SET
       liked_genres = excluded.liked_genres,
       ignored_genres = excluded.ignored_genres,
@@ -1252,8 +1262,10 @@ export function saveUserPreferences(db, userPlexId, { likedGenres = [], ignoredG
       ignored_artists = excluded.ignored_artists,
       user_wizard_completed = excluded.user_wizard_completed,
       smart_config = excluded.smart_config,
+      lastfm_username = excluded.lastfm_username,
+      lastfm_sync_watermark = excluded.lastfm_sync_watermark,
       updated_at = excluded.updated_at
-  `).run(userPlexId, JSON.stringify(likedGenres), JSON.stringify(ignoredGenres), JSON.stringify(likedArtists), JSON.stringify(ignoredArtists), userWizardCompleted ? 1 : 0, JSON.stringify(resolvedSmartConfig ?? null), Date.now());
+  `).run(userPlexId, JSON.stringify(likedGenres), JSON.stringify(ignoredGenres), JSON.stringify(likedArtists), JSON.stringify(ignoredArtists), userWizardCompleted ? 1 : 0, JSON.stringify(resolvedSmartConfig ?? null), resolvedLastfmUsername, resolvedWatermark, Date.now());
 }
 
 export function getUserPlaylist(db, userPlexId) {

@@ -38,6 +38,11 @@ export const JOB_DEFS = {
     description: 'Fetches genre/mood tags from Last.fm for every artist in your library and stores them for use in global playlist filters.',
     defaultIntervalMinutes: 10080,
   },
+  lastfmHistorySync: {
+    label: 'Last.fm History Sync',
+    description: 'Fetches recent scrobbles from Last.fm for each user who has configured a Last.fm username and backfills plays not already recorded. Requires a Last.fm API key and a username set in User Profile.',
+    defaultIntervalMinutes: 60,
+  },
   lidarrRetryFailed: {
     label: 'Lidarr: Retry Failed Requests',
     description: 'Re-queues failed Lidarr add requests so they are picked up by the next queue processing run. Requests that have already been retried 3 times are skipped.',

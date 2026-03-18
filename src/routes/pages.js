@@ -478,6 +478,7 @@ export function registerPages(app, ctx) {
     }));
     const userPrefs = userPlexId ? getUserPreferences(db, userPlexId) : null;
     const userPreset = userPrefs?.smartConfig?.preset || null;
+    const lastfmUsername = userPrefs?.lastfmUsername || '';
     res.render('user-settings', {
       title: 'My Settings — Curatorr',
       user: req.session.user,
@@ -488,6 +489,7 @@ export function registerPages(app, ctx) {
       mustIncludeArtists,
       neverIncludeArtists,
       userPreset,
+      lastfmUsername,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

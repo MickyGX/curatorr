@@ -48,6 +48,7 @@ export function registerSettings(app, ctx) {
     loadDisabledUsers,
     saveDisabledUsers,
     parsePlexUsers,
+    fetchPlexUser,
     buildAppApiUrl,
     buildConfiguredWebhookUrl,
     getWebhookSharedSecret,
@@ -588,13 +589,19 @@ export function registerSettings(app, ctx) {
 
     try {
       pushLog({ level: 'info', app: 'plex', action: 'users', message: 'Fetching Plex users for settings.' });
-      const usersRes = await fetch('https://plex.tv/api/users', {
-        headers: { Accept: 'application/xml', 'X-Plex-Token': token },
-      });
+
+      // Fetch managed/home/shared users and the token owner in parallel.
+      // plex.tv/api/users intentionally omits the server owner, so we fetch
+      // them separately via /api/v2/user and inject them at the top of the list.
+      const [usersRes, ownerUser] = await Promise.all([
+        fetch('https://plex.tv/api/users', { headers: { Accept: 'application/xml', 'X-Plex-Token': token } }),
+        fetchPlexUser(token).catch(() => null),
+      ]);
       if (!usersRes.ok) throw new Error(`Failed to fetch Plex users (${usersRes.status})`);
       const xmlText = await usersRes.text();
       const users = parsePlexUsers(xmlText, { machineId: machineId || '' });
-      const payload = users.map((user) => {
+
+      const mapUser = (user, forceOwner = false) => {
         const ids = normalizeIdentityList([
           user.email,
           user.username,
@@ -603,7 +610,7 @@ export function registerSettings(app, ctx) {
           user.uuid,
         ]).map((entry) => entry.toLowerCase());
         const identifier = user.email || user.username || user.title || user.id || user.uuid || 'plex-user';
-        const locked = ownerKey ? ids.includes(ownerKey) : false;
+        const locked = forceOwner || (ownerKey ? ids.includes(ownerKey) : false);
         let role = 'user';
         if (locked) role = 'admin';
         else if (hasMatch(disabledUsers, ids)) role = 'disabled';
@@ -618,12 +625,35 @@ export function registerSettings(app, ctx) {
           username: user.username || '',
           email: user.email || '',
           identifier,
-          lastPlexSeen: normalizePlexLastSeen(user.lastSeenAt),
+          lastPlexSeen: normalizePlexLastSeen(user.lastSeenAt || ''),
           lastCuratorrLogin: resolveLogin(ids),
           role,
           locked,
         };
-      });
+      };
+
+      const payload = users.map((u) => mapUser(u));
+
+      // Inject the server owner at the top if they aren't already in the list.
+      if (ownerUser) {
+        const ownerIds = new Set(
+          normalizeIdentityList([ownerUser.email, ownerUser.username, ownerUser.title, String(ownerUser.id || ''), String(ownerUser.uuid || '')])
+            .map((v) => v.toLowerCase()),
+        );
+        const alreadyPresent = payload.some((u) => [u.email, u.username, u.identifier, u.id]
+          .some((v) => v && ownerIds.has(String(v).toLowerCase())));
+        if (!alreadyPresent) {
+          payload.unshift(mapUser({
+            id: String(ownerUser.id || ''),
+            uuid: String(ownerUser.uuid || ''),
+            username: ownerUser.username || '',
+            email: ownerUser.email || '',
+            title: ownerUser.title || ownerUser.username || ownerUser.email || '',
+            lastSeenAt: '',
+          }, true));
+        }
+      }
+
       return res.json({ ok: true, users: payload });
     } catch (err) {
       pushLog({ level: 'error', app: 'plex', action: 'users', message: safeMessage(err) });
@@ -751,6 +781,17 @@ export function registerSettings(app, ctx) {
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, { ...prefs, smartConfig: { preset } });
     return res.redirect('/user-settings?success=preset-updated');
+  });
+
+  // ── Last.fm username ──────────────────────────────────────────────────────
+
+  app.post('/user-settings/lastfm', requireUser, (req, res) => {
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    const lastfmUsername = String(req.body?.lastfmUsername || '').trim();
+    const prefs = getUserPreferences(db, userPlexId);
+    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername });
+    return res.redirect('/user-settings?success=lastfm-updated');
   });
 
   // ── Jobs settings ─────────────────────────────────────────────────────────
