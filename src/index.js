@@ -41,7 +41,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET
     console.warn('[security] SESSION_SECRET not set — generating random secret. Sessions will reset on restart. Set SESSION_SECRET for persistent sessions.');
     return crypto.randomBytes(32).toString('hex');
   })();
-const LOCAL_AUTH_MIN_PASSWORD = 12;
+const LOCAL_AUTH_MIN_PASSWORD = Math.max(1, Math.min(128, parseInt(process.env.LOCAL_AUTH_MIN_PASSWORD, 10) || 12));
 const TRUST_PROXY_ENABLED = parseEnvFlag(process.env.TRUST_PROXY, false);
 const TRUST_PROXY_HOPS = resolveProxyHopCount(process.env.TRUST_PROXY_HOPS, 1);
 const TRUST_PROXY_SETTING = TRUST_PROXY_ENABLED ? TRUST_PROXY_HOPS : false;
@@ -1790,6 +1790,9 @@ export async function start() {
       console.log(`[curatorr] Base URL: ${BASE_URL}`);
       if (!config?.wizard?.completed) {
         console.log('[curatorr] Setup wizard not complete — visit /wizard to get started.');
+      }
+      if (LOCAL_AUTH_MIN_PASSWORD < 12 && (TRUST_PROXY_ENABLED || process.env.COOKIE_SECURE === 'true')) {
+        console.warn(`[security] LOCAL_AUTH_MIN_PASSWORD is set to ${LOCAL_AUTH_MIN_PASSWORD} but TRUST_PROXY or COOKIE_SECURE is enabled, suggesting this instance may be internet-facing. Consider raising LOCAL_AUTH_MIN_PASSWORD to at least 12.`);
       }
       resolve();
     });

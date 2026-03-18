@@ -104,6 +104,7 @@ Open `http://localhost:7676/wizard` in your browser and follow the steps to conn
 | `TRUST_PROXY_HOPS` | No | Number of trusted proxy hops. Default: `1` |
 | `COOKIE_SECURE` | No | Set to `true` to mark session cookies as Secure (HTTPS only). Recommended when behind HTTPS. |
 | `EMBED_ALLOWED_ORIGINS` | No | Comma-separated list of origins permitted to embed Curatorr in an iframe, e.g. `https://launcharr.example.com` |
+| `LOCAL_AUTH_MIN_PASSWORD` | No | Minimum password length for local Curatorr accounts. Default: `12`. Capped between `1` and `128`. Useful for local network installs where a strict policy is not required. Not recommended below `12` if the instance is internet-facing — Curatorr will log a warning at startup if this is set below `12` and `TRUST_PROXY` or `COOKIE_SECURE` is also enabled. |
 
 ---
 
