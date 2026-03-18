@@ -668,45 +668,7 @@ body.cur-modal-open {
   font-size: 16px;
 }
 
-.day-theme .plex-modal {
-  background: linear-gradient(180deg, rgba(244, 247, 253, .98), rgba(226, 233, 245, .98));
-  border-color: rgba(89, 77, 233, .16);
-}
-
-.day-theme .plex-modal-close {
-  background: rgba(255, 255, 255, .82);
-  color: #0f172a;
-}
-
-.day-theme .plex-modal-bg {
-  background:
-    radial-gradient(circle at top left, rgba(139, 92, 246, .16), transparent 48%),
-    linear-gradient(180deg, rgba(216, 226, 242, .55), rgba(229, 236, 247, .96));
-}
-
-.day-theme .plex-modal-hero::before {
-  background: linear-gradient(180deg, rgba(255, 255, 255, .18) 0%, rgba(241, 245, 252, .72) 58%, rgba(238, 243, 250, .96) 100%);
-}
-
-.day-theme .plex-modal-title,
-.day-theme .plex-stat-value,
-.day-theme .plex-section h4,
-.day-theme .plex-pill2 {
-  color: #111827;
-}
-
-.day-theme .plex-modal-subtitle,
-.day-theme .plex-overview-text,
-.day-theme .plex-stat-label {
-  color: rgba(17, 24, 39, .68);
-}
-
-.day-theme .plex-pill2,
-.day-theme .plex-stat-card,
-.day-theme .plex-modal-poster {
-  background: rgba(255, 255, 255, .62);
-  border-color: rgba(17, 24, 39, .08);
-}
+/* day-theme modal overrides — now handled by [data-theme="day"] rules below */
 
 @media (max-width: 768px) {
   .plex-modal-backdrop {
@@ -3089,27 +3051,68 @@ html[data-launcharr-embed="1"] .cur-panel--playlist-carousel {
 }
 
 [data-theme="day"] .cur-filter-popover .cur-search {
-  background: rgba(12,18,28,.75);
-  border-color: rgba(255,255,255,.14);
-  color: #f2f5f8;
+  background: rgba(10,20,30,.04);
+  border-color: rgba(10,20,30,.14);
+  color: #0b151e;
 }
 
 [data-theme="day"] .cur-filter-popover .cur-search::placeholder {
-  color: rgba(238,243,251,.48);
+  color: rgba(11,21,30,.4);
 }
 
 [data-theme="day"] .cur-status-chip strong {
   color: #0b151e;
 }
 
-[data-theme="day"] .cur-panel-header {
-  background: var(--plex-panel1, #2f3640);
-  border-color: rgba(0,0,0,.45);
+[data-theme="day"] .cur-filter-bar {
+  background: rgba(10,20,30,.05);
+  border-color: rgba(10,20,30,.1);
   box-shadow: none;
 }
 
+[data-theme="day"] .cur-filter-button {
+  color: rgba(11,21,30,.62);
+}
+
+[data-theme="day"] .cur-filter-button:hover,
+[data-theme="day"] .cur-filter-button:focus-visible,
+[data-theme="day"] .cur-filter-button.is-active {
+  color: #0b151e;
+}
+
+[data-theme="day"] .cur-filter-popover {
+  background: linear-gradient(180deg, rgba(247,249,252,.98), rgba(240,244,250,.99));
+  border-color: rgba(10,20,30,.14);
+  box-shadow: 0 14px 26px rgba(8,14,20,.1);
+}
+
+[data-theme="day"] .cur-filter-popover-heading {
+  color: rgba(11,21,30,.5);
+}
+
+[data-theme="day"] .cur-filter-option {
+  background: rgba(10,20,30,.04);
+  border-color: rgba(10,20,30,.12);
+  color: #0b151e;
+}
+
+[data-theme="day"] .cur-filter-option-note {
+  color: rgba(11,21,30,.52);
+}
+
+[data-theme="day"] .cur-panel-header {
+  background: #eef2f7;
+  border-color: rgba(10,20,30,.12);
+}
+
 [data-theme="day"] .cur-panel-title {
-  color: #eef3fb;
+  color: #0b151e;
+  text-shadow: none;
+}
+
+[data-theme="day"] .cur-panel-body {
+  background: linear-gradient(180deg, #f4f7fb, #eef2f8);
+  border-color: rgba(10,20,30,.12);
 }
 
 [data-theme="day"] .cur-history-table {
@@ -4731,6 +4734,11 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   text-shadow: none;
 }
 
+[data-theme="day"] .cur-discover-page .cur-discover-module .plex-topbar .plex-title,
+[data-theme="day"] .cur-discover-page .cur-discover-module .plex-topbar .plex-title * {
+  color: #1f2b38 !important;
+}
+
 .cur-discover-module {
   --plex-cardW: 203;
   --plex-posterH: 178;
@@ -5514,6 +5522,26 @@ body.modal-open {
   .plex-modal-hero {
     min-height: 0;
   }
+}
+
+[data-theme="day"] .plex-modal-backdrop {
+  background: rgba(200, 215, 235, .72);
+}
+
+[data-theme="day"] .plex-modal {
+  background: linear-gradient(180deg, rgba(244, 247, 253, .98), rgba(226, 233, 245, .98));
+  border-color: rgba(10,20,30,.1);
+  box-shadow: 0 32px 80px rgba(8,14,20,.14), 0 0 0 1px rgba(10,20,30,.06) inset;
+}
+
+[data-theme="day"] .plex-modal-header {
+  border-bottom-color: rgba(10,20,30,.1);
+}
+
+[data-theme="day"] .plex-modal-close {
+  background: rgba(255,255,255,.82);
+  border-color: rgba(10,20,30,.14);
+  color: #0b151e;
 }
 
 [data-theme="day"] .plex-modal-meta,

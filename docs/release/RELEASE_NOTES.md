@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.14 (2026-03-16)
+
+- Refined the day-theme styling across filter controls, panel chrome, discover titles, and Plex modals so the light theme now uses a consistent readable surface treatment instead of falling back to dark-theme colors in key UI areas.
+
 ## v0.1.13 (2026-03-16)
 
 - Fixed the server wizard Tautulli skip path so choosing to skip Tautulli setup now renders the next wizard step correctly instead of calling the render helper with the wrong argument shape.
