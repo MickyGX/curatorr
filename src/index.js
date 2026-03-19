@@ -22,6 +22,7 @@ import { createJobService } from './services/jobs.js';
 import { rebuildSmartPlaylist } from './routes/api-music.js';
 import { runTautulliDailySync } from './services/tautulli-sync.js';
 import { runLastfmHistorySync } from './services/lastfm-sync.js';
+import { runLastfmHistoryBackfill } from './services/lastfm-backfill.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1694,6 +1695,7 @@ export async function start() {
           await rebuildSmartPlaylist(_routeCtx, userId);
           await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
           await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
+          await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
           const globalPlaylists = (loadConfig().globalPlaylists || []).filter((p) => p.enabled);
           for (const gp of globalPlaylists) {
             await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
@@ -1746,6 +1748,7 @@ export async function start() {
       },
       lastfmTagSync: () => syncLastfmTags(_routeCtx),
       lastfmHistorySync: () => runLastfmHistorySync(_routeCtx),
+      lastfmHistoryBackfill: () => runLastfmHistoryBackfill(_routeCtx),
     };
     _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
 

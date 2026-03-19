@@ -340,7 +340,20 @@
                 <span>Last.fm username</span>
                 <input type="text" name="lastfmUsername" value="<%= lastfmUsername || '' %>" placeholder="your-lastfm-username" autocomplete="off" />
               </label>
-              <button class="primary-button" type="submit">Save Last.fm username</button>
+              <% if (lastfmUsername) { %>
+                <div class="field-group-label" style="margin-top:1rem;">Last.fm Station Playlists</div>
+                <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in Plex. Updated with each playlist sync.</div>
+                <% [['recommended','Recommended'],['mix','Mix'],['library','Library']].forEach(([key, label]) => { %>
+                  <div class="settings-access-row">
+                    <label class="settings-toggle">
+                      <input type="checkbox" name="lastfmStations" value="<%= key %>" <%= (lastfmEnabledStations || []).includes(key) ? 'checked' : '' %> />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Last.fm <%= label %></span>
+                    </label>
+                  </div>
+                <% }) %>
+              <% } %>
+              <button class="primary-button" type="submit">Save Last.fm settings</button>
             </form>
           </div>
 

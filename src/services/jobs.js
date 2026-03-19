@@ -43,6 +43,11 @@ export const JOB_DEFS = {
     description: 'Fetches recent scrobbles from Last.fm for each user who has configured a Last.fm username and backfills plays not already recorded. Requires a Last.fm API key and a username set in User Profile.',
     defaultIntervalMinutes: 60,
   },
+  lastfmHistoryBackfill: {
+    label: 'Last.fm Full History Backfill',
+    description: 'Manually import your complete Last.fm scrobble history. Each run fetches one batch (~10,000 scrobbles) working backwards in time — run multiple times until complete. Progress is saved between runs per user.',
+    manualOnly: true,
+  },
   lidarrRetryFailed: {
     label: 'Lidarr: Retry Failed Requests',
     description: 'Re-queues failed Lidarr add requests so they are picked up by the next queue processing run. Requests that have already been retried 3 times are skipped.',
@@ -65,8 +70,9 @@ export function createJobService(ctx, jobFunctions) {
     setSystemJobRun(db, jobId, { status: 'running', lastRunAt: Date.now(), message: '' });
     pushLog({ level: 'info', app: 'jobs', action: 'job.start', message: `Job started: ${jobId}` });
     try {
-      await fn();
-      setSystemJobRun(db, jobId, { status: 'success', lastRunAt: Date.now(), message: 'Completed successfully' });
+      const result = await fn();
+      const message = typeof result?.message === 'string' ? result.message : 'Completed successfully';
+      setSystemJobRun(db, jobId, { status: 'success', lastRunAt: Date.now(), message });
       pushLog({ level: 'info', app: 'jobs', action: 'job.success', message: `Job completed: ${jobId}` });
     } catch (err) {
       const msg = safeMessage(err);
@@ -93,6 +99,7 @@ export function createJobService(ctx, jobFunctions) {
     const jobsCfg = loadConfig().jobs || {};
     for (const jobId of Object.keys(JOB_DEFS)) {
       if (!jobFunctions[jobId]) continue;
+      if (JOB_DEFS[jobId].manualOnly) continue;
       const cfg = jobsCfg[jobId] || {};
       const enabled = cfg.enabled !== false;
       const intervalMinutes = Number(cfg.intervalMinutes) || JOB_DEFS[jobId].defaultIntervalMinutes;
@@ -117,6 +124,7 @@ export function createJobService(ctx, jobFunctions) {
         return [jobId, {
           label: def.label,
           description: def.description,
+          manualOnly: def.manualOnly || false,
           status: row?.status || 'idle',
           lastRunAt: row?.last_run_at || null,
           message: row?.message || '',

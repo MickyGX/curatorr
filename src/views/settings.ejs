@@ -1536,7 +1536,7 @@
                   </div>
                   <div class="settings-job-card-actions">
                     <span class="settings-job-status-badge settings-job-status-badge--<%= _jStatus %>" data-job-status="<%= _jid %>"><%= _jStatus %></span>
-                    <button type="button" class="settings-btn settings-job-run-btn" data-job-id="<%= _jid %>">Run Now</button>
+                    <button type="button" class="settings-btn settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
                   </div>
                 </div>
                 <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
@@ -1547,6 +1547,7 @@
                     Never run
                   <% } %>
                 </div>
+                <% if (!_jdef.manualOnly) { %>
                 <div class="settings-job-controls">
                   <label class="field" style="flex:0 0 auto;min-width:0">
                     <span>Interval (minutes)</span>
@@ -1560,6 +1561,7 @@
                     </span>
                   </label>
                 </div>
+                <% } %>
               </div>
               <% } %>
               <div style="margin-top:4px">

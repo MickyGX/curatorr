@@ -386,6 +386,10 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN lastfm_api_key TEXT NOT NULL DEFAULT ''");
   if (!prefCols.includes('lastfm_sync_watermark'))
     db.exec('ALTER TABLE user_preferences ADD COLUMN lastfm_sync_watermark INTEGER NOT NULL DEFAULT 0');
+  if (!prefCols.includes('lastfm_backfill_cursor'))
+    db.exec('ALTER TABLE user_preferences ADD COLUMN lastfm_backfill_cursor INTEGER NOT NULL DEFAULT 0');
+  if (!prefCols.includes('lastfm_enabled_stations'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN lastfm_enabled_stations TEXT NOT NULL DEFAULT '[]'");
 
   const masterCols = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (!masterCols.includes('rating_count'))
@@ -1242,7 +1246,7 @@ export function resetArtistSkipStreak(db, userPlexId, artistName) {
 
 export function getUserPreferences(db, userPlexId) {
   const row = db.prepare('SELECT * FROM user_preferences WHERE user_plex_id = ?').get(userPlexId);
-  if (!row) return { likedGenres: [], ignoredGenres: [], likedArtists: [], ignoredArtists: [], userWizardCompleted: false, smartConfig: null, lastfmUsername: '', lastfmSyncWatermark: 0 };
+  if (!row) return { likedGenres: [], ignoredGenres: [], likedArtists: [], ignoredArtists: [], userWizardCompleted: false, smartConfig: null, lastfmUsername: '', lastfmSyncWatermark: 0, lastfmBackfillCursor: 0, lastfmEnabledStations: [] };
   return {
     likedGenres: JSON.parse(row.liked_genres || '[]'),
     ignoredGenres: JSON.parse(row.ignored_genres || '[]'),
@@ -1252,17 +1256,20 @@ export function getUserPreferences(db, userPlexId) {
     smartConfig: JSON.parse(row.smart_config || 'null'),
     lastfmUsername: String(row.lastfm_username || ''),
     lastfmSyncWatermark: Number(row.lastfm_sync_watermark || 0),
+    lastfmBackfillCursor: Number(row.lastfm_backfill_cursor ?? 0),
+    lastfmEnabledStations: JSON.parse(row.lastfm_enabled_stations || '[]'),
   };
 }
 
-export function saveUserPreferences(db, userPlexId, { likedGenres = [], ignoredGenres = [], likedArtists = [], ignoredArtists = [], userWizardCompleted = false, smartConfig = undefined, lastfmUsername = undefined, lastfmSyncWatermark = undefined }) {
+export function saveUserPreferences(db, userPlexId, { likedGenres = [], ignoredGenres = [], likedArtists = [], ignoredArtists = [], userWizardCompleted = false, smartConfig = undefined, lastfmUsername = undefined, lastfmSyncWatermark = undefined, lastfmEnabledStations = undefined }) {
   const existing = getUserPreferences(db, userPlexId);
   const resolvedSmartConfig = smartConfig !== undefined ? smartConfig : existing.smartConfig;
   const resolvedLastfmUsername = lastfmUsername !== undefined ? String(lastfmUsername).trim() : existing.lastfmUsername;
   const resolvedWatermark = lastfmSyncWatermark !== undefined ? Number(lastfmSyncWatermark) : existing.lastfmSyncWatermark;
+  const resolvedStations = lastfmEnabledStations !== undefined ? lastfmEnabledStations : existing.lastfmEnabledStations;
   db.prepare(`
-    INSERT INTO user_preferences (user_plex_id, liked_genres, ignored_genres, liked_artists, ignored_artists, user_wizard_completed, smart_config, lastfm_username, lastfm_sync_watermark, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO user_preferences (user_plex_id, liked_genres, ignored_genres, liked_artists, ignored_artists, user_wizard_completed, smart_config, lastfm_username, lastfm_sync_watermark, lastfm_enabled_stations, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id) DO UPDATE SET
       liked_genres = excluded.liked_genres,
       ignored_genres = excluded.ignored_genres,
@@ -1272,8 +1279,21 @@ export function saveUserPreferences(db, userPlexId, { likedGenres = [], ignoredG
       smart_config = excluded.smart_config,
       lastfm_username = excluded.lastfm_username,
       lastfm_sync_watermark = excluded.lastfm_sync_watermark,
+      lastfm_enabled_stations = excluded.lastfm_enabled_stations,
       updated_at = excluded.updated_at
-  `).run(userPlexId, JSON.stringify(likedGenres), JSON.stringify(ignoredGenres), JSON.stringify(likedArtists), JSON.stringify(ignoredArtists), userWizardCompleted ? 1 : 0, JSON.stringify(resolvedSmartConfig ?? null), resolvedLastfmUsername, resolvedWatermark, Date.now());
+  `).run(userPlexId, JSON.stringify(likedGenres), JSON.stringify(ignoredGenres), JSON.stringify(likedArtists), JSON.stringify(ignoredArtists), userWizardCompleted ? 1 : 0, JSON.stringify(resolvedSmartConfig ?? null), resolvedLastfmUsername, resolvedWatermark, JSON.stringify(resolvedStations), Date.now());
+}
+
+export function updateLastfmBackfillCursor(db, userPlexId, cursor) {
+  db.prepare('UPDATE user_preferences SET lastfm_backfill_cursor = ? WHERE user_plex_id = ?').run(cursor, userPlexId);
+}
+
+export function getLastfmUsers(db) {
+  return db.prepare(`
+    SELECT user_plex_id, lastfm_username, lastfm_sync_watermark, lastfm_backfill_cursor
+    FROM user_preferences
+    WHERE lastfm_username IS NOT NULL AND lastfm_username != ''
+  `).all();
 }
 
 export function getUserPlaylist(db, userPlexId) {

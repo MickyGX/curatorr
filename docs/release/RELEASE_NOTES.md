@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.18 (2026-03-19)
+
+- Added per-user Last.fm History Sync: set a Last.fm username in User Profile to pull scrobble history into Curatorr on a configurable schedule, feeding artist and track scoring the same as Plex/Tautulli plays.
+- Added Last.fm History Backfill: a manually triggered job that pages backwards through a user's full Last.fm history in batches, with a resumable cursor so it can work through years of history across multiple runs.
+- Added Last.fm Station Playlists: Recommended, Mix, and Library stations can be enabled per user in User Profile and are kept in sync as Plex playlists (`Recommended (Last.fm)` etc.) on every playlist sync cycle.
+- Fixed duplicate playlist creation: Curatorr now searches Plex by title before creating a playlist, preventing duplicates when the database is reset or migrated.
+- Renamed Crescive and Curative playlists to `Crescive Playlist (username)` / `Curative Playlist (username)` so the playlist type is visible in Plexamp's truncated playlist list. Existing playlists are renamed in place on first sync.
+
 ## v0.1.14 (2026-03-16)
 
 - Refined the day-theme styling across filter controls, panel chrome, discover titles, and Plex modals so the light theme now uses a consistent readable surface treatment instead of falling back to dark-theme colors in key UI areas.

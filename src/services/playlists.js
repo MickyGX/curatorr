@@ -398,7 +398,29 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
   const token = ctx.resolveUserPlexServerToken(config, userId);
   if (!url || !token || !machineId) throw new Error('Plex is not configured for playlist creation');
 
-  const createUrl = new URL(`${url.replace(/\/$/, '')}/playlists`);
+  // Search Plex by title before creating — prevents duplicates when the DB has been reset.
+  // Also checks the legacy name format (e.g. "TJWhiteStar's Crescive Playlist") for migration.
+  const base = url.replace(/\/$/, '');
+  const legacyTitle = `${userId}'s ${playlistType === CRESCIVE_PLAYLIST_TYPE ? 'Crescive' : 'Curative'} Playlist`;
+  try {
+    const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    if (searchRes.ok) {
+      const searchJson = await searchRes.json();
+      const all = searchJson?.MediaContainer?.Metadata || [];
+      const match = all.find((p) => p.title === playlistTitle || p.title === legacyTitle);
+      if (match?.ratingKey) {
+        saveUserGeneratedPlaylist(ctx.db, userId, {
+          playlistType, playlistKey, plexPlaylistId: String(match.ratingKey),
+          playlistTitle, algorithmVersion: ALGORITHM_VERSION, active: true, updatedAt: Date.now(),
+        });
+        return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
+      }
+    }
+  } catch { /* fall through to create */ }
+
+  const createUrl = new URL(`${base}/playlists`);
   createUrl.searchParams.set('type', 'audio');
   createUrl.searchParams.set('title', playlistTitle);
   createUrl.searchParams.set('smart', '0');
@@ -448,7 +470,7 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   }
   if (!machineId) throw new Error('Could not determine Plex machine ID');
 
-  const title = `${userId}'s ${playlistType === CRESCIVE_PLAYLIST_TYPE ? 'Crescive' : 'Curative'} Playlist`;
+  const title = `${playlistType === CRESCIVE_PLAYLIST_TYPE ? 'Crescive' : 'Curative'} Playlist (${userId})`;
   const playlistRow = await ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, title, machineId);
 
   if (forceFullRebuild) clearPlaylistState(db, userId, playlistKey);
@@ -814,6 +836,54 @@ export function createPlaylistService(ctx) {
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
+  async function syncLastfmStations(userId) {
+    const prefs = getUserPreferences(db, userId);
+    if (!prefs.lastfmUsername || !prefs.lastfmEnabledStations?.length) return;
+    if (!ctx.userHasOwnPlexToken(ctx.loadConfig(), userId)) return;
+
+    const machineId = await resolveMachineId(ctx, userId);
+    const STATIONS = { recommended: 'Recommended', mix: 'Mix', library: 'Library' };
+
+    for (const stationKey of prefs.lastfmEnabledStations) {
+      const label = STATIONS[stationKey];
+      if (!label) continue;
+      const playlistKey = `lastfm:${stationKey}`;
+      const playlistTitle = `Last.fm ${label} (${userId})`;
+      try {
+        const res = await fetch(`https://www.last.fm/player/station/user/${encodeURIComponent(prefs.lastfmUsername)}/${stationKey}`);
+        if (!res.ok) throw new Error(`Last.fm station HTTP ${res.status}`);
+        const data = await res.json();
+        const tracks = (data.playlist || []);
+
+        // Match against master tracks by artist + title (case-insensitive)
+        const master = getMasterTracks(db);
+        const lookup = new Map(master.map((t) => [`${t.artist_name?.toLowerCase()}|${t.track_title?.toLowerCase()}`, t.rating_key]));
+        const ratingKeys = [];
+        for (const t of tracks) {
+          const artist = (t.artists?.[0]?._name || '').toLowerCase();
+          const title = (t._name || '').toLowerCase();
+          const key = lookup.get(`${artist}|${title}`);
+          if (key) ratingKeys.push(key);
+        }
+
+        const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
+        await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+
+        const now = Date.now();
+        saveUserGeneratedPlaylist(db, userId, {
+          playlistType: 'lastfm-station', playlistKey,
+          plexPlaylistId: playlistRow.plexPlaylistId,
+          playlistTitle, algorithmVersion: 'lastfm-station-v1',
+          lastBuiltAt: now, lastSyncedAt: now,
+          trackCount: ratingKeys.length, active: true, updatedAt: now,
+        });
+        ctx.pushLog({ level: 'info', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} synced: ${ratingKeys.length}/${tracks.length} matched for ${userId}` });
+      } catch (err) {
+        ctx.pushLog({ level: 'warn', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} sync failed for ${userId}: ${err.message}` });
+      }
+    }
+  }
+
   async function syncCrescive(userId, options = {}) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
     const playlistCfg = { ...{ favouriteArtistTrackPct: 0.80, favouriteGenreArtistPct: 0.80, favouriteGenreTrackPct: 0.20, otherGenreArtistPct: 0.20, otherGenreTrackPct: 0.20 }, ...(smartConfig.crescive || {}) };
@@ -840,6 +910,7 @@ export function createPlaylistService(ctx) {
     syncDailyMix,
     syncGlobalPlaylist,
     syncPersonalPlaylist,
+    syncLastfmStations,
     syncCrescive,
     syncCurative,
     syncBothForUser,

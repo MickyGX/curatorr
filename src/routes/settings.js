@@ -790,8 +790,12 @@ export function registerSettings(app, ctx) {
     const userPlexId = String(req.session?.user?.username || '').trim();
     if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     const lastfmUsername = String(req.body?.lastfmUsername || '').trim();
+    const rawStations = req.body?.lastfmStations;
+    const VALID_STATIONS = ['recommended', 'mix', 'library'];
+    const lastfmEnabledStations = (Array.isArray(rawStations) ? rawStations : rawStations ? [rawStations] : [])
+      .filter((s) => VALID_STATIONS.includes(s));
     const prefs = getUserPreferences(db, userPlexId);
-    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername });
+    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations });
     return res.redirect('/user-settings?success=lastfm-updated');
   });
 
@@ -802,6 +806,7 @@ export function registerSettings(app, ctx) {
     const current = config.jobs || {};
     const updated = {};
     for (const jobId of Object.keys(JOB_DEFS)) {
+      if (JOB_DEFS[jobId].manualOnly) continue;
       const intervalMinutes = Math.max(1, Math.min(1440, Number(req.body?.[`${jobId}_interval`]) || JOB_DEFS[jobId].defaultIntervalMinutes));
       const enabled = Boolean(req.body?.[`${jobId}_enabled`]);
       updated[jobId] = { ...current[jobId], intervalMinutes, enabled };
