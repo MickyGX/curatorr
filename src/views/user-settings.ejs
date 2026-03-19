@@ -34,7 +34,7 @@
       <div class="dash-panel">
         <div class="panel-header">
           <h2>User Profile</h2>
-          <span class="panel-sub">Profile and view mode</span>
+          <span class="panel-sub">Profile settings</span>
         </div>
 
         <%
@@ -49,6 +49,7 @@
             'filters-updated': 'Artist filters updated.',
             'preset-updated': 'Curation style saved.',
             'lastfm-updated': 'Last.fm username saved.',
+            'backfill-reset': 'Backfill reset — trigger Last.fm History Backfill in Jobs to restart.',
           };
           const profileNote = error
             ? error
@@ -343,7 +344,7 @@
               <% if (lastfmUsername) { %>
                 <div class="field-group-label" style="margin-top:1rem;">Last.fm Station Playlists</div>
                 <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in Plex. Updated with each playlist sync.</div>
-                <% [['recommended','Recommended'],['mix','Mix'],['library','Library']].forEach(([key, label]) => { %>
+                <% [['recommended','Recommended'],['mix','Mix'],['library','Library'],['neighbours','Neighbours']].forEach(([key, label]) => { %>
                   <div class="settings-access-row">
                     <label class="settings-toggle">
                       <input type="checkbox" name="lastfmStations" value="<%= key %>" <%= (lastfmEnabledStations || []).includes(key) ? 'checked' : '' %> />
@@ -355,31 +356,59 @@
               <% } %>
               <button class="primary-button" type="submit">Save Last.fm settings</button>
             </form>
+            <% if (lastfmUsername) { %>
+              <div class="settings-form" style="margin-top:0.75rem;">
+                <div class="field-group-label">Last.fm Full History Backfill</div>
+                <div class="settings-card-sub" style="margin-bottom:0.5rem;">
+                  <% if (lastfmBackfillCursor === -1) { %>
+                    Backfill is complete. Reset to re-run from the beginning, then run the backfill again.
+                  <% } else if (lastfmBackfillCursor > 0) { %>
+                    Backfill is in progress — run again to continue from where it left off.
+                  <% } else { %>
+                    Import your full scrobble history from Last.fm. Large histories require multiple runs.
+                  <% } %>
+                </div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                  <button class="secondary-button" type="button" id="lastfmRunBackfillBtn">
+                    <%= lastfmBackfillCursor > 0 ? 'Continue backfill' : 'Run backfill' %>
+                  </button>
+                  <% if (lastfmBackfillCursor === -1) { %>
+                    <form method="post" action="/user-settings/lastfm/reset-backfill" style="margin:0;">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                      <button class="secondary-button" type="submit">Reset backfill</button>
+                    </form>
+                  <% } %>
+                </div>
+                <div id="lastfmBackfillStatus" style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted);display:none;"></div>
+              </div>
+            <% } %>
           </div>
 
-          <% if (actualRole === 'admin') { %>
-            <div class="settings-card">
-              <div class="settings-card-title">View mode</div>
-              <div class="settings-card-sub">Preview user access without leaving your account.</div>
-              <form method="post" action="/switch-view" class="settings-access-form">
-                <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
-                <input type="hidden" name="role" value="<%= role === 'admin' ? 'user' : 'admin' %>" />
-                <div class="settings-access-row">
-                  <label class="settings-toggle">
-                    <input type="checkbox" id="viewModeToggle" <%= role === 'admin' ? 'checked' : '' %> />
-                    <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    <span class="settings-toggle-text"><%= role === 'admin' ? 'Admin view' : 'User view' %></span>
-                  </label>
-                  <button class="primary-button" type="submit"><%= role === 'admin' ? 'Switch to user view' : 'Switch to admin view' %></button>
-                </div>
-              </form>
-            </div>
-          <% } %>
         </div>
       </div>
     </section>
   </div>
 
+  <script>
+    (function() {
+      var btn = document.getElementById('lastfmRunBackfillBtn');
+      var status = document.getElementById('lastfmBackfillStatus');
+      if (!btn) return;
+      btn.addEventListener('click', function() {
+        btn.disabled = true;
+        btn.textContent = 'Running…';
+        if (status) { status.textContent = 'Backfill started — this runs in the background. Refresh this page in a minute to see the updated status.'; status.style.display = ''; }
+        fetch('/user-settings/lastfm/run-backfill', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': '<%= csrfToken %>' },
+        }).catch(function() {
+          if (status) status.textContent = 'Failed to start backfill.';
+          btn.disabled = false;
+          btn.textContent = 'Run backfill';
+        });
+      });
+    })();
+  </script>
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>

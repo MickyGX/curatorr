@@ -2821,6 +2821,10 @@ body.cur-modal-open {
 .cur-panel--playlists-page-carousel {
   margin: 0 10px 6px;
   top: 60px;
+  width: calc(100% - 20px);
+  max-width: calc(100% - 20px);
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 html[data-launcharr-embed="1"] .cur-panel--playlist-carousel {
@@ -2845,6 +2849,8 @@ html[data-launcharr-embed="1"] .cur-panel--playlist-carousel {
   cursor: grab;
   scrollbar-width: none;
   padding: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .cur-playlist-carousel-viewport {
@@ -2867,12 +2873,29 @@ html[data-launcharr-embed="1"] .cur-panel--playlist-carousel {
 
 .cur-dashboard-playlists-track,
 .cur-playlist-carousel-track {
-  min-width: 0;
+  display: flex;
+  width: max-content;
+  min-width: max-content;
 }
 
 .cur-dashboard-playlist-card,
 .cur-playlist-carousel-card {
   scroll-snap-align: start;
+}
+
+html[data-carousel-free-scroll="1"] .cur-dashboard-playlists-viewport,
+html[data-carousel-free-scroll="1"] .cur-playlist-carousel-viewport,
+html[data-carousel-free-scroll="1"] .cur-streams-viewport,
+html[data-carousel-free-scroll="1"] .cur-discover-artist-viewport {
+  scroll-snap-type: none;
+  scroll-behavior: auto;
+}
+
+html[data-carousel-free-scroll="1"] .cur-dashboard-playlist-card,
+html[data-carousel-free-scroll="1"] .cur-playlist-carousel-card,
+html[data-carousel-free-scroll="1"] .cur-stream-card,
+html[data-carousel-free-scroll="1"] .cur-discover-result-card {
+  scroll-snap-align: unset;
 }
 
 .cur-playlist-carousel-card {
@@ -3714,12 +3737,16 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 
 .cur-playlists-page .cur-panel--playlist-tracks {
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -3727,6 +3754,8 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 .cur-playlists-page .cur-panel--playlist-tracks .cur-panel-body {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .cur-playlists-page .cur-pl-table {

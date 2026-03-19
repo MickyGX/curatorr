@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.23 (2026-03-19)
+
+- Added Last.fm Neighbours station playlist — toggle alongside Recommended, Mix, and Library in User Profile.
+- Added Last.fm Full History Backfill controls to User Profile — users can now trigger and reset their own backfill without admin access.
+- Fixed Last.fm History Backfill incorrectly marking history as complete after the first batch when more than 10,000 scrobbles exist; the cursor now advances correctly across all pages.
+- Fixed playlist carousel overflowing the page horizontally instead of scrolling internally.
+- Added Last.fm Tags, Last.fm Sync, and Last.fm Backfill as separate filter options in the Settings activity log.
+
 ## v0.1.22 (2026-03-19)
 
 - Added Plex Home Users support — profile picker shown after Plex SSO when multiple home users exist, with PIN entry for PIN-protected profiles.

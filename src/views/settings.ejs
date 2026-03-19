@@ -1022,10 +1022,15 @@
                   <span>API Key</span>
                   <input type="text" name="lastfmApiKey" value="<%= config.discovery?.lastfmApiKey || '' %>" placeholder="Your Last.fm API key" autocomplete="off" />
                 </label>
+                <% const _lastfmRegion = String(config.discovery?.region || 'united kingdom').trim().toLowerCase() || 'united kingdom'; %>
                 <label class="field">
                   <span>Region / Country</span>
-                  <input type="text" name="region" value="<%= config.discovery?.region || 'united states' %>" placeholder="united states" />
-                  <small class="settings-card-sub" style="margin-top:4px;display:block">Lowercase country name for regional charts (e.g. "united kingdom", "germany", "australia").</small>
+                  <select class="settings-select" name="region">
+                    <% (lastfmRegionOptions || []).forEach(function(regionOption) { %>
+                      <option value="<%= regionOption.value %>" <%= _lastfmRegion === regionOption.value ? 'selected' : '' %>><%= regionOption.label %></option>
+                    <% }) %>
+                  </select>
+                  <small class="settings-card-sub" style="margin-top:4px;display:block">Used for Last.fm regional charts on Discover.</small>
                 </label>
               </div>
               <div class="settings-card">
@@ -1266,6 +1271,9 @@
                     <option value="music">Music</option>
                     <option value="playlist">Playlist</option>
                     <option value="recommendations">Recommendations</option>
+                    <option value="lastfm">Last.fm Tags</option>
+                    <option value="lastfm-sync">Last.fm Sync</option>
+                    <option value="lastfm-backfill">Last.fm Backfill</option>
                     <option value="lidarr">Lidarr</option>
                     <option value="client">Client</option>
                   </select>
@@ -1412,45 +1420,53 @@
         <div class="settings-tab-panel<%= _tab === 'appearance' ? ' is-active' : '' %>" data-tab="appearance">
           <div class="dash-panel">
             <div class="settings-card settings-card--themes">
-              <div class="settings-card-title">Dark / Light Mode</div>
-              <div class="settings-card-sub">Choose your preferred color scheme.</div>
-              <div class="cur-mode-cards" id="modeCards">
-                <button class="cur-mode-card" type="button" data-mode="night" id="modeNight">
-                  <span class="cur-mode-icon">🌙</span>
-                  <span class="cur-mode-name">Dark</span>
-                  <span class="cur-mode-meta">Night mode</span>
-                </button>
-                <button class="cur-mode-card" type="button" data-mode="day" id="modeDay">
-                  <span class="cur-mode-icon">☀️</span>
-                  <span class="cur-mode-name">Light</span>
-                  <span class="cur-mode-meta">Day mode</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="settings-card settings-card--themes">
-              <div class="settings-card-title">Colour Theme</div>
-              <div class="settings-card-sub">Pick an accent colour for the interface.</div>
+              <div class="settings-card-title">Themes</div>
+              <div class="settings-card-sub">Choose a preset theme for Curatorr.</div>
               <div class="theme-presets" id="themePresets">
                 <button class="theme-preset-card" type="button" data-brand-theme="curatorr">
                   <span class="theme-preset-chip" style="--theme-color:#8b5cf6"></span>
                   <span class="theme-preset-name">Curatorr</span>
                   <span class="theme-preset-meta">Purple</span>
                 </button>
+                <button class="theme-preset-card" type="button" data-brand-theme="launcharr">
+                  <span class="theme-preset-chip" style="--theme-color:#6d7a86"></span>
+                  <span class="theme-preset-name">Launcharr</span>
+                  <span class="theme-preset-meta">Gunmetal</span>
+                </button>
+                <button class="theme-preset-card" type="button" data-brand-theme="rocketship">
+                  <span class="theme-preset-chip" style="--theme-color:#b8c1ca"></span>
+                  <span class="theme-preset-name">Rocketship</span>
+                  <span class="theme-preset-meta">Silver</span>
+                </button>
                 <button class="theme-preset-card" type="button" data-brand-theme="pulsarr">
                   <span class="theme-preset-chip" style="--theme-color:#1cc6c2"></span>
                   <span class="theme-preset-name">Pulsarr</span>
-                  <span class="theme-preset-meta">Teal</span>
+                  <span class="theme-preset-meta">Pulsarr teal</span>
                 </button>
                 <button class="theme-preset-card" type="button" data-brand-theme="plex">
                   <span class="theme-preset-chip" style="--theme-color:#f9ad2f"></span>
                   <span class="theme-preset-name">Plex</span>
-                  <span class="theme-preset-meta">Orange</span>
+                  <span class="theme-preset-meta">Plex orange</span>
+                </button>
+                <button class="theme-preset-card" type="button" data-brand-theme="radarr">
+                  <span class="theme-preset-chip" style="--theme-color:#f4c542"></span>
+                  <span class="theme-preset-name">Radarr</span>
+                  <span class="theme-preset-meta">Radarr yellow</span>
+                </button>
+                <button class="theme-preset-card" type="button" data-brand-theme="sonarr">
+                  <span class="theme-preset-chip" style="--theme-color:#3d7bfd"></span>
+                  <span class="theme-preset-name">Sonarr</span>
+                  <span class="theme-preset-meta">Sonarr blue</span>
                 </button>
                 <button class="theme-preset-card" type="button" data-brand-theme="lidarr">
                   <span class="theme-preset-chip" style="--theme-color:#53b86a"></span>
                   <span class="theme-preset-name">Lidarr</span>
-                  <span class="theme-preset-meta">Green</span>
+                  <span class="theme-preset-meta">Lidarr green</span>
+                </button>
+                <button class="theme-preset-card" type="button" data-brand-theme="readarr">
+                  <span class="theme-preset-chip" style="--theme-color:#d84a4a"></span>
+                  <span class="theme-preset-name">Readarr</span>
+                  <span class="theme-preset-meta">Readarr red</span>
                 </button>
                 <button class="theme-preset-card" type="button" data-brand-theme="custom">
                   <span class="theme-preset-chip theme-preset-chip--custom" data-custom-chip style="--theme-color:#8b5cf6">
@@ -1460,38 +1476,41 @@
                   <span class="theme-preset-meta">Colour wheel</span>
                 </button>
               </div>
-            </div>
-
-            <div class="settings-card settings-card--themes">
-              <div class="settings-card-title">Display Options</div>
-              <div class="settings-card-sub">Fine-tune the visual experience.</div>
-              <div class="theme-options">
-                <label class="settings-toggle theme-option" id="optSidebarInvert">
-                  <input type="checkbox" id="chkSidebarInvert" />
+              <div class="theme-options" id="themeOptions">
+                <label class="settings-toggle theme-option">
+                  <input id="themeSidebarInvert" type="checkbox" />
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="theme-option-copy">
                     <strong>Invert sidebar colours</strong>
                     <small>Swap sidebar dark/theme emphasis.</small>
                   </span>
                 </label>
-                <label class="settings-toggle theme-option" id="optSquareCorners">
-                  <input type="checkbox" id="chkSquareCorners" />
+                <label class="settings-toggle theme-option">
+                  <input id="themeSquareCorners" type="checkbox" />
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="theme-option-copy">
                     <strong>Square corners</strong>
                     <small>Remove rounded corners across the UI.</small>
                   </span>
                 </label>
-                <label class="settings-toggle theme-option" id="optBgMotion">
-                  <input type="checkbox" id="chkBgMotion" />
+                <label class="settings-toggle theme-option">
+                  <input id="themeBgMotion" type="checkbox" checked />
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="theme-option-copy">
-                    <strong>Animated background</strong>
-                    <small>Moving star field in the background.</small>
+                    <strong>Animated space background</strong>
+                    <small>Theme-linked moving star field.</small>
                   </span>
                 </label>
-                <label class="settings-toggle theme-option" id="optHideScrollbars">
-                  <input type="checkbox" id="chkHideScrollbars" />
+                <label class="settings-toggle theme-option">
+                  <input id="themeCarouselFreeScroll" type="checkbox" />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="theme-option-copy">
+                    <strong>Free carousel scroll</strong>
+                    <small>Disable index snapping and allow fast horizontal swipe scrolling.</small>
+                  </span>
+                </label>
+                <label class="settings-toggle theme-option">
+                  <input id="themeHideScrollbars" type="checkbox" />
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="theme-option-copy">
                     <strong>Hide scrollbars</strong>
@@ -1499,6 +1518,29 @@
                   </span>
                 </label>
               </div>
+              <%
+                const themeDefaultsResultMap = {
+                  saved: 'Default theme saved.',
+                };
+                const themeDefaultsNote = themeDefaultsError
+                  ? themeDefaultsError
+                  : (themeDefaultsResultMap[themeDefaultsResult] || '');
+              %>
+              <form method="post" action="/settings/theme-defaults" class="settings-card-actions" id="themeDefaultForm">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <input type="hidden" name="theme_mode" id="themeDefaultMode" />
+                <input type="hidden" name="theme_brand_theme" id="themeDefaultBrandTheme" />
+                <input type="hidden" name="theme_custom_color" id="themeDefaultCustomColor" />
+                <input type="hidden" name="theme_sidebar_invert" id="themeDefaultSidebarInvert" />
+                <input type="hidden" name="theme_square_corners" id="themeDefaultSquareCorners" />
+                <input type="hidden" name="theme_bg_motion" id="themeDefaultBgMotion" />
+                <input type="hidden" name="theme_carousel_free_scroll" id="themeDefaultCarouselFreeScroll" />
+                <input type="hidden" name="theme_hide_scrollbars" id="themeDefaultHideScrollbars" />
+                <button class="primary-button" type="submit">Save current theme as default</button>
+              </form>
+              <% if (themeDefaultsNote) { %>
+                <span class="settings-users-note<%= themeDefaultsError ? ' settings-users-note--error' : '' %>"><%= themeDefaultsNote %></span>
+              <% } %>
             </div>
           </div>
         </div>
@@ -1720,6 +1762,9 @@
       music: 'Music',
       playlist: 'Playlist',
       recommendations: 'Recommendations',
+      lastfm: 'Last.fm Tags',
+      'lastfm-sync': 'Last.fm Sync',
+      'lastfm-backfill': 'Last.fm Backfill',
       lidarr: 'Lidarr',
       client: 'Client'
     };
@@ -1974,141 +2019,223 @@
 
   // ── Appearance ─────────────────────────────────────────────────────────────
   (function() {
-    var BRAND_COLORS = {
-      curatorr: { hex:'#8b5cf6', r:139, g:92,  b:246 },
-      pulsarr:  { hex:'#1cc6c2', r:28,  g:198, b:194 },
-      plex:     { hex:'#f9ad2f', r:249, g:173, b:47  },
-      lidarr:   { hex:'#53b86a', r:83,  g:184, b:106 },
-    };
-
-    function mix(base, target, amt) { return Math.round(base + (target - base) * amt); }
-    function toHex(v) { return Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0'); }
-
-    function applyBrandTheme(theme, customHex) {
-      var hex, r, g, b;
-      if (theme === 'custom') {
-        hex = customHex || '#8b5cf6';
-        r = parseInt(hex.slice(1,3), 16);
-        g = parseInt(hex.slice(3,5), 16);
-        b = parseInt(hex.slice(5,7), 16);
-      } else {
-        var c = BRAND_COLORS[theme] || BRAND_COLORS.curatorr;
-        hex = c.hex; r = c.r; g = c.g; b = c.b;
-      }
-      var dark  = '#' + toHex(mix(r,0,.4))   + toHex(mix(g,0,.4))   + toHex(mix(b,0,.4));
-      var start = '#' + toHex(mix(r,255,.35)) + toHex(mix(g,255,.35))+ toHex(mix(b,255,.35));
-      var end   = '#' + toHex(mix(r,0,.2))    + toHex(mix(g,0,.2))   + toHex(mix(b,0,.2));
-      var lum = 0.2126*Math.pow(r/255,2.2) + 0.7152*Math.pow(g/255,2.2) + 0.0722*Math.pow(b/255,2.2);
-      var onBrand = (1.05/(lum+0.05)) >= ((lum+0.05)/0.05) ? '#ffffff' : '#081013';
-      var root = document.documentElement;
-      root.style.setProperty('--teal', hex);
-      root.style.setProperty('--teal-dark', dark);
-      root.style.setProperty('--brand-rgb', r+','+g+','+b);
-      root.style.setProperty('--brand-btn-start', start);
-      root.style.setProperty('--brand-btn-mid', hex);
-      root.style.setProperty('--brand-btn-end', end);
-      root.style.setProperty('--brand-btn-shadow', mix(r,0,.28)+','+mix(g,0,.28)+','+mix(b,0,.28));
-      root.style.setProperty('--on-brand', onBrand);
-    }
-
-    // Read current state
     var root = document.documentElement;
-    var storedTheme    = '';
-    var storedBrand    = '';
-    var storedCustom   = '';
-    var storedInvert   = false;
-    var storedSquare   = false;
-    var storedMotion   = true;
-    var storedScrollbars = false;
-    try {
-      storedTheme    = localStorage.getItem('curatorr-theme') || root.dataset.theme || 'night';
-      storedBrand    = localStorage.getItem('curatorr-brand-theme') || root.dataset.brandTheme || 'curatorr';
-      storedCustom   = localStorage.getItem('curatorr-custom-color') || '#8b5cf6';
-      storedInvert   = localStorage.getItem('curatorr-sidebar-invert') === '1';
-      storedSquare   = localStorage.getItem('curatorr-square-corners') === '1';
-      var motionRaw  = localStorage.getItem('curatorr-bg-motion');
-      storedMotion   = motionRaw === null ? true : (motionRaw === '1');
-      storedScrollbars = localStorage.getItem('curatorr-hide-scrollbars') === '1';
-    } catch(e) {}
-
-    // Mode cards
-    var modeCards = document.querySelectorAll('#modeCards .cur-mode-card');
-    function syncModeCards(mode) {
-      modeCards.forEach(function(c) { c.classList.toggle('is-active', c.dataset.mode === mode); });
-    }
-    syncModeCards(storedTheme);
-    modeCards.forEach(function(card) {
-      card.addEventListener('click', function() {
-        var mode = card.dataset.mode;
-        root.dataset.theme = mode;
-        try { localStorage.setItem('curatorr-theme', mode); } catch(e) {}
-        syncModeCards(mode);
+    var themePresetButtons = Array.from(document.querySelectorAll('.theme-preset-card'));
+    var customThemeColorInput = document.getElementById('customThemeColor');
+    var customThemeChip = document.querySelector('[data-custom-chip]');
+    var themeSidebarInvertToggle = document.getElementById('themeSidebarInvert');
+    var themeSquareCornersToggle = document.getElementById('themeSquareCorners');
+    var themeBgMotionToggle = document.getElementById('themeBgMotion');
+    var themeCarouselFreeScrollToggle = document.getElementById('themeCarouselFreeScroll');
+    var themeHideScrollbarsToggle = document.getElementById('themeHideScrollbars');
+    var themeDefaultForm = document.getElementById('themeDefaultForm');
+    var themeDefaultModeInput = document.getElementById('themeDefaultMode');
+    var themeDefaultBrandThemeInput = document.getElementById('themeDefaultBrandTheme');
+    var themeDefaultCustomColorInput = document.getElementById('themeDefaultCustomColor');
+    var themeDefaultSidebarInvertInput = document.getElementById('themeDefaultSidebarInvert');
+    var themeDefaultSquareCornersInput = document.getElementById('themeDefaultSquareCorners');
+    var themeDefaultBgMotionInput = document.getElementById('themeDefaultBgMotion');
+    var themeDefaultCarouselFreeScrollInput = document.getElementById('themeDefaultCarouselFreeScroll');
+    var themeDefaultHideScrollbarsInput = document.getElementById('themeDefaultHideScrollbars');
+    var allowedBrandThemes = new Set(['custom', 'curatorr', 'launcharr', 'rocketship', 'pulsarr', 'plex', 'radarr', 'sonarr', 'lidarr', 'readarr']);
+    var customColorStorageKey = 'curatorr-custom-color';
+    var serverThemeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
+    var themeOptionStorageKeys = {
+      sidebarInvert: 'curatorr-sidebar-invert',
+      squareCorners: 'curatorr-square-corners',
+      bgMotion: 'curatorr-bg-motion',
+      carouselFreeScroll: 'curatorr-carousel-free-scroll',
+      hideScrollbars: 'curatorr-hide-scrollbars',
+    };
+    var safeStorage = {
+      get: function(key) {
+        try { return localStorage.getItem(key); } catch (_err) { return null; }
+      },
+      set: function(key, value) {
+        try { localStorage.setItem(key, value); } catch (_err) {}
+      }
+    };
+    var resolveBrandTheme = function(value) {
+      var raw = String(value || '').trim().toLowerCase();
+      return allowedBrandThemes.has(raw) ? raw : 'curatorr';
+    };
+    var parseStoredBool = function(key, defaultValue) {
+      var raw = safeStorage.get(key);
+      if (raw === null || raw === undefined) return Boolean(defaultValue);
+      return raw === '1' || raw === 'true';
+    };
+    var applyThemeOptions = function(options) {
+      var sidebarInvert = Boolean(options && options.sidebarInvert);
+      var squareCorners = Boolean(options && options.squareCorners);
+      var bgMotion = !options || options.bgMotion !== false;
+      var carouselFreeScroll = Boolean(options && options.carouselFreeScroll);
+      var hideScrollbars = Boolean(options && options.hideScrollbars);
+      root.dataset.sidebarInvert = sidebarInvert ? '1' : '0';
+      root.dataset.squareCorners = squareCorners ? '1' : '0';
+      root.dataset.bgMotion = bgMotion ? '1' : '0';
+      root.dataset.carouselFreeScroll = carouselFreeScroll ? '1' : '0';
+      root.dataset.hideScrollbars = hideScrollbars ? '1' : '0';
+      safeStorage.set(themeOptionStorageKeys.sidebarInvert, sidebarInvert ? '1' : '0');
+      safeStorage.set(themeOptionStorageKeys.squareCorners, squareCorners ? '1' : '0');
+      safeStorage.set(themeOptionStorageKeys.bgMotion, bgMotion ? '1' : '0');
+      safeStorage.set(themeOptionStorageKeys.carouselFreeScroll, carouselFreeScroll ? '1' : '0');
+      safeStorage.set(themeOptionStorageKeys.hideScrollbars, hideScrollbars ? '1' : '0');
+      if (themeSidebarInvertToggle) themeSidebarInvertToggle.checked = sidebarInvert;
+      if (themeSquareCornersToggle) themeSquareCornersToggle.checked = squareCorners;
+      if (themeBgMotionToggle) themeBgMotionToggle.checked = bgMotion;
+      if (themeCarouselFreeScrollToggle) themeCarouselFreeScrollToggle.checked = carouselFreeScroll;
+      if (themeHideScrollbarsToggle) themeHideScrollbarsToggle.checked = hideScrollbars;
+      syncThemeDefaultForm();
+    };
+    var syncThemeOptionsFromInputs = function() {
+      applyThemeOptions({
+        sidebarInvert: Boolean(themeSidebarInvertToggle && themeSidebarInvertToggle.checked),
+        squareCorners: Boolean(themeSquareCornersToggle && themeSquareCornersToggle.checked),
+        bgMotion: Boolean(themeBgMotionToggle && themeBgMotionToggle.checked),
+        carouselFreeScroll: Boolean(themeCarouselFreeScrollToggle && themeCarouselFreeScrollToggle.checked),
+        hideScrollbars: Boolean(themeHideScrollbarsToggle && themeHideScrollbarsToggle.checked),
       });
+    };
+    var parseHexColor = function(value) {
+      var raw = String(value || '').trim();
+      var normalized = raw.startsWith('#') ? raw : ('#' + raw);
+      return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : '#8b5cf6';
+    };
+    var hexToRgb = function(hex) {
+      return {
+        r: Number.parseInt(hex.slice(1, 3), 16),
+        g: Number.parseInt(hex.slice(3, 5), 16),
+        b: Number.parseInt(hex.slice(5, 7), 16),
+      };
+    };
+    var rgbToHex = function(r, g, b) {
+      return '#' + [r, g, b].map(function(value) {
+        return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+      }).join('');
+    };
+    var mixRgb = function(base, target, amount) {
+      return {
+        r: base.r + (target.r - base.r) * amount,
+        g: base.g + (target.g - base.g) * amount,
+        b: base.b + (target.b - base.b) * amount,
+      };
+    };
+    var clearCustomThemeVars = function() {
+      ['--teal', '--teal-dark', '--brand-rgb', '--brand-btn-start', '--brand-btn-mid', '--brand-btn-end', '--brand-btn-shadow', '--on-brand', '--on-brand-muted', '--on-brand-icon-filter'].forEach(function(name) {
+        root.style.removeProperty(name);
+      });
+    };
+    var applyCustomColor = function(inputHex) {
+      var hex = parseHexColor(inputHex);
+      var base = hexToRgb(hex);
+      var dark = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.4);
+      var start = mixRgb(base, { r: 255, g: 255, b: 255 }, 0.35);
+      var end = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.2);
+      var shadow = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.28);
+      var toLinear = function(channel) {
+        var value = channel / 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+      };
+      var luminance = 0.2126 * toLinear(base.r) + 0.7152 * toLinear(base.g) + 0.0722 * toLinear(base.b);
+      var contrastWhite = 1.05 / (luminance + 0.05);
+      var contrastBlack = (luminance + 0.05) / 0.05;
+      var onBrand = contrastWhite >= contrastBlack ? '#ffffff' : '#081013';
+      var onBrandMuted = contrastWhite >= contrastBlack ? 'rgba(255,255,255,.78)' : 'rgba(8,16,19,.72)';
+      var onBrandIconFilter = contrastWhite >= contrastBlack ? 'brightness(0) saturate(100%) invert(1)' : 'brightness(0) saturate(100%)';
+      root.style.setProperty('--teal', hex);
+      root.style.setProperty('--teal-dark', rgbToHex(dark.r, dark.g, dark.b));
+      root.style.setProperty('--brand-rgb', Math.round(base.r) + ',' + Math.round(base.g) + ',' + Math.round(base.b));
+      root.style.setProperty('--brand-btn-start', rgbToHex(start.r, start.g, start.b));
+      root.style.setProperty('--brand-btn-mid', hex);
+      root.style.setProperty('--brand-btn-end', rgbToHex(end.r, end.g, end.b));
+      root.style.setProperty('--brand-btn-shadow', Math.round(shadow.r) + ',' + Math.round(shadow.g) + ',' + Math.round(shadow.b));
+      root.style.setProperty('--on-brand', onBrand);
+      root.style.setProperty('--on-brand-muted', onBrandMuted);
+      root.style.setProperty('--on-brand-icon-filter', onBrandIconFilter);
+      if (customThemeChip) customThemeChip.style.setProperty('--theme-color', hex);
+      return hex;
+    };
+    var applyBrandTheme = function(theme) {
+      var normalized = allowedBrandThemes.has(theme) ? theme : 'curatorr';
+      root.dataset.brandTheme = normalized;
+      safeStorage.set('curatorr-brand-theme', normalized);
+      if (normalized === 'custom') {
+        var savedCustomHex = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#8b5cf6');
+        var appliedHex = applyCustomColor(savedCustomHex);
+        if (customThemeColorInput) customThemeColorInput.value = appliedHex;
+      } else {
+        clearCustomThemeVars();
+      }
+      themePresetButtons.forEach(function(btn) {
+        var isActive = btn.dataset.brandTheme === normalized;
+        btn.classList.toggle('is-active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+      syncThemeDefaultForm();
+    };
+    function syncThemeDefaultForm() {
+      if (!themeDefaultForm) return;
+      if (themeDefaultModeInput) {
+        themeDefaultModeInput.value = root.dataset.theme === 'day' ? 'day' : 'night';
+      }
+      if (themeDefaultBrandThemeInput) {
+        themeDefaultBrandThemeInput.value = resolveBrandTheme(root.dataset.brandTheme || serverThemeDefaults.brandTheme);
+      }
+      if (themeDefaultCustomColorInput) {
+        themeDefaultCustomColorInput.value = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#8b5cf6');
+      }
+      if (themeDefaultSidebarInvertInput) {
+        themeDefaultSidebarInvertInput.value = themeSidebarInvertToggle && themeSidebarInvertToggle.checked ? '1' : '0';
+      }
+      if (themeDefaultSquareCornersInput) {
+        themeDefaultSquareCornersInput.value = themeSquareCornersToggle && themeSquareCornersToggle.checked ? '1' : '0';
+      }
+      if (themeDefaultBgMotionInput) {
+        themeDefaultBgMotionInput.value = themeBgMotionToggle && themeBgMotionToggle.checked ? '1' : '0';
+      }
+      if (themeDefaultCarouselFreeScrollInput) {
+        themeDefaultCarouselFreeScrollInput.value = themeCarouselFreeScrollToggle && themeCarouselFreeScrollToggle.checked ? '1' : '0';
+      }
+      if (themeDefaultHideScrollbarsInput) {
+        themeDefaultHideScrollbarsInput.value = themeHideScrollbarsToggle && themeHideScrollbarsToggle.checked ? '1' : '0';
+      }
+    }
+    var initialThemeOptions = {
+      sidebarInvert: parseStoredBool(themeOptionStorageKeys.sidebarInvert, serverThemeDefaults.sidebarInvert === true),
+      squareCorners: parseStoredBool(themeOptionStorageKeys.squareCorners, serverThemeDefaults.squareCorners === true),
+      bgMotion: parseStoredBool(themeOptionStorageKeys.bgMotion, serverThemeDefaults.bgMotion === undefined ? true : serverThemeDefaults.bgMotion === true),
+      carouselFreeScroll: parseStoredBool(themeOptionStorageKeys.carouselFreeScroll, serverThemeDefaults.carouselFreeScroll === true),
+      hideScrollbars: parseStoredBool(themeOptionStorageKeys.hideScrollbars, serverThemeDefaults.hideScrollbars === true),
+    };
+    applyThemeOptions(initialThemeOptions);
+    themeSidebarInvertToggle && themeSidebarInvertToggle.addEventListener('change', syncThemeOptionsFromInputs);
+    themeSquareCornersToggle && themeSquareCornersToggle.addEventListener('change', syncThemeOptionsFromInputs);
+    themeBgMotionToggle && themeBgMotionToggle.addEventListener('change', syncThemeOptionsFromInputs);
+    themeCarouselFreeScrollToggle && themeCarouselFreeScrollToggle.addEventListener('change', syncThemeOptionsFromInputs);
+    themeHideScrollbarsToggle && themeHideScrollbarsToggle.addEventListener('change', syncThemeOptionsFromInputs);
+    if (themePresetButtons.length) {
+      var initialCustomHex = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#8b5cf6');
+      if (customThemeColorInput) customThemeColorInput.value = initialCustomHex;
+      if (customThemeChip) customThemeChip.style.setProperty('--theme-color', initialCustomHex);
+      var storedBrandTheme = safeStorage.get('curatorr-brand-theme');
+      var fallbackBrandTheme = resolveBrandTheme(serverThemeDefaults.brandTheme);
+      applyBrandTheme(allowedBrandThemes.has(storedBrandTheme) ? storedBrandTheme : fallbackBrandTheme);
+      themePresetButtons.forEach(function(btn) {
+        btn.addEventListener('click', function(event) {
+          if (btn.dataset.brandTheme === 'custom' && event.target === customThemeColorInput) return;
+          applyBrandTheme(btn.dataset.brandTheme);
+        });
+      });
+      customThemeColorInput && customThemeColorInput.addEventListener('input', function() {
+        var hex = parseHexColor(customThemeColorInput.value);
+        safeStorage.set(customColorStorageKey, hex);
+        applyBrandTheme('custom');
+      });
+    }
+    syncThemeDefaultForm();
+    themeDefaultForm && themeDefaultForm.addEventListener('submit', function() {
+      syncThemeDefaultForm();
     });
-
-    // Brand theme presets
-    var presets = document.querySelectorAll('#themePresets .theme-preset-card');
-    var customChip = document.querySelector('[data-custom-chip]');
-    var customColorInput = document.getElementById('customThemeColor');
-    if (customColorInput && storedCustom) {
-      customColorInput.value = storedCustom;
-      if (customChip) customChip.style.setProperty('--theme-color', storedCustom);
-    }
-    function syncPresets(brand) {
-      presets.forEach(function(p) { p.classList.toggle('is-active', p.dataset.brandTheme === brand); });
-    }
-    syncPresets(storedBrand);
-    presets.forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        if (e.target === customColorInput) return;
-        var brand = btn.dataset.brandTheme;
-        if (brand === 'custom') {
-          customColorInput && customColorInput.click();
-          return;
-        }
-        root.dataset.brandTheme = brand;
-        try { localStorage.setItem('curatorr-brand-theme', brand); } catch(e) {}
-        applyBrandTheme(brand, storedCustom);
-        syncPresets(brand);
-      });
-    });
-    if (customColorInput) {
-      customColorInput.addEventListener('input', function() {
-        var hex = customColorInput.value;
-        storedCustom = hex;
-        if (customChip) customChip.style.setProperty('--theme-color', hex);
-        try { localStorage.setItem('curatorr-custom-color', hex); } catch(e) {}
-        applyBrandTheme('custom', hex);
-        root.dataset.brandTheme = 'custom';
-        try { localStorage.setItem('curatorr-brand-theme', 'custom'); } catch(e) {}
-        syncPresets('custom');
-      });
-    }
-
-    // Toggle options
-    var chkInvert      = document.getElementById('chkSidebarInvert');
-    var chkSquare      = document.getElementById('chkSquareCorners');
-    var chkMotion      = document.getElementById('chkBgMotion');
-    var chkScrollbars  = document.getElementById('chkHideScrollbars');
-    if (chkInvert) chkInvert.checked = storedInvert;
-    if (chkSquare) chkSquare.checked = storedSquare;
-    if (chkMotion) chkMotion.checked = storedMotion;
-    if (chkScrollbars) chkScrollbars.checked = storedScrollbars;
-
-    function saveToggle(key, el, dataAttr, invert) {
-      el && el.addEventListener('change', function() {
-        var val = el.checked;
-        try { localStorage.setItem(key, val ? '1' : '0'); } catch(e) {}
-        if (dataAttr) root.dataset[dataAttr] = (invert ? !val : val) ? '1' : '0';
-      });
-    }
-    saveToggle('curatorr-sidebar-invert',   chkInvert,     'sidebarInvert',   false);
-    saveToggle('curatorr-square-corners',   chkSquare,     'squareCorners',   false);
-    saveToggle('curatorr-bg-motion',        chkMotion,     'bgMotion',        false);
-    saveToggle('curatorr-hide-scrollbars',  chkScrollbars, 'hideScrollbars',  false);
-
-    // Apply initial brand theme so custom colours survive page load
-    applyBrandTheme(storedBrand, storedCustom);
   })();
 
   // ── Plex field visibility toggles ──────────────────────────────────────────

@@ -897,7 +897,7 @@ export function createPlaylistService(ctx) {
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
 
     const machineId = await resolveMachineId(ctx, config);
-    const STATIONS = { recommended: 'Recommended', mix: 'Mix', library: 'Library' };
+    const STATIONS = { recommended: 'Recommended', mix: 'Mix', library: 'Library', neighbours: 'Neighbours' };
 
     for (const stationKey of prefs.lastfmEnabledStations) {
       const label = STATIONS[stationKey];

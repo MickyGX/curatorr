@@ -508,6 +508,7 @@ export function registerPages(app, ctx) {
     const userPreset = userPrefs?.smartConfig?.preset || null;
     const lastfmUsername = userPrefs?.lastfmUsername || '';
     const lastfmEnabledStations = userPrefs?.lastfmEnabledStations || [];
+    const lastfmBackfillCursor = userPrefs?.lastfmBackfillCursor ?? 0;
     res.render('user-settings', {
       title: 'My Settings — Curatorr',
       user: req.session.user,
@@ -520,6 +521,7 @@ export function registerPages(app, ctx) {
       userPreset,
       lastfmUsername,
       lastfmEnabledStations,
+      lastfmBackfillCursor,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

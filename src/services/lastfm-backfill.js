@@ -94,7 +94,8 @@ async function backfillUser(ctx, { userPlexId, lastfmUsername, cursor, watermark
   let inserted = 0;
   let skipped  = 0;
   let page     = 1;
-  let totalPages  = 1;
+  let totalPages     = 1;
+  let realTotalPages = 1;
   let oldestSeen  = toTs;
   let anyFound    = false;
   let reachedEnd  = false;  // true when Last.fm returns a partial page (no more history)
@@ -103,7 +104,8 @@ async function backfillUser(ctx, { userPlexId, lastfmUsername, cursor, watermark
     const json   = await fetchPage(lastfmUsername, apiKey, toTs, page);
     const tracks = json?.recenttracks?.track || [];
     const attr   = json?.recenttracks?.['@attr'] || {};
-    totalPages   = Math.min(Number(attr.totalPages || 1), MAX_PAGES);
+    realTotalPages = Number(attr.totalPages || 1);
+    totalPages     = Math.min(realTotalPages, MAX_PAGES);
 
     for (const track of tracks) {
       if (track['@attr']?.nowplaying === 'true') continue;
@@ -173,7 +175,7 @@ async function backfillUser(ctx, { userPlexId, lastfmUsername, cursor, watermark
 
   // Done if no tracks were found at all, Last.fm returned a partial page (end of history),
   // or we walked past all available pages
-  const exhausted = !anyFound || reachedEnd || page > Number(totalPages);
+  const exhausted = !anyFound || reachedEnd || page > realTotalPages;
   const newCursor = exhausted ? -1 : oldestSeen;
 
   updateLastfmBackfillCursor(db, userPlexId, newCursor);
@@ -188,6 +190,44 @@ async function backfillUser(ctx, { userPlexId, lastfmUsername, cursor, watermark
   });
 
   return { inserted, skipped, done: exhausted, oldestDate };
+}
+
+// ─── Per-user export ──────────────────────────────────────────────────────────
+
+export async function runLastfmHistoryBackfillForUser(ctx, userPlexId) {
+  const { db, loadConfig, pushLog, safeMessage } = ctx;
+  const config = loadConfig();
+  const globalApiKey = String(config.discovery?.lastfmApiKey || '').trim();
+
+  if (!globalApiKey) {
+    pushLog({ level: 'info', app: 'lastfm-backfill', action: 'backfill.skip', message: 'Last.fm Backfill skipped: no API key configured in Discovery settings' });
+    return { inserted: 0, skipped: 0 };
+  }
+
+  const users = getLastfmUsers(db).filter((r) => String(r.user_plex_id || '') === userPlexId);
+  if (!users.length) {
+    pushLog({ level: 'info', app: 'lastfm-backfill', action: 'backfill.skip', message: 'Last.fm Backfill skipped: no Last.fm username configured for this user' });
+    return { inserted: 0, skipped: 0 };
+  }
+
+  const row            = users[0];
+  const lastfmUsername = String(row.lastfm_username || '').trim();
+  const cursor         = Number(row.lastfm_backfill_cursor ?? 0);
+  const watermark      = Number(row.lastfm_sync_watermark || 0);
+  const smartSettings  = resolveUserSmartConfig(db, config, userPlexId);
+  const songSkipLimit  = Number(smartSettings.songSkipLimit) || 3;
+
+  try {
+    const result = await backfillUser(ctx, { userPlexId, lastfmUsername, cursor, watermark, apiKey: globalApiKey, smartSettings, songSkipLimit });
+    const summary = result.done
+      ? `Last.fm Backfill complete — all history imported. ${result.inserted} plays added.`
+      : `Last.fm Backfill batch done — ${result.inserted} plays added${result.oldestDate ? `, reached ${result.oldestDate}` : ''}. Run again to continue.`;
+    pushLog({ level: 'info', app: 'lastfm-backfill', action: 'backfill.complete', message: summary });
+    return { inserted: result.inserted, skipped: result.skipped, message: summary };
+  } catch (err) {
+    pushLog({ level: 'error', app: 'lastfm-backfill', action: 'backfill.user.error', message: `Backfill failed for ${lastfmUsername}: ${safeMessage(err)}` });
+    return { inserted: 0, skipped: 0 };
+  }
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────

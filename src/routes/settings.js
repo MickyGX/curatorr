@@ -1,8 +1,228 @@
 import crypto from 'crypto';
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags } from '../db.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags } from '../db.js';
 import { JOB_DEFS } from '../services/jobs.js';
+import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
 
 // Settings routes — GET /settings and all POST /settings/*
+
+const DEFAULT_LASTFM_REGION = 'united kingdom';
+const LASTFM_REGION_NAMES = [
+  'afghanistan',
+  'albania',
+  'algeria',
+  'andorra',
+  'angola',
+  'antigua and barbuda',
+  'argentina',
+  'armenia',
+  'australia',
+  'austria',
+  'azerbaijan',
+  'bahamas',
+  'bahrain',
+  'bangladesh',
+  'barbados',
+  'belarus',
+  'belgium',
+  'belize',
+  'benin',
+  'bhutan',
+  'bolivia',
+  'bosnia and herzegovina',
+  'botswana',
+  'brazil',
+  'brunei',
+  'bulgaria',
+  'burkina faso',
+  'burundi',
+  'cabo verde',
+  'cambodia',
+  'cameroon',
+  'canada',
+  'central african republic',
+  'chad',
+  'chile',
+  'china',
+  'colombia',
+  'comoros',
+  'congo',
+  'costa rica',
+  'croatia',
+  'cuba',
+  'cyprus',
+  'czechia',
+  'democratic republic of the congo',
+  'denmark',
+  'djibouti',
+  'dominica',
+  'dominican republic',
+  'ecuador',
+  'egypt',
+  'el salvador',
+  'equatorial guinea',
+  'eritrea',
+  'estonia',
+  'eswatini',
+  'ethiopia',
+  'fiji',
+  'finland',
+  'france',
+  'gabon',
+  'gambia',
+  'georgia',
+  'germany',
+  'ghana',
+  'greece',
+  'grenada',
+  'guatemala',
+  'guinea',
+  'guinea-bissau',
+  'guyana',
+  'haiti',
+  'honduras',
+  'hong kong',
+  'hungary',
+  'iceland',
+  'india',
+  'indonesia',
+  'iran',
+  'iraq',
+  'ireland',
+  'israel',
+  'italy',
+  'jamaica',
+  'japan',
+  'jordan',
+  'kazakhstan',
+  'kenya',
+  'kiribati',
+  'kuwait',
+  'kyrgyzstan',
+  'laos',
+  'latvia',
+  'lebanon',
+  'lesotho',
+  'liberia',
+  'libya',
+  'liechtenstein',
+  'lithuania',
+  'luxembourg',
+  'madagascar',
+  'malawi',
+  'malaysia',
+  'maldives',
+  'mali',
+  'malta',
+  'marshall islands',
+  'mauritania',
+  'mauritius',
+  'mexico',
+  'micronesia',
+  'moldova',
+  'monaco',
+  'mongolia',
+  'montenegro',
+  'morocco',
+  'mozambique',
+  'myanmar',
+  'namibia',
+  'nauru',
+  'nepal',
+  'netherlands',
+  'new zealand',
+  'nicaragua',
+  'niger',
+  'nigeria',
+  'north korea',
+  'north macedonia',
+  'norway',
+  'oman',
+  'pakistan',
+  'palau',
+  'palestine',
+  'panama',
+  'papua new guinea',
+  'paraguay',
+  'peru',
+  'philippines',
+  'poland',
+  'portugal',
+  'qatar',
+  'romania',
+  'russia',
+  'rwanda',
+  'saint kitts and nevis',
+  'saint lucia',
+  'saint vincent and the grenadines',
+  'samoa',
+  'san marino',
+  'sao tome and principe',
+  'saudi arabia',
+  'senegal',
+  'serbia',
+  'seychelles',
+  'sierra leone',
+  'singapore',
+  'slovakia',
+  'slovenia',
+  'solomon islands',
+  'somalia',
+  'south africa',
+  'south korea',
+  'south sudan',
+  'spain',
+  'sri lanka',
+  'sudan',
+  'suriname',
+  'sweden',
+  'switzerland',
+  'syria',
+  'taiwan',
+  'tajikistan',
+  'tanzania',
+  'thailand',
+  'timor-leste',
+  'togo',
+  'tonga',
+  'trinidad and tobago',
+  'tunisia',
+  'turkiye',
+  'turkmenistan',
+  'tuvalu',
+  'uganda',
+  'ukraine',
+  'united arab emirates',
+  'united kingdom',
+  'united states',
+  'uruguay',
+  'uzbekistan',
+  'vanuatu',
+  'vatican city',
+  'venezuela',
+  'vietnam',
+  'yemen',
+  'zambia',
+  'zimbabwe',
+];
+
+function titleCaseWords(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function buildLastfmRegionOptions(selectedValue = DEFAULT_LASTFM_REGION) {
+  const selected = String(selectedValue || DEFAULT_LASTFM_REGION).trim().toLowerCase() || DEFAULT_LASTFM_REGION;
+  const options = new Map(
+    LASTFM_REGION_NAMES.map((value) => [value, titleCaseWords(value)])
+  );
+  if (selected && !options.has(selected)) options.set(selected, titleCaseWords(selected));
+  return [...options.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
 
 export function registerSettings(app, ctx) {
   const {
@@ -83,6 +303,8 @@ export function registerSettings(app, ctx) {
 
   app.get('/settings', requireSettingsAdmin, (req, res) => {
     const config = loadConfig();
+    const themeDefaultsResult = String(req.query?.themeDefaultsResult || '').trim();
+    const themeDefaultsError = String(req.query?.themeDefaultsError || '').trim();
     const actualRole = getActualRole(req);
     const canViewServiceSecrets = actualRole === 'admin';
     const currentUserId = String(req.session?.user?.username || '').trim();
@@ -153,6 +375,9 @@ export function registerSettings(app, ctx) {
       aboutLatestVersion: String(aboutReleases[0]?.tag || '').trim() || aboutCurrentVersion,
       aboutDataDirectory: DATA_DIR || '/data',
       aboutReleases,
+      themeDefaultsResult,
+      themeDefaultsError,
+      lastfmRegionOptions: buildLastfmRegionOptions(renderedConfig.discovery?.region || DEFAULT_LASTFM_REGION),
       globalPlaylists: config.globalPlaylists || [],
       allUserIds: (() => { try { return db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats').all().map((r) => r.user_plex_id); } catch { return []; } })(),
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
@@ -164,6 +389,32 @@ export function registerSettings(app, ctx) {
       tab: req.query?.tab || 'general',
       extraCss: ['/styles-layout.css', '/styles-settings.css'],
     });
+  });
+
+  app.post('/settings/theme-defaults', requireSettingsAdmin, (req, res) => {
+    try {
+      const config = loadConfig();
+      const { normalizeThemeSettings, resolveThemeDefaults } = ctx;
+      const currentDefaults = resolveThemeDefaults(config);
+      const nextDefaults = normalizeThemeSettings({
+        mode: req.body?.theme_mode,
+        brandTheme: req.body?.theme_brand_theme,
+        customColor: req.body?.theme_custom_color,
+        sidebarInvert: req.body?.theme_sidebar_invert,
+        squareCorners: req.body?.theme_square_corners,
+        bgMotion: req.body?.theme_bg_motion,
+        carouselFreeScroll: req.body?.theme_carousel_free_scroll,
+        hideScrollbars: req.body?.theme_hide_scrollbars,
+      }, currentDefaults);
+      saveConfig({
+        ...config,
+        theme: nextDefaults,
+      });
+      return res.redirect('/settings?tab=appearance&themeDefaultsResult=saved');
+    } catch (_err) {
+      const encoded = encodeURIComponent('Failed to save default theme.');
+      return res.redirect(`/settings?tab=appearance&themeDefaultsError=${encoded}`);
+    }
   });
 
   // ── Log settings ─────────────────────────────────────────────────────────
@@ -387,7 +638,7 @@ export function registerSettings(app, ctx) {
   app.post('/settings/discovery', requireSettingsAdmin, (req, res) => {
     const config = loadConfig();
     const lastfmApiKey = String(req.body?.lastfmApiKey || '').trim();
-    const region = String(req.body?.region || 'united states').trim().toLowerCase() || 'united states';
+    const region = String(req.body?.region || DEFAULT_LASTFM_REGION).trim().toLowerCase() || DEFAULT_LASTFM_REGION;
     const showTrendingArtists = Boolean(req.body?.showTrendingArtists);
     const showTrendingTracks  = Boolean(req.body?.showTrendingTracks);
     const showSimilarArtists  = Boolean(req.body?.showSimilarArtists);
@@ -791,12 +1042,26 @@ export function registerSettings(app, ctx) {
     if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     const lastfmUsername = String(req.body?.lastfmUsername || '').trim();
     const rawStations = req.body?.lastfmStations;
-    const VALID_STATIONS = ['recommended', 'mix', 'library'];
+    const VALID_STATIONS = ['recommended', 'mix', 'library', 'neighbours'];
     const lastfmEnabledStations = (Array.isArray(rawStations) ? rawStations : rawStations ? [rawStations] : [])
       .filter((s) => VALID_STATIONS.includes(s));
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations });
     return res.redirect('/user-settings?success=lastfm-updated');
+  });
+
+  app.post('/user-settings/lastfm/run-backfill', requireUser, (req, res) => {
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.status(403).json({ error: 'Not authenticated' });
+    runLastfmHistoryBackfillForUser(ctx, userPlexId).catch(() => {});
+    return res.json({ ok: true });
+  });
+
+  app.post('/user-settings/lastfm/reset-backfill', requireUser, (req, res) => {
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    updateLastfmBackfillCursor(db, userPlexId, 0);
+    return res.redirect('/user-settings?success=backfill-reset');
   });
 
   // ── Jobs settings ─────────────────────────────────────────────────────────
