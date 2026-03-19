@@ -401,7 +401,11 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
   // Search Plex by title before creating — prevents duplicates when the DB has been reset.
   // Also checks the legacy name format (e.g. "TJWhiteStar's Crescive Playlist") for migration.
   const base = url.replace(/\/$/, '');
-  const legacyTitle = `${userId}'s ${playlistType === CRESCIVE_PLAYLIST_TYPE ? 'Crescive' : 'Curative'} Playlist`;
+  const legacyTitle = playlistType === CRESCIVE_PLAYLIST_TYPE
+    ? `${userId}'s Crescive Playlist`
+    : playlistType === CURATIVE_PLAYLIST_TYPE
+      ? `${userId}'s Curative Playlist`
+      : null;
   try {
     const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
       headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
@@ -409,7 +413,7 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
     if (searchRes.ok) {
       const searchJson = await searchRes.json();
       const all = searchJson?.MediaContainer?.Metadata || [];
-      const match = all.find((p) => p.title === playlistTitle || p.title === legacyTitle);
+      const match = all.find((p) => p.title === playlistTitle || (legacyTitle && p.title === legacyTitle));
       if (match?.ratingKey) {
         saveUserGeneratedPlaylist(ctx.db, userId, {
           playlistType, playlistKey, plexPlaylistId: String(match.ratingKey),
@@ -858,7 +862,7 @@ export function createPlaylistService(ctx) {
 
         // Match against master tracks by artist + title (case-insensitive)
         const master = getMasterTracks(db);
-        const lookup = new Map(master.map((t) => [`${t.artist_name?.toLowerCase()}|${t.track_title?.toLowerCase()}`, t.rating_key]));
+        const lookup = new Map(master.map((t) => [`${t.artistName?.toLowerCase()}|${t.trackTitle?.toLowerCase()}`, t.ratingKey]));
         const ratingKeys = [];
         for (const t of tracks) {
           const artist = (t.artists?.[0]?._name || '').toLowerCase();

@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.20 (2026-03-19)
+
+- Fixed Last.fm station playlist track matching: internal lookup used snake_case column names against a camelCase result set, causing 0 tracks to match regardless of library content.
+- Fixed Last.fm station playlists incorrectly adopting the Curative Playlist's Plex ID due to a legacy title fallback being applied to all playlist types. Each station now gets its own independent Plex playlist.
+
 ## v0.1.19 (2026-03-19)
 
 - Fixed Last.fm Station Playlists (Recommended, Mix, Library) silently failing to sync to Plex due to an incorrect argument passed when resolving the Plex server identifier. Playlists now create and update correctly on every Smart Playlist Sync run.
