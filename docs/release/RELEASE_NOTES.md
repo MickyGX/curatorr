@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.21 (2026-03-19)
+
+- Unified all playlist naming to `Type (Username)` format — Crescive, Curative, Daily Mix, global, and personal playlists are renamed in Plex in-place on first sync after upgrading.
+- Added automatic Plex playlist rename on sync whenever the stored title drifts from the desired title.
+- Fixed Last.fm station playlists: resolveMachineId was called with userId instead of config (preventing Plex playlist creation), and master track lookup used snake_case keys against a camelCase result set (causing 0 track matches). Both bugs introduced in v0.1.18.
+
 ## v0.1.20 (2026-03-19)
 
 - Fixed Last.fm station playlist track matching: internal lookup used snake_case column names against a camelCase result set, causing 0 tracks to match regardless of library content.

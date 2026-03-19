@@ -119,10 +119,26 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
 
   const existing = listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
     .find((entry) => entry.playlistKey === playlistKey);
-  if (existing?.plexPlaylistId) return existing;
 
-  // DB record exists but has no Plex ID — search Plex by title to avoid creating a duplicate
   const base = url.replace(/\/$/, '');
+
+  // Existing DB record with a Plex ID — ensure Plex title matches (handles legacy format migration)
+  if (existing?.plexPlaylistId) {
+    try {
+      await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
+        method: 'PUT',
+        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+      if (existing.playlistTitle !== playlistTitle) {
+        saveUserGeneratedPlaylist(ctx.db, userPlexId, { ...existing, playlistTitle, updatedAt: Date.now() });
+      }
+    } catch { /* rename is best-effort */ }
+    return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+  }
+
+  // DB record exists but has no Plex ID — search Plex by title (or legacy title) to avoid creating a duplicate
+  const legacyDailyMixTitle = `${userPlexId}'s Daily Mix`;
   if (existing && !existing.plexPlaylistId) {
     try {
       const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
@@ -130,11 +146,21 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
       });
       if (searchRes.ok) {
         const searchJson = await searchRes.json();
-        const match = (searchJson?.MediaContainer?.Metadata || []).find((p) => p.title === playlistTitle);
+        const match = (searchJson?.MediaContainer?.Metadata || [])
+          .find((p) => p.title === playlistTitle || p.title === legacyDailyMixTitle);
         if (match?.ratingKey) {
+          const matchedId = String(match.ratingKey);
+          if (match.title !== playlistTitle) {
+            try {
+              await fetch(`${base}/playlists/${matchedId}?title=${encodeURIComponent(playlistTitle)}`, {
+                method: 'PUT',
+                headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+              });
+            } catch { /* rename is best-effort */ }
+          }
           saveUserGeneratedPlaylist(ctx.db, userPlexId, {
             playlistType: DAILY_MIX_PLAYLIST_TYPE, playlistKey,
-            plexPlaylistId: String(match.ratingKey),
+            plexPlaylistId: matchedId,
             playlistTitle, algorithmVersion: 'phase2c-daily-mix',
             active: true, updatedAt: Date.now(),
           });
@@ -391,12 +417,26 @@ function applyPlaylistEvolution(db, userId, playlistKey, smartConfig, masterTrac
 async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, playlistTitle, machineId) {
   const existing = listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false })
     .find((e) => e.playlistKey === playlistKey);
-  if (existing?.plexPlaylistId) return existing;
 
   const config = ctx.loadConfig();
   const { url } = config.plex || {};
   const token = ctx.resolveUserPlexServerToken(config, userId);
   if (!url || !token || !machineId) throw new Error('Plex is not configured for playlist creation');
+
+  // If we have an existing record, ensure the Plex playlist title matches (handles legacy name migration).
+  if (existing?.plexPlaylistId) {
+    try {
+      const base = url.replace(/\/$/, '');
+      await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
+        method: 'PUT',
+        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+      if (existing.playlistTitle !== playlistTitle) {
+        saveUserGeneratedPlaylist(ctx.db, userId, { ...existing, playlistTitle, updatedAt: Date.now() });
+      }
+    } catch { /* rename is best-effort */ }
+    return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
+  }
 
   // Search Plex by title before creating — prevents duplicates when the DB has been reset.
   // Also checks the legacy name format (e.g. "TJWhiteStar's Crescive Playlist") for migration.
@@ -415,8 +455,18 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
       const all = searchJson?.MediaContainer?.Metadata || [];
       const match = all.find((p) => p.title === playlistTitle || (legacyTitle && p.title === legacyTitle));
       if (match?.ratingKey) {
+        const matchedId = String(match.ratingKey);
+        // Rename in Plex if found under the legacy title
+        if (match.title !== playlistTitle) {
+          try {
+            await fetch(`${base}/playlists/${matchedId}?title=${encodeURIComponent(playlistTitle)}`, {
+              method: 'PUT',
+              headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            });
+          } catch { /* rename is best-effort */ }
+        }
         saveUserGeneratedPlaylist(ctx.db, userId, {
-          playlistType, playlistKey, plexPlaylistId: String(match.ratingKey),
+          playlistType, playlistKey, plexPlaylistId: matchedId,
           playlistTitle, algorithmVersion: ALGORITHM_VERSION, active: true, updatedAt: Date.now(),
         });
         return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
@@ -568,7 +618,7 @@ export function createPlaylistService(ctx) {
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,
       playlistType: DAILY_MIX_PLAYLIST_TYPE,
-      playlistTitle: `${userPlexId}'s Daily Mix`,
+      playlistTitle: `Daily Mix (${userPlexId})`,
       algorithmVersion: 'phase2c-daily-mix',
       trackCount: combined.length,
       trackKeys: combined.map((track) => track.ratingKey),
@@ -719,7 +769,7 @@ export function createPlaylistService(ctx) {
     if (!machineId) throw new Error('Could not determine Plex machine ID');
 
     const playlistKey   = `global:${playlistDef.id}`;
-    const playlistTitle = `${userId} - ${playlistDef.name}`;
+    const playlistTitle = `${playlistDef.name} (${userId})`;
     const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'global', playlistKey, playlistTitle, machineId);
     await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
 
@@ -823,7 +873,7 @@ export function createPlaylistService(ctx) {
     if (!machineId) throw new Error('Could not determine Plex machine ID');
 
     const playlistKey   = `personal:${playlistDef.id}`;
-    const playlistTitle = playlistDef.name;
+    const playlistTitle = `${playlistDef.name} (${userId})`;
     const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'personal', playlistKey, playlistTitle, machineId);
     await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
 
