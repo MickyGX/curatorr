@@ -162,6 +162,8 @@ export function registerAuth(app, ctx) {
     exchangePinWithRetry,
     exchangePin,
     completePlexLogin,
+    fetchPlexHomeUsers,
+    switchPlexHomeUser,
     safeMessage,
     PRODUCT,
     PLATFORM,
@@ -480,6 +482,27 @@ export function registerAuth(app, ctx) {
         return res.status(401).send('Plex login not completed. Try again.');
       }
 
+      // ── Check for Plex Home users ──────────────────────────────────────────
+      let homeUsers = [];
+      try {
+        homeUsers = await fetchPlexHomeUsers(authToken);
+      } catch (_err) {
+        // Non-fatal: if home users can't be fetched, fall through to normal login
+      }
+
+      if (homeUsers.length > 1) {
+        // Store main token and home users for the selection step
+        req.session.plexMainToken = authToken;
+        req.session.pendingHomeUsers = homeUsers;
+        req.session.pendingHomeUsersAt = Date.now();
+        // Clean up PIN/state (preserve plexAuthMode and postLoginRedirect)
+        req.session.plexState = null;
+        req.session.pinId = null;
+        req.session.pinIssuedAt = null;
+        pushLog({ level: 'info', app: 'plex', action: 'login.homeusers', message: `Plex home: ${homeUsers.length} users found, showing selection.` });
+        return res.redirect('/auth/plex/home-users');
+      }
+
       await completePlexLogin(req, authToken);
       const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
       if (req.session) delete req.session.plexAuthMode;
@@ -532,6 +555,189 @@ export function registerAuth(app, ctx) {
     } catch (err) {
       const status = err?.status || 500;
       return res.status(status).json({ error: safeMessage(err) || 'PIN status check failed.' });
+    }
+  });
+
+  // ─── Plex Home User flow ─────────────────────────────────────────────────────
+
+  const HOME_USER_PENDING_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes to complete selection
+
+  // Rate limiting for home user PIN attempts — 5 failures per 15 min per IP
+  const homeUserPinAttempts = new Map();
+  const HOME_USER_PIN_RATE_MAX = 5;
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of homeUserPinAttempts) {
+      if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) homeUserPinAttempts.delete(ip);
+    }
+  }, 30 * 60 * 1000).unref();
+
+  function checkHomeUserPinRateLimit(ip) {
+    const now = Date.now();
+    const entry = homeUserPinAttempts.get(ip);
+    if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) return null;
+    if (entry.failures >= HOME_USER_PIN_RATE_MAX) {
+      return Math.max(1, Math.ceil((RATE_LIMIT_WINDOW_MS - (now - entry.windowStart)) / 60000));
+    }
+    return null;
+  }
+
+  function recordHomeUserPinFailure(ip) {
+    const now = Date.now();
+    const entry = homeUserPinAttempts.get(ip);
+    if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+      homeUserPinAttempts.set(ip, { failures: 1, windowStart: now });
+    } else {
+      entry.failures += 1;
+    }
+  }
+
+  function validatePendingHomeSession(req) {
+    const mainToken = String(req.session?.plexMainToken || '').trim();
+    const homeUsers = req.session?.pendingHomeUsers;
+    const issuedAt = Number(req.session?.pendingHomeUsersAt || 0);
+    if (!mainToken || !Array.isArray(homeUsers) || !homeUsers.length) return null;
+    if (issuedAt && Date.now() - issuedAt > HOME_USER_PENDING_MAX_AGE_MS) return null;
+    return { mainToken, homeUsers };
+  }
+
+  app.get('/auth/plex/home-users', (req, res) => {
+    const pending = validatePendingHomeSession(req);
+    if (!pending) {
+      req.session = null;
+      return res.redirect('/login');
+    }
+    return res.render('plex-home-users', {
+      title: "Who's watching?",
+      homeUsers: pending.homeUsers,
+    });
+  });
+
+  app.post('/auth/plex/home-users/select', async (req, res) => {
+    try {
+      const pending = validatePendingHomeSession(req);
+      if (!pending) {
+        req.session = null;
+        return res.redirect('/login');
+      }
+      const { mainToken, homeUsers } = pending;
+
+      const userId = String(req.body?.userId || '').trim();
+      const selectedUser = userId ? homeUsers.find((u) => String(u.uuid || u.id || '') === userId) : null;
+      if (!selectedUser) return res.redirect('/auth/plex/home-users');
+
+      if (selectedUser.protected && !selectedUser.admin) {
+        req.session.pendingHomeUserId = userId;
+        return res.redirect('/auth/plex/home-users/pin');
+      }
+
+      // Admin (home owner) already authenticated — use main token directly.
+      // Non-admin without PIN: switch using uuid.
+      const homeUserToken = selectedUser.admin
+        ? mainToken
+        : await switchPlexHomeUser(mainToken, userId, null);
+      const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
+      if (req.session) {
+        delete req.session.pendingHomeUsers;
+        delete req.session.pendingHomeUserId;
+        delete req.session.pendingHomeUsersAt;
+        delete req.session.plexAuthMode;
+      }
+      await completePlexLogin(req, homeUserToken);
+      req.session.plexMainToken = mainToken;
+
+      const redirectTarget = consumePostLoginRedirect(req, '/dashboard');
+      if (authMode === 'popup') return res.render('plex-auth-complete', { title: 'Plex Login Complete', redirectTarget });
+      return res.redirect(redirectTarget);
+    } catch (err) {
+      pushLog({ level: 'error', app: 'plex', action: 'login.homeuser.select', message: safeMessage(err) || 'Home user selection failed.' });
+      return res.status(err?.status || 500).send(`Login failed: ${safeMessage(err)}`);
+    }
+  });
+
+  app.get('/auth/plex/home-users/pin', (req, res) => {
+    const pending = validatePendingHomeSession(req);
+    if (!pending) {
+      req.session = null;
+      return res.redirect('/login');
+    }
+    const pendingHomeUserId = String(req.session?.pendingHomeUserId || '').trim();
+    const selectedUser = pendingHomeUserId
+      ? pending.homeUsers.find((u) => String(u.uuid || u.id || '') === pendingHomeUserId)
+      : null;
+    if (!selectedUser) return res.redirect('/auth/plex/home-users');
+
+    return res.render('plex-home-pin', {
+      title: 'Enter PIN',
+      user: { id: pendingHomeUserId, title: selectedUser.title, thumb: selectedUser.thumb || null },
+      error: null,
+    });
+  });
+
+  app.post('/auth/plex/home-users/pin', async (req, res) => {
+    try {
+      const ip = getClientIp(req);
+      const blockedMinutes = checkHomeUserPinRateLimit(ip);
+      if (blockedMinutes !== null) {
+        return res.status(429).send(`Too many PIN attempts. Try again in ${blockedMinutes} minute${blockedMinutes === 1 ? '' : 's'}.`);
+      }
+
+      const pending = validatePendingHomeSession(req);
+      if (!pending) {
+        req.session = null;
+        return res.redirect('/login');
+      }
+      const { mainToken, homeUsers } = pending;
+
+      const pendingHomeUserId = String(req.session?.pendingHomeUserId || '').trim();
+      const selectedUser = pendingHomeUserId
+        ? homeUsers.find((u) => String(u.uuid || u.id || '') === pendingHomeUserId)
+        : null;
+      if (!selectedUser) return res.redirect('/auth/plex/home-users');
+
+      const pin = String(req.body?.pin || '').trim();
+      const userRenderData = { id: pendingHomeUserId, title: selectedUser.title, thumb: selectedUser.thumb || null };
+
+      if (!pin) {
+        return res.render('plex-home-pin', { title: 'Enter PIN', user: userRenderData, error: 'PIN is required.' });
+      }
+
+      let homeUserToken;
+      try {
+        homeUserToken = await switchPlexHomeUser(mainToken, pendingHomeUserId, pin);
+      } catch (err) {
+        if (err?.status === 401) {
+          recordHomeUserPinFailure(ip);
+          const nowBlocked = checkHomeUserPinRateLimit(ip);
+          const suffix = nowBlocked !== null
+            ? ` Too many failed attempts — try again in ${nowBlocked} minute${nowBlocked === 1 ? '' : 's'}.`
+            : '';
+          return res.status(401).render('plex-home-pin', {
+            title: 'Enter PIN',
+            user: userRenderData,
+            error: `Incorrect PIN.${suffix}`,
+          });
+        }
+        throw err;
+      }
+
+      const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
+      if (req.session) {
+        delete req.session.pendingHomeUsers;
+        delete req.session.pendingHomeUserId;
+        delete req.session.pendingHomeUsersAt;
+        delete req.session.plexAuthMode;
+      }
+      await completePlexLogin(req, homeUserToken);
+      req.session.plexMainToken = mainToken;
+
+      const redirectTarget = consumePostLoginRedirect(req, '/dashboard');
+      if (authMode === 'popup') return res.render('plex-auth-complete', { title: 'Plex Login Complete', redirectTarget });
+      return res.redirect(redirectTarget);
+    } catch (err) {
+      pushLog({ level: 'error', app: 'plex', action: 'login.homeuser.pin', message: safeMessage(err) || 'Home user PIN login failed.' });
+      return res.status(err?.status || 500).send(`Login failed: ${safeMessage(err)}`);
     }
   });
 

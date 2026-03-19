@@ -41,7 +41,7 @@
             </div>
             <div class="wizard-field">
               <label class="wizard-label" for="confirmPassword">Confirm password</label>
-              <input class="wizard-input" type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" />
+              <input class="wizard-input" type="password" id="confirmPassword" name="confirmPassword" required autocomplete="off" />
             </div>
           </form>
           <div class="wizard-actions">
@@ -174,6 +174,27 @@
               <button type="submit" class="btn btn-secondary">Skip for now</button>
             </form>
             <button type="submit" form="wsf5" class="btn btn-primary">Finish setup →</button>
+          </div>
+        </div>
+
+      <%# ── Step 6: Sign in with Plex ───────────────────────────────────────── %>
+      <% } else if (step === 6) { %>
+        <div class="wizard-body">
+          <h2 class="wizard-title">One last thing</h2>
+          <p class="wizard-desc">Your server is configured. To use Curatorr's music features — playlists, history, discovery — you need to sign in with your <strong>Plex account</strong>.</p>
+          <div class="wizard-info-box">
+            <div class="wizard-info-row">
+              <span class="wizard-info-label">Administrator account</span>
+              <span class="wizard-info-value">Manages server settings, users, and configuration. No music features.</span>
+            </div>
+            <div class="wizard-info-row">
+              <span class="wizard-info-label">Plex account</span>
+              <span class="wizard-info-value">Your personal Curatorr experience — playlists, play history, discovery, and more.</span>
+            </div>
+          </div>
+          <div class="wizard-actions wizard-actions--col">
+            <a href="/auth/plex" class="btn btn-primary">Sign in with Plex →</a>
+            <a href="/dashboard" class="wizard-skip-link">Continue as administrator only</a>
           </div>
         </div>
       <% } %>

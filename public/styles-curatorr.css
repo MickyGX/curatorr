@@ -2208,6 +2208,96 @@ body.cur-modal-open {
   padding-top: 4px;
 }
 
+.wizard-actions--col {
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding-top: 20px;
+}
+
+.wizard-actions--col .btn {
+  width: 100%;
+  max-width: 280px;
+  justify-content: center;
+  text-align: center;
+}
+
+.wizard-skip-link {
+  font-size: 13px;
+  color: var(--text-muted, rgba(255,255,255,.4));
+  text-decoration: none;
+}
+
+.wizard-skip-link:hover {
+  color: var(--text-secondary, rgba(255,255,255,.7));
+}
+
+.wizard-info-box {
+  border: 1px solid var(--border, rgba(255,255,255,.08));
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 16px 0;
+}
+
+.wizard-info-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,.08));
+}
+
+.wizard-info-row:last-child {
+  border-bottom: none;
+}
+
+.wizard-info-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, rgba(255,255,255,.7));
+  min-width: 130px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.wizard-info-value {
+  font-size: 12px;
+  color: var(--text-muted, rgba(255,255,255,.45));
+  line-height: 1.5;
+}
+
+/* ── Local-admin Plex banner ─────────────────────────────────────────────── */
+
+.local-admin-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 10px;
+  padding: 11px 16px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.local-admin-banner__text {
+  flex: 1;
+  color: var(--text-secondary, rgba(255,255,255,.65));
+  min-width: 0;
+}
+
+.local-admin-banner__link {
+  white-space: nowrap;
+  color: #8b5cf6;
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.local-admin-banner__link:hover {
+  text-decoration: underline;
+}
+
 .wizard-checklist {
   display: flex;
   flex-direction: column;

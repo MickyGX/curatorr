@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><%= title %></title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: #0b0e15;
+        color: #e8eef7;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+      }
+      .title {
+        font-weight: 700;
+        font-size: 22px;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+      .sub {
+        color: rgba(232, 238, 247, 0.55);
+        font-size: 14px;
+        margin-bottom: 36px;
+        text-align: center;
+      }
+      .users {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: center;
+        max-width: 640px;
+      }
+      .user-form { margin: 0; }
+      .user-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 14px;
+        padding: 20px 16px 16px;
+        width: 120px;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        color: #e8eef7;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        text-align: center;
+        line-height: 1.3;
+        position: relative;
+      }
+      .user-btn:hover, .user-btn:focus-visible {
+        background: rgba(255,255,255,0.1);
+        border-color: rgba(255,255,255,0.2);
+        outline: none;
+      }
+      .user-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: #1e2535;
+      }
+      .user-avatar-placeholder {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: #1e2535;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        font-weight: 700;
+        color: rgba(232, 238, 247, 0.4);
+        flex-shrink: 0;
+      }
+      .user-name {
+        word-break: break-word;
+        max-width: 100%;
+      }
+      .user-lock {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        opacity: 0.45;
+        font-size: 13px;
+        line-height: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="title"><%= title %></div>
+    <div class="sub">Select a profile to continue</div>
+    <div class="users">
+      <% homeUsers.forEach(function(u) {
+        const userId = String(u.uuid || u.id || '');
+        const name = String(u.title || u.username || 'User');
+        const thumb = u.thumb || null;
+        const isProtected = !!u.protected;
+        const initial = name.charAt(0).toUpperCase();
+      %>
+      <form class="user-form" method="post" action="/auth/plex/home-users/select">
+        <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+        <input type="hidden" name="userId" value="<%= userId %>" />
+        <button class="user-btn" type="submit" aria-label="<%= name %><%= isProtected ? ' (PIN protected)' : '' %>">
+          <% if (isProtected) { %><span class="user-lock" aria-hidden="true">🔒</span><% } %>
+          <% if (thumb) { %>
+            <img class="user-avatar" src="<%= thumb %>" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <div class="user-avatar-placeholder" style="display:none"><%= initial %></div>
+          <% } else { %>
+            <div class="user-avatar-placeholder"><%= initial %></div>
+          <% } %>
+          <span class="user-name"><%= name %></span>
+        </button>
+      </form>
+      <% }); %>
+    </div>
+  </body>
+</html>

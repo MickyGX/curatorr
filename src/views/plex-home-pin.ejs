@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><%= title %></title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: #0b0e15;
+        color: #e8eef7;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+      }
+      .wrap {
+        max-width: 360px;
+        width: 100%;
+        text-align: center;
+      }
+      .avatar-wrap {
+        margin-bottom: 16px;
+        display: flex;
+        justify-content: center;
+      }
+      .avatar {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        object-fit: cover;
+        background: #1e2535;
+      }
+      .avatar-placeholder {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: #1e2535;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+        font-weight: 700;
+        color: rgba(232, 238, 247, 0.4);
+      }
+      .title {
+        font-weight: 700;
+        font-size: 20px;
+        margin-bottom: 4px;
+      }
+      .sub {
+        color: rgba(232, 238, 247, 0.55);
+        font-size: 14px;
+        margin-bottom: 28px;
+      }
+      .error {
+        background: rgba(239,68,68,0.15);
+        border: 1px solid rgba(239,68,68,0.35);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 13px;
+        color: #fca5a5;
+        margin-bottom: 20px;
+        text-align: left;
+      }
+      .pin-input {
+        width: 100%;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        padding: 14px 16px;
+        font-size: 22px;
+        letter-spacing: 0.35em;
+        text-align: center;
+        color: #e8eef7;
+        font-family: inherit;
+        margin-bottom: 16px;
+        outline: none;
+        transition: border-color 0.15s;
+        /* masking handled by type="password" */
+      }
+      .pin-input:focus {
+        border-color: rgba(139,92,246,0.6);
+      }
+      .submit-btn {
+        width: 100%;
+        background: #7c3aed;
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        padding: 13px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+        transition: background 0.15s;
+      }
+      .submit-btn:hover { background: #6d28d9; }
+      .back-link {
+        display: inline-block;
+        margin-top: 20px;
+        font-size: 13px;
+        color: rgba(232,238,247,0.45);
+        text-decoration: none;
+      }
+      .back-link:hover { color: rgba(232,238,247,0.8); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="avatar-wrap">
+        <% if (user.thumb) { %>
+          <img class="avatar" src="<%= user.thumb %>" alt=""
+            onerror="this.style.display='none';document.getElementById('avatar-fallback').style.display='flex'" />
+          <div class="avatar-placeholder" id="avatar-fallback" style="display:none">
+            <%= String(user.title || '?').charAt(0).toUpperCase() %>
+          </div>
+        <% } else { %>
+          <div class="avatar-placeholder">
+            <%= String(user.title || '?').charAt(0).toUpperCase() %>
+          </div>
+        <% } %>
+      </div>
+      <div class="title"><%= user.title || 'Enter PIN' %></div>
+      <div class="sub">Enter your PIN to continue</div>
+      <% if (error) { %>
+        <div class="error"><%= error %></div>
+      <% } %>
+      <form method="post" action="/auth/plex/home-users/pin" autocomplete="off">
+        <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+        <input
+          class="pin-input"
+          type="password"
+          name="pin"
+          inputmode="numeric"
+          maxlength="8"
+          autofocus
+          placeholder="••••"
+          aria-label="PIN"
+        />
+        <button class="submit-btn" type="submit">Continue</button>
+      </form>
+      <a class="back-link" href="/auth/plex/home-users">&larr; Back to profiles</a>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+<% if (locals.user && String(locals.user.source || '').toLowerCase() === 'local') { %>
+  <div class="local-admin-banner" role="status">
+    <span class="local-admin-banner__text">
+      You're signed in as the Curatorr administrator. Music features (playlists, history, discovery) require a Plex account.
+    </span>
+    <a class="local-admin-banner__link" href="/auth/plex">Sign in with Plex →</a>
+  </div>
+<% } %>

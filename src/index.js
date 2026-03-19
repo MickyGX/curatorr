@@ -1242,6 +1242,46 @@ async function fetchPlexResources(token) {
   return res.json();
 }
 
+async function fetchPlexHomeUsers(token) {
+  const res = await fetch('https://plex.tv/api/v2/home/users', {
+    method: 'GET',
+    headers: { Accept: 'application/json', 'X-Plex-Token': token, ...plexHeaders() },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Plex home users request failed (${res.status}): ${text.slice(0, 180)}`);
+  }
+  const data = await res.json();
+  if (Array.isArray(data)) return data;
+  const users = data?.MediaContainer?.User || data?.users || [];
+  return Array.isArray(users) ? users : [];
+}
+
+async function switchPlexHomeUser(mainToken, userId, pin) {
+  const body = new URLSearchParams();
+  if (pin) body.set('pin', String(pin));
+  const res = await fetch(`https://plex.tv/api/v2/home/users/${encodeURIComponent(userId)}/switch`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Plex-Token': mainToken,
+      ...plexHeaders(),
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    const err = new Error(`Plex home user switch failed (${res.status}): ${text.slice(0, 180)}`);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  const authToken = data?.authToken || data?.user?.authToken || null;
+  if (!authToken) throw new Error('No auth token returned from Plex home user switch.');
+  return authToken;
+}
+
 function resolvePlexServerResource(resources, { machineId, plexUrl }) {
   const list = Array.isArray(resources)
     ? resources
@@ -1588,6 +1628,8 @@ const _routeCtx = {
   completePlexLogin,
   fetchPlexUser,
   fetchPlexResources,
+  fetchPlexHomeUsers,
+  switchPlexHomeUser,
   fetchPlexLibraries,
   fetchPlexMusicLibraries,
   fetchPlexPlaylistsForToken,

@@ -13,7 +13,7 @@ import {
   PRESET_VALUES,
 } from '../db.js';
 
-const SERVER_STEPS = 5;
+const SERVER_STEPS = 6;
 const USER_STEPS = 6;
 const activePlaylistJobs = new Set();
 
@@ -724,8 +724,7 @@ export function registerWizard(app, ctx) {
     setInterval(() => refreshMasterTrackCache(ctx).catch(() => {}), 6 * 60 * 60 * 1000).unref();
 
     pushLog({ level: 'info', app: 'wizard', action: 'server.complete', message: 'Server wizard completed — building master track cache' });
-    const source = String(req.session?.user?.source || '').trim().toLowerCase();
-    return res.redirect(source === 'plex' ? '/wizard/user' : '/dashboard');
+    return renderServerWizard(res, loadConfig(), 6, null);
   });
 
   // ── Back navigation (server wizard) ──────────────────────────────────────

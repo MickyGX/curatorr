@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.22 (2026-03-19)
+
+- Added Plex Home Users support — profile picker shown after Plex SSO when multiple home users exist, with PIN entry for PIN-protected profiles.
+- Added setup wizard step 6 prompting the admin to sign in with Plex immediately after server setup completes.
+- Added local admin banner on Dashboard, Discover, History, and Playlists directing local admin users to sign in with Plex to access music features.
+- Fixed confirm password fields in `/setup` and wizard step 1 using `autocomplete="new-password"`, which triggered Firefox's password generation UI on the confirmation field.
+- Fixed Plex Home PIN entry field using webkit-only `-webkit-text-security: disc` with `type="tel"`, causing PIN digits to display as plain text in Firefox. Now uses `type="password"` with `inputmode="numeric"`.
+
 ## v0.1.21 (2026-03-19)
 
 - Unified all playlist naming to `Type (Username)` format — Crescive, Curative, Daily Mix, global, and personal playlists are renamed in Plex in-place on first sync after upgrading.

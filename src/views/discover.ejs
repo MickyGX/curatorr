@@ -64,6 +64,7 @@
       </div>
 
       <div class="dash-content plex-overview">
+        <%- include('partials/plex-banner') %>
         <%
           const _lidarrAutomationEligible = Boolean(lidarrAutomationEligible);
           const _lidarrQuota = lidarrQuota && typeof lidarrQuota === 'object' ? lidarrQuota : null;
