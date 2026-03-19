@@ -839,9 +839,10 @@ export function createPlaylistService(ctx) {
   async function syncLastfmStations(userId) {
     const prefs = getUserPreferences(db, userId);
     if (!prefs.lastfmUsername || !prefs.lastfmEnabledStations?.length) return;
-    if (!ctx.userHasOwnPlexToken(ctx.loadConfig(), userId)) return;
+    const config = ctx.loadConfig();
+    if (!ctx.userHasOwnPlexToken(config, userId)) return;
 
-    const machineId = await resolveMachineId(ctx, userId);
+    const machineId = await resolveMachineId(ctx, config);
     const STATIONS = { recommended: 'Recommended', mix: 'Mix', library: 'Library' };
 
     for (const stationKey of prefs.lastfmEnabledStations) {

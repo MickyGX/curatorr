@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.19 (2026-03-19)
+
+- Fixed Last.fm Station Playlists (Recommended, Mix, Library) silently failing to sync to Plex due to an incorrect argument passed when resolving the Plex server identifier. Playlists now create and update correctly on every Smart Playlist Sync run.
+
 ## v0.1.18 (2026-03-19)
 
 - Added per-user Last.fm History Sync: set a Last.fm username in User Profile to pull scrobble history into Curatorr on a configurable schedule, feeding artist and track scoring the same as Plex/Tautulli plays.
