@@ -471,12 +471,15 @@ export function registerApiMusic(app, ctx) {
     playlistService,
     lidarrService,
     canUserAccessLidarrAutomation,
+    getPreviewUserId,
     resolveUserPlexServerToken,
     buildAppApiUrl,
     buildPlexAuthHeaders,
   } = ctx;
 
   function resolveOverviewUserId(req) {
+    const previewUserId = String(getPreviewUserId(req) || '').trim();
+    if (previewUserId) return previewUserId;
     const user = req.session?.user || {};
     const role = String(user.role || '').trim().toLowerCase();
     if (role === 'admin') return String(req.query?.user || '').trim();
@@ -1773,7 +1776,7 @@ export function registerApiMusic(app, ctx) {
   });
 
   app.post('/api/music/playlist/job/dismiss', requireUser, (req, res) => {
-    const userPlexId = String(req.session?.user?.username || '').trim();
+    const userPlexId = resolveQueryUserId(req);
     if (!userPlexId) return res.status(401).json({ error: 'Auth required.' });
     clearPlaylistJob(db, userPlexId);
     return res.json({ ok: true });
@@ -2451,7 +2454,7 @@ export function registerApiMusic(app, ctx) {
     const disc = config.discovery || {};
     if (!disc.lastfmApiKey) return res.status(403).json({ ok: false, error: 'Discovery not configured.' });
     if (!disc.showSimilarArtists) return res.json({ ok: true, items: [], basedOn: [] });
-    const userPlexId = String(req.session?.user?.username || '').trim();
+    const userPlexId = resolveSuggestionUserId(req);
     const seedArtists = getTopArtists(db, userPlexId, 3).map((r) => r.artist_name).filter(Boolean);
     if (!seedArtists.length) return res.json({ ok: true, items: [], basedOn: [] });
     try {
@@ -2547,12 +2550,15 @@ export function registerApiMusic(app, ctx) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveQueryUserId(req) {
-  // Always use username — this matches how the user wizard stores playlist/prefs rows
+  const previewUserId = String(req.session?.previewUserId || '').trim();
+  if (previewUserId) return previewUserId;
   const user = req.session?.user || {};
   return String(user.username || '').trim();
 }
 
 function resolveSuggestionUserId(req) {
+  const previewUserId = String(req.session?.previewUserId || '').trim();
+  if (previewUserId) return previewUserId;
   const user = req.session?.user || {};
   const source = String(user.source || '').trim().toLowerCase();
   const role = String(user.role || '').trim().toLowerCase();

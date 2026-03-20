@@ -1,8 +1,56 @@
 <% if (locals.user && String(locals.user.source || '').toLowerCase() === 'local') { %>
+  <%
+    const _adminPreview = adminPreview && typeof adminPreview === 'object' ? adminPreview : null;
+    const _previewOptions = Array.isArray(_adminPreview?.options) ? _adminPreview.options : [];
+    const _selectedName = String(_adminPreview?.selectedName || 'Plex user').trim();
+    const _selectedAvatarUrl = String(_adminPreview?.selectedAvatarUrl || '').trim();
+    const _selectedAvatarLabel = String(_adminPreview?.selectedAvatarLabel || 'P').trim() || 'P';
+  %>
   <div class="local-admin-banner" role="status">
     <span class="local-admin-banner__text">
       You're signed in as the Curatorr administrator. Music features (playlists, history, discovery) require a Plex account.
+      <a class="local-admin-banner__link" href="/auth/plex">Sign in with Plex →</a>
     </span>
-    <a class="local-admin-banner__link" href="/auth/plex">Sign in with Plex →</a>
+    <% if (_previewOptions.length) { %>
+      <div class="local-admin-preview" aria-label="Preview Plex user">
+        <span class="local-admin-preview__label">Viewing</span>
+        <details class="local-admin-preview__menu">
+          <summary class="local-admin-preview__summary">
+            <% if (_selectedAvatarUrl && /^https?:\/\//i.test(_selectedAvatarUrl)) { %>
+              <img class="local-admin-preview__avatar" src="<%= _selectedAvatarUrl %>" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='block';this.nextElementSibling.nextElementSibling.style.display='none'" />
+              <img class="local-admin-preview__avatar-curatorr" src="/icons/curatorr-icon.svg" alt="" loading="lazy" style="display:none" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+              <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:none"><%= _selectedAvatarLabel %></span>
+            <% } else { %>
+              <img class="local-admin-preview__avatar-curatorr" src="/icons/curatorr-icon.svg" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+              <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:none"><%= _selectedAvatarLabel %></span>
+            <% } %>
+            <span class="local-admin-preview__name"><%= _selectedName %></span>
+            <span class="local-admin-preview__chev" aria-hidden="true"></span>
+          </summary>
+          <div class="local-admin-preview__list">
+            <% _previewOptions.forEach(function(option) { %>
+              <form method="post" action="/admin/preview-user" class="local-admin-preview__form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <input type="hidden" name="next" value="<%= _adminPreview?.returnTo || '' %>" />
+                <input type="hidden" name="previewUserId" value="<%= option.id %>" />
+                <button
+                  type="submit"
+                  class="local-admin-preview__option<%= String(option.id || '') === String(_adminPreview?.selectedUserId || '') ? ' is-active' : '' %>">
+                  <% if (option.avatarUrl && /^https?:\/\//i.test(option.avatarUrl)) { %>
+                    <img class="local-admin-preview__avatar" src="<%= option.avatarUrl %>" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='block';this.nextElementSibling.nextElementSibling.style.display='none'" />
+                    <img class="local-admin-preview__avatar-curatorr" src="/icons/curatorr-icon.svg" alt="" loading="lazy" style="display:none" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                    <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:none"><%= option.avatarLabel || 'P' %></span>
+                  <% } else { %>
+                    <img class="local-admin-preview__avatar-curatorr" src="/icons/curatorr-icon.svg" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                    <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:none"><%= option.avatarLabel || 'P' %></span>
+                  <% } %>
+                  <span class="local-admin-preview__option-name"><%= option.name %></span>
+                </button>
+              </form>
+            <% }) %>
+          </div>
+        </details>
+      </div>
+    <% } %>
   </div>
 <% } %>

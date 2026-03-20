@@ -2,6 +2,7 @@ import {
   getUserPlaylist,
   listSuggestedTracks,
   listUserGeneratedPlaylists,
+  listAllGeneratedPlaylists,
   recordPlaylistSync,
   saveUserGeneratedPlaylist,
   getUserPreferences,
@@ -24,6 +25,86 @@ const CRESCIVE_PLAYLIST_TYPE = 'crescive';
 const CURATIVE_PLAYLIST_KEY  = 'curative';
 const CURATIVE_PLAYLIST_TYPE = 'curative';
 const ALGORITHM_VERSION = 'crescive-curative-v1';
+const LASTFM_STATION_LABELS = {
+  recommended: 'Recommended',
+  mix: 'Mix',
+  library: 'Library',
+  neighbours: 'Neighbours',
+};
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function shouldAppendUsernameToPlaylistTitles(smartConfig = {}) {
+  return smartConfig?.appendUsernameToPlaylistTitles !== false;
+}
+
+function stripPlaylistUserSuffix(title, userId) {
+  const rawTitle = String(title || '').trim();
+  const rawUserId = String(userId || '').trim();
+  if (!rawTitle) return '';
+  if (!rawUserId) return rawTitle;
+  const suffixPattern = new RegExp(`\\s*\\(${escapeRegex(rawUserId)}\\)$`, 'i');
+  const possessivePattern = new RegExp(`^${escapeRegex(rawUserId)}'s\\s+`, 'i');
+  return rawTitle.replace(suffixPattern, '').replace(possessivePattern, '').trim();
+}
+
+function getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId, fallbackTitle = '') {
+  const rawKey = String(playlistKey || '').trim();
+  const cleanFallbackTitle = stripPlaylistUserSuffix(fallbackTitle, userId);
+  if (playlistType === DAILY_MIX_PLAYLIST_TYPE || rawKey === DAILY_MIX_PLAYLIST_KEY) return 'Daily Mix';
+  if (playlistType === CRESCIVE_PLAYLIST_TYPE || rawKey === CRESCIVE_PLAYLIST_KEY) return 'Crescive Playlist';
+  if (playlistType === CURATIVE_PLAYLIST_TYPE || rawKey === CURATIVE_PLAYLIST_KEY) return 'Curative Playlist';
+  if (playlistType === 'lastfm-station' || rawKey.startsWith('lastfm:')) {
+    const stationKey = rawKey.slice('lastfm:'.length);
+    return LASTFM_STATION_LABELS[stationKey] ? `Last.fm ${LASTFM_STATION_LABELS[stationKey]}` : cleanFallbackTitle;
+  }
+  if (playlistType === 'global' || rawKey.startsWith('global:')) {
+    const playlistId = rawKey.slice('global:'.length);
+    const match = Array.isArray(config?.globalPlaylists)
+      ? config.globalPlaylists.find((entry) => String(entry?.id || '').trim() === playlistId)
+      : null;
+    return String(match?.name || '').trim() || cleanFallbackTitle;
+  }
+  if (playlistType === 'personal' || rawKey.startsWith('personal:')) {
+    const playlistId = rawKey.slice('personal:'.length);
+    const match = Array.isArray(config?.personalPlaylists)
+      ? config.personalPlaylists.find((entry) => String(entry?.id || '').trim() === playlistId)
+      : null;
+    return String(match?.name || '').trim() || cleanFallbackTitle;
+  }
+  return cleanFallbackTitle;
+}
+
+function buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId, fallbackTitle = '') {
+  const smartConfig = config?.smartPlaylist || {};
+  const baseTitle = getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId, fallbackTitle);
+  if (!baseTitle) return stripPlaylistUserSuffix(fallbackTitle, userId);
+  return shouldAppendUsernameToPlaylistTitles(smartConfig)
+    ? `${baseTitle} (${userId})`
+    : baseTitle;
+}
+
+function buildGeneratedPlaylistSearchTitles(config, playlistType, playlistKey, userId, fallbackTitle = '') {
+  const titles = new Set();
+  const baseTitle = getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId, fallbackTitle);
+  if (baseTitle) {
+    titles.add(baseTitle);
+    if (userId) titles.add(`${baseTitle} (${userId})`);
+  }
+  if (playlistType === DAILY_MIX_PLAYLIST_TYPE || playlistKey === DAILY_MIX_PLAYLIST_KEY) {
+    titles.add(`${userId}'s Daily Mix`);
+  }
+  if (playlistType === CRESCIVE_PLAYLIST_TYPE || playlistKey === CRESCIVE_PLAYLIST_KEY) {
+    titles.add(`${userId}'s Crescive Playlist`);
+  }
+  if (playlistType === CURATIVE_PLAYLIST_TYPE || playlistKey === CURATIVE_PLAYLIST_KEY) {
+    titles.add(`${userId}'s Curative Playlist`);
+  }
+  if (fallbackTitle) titles.add(String(fallbackTitle).trim());
+  return [...titles].map((title) => String(title || '').trim()).filter(Boolean);
+}
 
 function dedupeByRatingKey(items) {
   const seen = new Set();
@@ -138,7 +219,13 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
   }
 
   // DB record exists but has no Plex ID — search Plex by title (or legacy title) to avoid creating a duplicate
-  const legacyDailyMixTitle = `${userPlexId}'s Daily Mix`;
+  const searchTitles = buildGeneratedPlaylistSearchTitles(
+    config,
+    DAILY_MIX_PLAYLIST_TYPE,
+    playlistKey,
+    userPlexId,
+    playlistTitle,
+  );
   if (existing && !existing.plexPlaylistId) {
     try {
       const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
@@ -147,7 +234,7 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
       if (searchRes.ok) {
         const searchJson = await searchRes.json();
         const match = (searchJson?.MediaContainer?.Metadata || [])
-          .find((p) => p.title === playlistTitle || p.title === legacyDailyMixTitle);
+          .find((p) => searchTitles.includes(String(p?.title || '').trim()));
         if (match?.ratingKey) {
           const matchedId = String(match.ratingKey);
           if (match.title !== playlistTitle) {
@@ -441,11 +528,13 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
   // Search Plex by title before creating — prevents duplicates when the DB has been reset.
   // Also checks the legacy name format (e.g. "TJWhiteStar's Crescive Playlist") for migration.
   const base = url.replace(/\/$/, '');
-  const legacyTitle = playlistType === CRESCIVE_PLAYLIST_TYPE
-    ? `${userId}'s Crescive Playlist`
-    : playlistType === CURATIVE_PLAYLIST_TYPE
-      ? `${userId}'s Curative Playlist`
-      : null;
+  const searchTitles = buildGeneratedPlaylistSearchTitles(
+    config,
+    playlistType,
+    playlistKey,
+    userId,
+    playlistTitle,
+  );
   try {
     const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
       headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
@@ -453,7 +542,7 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
     if (searchRes.ok) {
       const searchJson = await searchRes.json();
       const all = searchJson?.MediaContainer?.Metadata || [];
-      const match = all.find((p) => p.title === playlistTitle || (legacyTitle && p.title === legacyTitle));
+      const match = all.find((p) => searchTitles.includes(String(p?.title || '').trim()));
       if (match?.ratingKey) {
         const matchedId = String(match.ratingKey);
         // Rename in Plex if found under the legacy title
@@ -524,7 +613,7 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   }
   if (!machineId) throw new Error('Could not determine Plex machine ID');
 
-  const title = `${playlistType === CRESCIVE_PLAYLIST_TYPE ? 'Crescive' : 'Curative'} Playlist (${userId})`;
+  const title = buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId);
   const playlistRow = await ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, title, machineId);
 
   if (forceFullRebuild) clearPlaylistState(db, userId, playlistKey);
@@ -598,6 +687,7 @@ export function createPlaylistService(ctx) {
   }
 
   function buildDailyMix(userPlexId, options = {}) {
+    const config = ctx.loadConfig();
     const favoriteLimit = Math.max(1, Number(options.favoriteLimit || 12));
     const suggestedLimit = Math.max(1, Number(options.suggestedLimit || 8));
     const freshLimit = Math.max(1, Number(options.freshLimit || 10));
@@ -618,7 +708,7 @@ export function createPlaylistService(ctx) {
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,
       playlistType: DAILY_MIX_PLAYLIST_TYPE,
-      playlistTitle: `Daily Mix (${userPlexId})`,
+      playlistTitle: buildGeneratedPlaylistTitle(config, DAILY_MIX_PLAYLIST_TYPE, DAILY_MIX_PLAYLIST_KEY, userPlexId),
       algorithmVersion: 'phase2c-daily-mix',
       trackCount: combined.length,
       trackKeys: combined.map((track) => track.ratingKey),
@@ -769,7 +859,7 @@ export function createPlaylistService(ctx) {
     if (!machineId) throw new Error('Could not determine Plex machine ID');
 
     const playlistKey   = `global:${playlistDef.id}`;
-    const playlistTitle = `${playlistDef.name} (${userId})`;
+    const playlistTitle = buildGeneratedPlaylistTitle(config, 'global', playlistKey, userId, playlistDef.name);
     const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'global', playlistKey, playlistTitle, machineId);
     await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
 
@@ -873,7 +963,7 @@ export function createPlaylistService(ctx) {
     if (!machineId) throw new Error('Could not determine Plex machine ID');
 
     const playlistKey   = `personal:${playlistDef.id}`;
-    const playlistTitle = `${playlistDef.name} (${userId})`;
+    const playlistTitle = buildGeneratedPlaylistTitle(config, 'personal', playlistKey, userId, playlistDef.name);
     const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'personal', playlistKey, playlistTitle, machineId);
     await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
 
@@ -897,13 +987,11 @@ export function createPlaylistService(ctx) {
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
 
     const machineId = await resolveMachineId(ctx, config);
-    const STATIONS = { recommended: 'Recommended', mix: 'Mix', library: 'Library', neighbours: 'Neighbours' };
-
     for (const stationKey of prefs.lastfmEnabledStations) {
-      const label = STATIONS[stationKey];
+      const label = LASTFM_STATION_LABELS[stationKey];
       if (!label) continue;
       const playlistKey = `lastfm:${stationKey}`;
-      const playlistTitle = `Last.fm ${label} (${userId})`;
+      const playlistTitle = buildGeneratedPlaylistTitle(config, 'lastfm-station', playlistKey, userId, `Last.fm ${label}`);
       try {
         const res = await fetch(`https://www.last.fm/player/station/user/${encodeURIComponent(prefs.lastfmUsername)}/${stationKey}`);
         if (!res.ok) throw new Error(`Last.fm station HTTP ${res.status}`);
@@ -956,6 +1044,67 @@ export function createPlaylistService(ctx) {
     await syncCurative(userId);
   }
 
+  async function renameGeneratedPlaylistTitle(userPlexId, playlistKey, configOverride = null) {
+    const existing = getGeneratedByKey(userPlexId, playlistKey);
+    if (!existing?.plexPlaylistId) return null;
+    const config = configOverride || ctx.loadConfig();
+    if (!ctx.userHasOwnPlexToken(config, userPlexId)) return existing;
+    const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    if (!base || !token) return existing;
+
+    const playlistTitle = buildGeneratedPlaylistTitle(
+      config,
+      existing.playlistType,
+      existing.playlistKey,
+      userPlexId,
+      existing.playlistTitle,
+    );
+    if (!playlistTitle) return existing;
+
+    await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
+      method: 'PUT',
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    saveUserGeneratedPlaylist(db, userPlexId, {
+      ...existing,
+      playlistTitle,
+      updatedAt: Date.now(),
+    });
+    return getGeneratedByKey(userPlexId, playlistKey);
+  }
+
+  async function renameAllGeneratedPlaylistTitles(configOverride = null) {
+    const config = configOverride || ctx.loadConfig();
+    const all = listAllGeneratedPlaylists(db);
+    let renamed = 0;
+
+    for (const entry of all) {
+      try {
+        const existing = getGeneratedByKey(entry.userPlexId, entry.playlistKey);
+        const nextTitle = buildGeneratedPlaylistTitle(
+          config,
+          existing?.playlistType || entry.playlistType,
+          entry.playlistKey,
+          entry.userPlexId,
+          existing?.playlistTitle || entry.playlistTitle,
+        );
+        if (!nextTitle) continue;
+        await renameGeneratedPlaylistTitle(entry.userPlexId, entry.playlistKey, config);
+        if (nextTitle !== String(existing?.playlistTitle || entry.playlistTitle || '').trim()) renamed += 1;
+      } catch (err) {
+        ctx.pushLog({
+          level: 'warn',
+          app: 'playlist',
+          action: 'playlist.rename',
+          message: `Failed to rename playlist ${entry.playlistKey} for ${entry.userPlexId}: ${err.message}`,
+        });
+      }
+    }
+
+    return { processed: all.length, renamed };
+  }
+
   return {
     listGenerated,
     getGeneratedByKey,
@@ -969,6 +1118,8 @@ export function createPlaylistService(ctx) {
     syncCrescive,
     syncCurative,
     syncBothForUser,
+    renameGeneratedPlaylistTitle,
+    renameAllGeneratedPlaylistTitles,
     CRESCIVE_PLAYLIST_KEY,
     CURATIVE_PLAYLIST_KEY,
   };

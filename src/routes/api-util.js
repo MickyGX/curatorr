@@ -13,6 +13,9 @@ export function registerApiUtil(app, ctx) {
     resolveRoleSwitchRedirectPath,
     getActualRole,
     getEffectiveRole,
+    isLocalAdminDataViewer,
+    setPreviewUserId,
+    db,
     normalizeThemeSettings,
     serializeUserThemePreferences,
     saveConfig,
@@ -54,6 +57,24 @@ export function registerApiUtil(app, ctx) {
   });
 
   app.get('/switch-view', requireUser, (_req, res) => res.status(405).send('Method Not Allowed. Use POST.'));
+
+  app.post('/admin/preview-user', requireUser, (req, res) => {
+    if (!isLocalAdminDataViewer(req)) return res.status(403).send('Admin preview access required.');
+    const requestedUserId = String(req.body?.previewUserId || '').trim();
+    if (!requestedUserId) {
+      setPreviewUserId(req, '');
+    } else {
+      const exists = db.prepare(`
+        SELECT 1
+        FROM play_events
+        WHERE TRIM(COALESCE(user_plex_id, '')) = ?
+        LIMIT 1
+      `).get(requestedUserId);
+      setPreviewUserId(req, exists ? requestedUserId : '');
+    }
+    const nextPath = String(req.body?.next || req.headers?.referer || '/dashboard').trim();
+    return res.redirect(nextPath.startsWith('/') ? nextPath : '/dashboard');
+  });
 
   app.get('/api/version', requireUser, async (_req, res) => {
     const current = normalizeVersionTag(APP_VERSION || '');

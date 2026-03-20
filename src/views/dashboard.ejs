@@ -1,5 +1,11 @@
 <%- include('partials/head', { pageTitle: title || 'Dashboard — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
+  <style>
+    .dash-content--dashboard .cur-panel--stats .cur-stat-value--sm {
+      font-size: 14px;
+      line-height: 1.2;
+    }
+  </style>
   <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
@@ -66,9 +72,11 @@
           function fmtListenTime(ms) {
             if (!ms) return '—';
             const totalMins = Math.floor(ms / 60000);
-            const h = Math.floor(totalMins / 60);
+            if (totalMins >= 60) {
+              const hours = Math.round((totalMins / 60) * 10) / 10;
+              return String(hours).replace(/\.0$/, '') + 'h';
+            }
             const m = totalMins % 60;
-            if (h) return h + 'h ' + m + 'm';
             return m + 'm';
           }
           function fmtDate(ts) {
@@ -91,10 +99,38 @@
         <%# ── Stat cards widget bar ─────────────────────────────────────── %>
         <%
           const _statsAll = statsAll || { plays: 0, skips: 0, skipRate: 0, uniqueArtists: 0, uniqueTracks: 0, totalListenMs: 0 };
+          const _periodSummaryLabel = '7d / 30d / all time';
           const _pFmt = {
-            '7d':  { plays: String(_stats7d.plays),  skips: String(_stats7d.skips),  skipRate: (_stats7d.plays  ? Math.round(_stats7d.skipRate  * 100) : 0) + '%', listenTime: fmtListenTime(_stats7d.totalListenMs),  artists: String(_stats7d.uniqueArtists  || 0), tracks: String(_stats7d.uniqueTracks  || 0) },
-            '30d': { plays: String(_stats30d.plays), skips: String(_stats30d.skips), skipRate: (_stats30d.plays ? Math.round(_stats30d.skipRate * 100) : 0) + '%', listenTime: fmtListenTime(_stats30d.totalListenMs), artists: String(_stats30d.uniqueArtists || 0), tracks: String(_stats30d.uniqueTracks || 0) },
-            'all': { plays: String(_statsAll.plays), skips: String(_statsAll.skips), skipRate: (_statsAll.plays ? Math.round(_statsAll.skipRate * 100) : 0) + '%', listenTime: fmtListenTime(_statsAll.totalListenMs), artists: String(_statsAll.uniqueArtists || 0), tracks: String(_statsAll.uniqueTracks || 0) },
+            plays: [
+              Number(_stats7d.plays || 0).toLocaleString(),
+              Number(_stats30d.plays || 0).toLocaleString(),
+              Number(_statsAll.plays || 0).toLocaleString(),
+            ].join(' / '),
+            skips: [
+              Number(_stats7d.skips || 0).toLocaleString(),
+              Number(_stats30d.skips || 0).toLocaleString(),
+              Number(_statsAll.skips || 0).toLocaleString(),
+            ].join(' / '),
+            skipRate: [
+              (_stats7d.plays ? Math.round(_stats7d.skipRate * 100) : 0) + '%',
+              (_stats30d.plays ? Math.round(_stats30d.skipRate * 100) : 0) + '%',
+              (_statsAll.plays ? Math.round(_statsAll.skipRate * 100) : 0) + '%',
+            ].join(' / '),
+            listenTime: [
+              fmtListenTime(_stats7d.totalListenMs),
+              fmtListenTime(_stats30d.totalListenMs),
+              fmtListenTime(_statsAll.totalListenMs),
+            ].join(' / '),
+            artists: [
+              Number(_stats7d.uniqueArtists || 0).toLocaleString(),
+              Number(_stats30d.uniqueArtists || 0).toLocaleString(),
+              Number(_statsAll.uniqueArtists || 0).toLocaleString(),
+            ].join(' / '),
+            tracks: [
+              Number(_stats7d.uniqueTracks || 0).toLocaleString(),
+              Number(_stats30d.uniqueTracks || 0).toLocaleString(),
+              Number(_statsAll.uniqueTracks || 0).toLocaleString(),
+            ].join(' / '),
           };
           const _statIcons = {
             plays:      '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 3l9 5-9 5V3z"/></svg>',
@@ -116,28 +152,15 @@
         <div class="cur-panel cur-panel--stats" data-panel-key="dashboard-stats">
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Overview Stats</h3>
-            <div class="cur-panel-actions">
-              <div class="cur-stats-filter-group" role="group" aria-label="Time period">
-                <button class="cur-stats-period-btn is-active" type="button" data-period="7d">7d</button>
-                <button class="cur-stats-period-btn" type="button" data-period="30d">30d</button>
-                <button class="cur-stats-period-btn" type="button" data-period="all">All</button>
-              </div>
-            </div>
           </div>
           <div class="cur-panel-body">
-            <div class="cur-stat-row" id="cur-stats-row">
+            <div class="cur-stat-row">
               <% _statCards.forEach(function(card) { %>
-                <div class="cur-stat-card<%= card.mod ? ' cur-stat-card--' + card.mod : '' %>"
-                     data-stat-7d="<%= _pFmt['7d'][card.key] %>"
-                     data-stat-30d="<%= _pFmt['30d'][card.key] %>"
-                     data-stat-all="<%= _pFmt['all'][card.key] %>"
-                     data-sub-7d="30d: <%= _pFmt['30d'][card.key] %>"
-                     data-sub-30d="7d: <%= _pFmt['7d'][card.key] %>"
-                     data-sub-all="30d: <%= _pFmt['30d'][card.key] %>">
+                <div class="cur-stat-card<%= card.mod ? ' cur-stat-card--' + card.mod : '' %>">
                   <div class="cur-stat-body">
                     <div class="cur-stat-label"><%= card.label %></div>
-                    <div class="cur-stat-value" data-stat-val><%= _pFmt['7d'][card.key] %></div>
-                    <div class="cur-stat-sub" data-stat-sub>30d: <%= _pFmt['30d'][card.key] %></div>
+                    <div class="cur-stat-value cur-stat-value--sm"><%= _pFmt[card.key] %></div>
+                    <div class="cur-stat-sub"><%= _periodSummaryLabel %></div>
                   </div>
                   <div class="cur-stat-icon"><%- _statIcons[card.key] || '' %></div>
                 </div>
@@ -732,26 +755,5 @@
   })();
   </script>
   <script src="/starfield-3d.js"></script>
-  <script>
-  (function() {
-    var panel = document.querySelector('[data-panel-key="dashboard-stats"]');
-    if (!panel) return;
-    var btns = panel.querySelectorAll('.cur-stats-period-btn');
-    var cards = panel.querySelectorAll('[data-stat-7d]');
-    btns.forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var period = btn.getAttribute('data-period');
-        btns.forEach(function(b) { b.classList.remove('is-active'); });
-        btn.classList.add('is-active');
-        cards.forEach(function(card) {
-          var valEl = card.querySelector('[data-stat-val]');
-          var subEl = card.querySelector('[data-stat-sub]');
-          if (valEl) valEl.textContent = card.getAttribute('data-stat-' + period) || '';
-          if (subEl) subEl.textContent = card.getAttribute('data-sub-' + period) || '';
-        });
-      });
-    });
-  })();
-  </script>
 </body>
 </html>

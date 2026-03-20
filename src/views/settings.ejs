@@ -438,6 +438,19 @@
                   </label>
                   <small class="settings-smart-helper">Applied to new users during setup. Existing users keep their chosen preset. Changing this updates the fields below.</small>
                 </div>
+                <div class="settings-toggle-row" style="margin:12px 0 6px">
+                  <label class="settings-toggle">
+                    <input
+                      type="checkbox"
+                      name="appendUsernameToPlaylistTitles"
+                      value="1"
+                      <%= config.smartPlaylist?.appendUsernameToPlaylistTitles !== false ? 'checked' : '' %>
+                    />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Append Plex username to generated playlist titles</span>
+                  </label>
+                </div>
+                <small class="settings-smart-helper">Applies globally. Changing this immediately renames existing generated playlists in Plex and in Curatorr.</small>
                 <div class="cur-tier-table-wrap">
                   <table class="cur-tier-table">
                     <colgroup>

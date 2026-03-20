@@ -566,7 +566,7 @@ export function registerSettings(app, ctx) {
 
   // ── Smart playlist settings ───────────────────────────────────────────────
 
-  app.post('/settings/smart-playlist', requireSettingsAdmin, (req, res) => {
+  app.post('/settings/smart-playlist', requireSettingsAdmin, async (req, res) => {
     const config = loadConfig();
     const VALID_PRESETS = ['cautious', 'measured', 'aggressive'];
     const defaultPreset = VALID_PRESETS.includes(req.body?.defaultPreset) ? req.body.defaultPreset : (config.smartPlaylist?.defaultPreset || 'measured');
@@ -581,6 +581,8 @@ export function registerSettings(app, ctx) {
     const artistBelterRank = Math.max(5, Math.min(10, Number(req.body?.artistBelterRank) || 8));
     const playlistId = String(req.body?.playlistId || config.smartPlaylist?.playlistId || '').trim();
     const playlistTitle = String(req.body?.playlistTitle || 'Curatorr Smart Playlist').trim();
+    const appendUsernameToPlaylistTitles = Boolean(req.body?.appendUsernameToPlaylistTitles);
+    const previousAppendUsernameToPlaylistTitles = config.smartPlaylist?.appendUsernameToPlaylistTitles !== false;
 
     const updated = {
       ...config,
@@ -590,10 +592,30 @@ export function registerSettings(app, ctx) {
         skipThresholdSeconds, completionThresholdSeconds, songSkipLimit,
         syncIntervalMinutes, skipWeight, belterWeight,
         artistSkipRank, artistBelterRank,
+        appendUsernameToPlaylistTitles,
         playlistId, playlistTitle,
       },
     };
     saveConfig(updated);
+    if (previousAppendUsernameToPlaylistTitles !== appendUsernameToPlaylistTitles) {
+      const renameResult = await playlistService?.renameAllGeneratedPlaylistTitles(updated).catch((err) => {
+        pushLog({
+          level: 'warn',
+          app: 'settings',
+          action: 'playlist.rename',
+          message: `Generated playlist rename pass failed after title toggle change: ${safeMessage(err)}`,
+        });
+        return null;
+      });
+      if (renameResult) {
+        pushLog({
+          level: 'info',
+          app: 'settings',
+          action: 'playlist.rename',
+          message: `Generated playlist titles updated after username suffix toggle change: ${renameResult.renamed}/${renameResult.processed} renamed.`,
+        });
+      }
+    }
     return res.redirect('/settings?tab=smart-playlist&success=1');
   });
 

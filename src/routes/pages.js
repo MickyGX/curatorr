@@ -113,6 +113,538 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
   });
 }
 
+function normalizeIdentitySet(values = [], normalizeIdentityList) {
+  return new Set(
+    normalizeIdentityList(values)
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function resolveConfiguredPlexRole(identifier, roleSets) {
+  const key = String(identifier || '').trim().toLowerCase();
+  if (!key) return 'user';
+  if (roleSets.disabled.has(key)) return 'disabled';
+  if (roleSets.admin.has(key)) return 'admin';
+  if (roleSets.coAdmin.has(key)) return 'co-admin';
+  if (roleSets.powerUser.has(key)) return 'power-user';
+  if (roleSets.guest.has(key)) return 'guest';
+  return 'user';
+}
+
+async function buildAdminUsersPageData({
+  db,
+  config,
+  resolveLocalUsers,
+  normalizeIdentityList,
+  loadAdmins,
+  loadCoAdmins,
+  loadPowerUsers,
+  loadGuestUsers,
+  loadDisabledUsers,
+  fetchPlexUser,
+  fetchPlexHomeUsers,
+  parsePlexUsers,
+  currentUser,
+}) {
+  const userLogins = config?.userLogins?.curatorr && typeof config.userLogins.curatorr === 'object'
+    ? config.userLogins.curatorr
+    : {};
+  const plexLogins = config?.userLogins?.plex && typeof config.userLogins.plex === 'object'
+    ? config.userLogins.plex
+    : {};
+  const normalizedLocalUsers = resolveLocalUsers(config);
+  const localIdentitySet = normalizeIdentitySet(
+    normalizedLocalUsers.flatMap((entry) => [entry?.username, entry?.email]),
+    normalizeIdentityList,
+  );
+  const roleSets = {
+    admin: normalizeIdentitySet(loadAdmins(), normalizeIdentityList),
+    coAdmin: normalizeIdentitySet(loadCoAdmins(), normalizeIdentityList),
+    powerUser: normalizeIdentitySet(loadPowerUsers(), normalizeIdentityList),
+    guest: normalizeIdentitySet(loadGuestUsers(), normalizeIdentityList),
+    disabled: normalizeIdentitySet(loadDisabledUsers(), normalizeIdentityList),
+  };
+  const ownerKey = [...roleSets.admin][0] || '';
+  const hasRoleMatch = (set, ids = []) => ids.some((id) => set.has(id));
+  const resolveLogin = (ids = []) => {
+    for (const id of ids) {
+      if (userLogins[id]) return userLogins[id];
+    }
+    for (const id of ids) {
+      if (plexLogins[id]) return plexLogins[id];
+    }
+    return '';
+  };
+  const observedPlexUserIds = db.prepare(`
+    SELECT DISTINCT user_plex_id FROM play_events WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    UNION
+    SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    UNION
+    SELECT DISTINCT user_plex_id FROM track_stats WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    UNION
+    SELECT DISTINCT user_plex_id FROM playlist_syncs WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    UNION
+    SELECT DISTINCT user_plex_id FROM user_generated_playlists WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    UNION
+    SELECT DISTINCT user_plex_id FROM user_personal_playlists WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    UNION
+    SELECT DISTINCT user_plex_id FROM lidarr_requests WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+  `).all().map((row) => String(row.user_plex_id || '').trim()).filter(Boolean);
+  const plexLoginIds = Object.keys(plexLogins || {}).map((value) => String(value || '').trim()).filter(Boolean);
+  const seenPlexIds = new Set();
+  const fallbackPlexUserIds = [...observedPlexUserIds, ...plexLoginIds].filter((value) => {
+    const key = String(value || '').trim().toLowerCase();
+    if (!key || localIdentitySet.has(key) || seenPlexIds.has(key)) return false;
+    seenPlexIds.add(key);
+    return true;
+  });
+  const now = Date.now();
+  const since7d = now - 7 * 24 * 60 * 60 * 1000;
+  const since30d = now - 30 * 24 * 60 * 60 * 1000;
+  const playlistCountStmt = db.prepare('SELECT COUNT(*) AS n FROM user_generated_playlists WHERE user_plex_id = ? AND active = 1');
+  const personalPlaylistCountStmt = db.prepare('SELECT COUNT(*) AS n FROM user_personal_playlists WHERE user_plex_id = ?');
+  const lastPlayStmt = db.prepare('SELECT MAX(started_at) AS last_play_at FROM play_events WHERE user_plex_id = ?');
+  const lidarrUsageTotalsStmt = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN usage_key = 'artists' THEN amount ELSE 0 END), 0) AS artists_added,
+      COALESCE(SUM(CASE WHEN usage_key = 'albums' THEN amount ELSE 0 END), 0) AS albums_added
+    FROM lidarr_usage
+    WHERE user_plex_id = ?
+  `);
+  const lidarrProgressTotalsStmt = db.prepare(`
+    SELECT
+      COUNT(DISTINCT CASE
+        WHEN TRIM(COALESCE(artist_name, '')) != ''
+          AND (
+            lidarr_artist_id IS NOT NULL
+            OR current_stage IN ('artist_added', 'starter_album_added', 'starter_album_linked', 'catalog_expanded', 'catalog_complete')
+          )
+        THEN LOWER(TRIM(artist_name))
+        ELSE NULL
+      END) AS artists_added,
+      COALESCE(SUM(COALESCE(albums_added_count, 0)), 0) AS albums_added
+    FROM lidarr_artist_progress
+    WHERE user_plex_id = ?
+  `);
+  const resolveLidarrStats = (userId) => {
+    const usage = lidarrUsageTotalsStmt.get(userId) || {};
+    const progress = lidarrProgressTotalsStmt.get(userId) || {};
+    return {
+      artistsAdded: Math.max(Number(usage.artists_added || 0), Number(progress.artists_added || 0)),
+      albumsAdded: Math.max(Number(usage.albums_added || 0), Number(progress.albums_added || 0)),
+      tracksAdded: null,
+    };
+  };
+  const livePlexUsers = [];
+  const homeThumbByKey = new Map();
+  const homeUserKeySet = new Set();
+  const token = String(config?.plex?.token || '').trim();
+  const machineId = String(config?.plex?.machineId || '').trim();
+  if (token && fetchPlexUser && parsePlexUsers) {
+    try {
+      const [usersRes, ownerUser, homeUsers] = await Promise.all([
+        fetch('https://plex.tv/api/users', { headers: { Accept: 'application/xml', 'X-Plex-Token': token } }),
+        fetchPlexUser(token).catch(() => null),
+        fetchPlexHomeUsers ? fetchPlexHomeUsers(token).catch(() => []) : [],
+      ]);
+      (Array.isArray(homeUsers) ? homeUsers : []).forEach((homeUser) => {
+        const thumb = String(homeUser?.thumb || '').trim();
+        normalizeIdentityList([
+          homeUser?.title,
+          homeUser?.username,
+          homeUser?.email,
+          String(homeUser?.id || ''),
+          String(homeUser?.uuid || ''),
+        ]).forEach((value) => {
+          const key = String(value || '').trim().toLowerCase();
+          if (!key) return;
+          if (thumb && !homeThumbByKey.has(key)) homeThumbByKey.set(key, thumb);
+          if (!homeUser?.admin) homeUserKeySet.add(key);
+        });
+      });
+      if (usersRes.ok) {
+        const xmlText = await usersRes.text();
+        const users = parsePlexUsers(xmlText, { machineId }).map((user) => {
+          const thumb = String(user?.thumb || '').trim();
+          if (thumb) return user;
+          const ids = normalizeIdentityList([
+            user?.email,
+            user?.username,
+            user?.title,
+            String(user?.id || ''),
+            String(user?.uuid || ''),
+          ]).map((value) => String(value || '').trim().toLowerCase());
+          const matchedThumb = ids.map((id) => homeThumbByKey.get(id)).find(Boolean) || '';
+          return matchedThumb ? { ...user, thumb: matchedThumb } : user;
+        });
+        users.forEach((user) => livePlexUsers.push(user));
+      }
+      if (ownerUser) {
+        const ownerIds = new Set(
+          normalizeIdentityList([ownerUser.email, ownerUser.username, ownerUser.title, String(ownerUser.id || ''), String(ownerUser.uuid || '')])
+            .map((value) => value.toLowerCase()),
+        );
+        const alreadyPresent = livePlexUsers.some((user) => normalizeIdentityList([
+          user?.email,
+          user?.username,
+          user?.title,
+          String(user?.id || ''),
+          String(user?.uuid || ''),
+        ]).some((value) => ownerIds.has(String(value || '').toLowerCase())));
+        if (!alreadyPresent) {
+          livePlexUsers.unshift({
+            id: String(ownerUser.id || ''),
+            uuid: String(ownerUser.uuid || ''),
+            username: ownerUser.username || '',
+            email: ownerUser.email || '',
+            title: ownerUser.title || ownerUser.username || ownerUser.email || '',
+            thumb: String(ownerUser.thumb || ''),
+            lastSeenAt: '',
+          });
+        }
+      }
+    } catch (_err) {
+      // Fall back to observed IDs only when live Plex user lookup is unavailable.
+    }
+  }
+
+  const livePlexRows = livePlexUsers.map((user) => {
+    const ids = normalizeIdentityList([
+      user?.email,
+      user?.username,
+      user?.title,
+      String(user?.id || ''),
+      String(user?.uuid || ''),
+    ]).map((value) => value.toLowerCase());
+    const userId = String(user?.username || user?.title || user?.email || user?.id || user?.uuid || '').trim();
+    if (!userId) return null;
+    const stats7d = getPlayStats(db, userId, since7d) || {};
+    const stats30d = getPlayStats(db, userId, since30d) || {};
+    const statsAll = getPlayStats(db, userId, 0) || {};
+    const playlistCount = Number(playlistCountStmt.get(userId)?.n || 0);
+    const personalPlaylistCount = Number(personalPlaylistCountStmt.get(userId)?.n || 0);
+    const topArtist = getTopArtists(db, userId, 1)[0]?.artist_name || '';
+    const lastSync = getLastPlaylistSync(db, userId);
+    const lastPlayAt = Number(lastPlayStmt.get(userId)?.last_play_at || 0);
+    const lidarrStats = resolveLidarrStats(userId);
+    const plays7d = Number(stats7d.total_plays || 0);
+    const plays30d = Number(stats30d.total_plays || 0);
+    const playsAll = Number(statsAll.total_plays || 0);
+    const skips7d = Number(stats7d.total_skips || 0);
+    const skips30d = Number(stats30d.total_skips || 0);
+    const skipsAll = Number(statsAll.total_skips || 0);
+    let role = 'user';
+    if (ownerKey && ids.includes(ownerKey)) role = 'admin';
+    else if (hasRoleMatch(roleSets.disabled, ids)) role = 'disabled';
+    else if (hasRoleMatch(roleSets.admin, ids)) role = 'admin';
+    else if (hasRoleMatch(roleSets.coAdmin, ids)) role = 'co-admin';
+    else if (hasRoleMatch(roleSets.powerUser, ids)) role = 'power-user';
+    else if (hasRoleMatch(roleSets.guest, ids)) role = 'guest';
+    return {
+      id: userId,
+      name: String(user?.title || user?.username || user?.email || userId).trim(),
+      avatarUrl: String(user?.thumb || '').trim(),
+      avatarLabel: String(user?.title || user?.username || userId).trim().charAt(0).toUpperCase() || 'P',
+      isHomeUser: ids.some((id) => homeUserKeySet.has(id)),
+      role,
+      plays7d,
+      plays30d,
+      playsAll,
+      skips7d,
+      skips30d,
+      skipsAll,
+      skipRate7d: plays7d > 0 ? skips7d / plays7d : 0,
+      skipRate30d: plays30d > 0 ? skips30d / plays30d : 0,
+      skipRateAll: playsAll > 0 ? skipsAll / playsAll : 0,
+      uniqueArtists: Number(statsAll.unique_artists || 0),
+      uniqueTracks: Number(statsAll.unique_tracks || 0),
+      totalListenMs: Number(statsAll.total_listen_ms || 0),
+      playlistCount,
+      personalPlaylistCount,
+      lidarrArtistsAdded: lidarrStats.artistsAdded,
+      lidarrAlbumsAdded: lidarrStats.albumsAdded,
+      lidarrTracksAdded: lidarrStats.tracksAdded,
+      topArtist,
+      lastPlayAt,
+      lastPlaylistSyncAt: Number(lastSync?.synced_at || 0),
+      lastCuratorrLogin: resolveLogin(ids),
+      lastPlexLogin: ids.find((id) => plexLogins[id]) ? plexLogins[ids.find((id) => plexLogins[id])] : '',
+    };
+  }).filter(Boolean);
+
+  const livePlexKeySet = new Set(livePlexRows.map((entry) => String(entry.id || '').trim().toLowerCase()));
+  const fallbackRows = livePlexRows.length ? [] : fallbackPlexUserIds
+    .filter((userId) => !livePlexKeySet.has(String(userId || '').trim().toLowerCase()))
+    .map((userId) => {
+      const ids = normalizeIdentityList([userId]).map((value) => value.toLowerCase());
+      const stats7d = getPlayStats(db, userId, since7d) || {};
+      const stats30d = getPlayStats(db, userId, since30d) || {};
+      const statsAll = getPlayStats(db, userId, 0) || {};
+      const playlistCount = Number(playlistCountStmt.get(userId)?.n || 0);
+      const personalPlaylistCount = Number(personalPlaylistCountStmt.get(userId)?.n || 0);
+      const topArtist = getTopArtists(db, userId, 1)[0]?.artist_name || '';
+      const lastSync = getLastPlaylistSync(db, userId);
+      const lastPlayAt = Number(lastPlayStmt.get(userId)?.last_play_at || 0);
+      const lidarrStats = resolveLidarrStats(userId);
+      const plays7d = Number(stats7d.total_plays || 0);
+      const plays30d = Number(stats30d.total_plays || 0);
+      const playsAll = Number(statsAll.total_plays || 0);
+      const skips7d = Number(stats7d.total_skips || 0);
+      const skips30d = Number(stats30d.total_skips || 0);
+      const skipsAll = Number(statsAll.total_skips || 0);
+      return {
+        id: userId,
+        name: userId,
+        avatarUrl: '',
+        avatarLabel: userId.charAt(0).toUpperCase() || 'P',
+        isHomeUser: false,
+        role: resolveConfiguredPlexRole(userId, roleSets),
+        plays7d,
+        plays30d,
+        playsAll,
+        skips7d,
+        skips30d,
+        skipsAll,
+        skipRate7d: plays7d > 0 ? skips7d / plays7d : 0,
+        skipRate30d: plays30d > 0 ? skips30d / plays30d : 0,
+        skipRateAll: playsAll > 0 ? skipsAll / playsAll : 0,
+        uniqueArtists: Number(statsAll.unique_artists || 0),
+        uniqueTracks: Number(statsAll.unique_tracks || 0),
+        totalListenMs: Number(statsAll.total_listen_ms || 0),
+        playlistCount,
+        personalPlaylistCount,
+        lidarrArtistsAdded: lidarrStats.artistsAdded,
+        lidarrAlbumsAdded: lidarrStats.albumsAdded,
+        lidarrTracksAdded: lidarrStats.tracksAdded,
+        topArtist,
+        lastPlayAt,
+        lastPlaylistSyncAt: Number(lastSync?.synced_at || 0),
+        lastCuratorrLogin: resolveLogin(ids),
+        lastPlexLogin: ids.find((id) => plexLogins[id]) ? plexLogins[ids.find((id) => plexLogins[id])] : '',
+      };
+    });
+
+  const plexUsers = [...livePlexRows, ...fallbackRows].sort((a, b) => {
+    if (b.plays30d !== a.plays30d) return b.plays30d - a.plays30d;
+    if (b.playsAll !== a.playsAll) return b.playsAll - a.playsAll;
+    if (b.lastPlayAt !== a.lastPlayAt) return b.lastPlayAt - a.lastPlayAt;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+  });
+
+  const currentUserKey = String(currentUser?.username || '').trim().toLowerCase();
+  const localUsers = normalizedLocalUsers.map((entry) => {
+    const loginKey = String(entry.email || entry.username || '').trim().toLowerCase();
+    return {
+      username: String(entry.username || '').trim(),
+      email: String(entry.email || '').trim(),
+      role: String(entry.role || 'user').trim().toLowerCase(),
+      lastCuratorrLogin: String(userLogins[loginKey] || '').trim(),
+      isSetupAdmin: Boolean(entry.isSetupAdmin || entry.setupAccount),
+      isCurrentSessionUser: currentUserKey && currentUserKey === String(entry.username || '').trim().toLowerCase(),
+    };
+  });
+
+  const summary = {
+    plexUserCount: plexUsers.length,
+    activePlexUsers7d: plexUsers.filter((entry) => entry.plays7d > 0).length,
+    activePlexUsers30d: plexUsers.filter((entry) => entry.plays30d > 0).length,
+    activePlexUsersAll: plexUsers.filter((entry) => entry.playsAll > 0).length,
+    totalPlexPlays7d: plexUsers.reduce((sum, entry) => sum + entry.plays7d, 0),
+    totalPlexPlays30d: plexUsers.reduce((sum, entry) => sum + entry.plays30d, 0),
+    totalPlexPlaysAll: plexUsers.reduce((sum, entry) => sum + entry.playsAll, 0),
+    totalPlaylists: plexUsers.reduce((sum, entry) => sum + Number(entry.playlistCount || 0) + Number(entry.personalPlaylistCount || 0), 0),
+    totalLidarrArtistsAdded: plexUsers.reduce((sum, entry) => sum + Number(entry.lidarrArtistsAdded || 0), 0),
+    totalLidarrAlbumsAdded: plexUsers.reduce((sum, entry) => sum + Number(entry.lidarrAlbumsAdded || 0), 0),
+    totalLidarrTracksAdded: plexUsers.some((entry) => entry.lidarrTracksAdded != null)
+      ? plexUsers.reduce((sum, entry) => sum + Number(entry.lidarrTracksAdded || 0), 0)
+      : null,
+    localAccountCount: localUsers.length,
+  };
+
+  return { plexUsers, localUsers, summary };
+}
+
+async function buildLocalAdminPreviewData({
+  req,
+  db,
+  getActualRole,
+  getPreviewUserId,
+  setPreviewUserId,
+  resolveLocalUsers,
+  normalizeIdentityList,
+  fetchPlexUser,
+  fetchPlexHomeUsers,
+  parsePlexUsers,
+  config,
+}) {
+  const currentUser = req.session?.user || {};
+  const source = String(currentUser?.source || '').trim().toLowerCase();
+  if (getActualRole(req) !== 'admin' || source !== 'local') return null;
+
+  const localIdentitySet = new Set(
+    resolveLocalUsers(config)
+      .flatMap((entry) => [entry?.username, entry?.email])
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const observedRows = db.prepare(`
+    SELECT user_plex_id, MAX(started_at) AS last_play_at
+    FROM play_events
+    WHERE TRIM(COALESCE(user_plex_id, '')) != ''
+    GROUP BY user_plex_id
+    ORDER BY last_play_at DESC, user_plex_id COLLATE NOCASE ASC
+  `).all().map((row) => ({
+    id: String(row.user_plex_id || '').trim(),
+    lastPlayAt: Number(row.last_play_at || 0),
+  })).filter((row) => {
+    const id = String(row.id || '').trim();
+    if (!id) return false;
+    return !localIdentitySet.has(id.toLowerCase());
+  });
+
+  if (!observedRows.length) {
+    setPreviewUserId(req, '');
+    return {
+      enabled: true,
+      selectedUserId: '',
+      selectedName: 'No observed Plex users',
+      selectedAvatarUrl: '',
+      selectedAvatarLabel: 'C',
+      options: [],
+    };
+  }
+
+  const liveUsers = [];
+  let ownerIdentitySet = new Set();
+  const homeThumbByKey = new Map();
+  const token = String(config?.plex?.token || '').trim();
+  const machineId = String(config?.plex?.machineId || '').trim();
+
+  if (token && fetchPlexUser && parsePlexUsers) {
+    try {
+      const [usersRes, ownerUser, homeUsers] = await Promise.all([
+        fetch('https://plex.tv/api/users', { headers: { Accept: 'application/xml', 'X-Plex-Token': token } }),
+        fetchPlexUser(token).catch(() => null),
+        fetchPlexHomeUsers ? fetchPlexHomeUsers(token).catch(() => []) : [],
+      ]);
+
+      (Array.isArray(homeUsers) ? homeUsers : []).forEach((homeUser) => {
+        const thumb = String(homeUser?.thumb || '').trim();
+        normalizeIdentityList([
+          homeUser?.title,
+          homeUser?.username,
+          homeUser?.email,
+          String(homeUser?.id || ''),
+          String(homeUser?.uuid || ''),
+        ]).forEach((value) => {
+          const key = String(value || '').trim().toLowerCase();
+          if (!key || !thumb || homeThumbByKey.has(key)) return;
+          homeThumbByKey.set(key, thumb);
+        });
+      });
+
+      if (usersRes.ok) {
+        const xmlText = await usersRes.text();
+        const parsedUsers = parsePlexUsers(xmlText, { machineId }).map((entry) => {
+          const thumb = String(entry?.thumb || '').trim();
+          if (thumb) return entry;
+          const ids = normalizeIdentityList([
+            entry?.email,
+            entry?.username,
+            entry?.title,
+            String(entry?.id || ''),
+            String(entry?.uuid || ''),
+          ]).map((value) => String(value || '').trim().toLowerCase());
+          const matchedThumb = ids.map((id) => homeThumbByKey.get(id)).find(Boolean) || '';
+          return matchedThumb ? { ...entry, thumb: matchedThumb } : entry;
+        });
+        liveUsers.push(...parsedUsers);
+      }
+
+      if (ownerUser) {
+        ownerIdentitySet = new Set(
+          normalizeIdentityList([
+            ownerUser.email,
+            ownerUser.username,
+            ownerUser.title,
+            String(ownerUser.id || ''),
+            String(ownerUser.uuid || ''),
+          ]).map((value) => String(value || '').trim().toLowerCase()),
+        );
+        const alreadyPresent = liveUsers.some((entry) => normalizeIdentityList([
+          entry?.email,
+          entry?.username,
+          entry?.title,
+          String(entry?.id || ''),
+          String(entry?.uuid || ''),
+        ]).some((value) => ownerIdentitySet.has(String(value || '').trim().toLowerCase())));
+        if (!alreadyPresent) {
+          liveUsers.unshift({
+            id: String(ownerUser.id || ''),
+            uuid: String(ownerUser.uuid || ''),
+            username: ownerUser.username || '',
+            email: ownerUser.email || '',
+            title: ownerUser.title || ownerUser.username || ownerUser.email || '',
+            thumb: String(ownerUser.thumb || '').trim(),
+          });
+        }
+      }
+    } catch (_err) {
+      // Fall back to observed IDs only when live Plex lookups are unavailable.
+    }
+  }
+
+  const liveUserByObservedKey = new Map();
+  liveUsers.forEach((entry) => {
+    const ids = normalizeIdentityList([
+      entry?.email,
+      entry?.username,
+      entry?.title,
+      String(entry?.id || ''),
+      String(entry?.uuid || ''),
+    ]).map((value) => String(value || '').trim().toLowerCase());
+    ids.forEach((id) => {
+      if (!id || liveUserByObservedKey.has(id)) return;
+      liveUserByObservedKey.set(id, { entry, ids });
+    });
+  });
+
+  const options = observedRows.map((row) => {
+    const match = liveUserByObservedKey.get(String(row.id || '').trim().toLowerCase()) || null;
+    const entry = match?.entry || null;
+    const ids = match?.ids || [String(row.id || '').trim().toLowerCase()];
+    const name = String(entry?.title || entry?.username || entry?.email || row.id).trim() || row.id;
+    return {
+      id: row.id,
+      name,
+      avatarUrl: String(entry?.thumb || '').trim(),
+      avatarLabel: name.charAt(0).toUpperCase() || 'P',
+      isOwner: ids.some((id) => ownerIdentitySet.has(id)),
+      lastPlayAt: row.lastPlayAt,
+    };
+  });
+
+  const selectedKey = String(getPreviewUserId(req) || '').trim().toLowerCase();
+  const selectedOption = options.find((option) => String(option.id || '').trim().toLowerCase() === selectedKey)
+    || options.find((option) => option.isOwner)
+    || options[0]
+    || null;
+
+  setPreviewUserId(req, selectedOption?.id || '');
+
+  return {
+    enabled: true,
+    selectedUserId: String(selectedOption?.id || '').trim(),
+    selectedName: String(selectedOption?.name || 'Select a Plex user').trim(),
+    selectedAvatarUrl: String(selectedOption?.avatarUrl || '').trim(),
+    selectedAvatarLabel: String(selectedOption?.avatarLabel || 'P').trim() || 'P',
+    options,
+    returnTo: req.originalUrl,
+  };
+}
+
 export function registerPages(app, ctx) {
   const {
     requireUser,
@@ -120,14 +652,26 @@ export function registerPages(app, ctx) {
     requireWizardComplete,
     requireUserWizardComplete,
     loadConfig,
+    resolveLocalUsers,
     getActualRole,
     getEffectiveRole,
+    getPreviewUserId,
+    setPreviewUserId,
     canUserAccessLidarrAutomation,
+    normalizeIdentityList,
+    loadAdmins,
+    loadCoAdmins,
+    loadPowerUsers,
+    loadGuestUsers,
+    loadDisabledUsers,
     db,
     recommendationService,
     playlistService,
     lidarrService,
     fetchPlexPlaylistsForToken,
+    fetchPlexUser,
+    fetchPlexHomeUsers,
+    parsePlexUsers,
   } = ctx;
 
   // Root redirect
@@ -136,14 +680,71 @@ export function registerPages(app, ctx) {
     return res.redirect('/dashboard');
   });
 
+  async function buildPageScope(req, config) {
+    const adminPreview = await buildLocalAdminPreviewData({
+      req,
+      db,
+      getActualRole,
+      getPreviewUserId,
+      setPreviewUserId,
+      resolveLocalUsers,
+      normalizeIdentityList,
+      fetchPlexUser,
+      fetchPlexHomeUsers,
+      parsePlexUsers,
+      config,
+    });
+    const previewUserId = String(adminPreview?.selectedUserId || '').trim();
+    const user = req.session?.user || {};
+    const role = getEffectiveRole(req);
+    const scopedUserId = previewUserId || String(user.username || '').trim();
+    return {
+      adminPreview,
+      role,
+      userPlexId: scopedUserId,
+      suggestionUserId: scopedUserId,
+      personalUserId: scopedUserId,
+    };
+  }
+
+  // ── Admin users ────────────────────────────────────────────────────────────
+
+  app.get('/admin/users', requireAdmin, requireWizardComplete, async (req, res) => {
+    const config = loadConfig();
+    const adminUsersData = await buildAdminUsersPageData({
+      db,
+      config,
+      resolveLocalUsers,
+      normalizeIdentityList,
+      loadAdmins,
+      loadCoAdmins,
+      loadPowerUsers,
+      loadGuestUsers,
+      loadDisabledUsers,
+      fetchPlexUser: ctx.fetchPlexUser,
+      fetchPlexHomeUsers: ctx.fetchPlexHomeUsers,
+      parsePlexUsers: ctx.parsePlexUsers,
+      currentUser: req.session?.user,
+    });
+    res.render('admin-users', {
+      title: 'Users — Curatorr',
+      user: req.session.user,
+      role: getEffectiveRole(req),
+      actualRole: getActualRole(req),
+      config: safeConfig(config),
+      plexUsers: adminUsersData.plexUsers,
+      localUsers: adminUsersData.localUsers,
+      summary: adminUsersData.summary,
+      extraCss: ['/styles-layout.css', '/styles-curatorr.css', '/styles-settings.css'],
+    });
+  });
+
   // ── Dashboard ─────────────────────────────────────────────────────────────
 
   app.get('/dashboard', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const role = getEffectiveRole(req);
-    const userPlexId = resolveUserFilter(user, role);
-    const suggestionUserId = resolveSuggestionUser(user, role);
+    const { adminPreview, role, userPlexId, suggestionUserId } = await buildPageScope(req, config);
 
     const now = Date.now();
     const since7d = now - 7 * 24 * 60 * 60 * 1000;
@@ -235,6 +836,7 @@ export function registerPages(app, ctx) {
       user,
       role,
       actualRole: getActualRole(req),
+      adminPreview,
       config: safeConfig(config),
       stats7d,
       stats30d,
@@ -260,10 +862,10 @@ export function registerPages(app, ctx) {
 
   // ── History ───────────────────────────────────────────────────────────────
 
-  app.get('/history', requireUser, requireWizardComplete, requireUserWizardComplete, (req, res) => {
+  app.get('/history', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const userPlexId = resolveUserFilter(user, getEffectiveRole(req));
+    const { adminPreview, role, userPlexId } = await buildPageScope(req, config);
     const offset = Math.max(0, Number(req.query?.offset || 0));
     const limit = 100;
     const { history, hasMore } = paginateRolledHistory(
@@ -278,8 +880,9 @@ export function registerPages(app, ctx) {
     res.render('history', {
       title: 'Play History — Curatorr',
       user,
-      role: getEffectiveRole(req),
+      role,
       actualRole: getActualRole(req),
+      adminPreview,
       config: safeConfig(config),
       history,
       hasMore,
@@ -294,9 +897,7 @@ export function registerPages(app, ctx) {
   app.get('/artists', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const role = getEffectiveRole(req);
-    const userPlexId = resolveUserFilter(user, role);
-    const suggestionUserId = resolveSuggestionUser(user, role);
+    const { adminPreview, role, userPlexId, suggestionUserId } = await buildPageScope(req, config);
     const artists = getTopArtists(db, userPlexId, 500).map((artist) => ({
       ...artist,
       curatorrTier: deriveArtistTier(artist, config),
@@ -321,6 +922,7 @@ export function registerPages(app, ctx) {
       user,
       role,
       actualRole: getActualRole(req),
+      adminPreview,
       config: safeConfig(config),
       artists,
       suggestedArtists: lidarrStatus.actionableSuggestions,
@@ -336,9 +938,7 @@ export function registerPages(app, ctx) {
   app.get('/discover', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const role = getEffectiveRole(req);
-    const userPlexId = String(user.username || '').trim();
-    const suggestionUserId = resolveSuggestionUser(user, role);
+    const { adminPreview, role, userPlexId, suggestionUserId } = await buildPageScope(req, config);
     const lidarrAutomationEligible = canUserAccessLidarrAutomation(loadConfig(), { ...req.session.user, role });
     const lidarrQuota = lidarrService?.isConfigured() && lidarrAutomationEligible
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {})
@@ -368,6 +968,7 @@ export function registerPages(app, ctx) {
       user,
       role,
       actualRole: getActualRole(req),
+      adminPreview,
       config: safeConfig(config),
       lidarrAutomationEligible,
       lidarrQuota,
@@ -382,12 +983,10 @@ export function registerPages(app, ctx) {
 
   // ── Tracks ────────────────────────────────────────────────────────────────
 
-  app.get('/tracks', requireUser, requireWizardComplete, requireUserWizardComplete, (req, res) => {
+  app.get('/tracks', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const role = getEffectiveRole(req);
-    const userPlexId = resolveUserFilter(user, role);
-    const suggestionUserId = resolveSuggestionUser(user, role);
+    const { adminPreview, role, userPlexId, suggestionUserId } = await buildPageScope(req, config);
     const tracks = getTopTracks(db, userPlexId, 500).map((track) => ({
       ...track,
       track_title: stripArtistSuffix(track.track_title, track.artist_name),
@@ -406,6 +1005,7 @@ export function registerPages(app, ctx) {
       user,
       role,
       actualRole: getActualRole(req),
+      adminPreview,
       config: safeConfig(config),
       tracks,
       completedKeys: [...completedKeys],
@@ -420,8 +1020,7 @@ export function registerPages(app, ctx) {
   app.get('/playlists', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const userPlexId = String(user.username || '').trim();
-    const role = getEffectiveRole(req);
+    const { adminPreview, role, personalUserId: userPlexId } = await buildPageScope(req, config);
     const lastSync = getLastPlaylistSync(db, userPlexId);
     const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: false }) || [];
     const canonicalPlaylists = playlistService?.getCanonicalPlaylist(userPlexId) || { legacy: null, generated: [], curatorred: null };
@@ -478,6 +1077,7 @@ export function registerPages(app, ctx) {
       user,
       role,
       actualRole: getActualRole(req),
+      adminPreview,
       config: safeConfig(config),
       lastSync,
       playlistCards,

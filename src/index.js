@@ -94,6 +94,7 @@ const DEFAULT_SMART_PLAYLIST_SETTINGS = {
   syncIntervalMinutes: 30,
   artistSkipRank: 2,
   artistBelterRank: 8,
+  appendUsernameToPlaylistTitles: true,
   crescive: {
     favouriteArtistTrackPct: 0.80,
     favouriteGenreArtistPct: 0.80,
@@ -770,6 +771,7 @@ function setSessionUser(req, user, source = 'local') {
     source: src,
   };
   req.session.viewRole = null;
+  req.session.previewUserId = null;
 }
 
 function getActualRole(req) {
@@ -791,6 +793,28 @@ function resolveRoleSwitchRedirectPath(req, _targetRole, _opts) {
     } catch (err) { /* ignore */ }
   }
   return '/dashboard';
+}
+
+function isLocalAdminDataViewer(req) {
+  const user = req.session?.user;
+  const source = String(user?.source || '').trim().toLowerCase();
+  return getActualRole(req) === 'admin' && source === 'local';
+}
+
+function getPreviewUserId(req) {
+  if (!isLocalAdminDataViewer(req)) return '';
+  return String(req.session?.previewUserId || '').trim();
+}
+
+function setPreviewUserId(req, userId) {
+  if (!req.session || typeof req.session !== 'object') return '';
+  if (!isLocalAdminDataViewer(req)) {
+    req.session.previewUserId = null;
+    return '';
+  }
+  const nextUserId = String(userId || '').trim();
+  req.session.previewUserId = nextUserId || null;
+  return nextUserId;
 }
 
 // ─── User login tracking ──────────────────────────────────────────────────────
@@ -1346,6 +1370,7 @@ function parsePlexUsers(xmlText, options = {}) {
       username: attrs.username || '',
       email: attrs.email || '',
       title: attrs.title || '',
+      thumb: attrs.thumb || '',
       lastSeenAt: serverMatch?.lastSeenAt || '',
     });
   });
@@ -1370,6 +1395,7 @@ async function completePlexLogin(req, authToken) {
     plexId: String(plexUser.id || '').trim(),
   };
   req.session.viewRole = null;
+  req.session.previewUserId = null;
   req.session.pinId = null;
 
   // First-time Plex users should continue directly into the personal wizard
@@ -1557,8 +1583,10 @@ app.use('/logout', createRequestBodySizeGuard(8 * 1024));
         avatarFallback: resolveLocalAvatarFallback(localUser),
         source: 'local',
       };
+      if ((localUser.role || sessionUser.role || 'user') !== 'admin') req.session.previewUserId = null;
     }
   }
+  if (!isLocalAdminDataViewer(req)) req.session.previewUserId = null;
   return next();
 });
 
@@ -1594,6 +1622,9 @@ const _routeCtx = {
   // auth helpers
   getActualRole,
   getEffectiveRole,
+  isLocalAdminDataViewer,
+  getPreviewUserId,
+  setPreviewUserId,
   resolveRoleSwitchRedirectPath,
   hasLocalAdmin,
   resolveLocalUsers,

@@ -40,6 +40,8 @@
         }
       %>
 
+      <div class="dash-content">
+        <%- include('partials/plex-banner') %>
         <div class="cur-panel cur-panel--playlist-carousel cur-panel--playlists-page-carousel">
           <div class="cur-panel-header cur-panel-header--playlist-carousel">
             <h3 class="cur-panel-title">Playlists</h3>
@@ -113,9 +115,6 @@
             </div>
           </div>
         </div>
-
-      <div class="dash-content">
-        <%- include('partials/plex-banner') %>
 
         <%# ── Track list ───────────────────────────────────────────────── %>
         <div class="cur-panel cur-panel--playlist-tracks">
