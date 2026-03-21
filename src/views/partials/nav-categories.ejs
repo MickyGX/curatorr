@@ -1,0 +1,36 @@
+<%
+  const _navActivePage = locals.navActivePage || '';
+  const _navRole = locals.role || '';
+  const _navActualRole = locals.actualRole || _navRole || '';
+%>
+<div class="nav-divider"></div>
+<a class="nav-item<%= _navActivePage === 'dashboard' ? ' active' : '' %>" href="/dashboard">
+  <img class="nav-icon" src="/icons/dashboard.svg" alt="" />
+  <span class="nav-label">Dashboard</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'discover' ? ' active' : '' %>" href="/discover">
+  <img class="nav-icon" src="/icons/search.svg" alt="" />
+  <span class="nav-label">Discover</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'history' ? ' active' : '' %>" href="/history">
+  <img class="nav-icon" src="/icons/activity-queue.svg" alt="" />
+  <span class="nav-label">History</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'artists' ? ' active' : '' %>" href="/artists">
+  <img class="nav-icon" src="/icons/music.svg" alt="" />
+  <span class="nav-label">Artists</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'tracks' ? ' active' : '' %>" href="/tracks">
+  <img class="nav-icon" src="/icons/vinyl-record.svg" alt="" />
+  <span class="nav-label">Tracks</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'playlists' ? ' active' : '' %>" href="/playlists">
+  <img class="nav-icon" src="/icons/category.svg" alt="" />
+  <span class="nav-label">Playlists</span>
+</a>
+<% if (_navActualRole === 'admin') { %>
+<a class="nav-item<%= _navActivePage === 'admin-users' ? ' active' : '' %>" href="/admin/users">
+  <img class="nav-icon" src="/icons/user-profile.svg" alt="" />
+  <span class="nav-label">Users</span>
+</a>
+<% } %>

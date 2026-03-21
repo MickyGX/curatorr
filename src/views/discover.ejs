@@ -1,0 +1,1106 @@
+<%- include('partials/head', { pageTitle: title || 'Discover — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body cur-discover-page">
+  <style>
+    @media (max-width: 980px) {
+      .cur-discover-page .dash-frame,
+      .cur-discover-page .dash-main,
+      .cur-discover-page .dash-content,
+      .cur-discover-page .plex-module,
+      .cur-discover-page .plex-topbar,
+      .cur-discover-page .plex-panel,
+      .cur-discover-page .cur-panel,
+      .cur-discover-page .cur-panel-header,
+      .cur-discover-page .cur-panel-body,
+      .cur-discover-page .main-window-bar {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
+      .cur-discover-page .main-window-bar {
+        margin: 0;
+        left: 0;
+        right: 0;
+      }
+
+      .cur-discover-page .cur-discover-searchbar,
+      .cur-discover-page .cur-discover-searchbar > * {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+    }
+  </style>
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div><div class="dash-title">Curatorr</div></div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'discover', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/search.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Discover</span>
+        </div>
+        <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
+      </div>
+
+      <div class="dash-content plex-overview">
+        <%- include('partials/plex-banner') %>
+        <%
+          const _lidarrAutomationEligible = Boolean(lidarrAutomationEligible);
+          const _lidarrQuota = lidarrQuota && typeof lidarrQuota === 'object' ? lidarrQuota : null;
+          const _queuedRequests = Array.isArray(queuedRequests) ? queuedRequests : [];
+          const _requestHistory = Array.isArray(requestHistory) ? requestHistory : [];
+
+          function fmtQuota(metric, label) {
+            if (!metric) return '';
+            if (metric.unlimited) return '\u221e';
+            return metric.used + '/' + metric.limit;
+          }
+          function fmtQuotaLabel(metric, label) {
+            if (!metric) return '';
+            return label + ' ' + fmtQuota(metric, label);
+          }
+          function fmtDate(ts) {
+            if (!ts) return '—';
+            return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          }
+          function displayAlbumTitle(item) {
+            const detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+            return String(item?.albumTitle || detail.selectedAlbumTitle || detail.starterAlbumTitle || detail.latestAlbumTitle || detail.preferredAlbumTitle || '').trim();
+          }
+          function isCuratorrChosen(item) {
+            const detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+            if (detail.reconciledAction === 'already_in_lidarr') return false;
+            return !String(item?.albumTitle || '').trim() || Boolean(detail.useCuratorrPick) || Boolean(detail.fallbackUsed) || Boolean(detail.selectedAlbumTitle && !detail.preferredAlbumTitle);
+          }
+          function albumLabel(item) {
+            const title = displayAlbumTitle(item);
+            if (title) return title;
+            const detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+            if (detail.reconciledAction === 'already_in_lidarr') return 'Already in library';
+            if (String(item?.status || '') === 'failed') return 'Selection pending';
+            return String(item?.status || '') === 'processing' ? 'Selecting album…' : 'Curatorr pick';
+          }
+          function artistThumb(item) {
+            return '/api/music/thumb/artist/' + encodeURIComponent(String(item?.artistName || ''));
+          }
+          function albumThumb(item) {
+            const title = displayAlbumTitle(item);
+            if (!title) return '';
+            return '/api/music/thumb/album?artist=' + encodeURIComponent(String(item?.artistName || '')) + '&album=' + encodeURIComponent(title);
+          }
+        %>
+
+        <%
+          const _disc = locals.discoveryConfig || {};
+        %>
+        <% if (_disc.showTrendingArtists || _disc.showTrendingTracks || _disc.showSimilarArtists) { %>
+
+          <% if (_disc.showTrendingArtists) { %>
+          <section class="plex-module cur-discover-module">
+            <div class="plex-topbar">
+              <h3 class="plex-title">Trending Artists</h3>
+              <div class="plex-topbar-actions">
+                <span id="trendingArtistsStatus" class="plex-topbar-meta"></span>
+                <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="trendingArtistsPrev" aria-label="Previous">
+                  <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+                </button>
+                <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="trendingArtistsNext" aria-label="Next">
+                  <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+            <div class="plex-panel">
+              <div class="cur-discover-artist-viewport plex-carousel-viewport" id="trendingArtistsViewport">
+                <div id="trendingArtistsList" class="cur-empty">Loading…</div>
+              </div>
+            </div>
+          </section>
+          <% } %>
+
+          <% if (_disc.showTrendingTracks) { %>
+          <section class="plex-module cur-discover-module">
+            <div class="plex-topbar">
+              <h3 class="plex-title">Trending Tracks</h3>
+              <div class="plex-topbar-actions">
+                <span id="trendingTracksStatus" class="plex-topbar-meta"></span>
+                <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="trendingTracksPrev" aria-label="Previous">
+                  <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+                </button>
+                <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="trendingTracksNext" aria-label="Next">
+                  <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+            <div class="plex-panel">
+              <div class="cur-discover-artist-viewport plex-carousel-viewport" id="trendingTracksViewport">
+                <div id="trendingTracksList" class="cur-empty">Loading…</div>
+              </div>
+            </div>
+          </section>
+          <% } %>
+
+          <% if (_disc.showSimilarArtists) { %>
+          <section class="plex-module cur-discover-module">
+            <div class="plex-topbar">
+              <h3 class="plex-title" id="similarCarouselTitle">Because You Like...</h3>
+              <div class="plex-topbar-actions">
+                <span id="similarArtistsStatus" class="plex-topbar-meta"></span>
+                <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="similarArtistsPrev" aria-label="Previous">
+                  <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+                </button>
+                <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="similarArtistsNext" aria-label="Next">
+                  <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+            <div class="plex-panel">
+              <div class="cur-discover-panel-subtitle" id="similarCarouselArtists"></div>
+              <div class="cur-discover-artist-viewport plex-carousel-viewport" id="similarArtistsViewport">
+                <div id="similarArtistsList" class="cur-empty">Loading…</div>
+              </div>
+            </div>
+          </section>
+          <% } %>
+
+        <% } %>
+
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Manual Discovery</h3>
+            <div class="cur-panel-actions">
+              <% if (_lidarrAutomationEligible && _lidarrQuota) { %>
+                <span class="cur-status-chip" title="Artists this week"><img src="/icons/user-profile.svg" alt="Artists" style="width:12px;height:12px;opacity:.7;vertical-align:middle;margin-right:3px" /><strong><%= fmtQuota(_lidarrQuota.weeklyArtists) %></strong></span>
+                <span class="cur-status-chip" title="Albums this week"><img src="/icons/vinyl-record.svg" alt="Albums" style="width:12px;height:12px;opacity:.7;vertical-align:middle;margin-right:3px" /><strong><%= fmtQuota(_lidarrQuota.weeklyAlbums) %></strong></span>
+              <% } %>
+            </div>
+          </div>
+          <div class="cur-panel-body">
+            <details class="cur-score-explainer">
+              <summary>What is this?</summary>
+              <div class="cur-score-explainer-body">
+                <p>Search for any artist and add them to your music library. Search freely — once your quota is full, new requests move into your queue automatically.</p>
+                <ul>
+                  <li>The <img src="/icons/user-profile.svg" alt="" style="width:11px;height:11px;vertical-align:middle;opacity:.7" /> and <img src="/icons/vinyl-record.svg" alt="" style="width:11px;height:11px;vertical-align:middle;opacity:.7" /> counters in the header show your weekly artist and album allowance. ∞ means no limit for your account role.</li>
+                  <li>Select an artist from the results, then choose a specific album or let Curatorr pick the best one for you.</li>
+                  <li>Requests that can't be processed immediately are held in the Queue below and worked through automatically.</li>
+                </ul>
+              </div>
+            </details>
+            <div class="cur-discover-search">
+              <% if (_lidarrAutomationEligible) { %>
+                <div class="cur-discover-searchbar">
+                  <input id="manualArtistSearch" class="cur-search cur-search--discover" type="search" placeholder="Search for an artist to add…" autocomplete="off" />
+                  <button class="btn btn-primary" type="button" id="manualArtistSearchBtn">Search</button>
+                </div>
+              <% } else { %>
+                <div class="cur-empty">Manual add is only available when music automation is enabled for your account.</div>
+              <% } %>
+            </div>
+            <div class="cur-discover-stack">
+              <div class="cur-discover-results">
+                <div class="cur-panel-header cur-panel-header--discover">
+                  <h3 class="cur-panel-subtitle"><img src="/icons/user-profile.svg" alt="Artist Results" title="Artist Results" style="width:16px;height:16px;opacity:.7;vertical-align:middle" /></h3>
+                  <div class="cur-panel-actions">
+                    <div id="manualSearchStatus" class="cur-panel-meta"></div>
+                    <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="discoverArtistPrev" aria-label="Previous artists">
+                      <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+                    </button>
+                    <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="discoverArtistNext" aria-label="Next artists">
+                      <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+                    </button>
+                  </div>
+                </div>
+                <div class="cur-discover-artist-viewport plex-carousel-viewport" id="manualSearchViewport" style="display:none">
+                  <div id="manualSearchResults" class="cur-empty">Search results will appear here.</div>
+                </div>
+              </div>
+              <div class="cur-discover-preview" id="manualAlbumPanel" style="display:none">
+                <div class="cur-panel-header cur-panel-header--discover">
+                  <h3 class="cur-panel-subtitle"><img src="/icons/vinyl-record.svg" alt="Album Choice" title="Album Choice" style="width:16px;height:16px;opacity:.7;vertical-align:middle" /></h3>
+                  <div class="cur-panel-actions">
+                    <div id="manualAlbumStatus" class="cur-panel-meta"></div>
+                    <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="manualAlbumPrev" aria-label="Previous albums">
+                      <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+                    </button>
+                    <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="manualAlbumNext" aria-label="Next albums">
+                      <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+                    </button>
+                  </div>
+                </div>
+                <div class="cur-discover-artist-viewport plex-carousel-viewport" id="manualAlbumViewport" style="display:none">
+                  <div id="manualAlbumResults" class="cur-empty">Select an artist to preview albums.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%
+          const _suggestedArtists = Array.isArray(suggestedArtists) ? suggestedArtists : [];
+        %>
+        <% if (_suggestedArtists.length || _lidarrAutomationEligible) { %>
+        <div class="cur-panel">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Suggested Artists <span class="cur-count"><%= _suggestedArtists.length %></span></h3>
+            <div class="cur-panel-actions">
+              <% if (_lidarrAutomationEligible && _lidarrQuota) { %>
+                <span class="cur-status-chip" title="Artists this week"><img src="/icons/user-profile.svg" alt="Artists" style="width:12px;height:12px;opacity:.7;vertical-align:middle;margin-right:3px" /><strong><%= fmtQuota(_lidarrQuota.weeklyArtists) %></strong></span>
+                <span class="cur-status-chip" title="Albums this week"><img src="/icons/vinyl-record.svg" alt="Albums" style="width:12px;height:12px;opacity:.7;vertical-align:middle;margin-right:3px" /><strong><%= fmtQuota(_lidarrQuota.weeklyAlbums) %></strong></span>
+              <% } %>
+            </div>
+          </div>
+          <div class="cur-panel-body">
+            <details class="cur-score-explainer">
+              <summary>What is this table?</summary>
+              <div class="cur-score-explainer-body">
+                <p>Artists Curatorr has identified as a strong match based on your listening habits, waiting to be added to your library.</p>
+                <ul>
+                  <li><strong>Score</strong> — how well this artist fits your taste profile. Higher is a stronger match.</li>
+                  <li><strong>Search Queued</strong> — Curatorr has approved this artist and queued them for download.</li>
+                  <li><strong>Awaiting Belter</strong> — Curatorr is waiting for a stronger listening signal (a Belter-tier play) before unlocking this artist.</li>
+                  <li>Click <strong>Add to library</strong> to skip the queue and add an artist to your library immediately.</li>
+                  <li>Artists are added automatically based on your weekly quota. Once approved they move into the Queue below.</li>
+                </ul>
+              </div>
+            </details>
+            <% if (_suggestedArtists.length) { %>
+              <ul class="cur-list">
+                <% _suggestedArtists.forEach(function(a) { const topGenres = Array.isArray(a.reason?.topGenres) ? a.reason.topGenres.filter(Boolean).slice(0, 3) : []; %>
+                  <li class="cur-list-item cur-suggest-item">
+                    <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>">
+                      <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                    </span>
+                    <span class="cur-list-primary">
+                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>"><%= a.artistName %></span>
+                      <span class="cur-list-sub">
+                        <%= topGenres.length ? topGenres.join(' · ') : 'Suggested from your current library taste profile' %>
+                        <% if (a.reason?.albumCount) { %> · <%= a.reason.albumCount %> album<%= a.reason.albumCount === 1 ? '' : 's' %><% } %>
+                      </span>
+                    </span>
+                    <span class="cur-list-meta cur-suggest-score">Score <strong><%= Number(a.totalScore || 0).toFixed(1) %></strong></span>
+                    <span class="cur-badge cur-badge--<%= a.lidarrStatusTone || 'curatorr' %>"><%= a.lidarrStatusLabel || a.status || 'Suggested' %></span>
+                    <span class="cur-cell-actions cur-suggest-actions">
+                      <% if ((a.status || 'suggested') === 'suggested' && _lidarrAutomationEligible) { %>
+                        <button class="btn btn-sm btn-primary" type="button" onclick="queueSuggestedArtist('<%= encodeURIComponent(a.artistName) %>', this)">Add to library</button>
+                      <% } else if (a.lidarrStatusKey && a.lidarrStatusKey !== 'suggested') { %>
+                        <span class="cur-panel-meta"><%= a.lidarrStatusDetail || a.lidarrStatusLabel %></span>
+                      <% } else if ((a.status || '') === 'quota_blocked') { %>
+                        <span class="cur-panel-meta"><%= a.lidarrStatusDetail || 'Weekly quota reached.' %></span>
+                      <% } else if (!_lidarrAutomationEligible) { %>
+                        <span class="cur-panel-meta">Lidarr automation is not enabled for this role.</span>
+                      <% } %>
+                    </span>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <div class="cur-empty">No actionable artist suggestions right now. Curatorr checks this list automatically and moves existing Lidarr artists into the Queue below.</div>
+            <% } %>
+            <div class="cur-panel-foot">
+              <span id="artistSuggestionStatus" class="cur-panel-meta"></span>
+            </div>
+          </div>
+        </div>
+        <% } %>
+
+        <div class="cur-discover-ledger-stack">
+          <div class="cur-panel">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Queue <span id="discoverQueueCount" class="cur-count"><%= _queuedRequests.length %></span></h3>
+            </div>
+            <div class="cur-panel-body">
+              <details class="cur-score-explainer">
+                <summary>What is this table?</summary>
+                <div class="cur-score-explainer-body">
+                  <p>Artists waiting to be added to your music library. Curatorr works through this list automatically when capacity allows.</p>
+                  <ul>
+                    <li><strong>Drag</strong> the handle on the left to reprioritise the order Curatorr will process them.</li>
+                    <li><strong>Remove</strong> cancels the request from this queue only — nothing already in your library is affected.</li>
+                    <li><strong>Automatic</strong> — Curatorr added this artist based on your listening habits.</li>
+                    <li><strong>Manual</strong> — You searched for and requested this artist directly.</li>
+                    <li>The <img src="/icons/curatorr-icon.svg" alt="Curatorr" style="width:11px;height:11px;vertical-align:middle;opacity:.7" /> icon next to an album means Curatorr will choose the best album for you automatically.</li>
+                  </ul>
+                </div>
+              </details>
+              <div class="cur-discover-ledger-table cur-discover-ledger-table--queue">
+                <div class="cur-discover-ledger-head cur-discover-ledger-head--queue" aria-hidden="true">
+                  <span></span>
+                  <span>Artist</span>
+                  <span>Album Choice</span>
+                  <span>Source</span>
+                  <span>Status</span>
+                  <span>Action</span>
+                </div>
+                <div id="discoverQueueStatus" class="cur-panel-foot cur-panel-meta cur-discover-ledger-status"></div>
+                <div id="discoverQueueList" class="<%= _queuedRequests.length ? 'cur-discover-ledger cur-discover-ledger--queue' : 'cur-empty' %>">
+                  <% if (_queuedRequests.length) { %>
+                    <% _queuedRequests.forEach(function(item) { %>
+                      <div class="cur-discover-ledger-row cur-discover-ledger-row--queue" draggable="true" data-request-id="<%= item.id %>">
+                        <button class="cur-discover-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder">&#x2630;</button>
+                        <span class="cur-discover-ledger-media">
+                          <span class="cur-discover-ledger-thumb">
+                            <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
+                          </span>
+                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist"><%= item.artistName %></span>
+                        </span>
+                        <span class="cur-discover-ledger-media">
+                          <span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">
+                            <% if (albumThumb(item)) { %>
+                              <img src="<%= albumThumb(item) %>" data-fallback-src="<%= artistThumb(item) %>" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
+                            <% } else { %>
+                              <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
+                            <% } %>
+                          </span>
+                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--album"><%= albumLabel(item) %><% if (isCuratorrChosen(item)) { %> <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span><% } %></span>
+                        </span>
+                        <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= item.sourceKind === 'automatic' ? 'automatic' : 'manual' %></span>
+                        <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= item.status === 'processing' ? 'processing now' : 'queued' %></span>
+                        <button class="btn btn-sm btn-ghost-danger" type="button" onclick="removeQueueItem(<%= item.id %>, this)">Remove</button>
+                      </div>
+                    <% }) %>
+                  <% } else { %>
+                    No queued requests. When quota is full, adds land here instead of being blocked.
+                  <% } %>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cur-panel">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Added For You <span id="discoverHistoryCount" class="cur-count"><%= _requestHistory.length %></span></h3>
+            </div>
+            <div class="cur-panel-body">
+              <details class="cur-score-explainer">
+                <summary>What is this table?</summary>
+                <div class="cur-score-explainer-body">
+                  <p>A record of artists and albums that Curatorr has added to your music library, either automatically or by manual request.</p>
+                  <ul>
+                    <li><strong>Available</strong> — Downloaded and available in your library.</li>
+                    <li><strong>Added</strong> — Submitted for download, not yet available in your library.</li>
+                    <li><strong>Failed</strong> — Something went wrong during the add. Curatorr will retry automatically (up to 3 attempts).</li>
+                    <li><strong>Automatic</strong> — Curatorr picked the artist based on your listening habits.</li>
+                    <li><strong>Manual</strong> — You searched for and requested the artist directly.</li>
+                    <li>The <img src="/icons/curatorr-icon.svg" alt="Curatorr" style="width:11px;height:11px;vertical-align:middle;opacity:.7" /> icon next to an album means Curatorr chose the album for you rather than a specific one being requested.</li>
+                  </ul>
+                </div>
+              </details>
+              <div class="cur-discover-ledger-table cur-discover-ledger-table--history">
+                <div class="cur-discover-ledger-head cur-discover-ledger-head--history" aria-hidden="true">
+                  <span>Artist</span>
+                  <span>Album Choice</span>
+                  <span>Source</span>
+                  <span>Added At</span>
+                  <span>Result</span>
+                </div>
+                <div id="discoverHistoryList">
+                  <% if (_requestHistory.length) { %>
+                    <div class="cur-discover-ledger cur-discover-ledger--history">
+                      <% _requestHistory.forEach(function(item) { %>
+                        <div class="cur-discover-ledger-row cur-discover-ledger-row--history">
+                          <span class="cur-discover-ledger-media">
+                            <span class="cur-discover-ledger-thumb">
+                              <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
+                            </span>
+                            <span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist"><%= item.artistName %></span>
+                          </span>
+                          <span class="cur-discover-ledger-media">
+                          <span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">
+                            <% if (albumThumb(item)) { %>
+                                <img src="<%= albumThumb(item) %>" data-fallback-src="<%= artistThumb(item) %>" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
+                              <% } else { %>
+                                <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
+                              <% } %>
+                          </span>
+                            <span class="cur-discover-ledger-cell cur-discover-ledger-cell--album"><%= albumLabel(item) %><% if (isCuratorrChosen(item)) { %> <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span><% } %></span>
+                          </span>
+                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= item.sourceKind === 'automatic' ? 'automatic' : 'manual' %></span>
+                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= fmtDate(item.processedAt || item.updatedAt || item.createdAt) %></span>
+                          <% const _badge = item.status === 'completed' ? (item.inLibrary ? 'available' : 'added') : 'failed'; %>
+                          <span class="cur-badge cur-badge--<%= _badge === 'available' ? 'ok' : (_badge === 'added' ? 'pending' : 'warn') %>"><%= _badge === 'available' ? 'Available' : (_badge === 'added' ? 'Added' : 'Failed') %></span>
+                        </div>
+                      <% }) %>
+                    </div>
+                  <% } else { %>
+                    <div class="cur-empty">No completed manual or automatic adds recorded yet.</div>
+                  <% } %>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
+  <script>
+    function queueSuggestedArtist(encodedName, btn) {
+      var status = document.getElementById('artistSuggestionStatus');
+      if (btn) btn.disabled = true;
+      if (status) status.textContent = 'Adding artist to Lidarr…';
+      fetch('/api/music/suggestions/artists/' + encodedName + '/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+        .then(function(result) {
+          if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Failed to add artist.');
+          if (status) status.textContent = 'Artist added to Lidarr.';
+          location.reload();
+        })
+        .catch(function(err) {
+          if (status) status.textContent = err.message || 'Failed to add artist.';
+          if (btn) btn.disabled = false;
+        });
+    }
+
+    var currentArtistSelection = null;
+    var queueDragItem = null;
+    var discoverQueueItems = <%- JSON.stringify(_queuedRequests) %>;
+    var discoverHistoryItems = <%- JSON.stringify(_requestHistory) %>;
+
+    function escHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function setStatus(id, message) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = message || '';
+    }
+
+    function fmtClientDate(value) {
+      if (!value) return '—';
+      try {
+        return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      } catch (_err) {
+        return '—';
+      }
+    }
+
+    function getRequestDisplayAlbumTitle(item) {
+      var detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+      return String(item?.albumTitle || detail.selectedAlbumTitle || detail.starterAlbumTitle || detail.latestAlbumTitle || detail.preferredAlbumTitle || '').trim();
+    }
+
+    function isCuratorrChosenRequest(item) {
+      var detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+      if (detail.reconciledAction === 'already_in_lidarr') return false;
+      return !String(item?.albumTitle || '').trim()
+        || Boolean(detail.useCuratorrPick)
+        || Boolean(detail.fallbackUsed)
+        || Boolean(detail.selectedAlbumTitle && !detail.preferredAlbumTitle);
+    }
+
+    function getRequestAlbumLabel(item) {
+      var albumTitle = getRequestDisplayAlbumTitle(item);
+      if (albumTitle) return albumTitle;
+      var detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+      if (detail.reconciledAction === 'already_in_lidarr') return 'Already in library';
+      if (String(item?.status || '') === 'failed') return 'Selection pending';
+      return String(item?.status || '') === 'processing' ? 'Selecting album…' : 'Curatorr pick';
+    }
+
+    function getRequestArtistThumb(item) {
+      return '/api/music/thumb/artist/' + encodeURIComponent(String(item?.artistName || ''));
+    }
+
+    function getRequestAlbumThumb(item) {
+      var albumTitle = getRequestDisplayAlbumTitle(item);
+      if (!albumTitle) return '';
+      return '/api/music/thumb/album?artist=' + encodeURIComponent(String(item?.artistName || '')) + '&album=' + encodeURIComponent(albumTitle);
+    }
+
+    function renderQueueList() {
+      var list = document.getElementById('discoverQueueList');
+      var count = document.getElementById('discoverQueueCount');
+      if (count) count.textContent = String(discoverQueueItems.length || 0);
+      if (!list) return;
+      if (!discoverQueueItems.length) {
+        list.className = 'cur-empty';
+        list.innerHTML = 'No queued requests. When quota is full, adds land here instead of being blocked.';
+        return;
+      }
+      list.className = 'cur-discover-ledger cur-discover-ledger--queue';
+      list.innerHTML = discoverQueueItems.map(function(item) {
+        var albumTitle = getRequestDisplayAlbumTitle(item);
+        var sourceKind = item.sourceKind === 'automatic' ? 'automatic' : 'manual';
+        var status = item.status === 'processing' ? 'processing now' : 'queued';
+        var artistThumb = getRequestArtistThumb(item);
+        var albumThumb = getRequestAlbumThumb(item);
+        var curatorrChosen = isCuratorrChosenRequest(item);
+        var albumLabel = getRequestAlbumLabel(item);
+        return '' +
+          '<div class="cur-discover-ledger-row cur-discover-ledger-row--queue" draggable="true" data-request-id="' + Number(item.id || 0) + '">' +
+            '<button class="cur-discover-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder">&#x2630;</button>' +
+            '<span class="cur-discover-ledger-media">' +
+              '<span class="cur-discover-ledger-thumb"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
+              '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist">' + escHtml(item.artistName || '') + '</span>' +
+            '</span>' +
+            '<span class="cur-discover-ledger-media">' +
+              '<span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">' +
+                '<img src="' + escHtml(albumThumb || artistThumb) + '" data-fallback-src="' + escHtml(albumThumb ? artistThumb : '') + '" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />' +
+              '</span>' +
+              '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--album">' + escHtml(albumLabel) + (curatorrChosen ? ' <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span>' : '') + '</span>' +
+            '</span>' +
+            '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(sourceKind) + '</span>' +
+            '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(status) + '</span>' +
+            '<button class="btn btn-sm btn-ghost-danger" type="button" onclick="removeQueueItem(' + Number(item.id || 0) + ', this)">Remove</button>' +
+          '</div>';
+      }).join('');
+      bindQueueDrag();
+    }
+
+    function renderHistoryList() {
+      var wrap = document.getElementById('discoverHistoryList');
+      var count = document.getElementById('discoverHistoryCount');
+      if (count) count.textContent = String(discoverHistoryItems.length || 0);
+      if (!wrap) return;
+      if (!discoverHistoryItems.length) {
+        wrap.innerHTML = '<div class="cur-empty">No completed manual or automatic adds recorded yet.</div>';
+        return;
+      }
+      wrap.innerHTML = '' +
+        '<div class="cur-discover-ledger cur-discover-ledger--history">' +
+          discoverHistoryItems.map(function(item) {
+            var albumTitle = getRequestDisplayAlbumTitle(item);
+            var sourceKind = item.sourceKind === 'automatic' ? 'automatic' : 'manual';
+            var when = fmtClientDate(item.processedAt || item.updatedAt || item.createdAt);
+            var added = item.status === 'completed';
+            var inLibrary = added && !!item.inLibrary;
+            var artistThumb = getRequestArtistThumb(item);
+            var albumThumb = getRequestAlbumThumb(item);
+            var curatorrChosen = isCuratorrChosenRequest(item);
+            var albumLabel = getRequestAlbumLabel(item);
+            return '' +
+              '<div class="cur-discover-ledger-row cur-discover-ledger-row--history">' +
+                '<span class="cur-discover-ledger-media">' +
+                  '<span class="cur-discover-ledger-thumb"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
+                  '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist">' + escHtml(item.artistName || '') + '</span>' +
+                '</span>' +
+                '<span class="cur-discover-ledger-media">' +
+                  '<span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">' +
+                    '<img src="' + escHtml(albumThumb || artistThumb) + '" data-fallback-src="' + escHtml(albumThumb ? artistThumb : '') + '" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />' +
+                  '</span>' +
+                  '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--album">' + escHtml(albumLabel) + (curatorrChosen ? ' <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span>' : '') + '</span>' +
+                '</span>' +
+                '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(sourceKind) + '</span>' +
+                '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(when) + '</span>' +
+                '<span class="cur-badge cur-badge--' + (inLibrary ? 'ok' : (added ? 'pending' : 'warn')) + '">' + (inLibrary ? 'Available' : (added ? 'Added' : 'Failed')) + '</span>' +
+              '</div>';
+          }).join('') +
+        '</div>';
+    }
+
+    function markRequestedAlbum(albumTitle, queued) {
+      Array.from(document.querySelectorAll('.cur-discover-album-card .btn')).forEach(function(button) {
+        var title = button.getAttribute('data-album-title') || '';
+        if (!albumTitle || title !== albumTitle) return;
+        button.disabled = true;
+        button.textContent = queued ? 'Queued' : 'Added';
+        var card = button.closest('.cur-discover-album-card');
+        if (card) card.classList.add('is-in-lidarr');
+      });
+    }
+
+    async function runArtistSearch() {
+      var input = document.getElementById('manualArtistSearch');
+      var term = input ? input.value.trim() : '';
+      var list = document.getElementById('manualSearchResults');
+      if (!term || term.length < 2) {
+        setStatus('manualSearchStatus', 'Enter at least 2 characters.');
+        return;
+      }
+      setStatus('manualSearchStatus', 'Searching Lidarr...');
+      list.innerHTML = '<div class="cur-empty">Searching…</div>';
+      document.getElementById('manualSearchViewport').style.display = '';
+      try {
+        var res = await fetch('/api/music/lidarr/manual/search?term=' + encodeURIComponent(term), { headers: { Accept: 'application/json' } });
+        var data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Search failed.');
+        var results = Array.isArray(data.results) ? data.results : [];
+        if (!results.length) {
+          DISCOVERY_STATE.manualSearchResults = {
+            items: [],
+            statusId: 'manualSearchStatus',
+            viewportId: 'manualSearchViewport',
+            makeCard: function () { return ''; },
+          };
+          list.innerHTML = '<div class="cur-empty">No artists found.</div>';
+          setStatus('manualSearchStatus', '');
+          return;
+        }
+        renderDiscoveryCarousel('manualSearchResults', 'manualSearchStatus', 'manualSearchViewport', results, function(item, index) {
+          var primarySrc = String(item.image || '').trim();
+          var backupSrc = '/api/music/thumb/artist/' + encodeURIComponent(item.artistName || '');
+          var image = primarySrc
+            ? '<img src="' + escHtml(primarySrc) + '" data-fallback-src="' + escHtml(backupSrc) + '" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />'
+            : '<img src="' + escHtml(backupSrc) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />';
+          var meta = [item.disambiguation, (item.genres || []).join(' · '), item.added ? 'Already in Lidarr' : 'New to Lidarr']
+            .filter(Boolean).join(' · ');
+          return '' +
+            '<button class="plex-card cur-discover-result-card' + (index === 0 ? ' is-active' : '') + (item.added ? ' is-in-lidarr' : '') + '" type="button" ' +
+              'data-artist-name="' + escHtml(item.artistName) + '" ' +
+              'data-foreign-artist-id="' + escHtml(item.foreignArtistId) + '" ' +
+              'onclick="selectManualArtist(this)">' +
+              '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+                '<span class="plex-poster-well cur-discover-result-art">' + image + '</span>' +
+              '</span>' +
+              '<span class="plex-footer cur-discover-result-main">' +
+                '<span class="plex-name cur-discover-result-name">' + escHtml(item.artistName) + '</span>' +
+                '<span class="plex-meta cur-discover-result-meta">' + escHtml(meta || 'Artist result') + '</span>' +
+              '</span>' +
+            '</button>';
+        });
+        list.scrollLeft = 0;
+        var first = list.querySelector('.cur-discover-result-card');
+        if (first) selectManualArtist(first);
+      } catch (err) {
+        list.innerHTML = '<div class="cur-empty">Search failed.</div>';
+        setStatus('manualSearchStatus', err.message || 'Search failed.');
+      }
+    }
+
+    async function selectManualArtist(button) {
+      document.querySelectorAll('.cur-discover-result-card').forEach(function(el) { el.classList.remove('is-active'); });
+      if (button) button.classList.add('is-active');
+      currentArtistSelection = {
+        artistName: button.getAttribute('data-artist-name') || '',
+        foreignArtistId: button.getAttribute('data-foreign-artist-id') || ''
+      };
+      document.getElementById('manualAlbumPanel').style.display = '';
+      setStatus('manualAlbumStatus', 'Loading album choices...');
+      document.getElementById('manualAlbumViewport').style.display = '';
+      var preview = document.getElementById('manualAlbumResults');
+      preview.className = 'cur-empty';
+      preview.innerHTML = 'Loading…';
+      try {
+        var res = await fetch('/api/music/lidarr/manual/albums', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+          body: JSON.stringify(currentArtistSelection)
+        });
+        var data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load albums.');
+        renderAlbumPreview(data);
+        setStatus('manualAlbumStatus', (data.albums || []).length + ' album option' + ((data.albums || []).length === 1 ? '' : 's') + '.');
+      } catch (err) {
+        preview.className = 'cur-empty';
+        preview.innerHTML = 'Album preview failed.';
+        setStatus('manualAlbumStatus', err.message || 'Album preview failed.');
+      }
+    }
+
+    function renderAlbumPreview(data) {
+      var preview = document.getElementById('manualAlbumResults');
+      var viewport = document.getElementById('manualAlbumViewport');
+      var albums = Array.isArray(data.albums) ? data.albums : [];
+      if (viewport) viewport.style.display = '';
+      var items = [{
+        kind: 'fallback',
+        title: 'Let Curatorr choose for you',
+        meta: 'Prefers greatest hits first, then highest-ranked fallback albums if needed.'
+      }].concat(albums.map(function(album) {
+        return {
+          kind: 'album',
+          title: album.title || '',
+          meta: [album.albumType || '', album.releaseDate || '', album.source || ''].filter(Boolean).join(' · ') || 'Album option',
+          image: album.image || '',
+          inLidarr: album.source === 'lidarr'
+        };
+      }));
+
+      renderDiscoveryCarousel('manualAlbumResults', 'manualAlbumStatus', 'manualAlbumViewport', items, function(item) {
+        if (item.kind === 'fallback') {
+          return '' +
+            '<div class="plex-card cur-discover-result-card cur-discover-album-card cur-discover-fallback-card">' +
+              '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+                '<span class="plex-poster-well cur-discover-result-art cur-discover-album-art cur-discover-album-art--fallback">' +
+                  '<img class="cur-discover-fallback-icon" src="/icons/curatorr-icon.svg" alt="" loading="lazy" />' +
+                '</span>' +
+              '</span>' +
+              '<span class="plex-footer cur-discover-result-main cur-discover-album-main">' +
+                '<span class="plex-name cur-discover-result-name cur-discover-album-title">Let <img class="cur-discover-title-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="lazy" /> choose for you</span>' +
+                '<span class="plex-meta cur-discover-result-meta cur-discover-album-meta">' + escHtml(item.meta) + '</span>' +
+                '<button class="btn btn-sm btn-primary cur-discover-album-action" type="button" onclick="submitManualRequest(true)">Use Curatorr pick</button>' +
+              '</span>' +
+            '</div>';
+        }
+        var art = item.image
+          ? '<img src="' + escHtml(item.image) + '" alt="" loading="lazy" />'
+          : '';
+        return '' +
+          '<div class="plex-card cur-discover-result-card cur-discover-album-card' + (item.inLidarr ? ' is-in-lidarr' : '') + '">' +
+            '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+              '<span class="plex-poster-well cur-discover-result-art cur-discover-album-art' + (item.image ? '' : ' is-empty') + '">' + art + '</span>' +
+            '</span>' +
+            '<span class="plex-footer cur-discover-result-main cur-discover-album-main">' +
+              '<span class="plex-name cur-discover-result-name cur-discover-album-title">' + escHtml(item.title) + '</span>' +
+              '<span class="plex-meta cur-discover-result-meta cur-discover-album-meta">' + escHtml(item.meta) + '</span>' +
+              '<button class="btn btn-sm btn-ghost cur-discover-album-action" type="button" data-album-title="' + escHtml(item.title) + '" onclick="submitManualAlbum(this)">Request this album</button>' +
+            '</span>' +
+          '</div>';
+      });
+
+      if (!albums.length) {
+        setStatus('manualAlbumStatus', 'No albums were returned. You can still use Curatorr pick.');
+        return;
+      }
+    }
+
+    function submitManualAlbum(button) {
+      if (!button) return;
+      submitManualRequest(false, button.getAttribute('data-album-title') || '');
+    }
+
+    async function submitManualRequest(useCuratorrPick, albumTitle) {
+      if (!currentArtistSelection || !currentArtistSelection.artistName) return;
+      setStatus('manualAlbumStatus', useCuratorrPick ? 'Submitting Curatorr pick…' : 'Submitting album request…');
+      try {
+        var res = await fetch('/api/music/lidarr/manual/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+          body: JSON.stringify({
+            artistName: currentArtistSelection.artistName,
+            foreignArtistId: currentArtistSelection.foreignArtistId,
+            preferredAlbumTitle: useCuratorrPick ? '' : String(albumTitle || ''),
+            useCuratorrPick: !!useCuratorrPick
+          })
+        });
+        var data = await res.json();
+        if (!res.ok && res.status !== 202) throw new Error(data.error || 'Request failed.');
+        setStatus('manualAlbumStatus', data.queued ? (data.message || 'Queued.') : 'Added.');
+        if (data.queued && data.request) {
+          discoverQueueItems = [data.request].concat(discoverQueueItems.filter(function(item) {
+            return Number(item.id || 0) !== Number(data.request.id || 0);
+          }));
+          renderQueueList();
+          markRequestedAlbum(useCuratorrPick ? '' : String(albumTitle || ''), true);
+          return;
+        }
+
+        if (data.request) {
+          var resultAlbumTitle = String(data.result?.album?.albumTitle || data.request?.detail?.selectedAlbumTitle || albumTitle || '');
+          var historyItem = {
+            id: data.request.id,
+            artistName: data.request.artistName || currentArtistSelection.artistName,
+            albumTitle: resultAlbumTitle || (useCuratorrPick ? 'Let Curatorr choose for you' : String(albumTitle || '')),
+            sourceKind: data.request.sourceKind || 'manual',
+            status: data.request.status || 'completed',
+            detail: Object.assign({}, data.request.detail || {}, {
+              preferredAlbumTitle: useCuratorrPick ? '' : String(albumTitle || ''),
+              selectedAlbumTitle: resultAlbumTitle || String(data.request?.detail?.selectedAlbumTitle || ''),
+              useCuratorrPick: !!useCuratorrPick,
+            }),
+            processedAt: data.request.processedAt || Date.now(),
+            updatedAt: data.request.updatedAt || Date.now(),
+            createdAt: data.request.createdAt || Date.now(),
+          };
+          discoverHistoryItems = [historyItem].concat(discoverHistoryItems.filter(function(item) {
+            return Number(item.id || 0) !== Number(historyItem.id || 0);
+          }));
+          renderHistoryList();
+          markRequestedAlbum(resultAlbumTitle || (useCuratorrPick ? '' : String(albumTitle || '')), false);
+        }
+      } catch (err) {
+        setStatus('manualAlbumStatus', err.message || 'Request failed.');
+      }
+    }
+
+    async function removeQueueItem(id, btn) {
+      setStatus('discoverQueueStatus', 'Removing queue item…');
+      if (btn) btn.disabled = true;
+      try {
+        var res = await fetch('/api/music/lidarr/requests/' + encodeURIComponent(id) + '/remove', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': '<%= csrfToken %>' }
+        });
+        var data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to remove queue item.');
+        discoverQueueItems = discoverQueueItems.filter(function(item) {
+          return Number(item.id || 0) !== Number(id || 0);
+        });
+        renderQueueList();
+        setStatus('discoverQueueStatus', 'Queue item removed.');
+      } catch (err) {
+        setStatus('discoverQueueStatus', err.message || 'Failed to remove queue item.');
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function bindQueueDrag() {
+      var queue = document.getElementById('discoverQueueList');
+      if (!queue || queue.classList.contains('cur-empty')) return;
+      Array.from(queue.querySelectorAll('.cur-discover-ledger-row--queue')).forEach(function(item) {
+        item.addEventListener('dragstart', function(event) {
+          queueDragItem = item;
+          item.classList.add('is-dragging');
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+        });
+        item.addEventListener('dragend', function() {
+          item.classList.remove('is-dragging');
+          queueDragItem = null;
+          persistQueueOrder();
+        });
+        item.addEventListener('dragover', function(event) {
+          event.preventDefault();
+          if (!queueDragItem || queueDragItem === item) return;
+          var rect = item.getBoundingClientRect();
+          var insertBefore = event.clientY < rect.top + (rect.height / 2);
+          item.parentNode.insertBefore(queueDragItem, insertBefore ? item : item.nextSibling);
+        });
+      });
+    }
+
+    async function persistQueueOrder() {
+      var queue = document.getElementById('discoverQueueList');
+      if (!queue || !queue.querySelector('.cur-discover-ledger-row--queue')) return;
+      var ids = Array.from(queue.querySelectorAll('.cur-discover-ledger-row--queue')).map(function(item) {
+        return Number(item.getAttribute('data-request-id') || 0);
+      }).filter(Boolean);
+      if (!ids.length) return;
+      setStatus('discoverQueueStatus', 'Saving queue order…');
+      try {
+        var res = await fetch('/api/music/lidarr/requests/reorder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+          body: JSON.stringify({ requestIds: ids })
+        });
+        var data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to save queue order.');
+        setStatus('discoverQueueStatus', 'Queue order updated.');
+      } catch (err) {
+        setStatus('discoverQueueStatus', err.message || 'Failed to save queue order.');
+      }
+    }
+
+    var searchBtn = document.getElementById('manualArtistSearchBtn');
+    if (searchBtn) searchBtn.addEventListener('click', runArtistSearch);
+    var artistPrevBtn = document.getElementById('discoverArtistPrev');
+    if (artistPrevBtn) artistPrevBtn.addEventListener('click', function() { scrollDiscovery('manualSearchViewport', -1); });
+    var artistNextBtn = document.getElementById('discoverArtistNext');
+    if (artistNextBtn) artistNextBtn.addEventListener('click', function() { scrollDiscovery('manualSearchViewport', 1); });
+    var albumPrevBtn = document.getElementById('manualAlbumPrev');
+    if (albumPrevBtn) albumPrevBtn.addEventListener('click', function() { scrollDiscovery('manualAlbumViewport', -1); });
+    var albumNextBtn = document.getElementById('manualAlbumNext');
+    if (albumNextBtn) albumNextBtn.addEventListener('click', function() { scrollDiscovery('manualAlbumViewport', 1); });
+    var searchInput = document.getElementById('manualArtistSearch');
+    if (searchInput) {
+      searchInput.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runArtistSearch();
+        }
+      });
+    }
+    bindQueueDrag();
+
+    // ── Discovery carousels ────────────────────────────────────────────────
+    var DISCOVERY_CONFIG = <%- JSON.stringify(_disc) %>;
+    var DISCOVERY_STATE = Object.create(null);
+
+    function renderDiscoveryState(listId) {
+      var state = DISCOVERY_STATE[listId];
+      if (!state) return;
+      var list = document.getElementById(listId);
+      var status = document.getElementById(state.statusId);
+      if (!list) return;
+
+      var items = Array.isArray(state.items) ? state.items : [];
+      if (!items.length) {
+        list.className = 'cur-empty';
+        list.textContent = 'No results available.';
+        if (status) status.textContent = '';
+        return;
+      }
+
+      list.className = 'cur-discover-carousel-list plex-carousel-track';
+      list.innerHTML = items.map(function (item, index) {
+        return state.makeCard(item, index);
+      }).join('');
+      if (status) {
+        status.textContent = items.length + ' result' + (items.length === 1 ? '' : 's') + '.';
+      }
+      bindDiscoveryDrag(state.viewportId);
+    }
+
+    function makeDiscoveryCard(name, sub, imageUrl, fallbackArtistName) {
+      var fallbackName = String(fallbackArtistName || name || '').trim();
+      var fallbackSrc = fallbackName ? '/api/music/thumb/artist/' + encodeURIComponent(fallbackName) : '';
+      var img = imageUrl
+        ? '<span class="plex-poster-well cur-discover-result-art"><img src="' + escHtml(imageUrl) + '" data-fallback-src="' + escHtml(fallbackSrc) + '" alt="" onerror="handleDiscoveryImageError(this)" /></span>'
+        : (fallbackSrc
+          ? '<span class="plex-poster-well cur-discover-result-art"><img src="' + escHtml(fallbackSrc) + '" data-fallback-src="" alt="" onerror="handleDiscoveryImageError(this)" /></span>'
+          : '<span class="plex-poster-well cur-discover-result-art is-empty"></span>');
+      return '<button class="plex-card cur-discover-result-card" type="button" data-discovery-artist="' + escHtml(name) + '" onclick="prefillDiscoveryArtist(this)">' +
+        '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+          img +
+        '</span>' +
+        '<span class="plex-footer cur-discover-result-main">' +
+          '<span class="plex-name cur-discover-result-name">' + escHtml(name) + '</span>' +
+          '<span class="plex-meta cur-discover-result-meta">' + escHtml(sub || '') + '</span>' +
+        '</span>' +
+      '</button>';
+    }
+
+    function prefillDiscoveryArtist(btn) {
+      var name = btn && btn.getAttribute('data-discovery-artist');
+      if (!name) return;
+      var input = document.getElementById('manualArtistSearch');
+      if (!input) return;
+      input.value = name;
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (typeof runArtistSearch === 'function') runArtistSearch();
+    }
+
+    function handleDiscoveryImageError(img) {
+      if (!img) return;
+      var fallback = String(img.getAttribute('data-fallback-src') || '').trim();
+      if (fallback && img.getAttribute('src') !== fallback) {
+        img.setAttribute('src', fallback);
+        img.setAttribute('data-fallback-src', '');
+        return;
+      }
+      var art = img.parentElement;
+      if (art) art.classList.add('is-empty');
+      img.remove();
+    }
+
+    function bindDiscoveryDrag(viewportId) {
+      var vp = document.getElementById(viewportId);
+      if (!vp) return;
+      var down = false, startX = 0, startScroll = 0, moved = false;
+      vp.addEventListener('pointerdown', function(e) {
+        if (e.pointerType === 'mouse') return;
+        down = true; moved = false; startX = e.clientX; startScroll = vp.scrollLeft;
+        vp.classList.add('is-dragging');
+        if (vp.setPointerCapture) vp.setPointerCapture(e.pointerId);
+      });
+      vp.addEventListener('pointermove', function(e) {
+        if (!down) return;
+        var d = e.clientX - startX;
+        if (Math.abs(d) > 6) moved = true;
+        vp.scrollLeft = startScroll - d;
+      });
+      function end(e) {
+        if (!down) return; down = false;
+        vp.classList.remove('is-dragging');
+        if (e && vp.releasePointerCapture) try { vp.releasePointerCapture(e.pointerId); } catch(_) {}
+      }
+      vp.addEventListener('pointerup', end);
+      vp.addEventListener('pointercancel', end);
+      vp.addEventListener('pointerleave', function(e) { if (e.pointerType !== 'mouse') end(e); });
+      vp.addEventListener('click', function(e) { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);
+    }
+
+    function scrollDiscovery(viewportId, dir) {
+      var vp = document.getElementById(viewportId);
+      if (vp) vp.scrollBy({ left: dir * Math.max(280, Math.floor(vp.clientWidth * 0.8)), behavior: 'smooth' });
+    }
+
+    function renderDiscoveryCarousel(listId, statusId, viewportId, items, makeCard) {
+      DISCOVERY_STATE[listId] = {
+        items: Array.isArray(items) ? items : [],
+        statusId: statusId,
+        viewportId: viewportId,
+        makeCard: makeCard,
+      };
+      renderDiscoveryState(listId);
+    }
+
+    function loadDiscovery(url, listId, statusId, viewportId, makeCard) {
+      fetch(url, { headers: { Accept: 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to load.');
+          renderDiscoveryCarousel(listId, statusId, viewportId, data.items || [], makeCard);
+        })
+        .catch(function(err) {
+          var list = document.getElementById(listId);
+          if (list) { list.className = 'cur-empty'; list.textContent = 'Failed to load results.'; }
+        });
+    }
+
+    function bindDiscoveryNav(prevId, nextId, viewportId) {
+      var prev = document.getElementById(prevId);
+      var next = document.getElementById(nextId);
+      if (prev) prev.addEventListener('click', function() { scrollDiscovery(viewportId, -1); });
+      if (next) next.addEventListener('click', function() { scrollDiscovery(viewportId,  1); });
+    }
+
+    if (DISCOVERY_CONFIG.showTrendingArtists) {
+      loadDiscovery('/api/discovery/trending?type=artists', 'trendingArtistsList', 'trendingArtistsStatus', 'trendingArtistsViewport', function(item) {
+        return makeDiscoveryCard(
+          item.name,
+          item.listeners ? item.listeners.toLocaleString() + ' listeners' : '',
+          item.image || '',
+          item.name || ''
+        );
+      });
+      bindDiscoveryNav('trendingArtistsPrev', 'trendingArtistsNext', 'trendingArtistsViewport');
+    }
+
+    if (DISCOVERY_CONFIG.showTrendingTracks) {
+      loadDiscovery('/api/discovery/trending?type=tracks', 'trendingTracksList', 'trendingTracksStatus', 'trendingTracksViewport', function(item) {
+        var sub = item.name + (item.listeners ? ' · ' + item.listeners.toLocaleString() + ' listeners' : '');
+        return makeDiscoveryCard(item.artistName || item.name, sub, item.image || '', item.artistName || item.name || '');
+      });
+      bindDiscoveryNav('trendingTracksPrev', 'trendingTracksNext', 'trendingTracksViewport');
+    }
+
+    if (DISCOVERY_CONFIG.showSimilarArtists) {
+      fetch('/api/discovery/similar', { headers: { Accept: 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed.');
+          var titleEl = document.getElementById('similarCarouselTitle');
+          var artistsEl = document.getElementById('similarCarouselArtists');
+          if (titleEl) titleEl.textContent = 'Because You Like...';
+          if (artistsEl) {
+            artistsEl.textContent = data.basedOn && data.basedOn.length
+              ? '...' + data.basedOn.join(', ')
+              : '';
+          }
+          renderDiscoveryCarousel('similarArtistsList', 'similarArtistsStatus', 'similarArtistsViewport', data.items || [], function(item) {
+            var sub = item.match ? Math.round(item.match * 100) + '% match' : 'Similar artist';
+            return makeDiscoveryCard(item.name, sub, item.image || '', item.name || '');
+          });
+        })
+        .catch(function() {
+          var list = document.getElementById('similarArtistsList');
+          if (list) { list.className = 'cur-empty'; list.textContent = 'Failed to load suggestions.'; }
+        });
+      bindDiscoveryNav('similarArtistsPrev', 'similarArtistsNext', 'similarArtistsViewport');
+    }
+
+  </script>
+</body>
