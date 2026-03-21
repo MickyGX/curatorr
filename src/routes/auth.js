@@ -548,8 +548,23 @@ export function registerAuth(app, ctx) {
         return res.status(400).json({ error: 'PIN expired.' });
       }
 
+      // If the home-users selection flow is already in progress (set by /oauth/callback),
+      // don't touch the session — let the popup window complete it.
+      if (req.session?.plexMainToken) return res.json({ ok: false });
+
       const authToken = await exchangePin(pinId);
       if (!authToken) return res.json({ ok: false });
+
+      // Check for Plex Home users — same logic as /oauth/callback — so the poll
+      // doesn't bypass home-user selection and log the user in as the main admin.
+      let homeUsers = [];
+      try { homeUsers = await fetchPlexHomeUsers(authToken); } catch (_err) { /* non-fatal */ }
+      if (homeUsers.length > 1) {
+        // Home-user selection is required; the popup will handle it.
+        // Return ok:false so the login page keeps waiting.
+        return res.json({ ok: false });
+      }
+
       await completePlexLogin(req, authToken);
       return res.json({ ok: true, redirect: consumePostLoginRedirect(req, redirectFallback) });
     } catch (err) {

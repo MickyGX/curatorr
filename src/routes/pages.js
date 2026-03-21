@@ -1022,7 +1022,7 @@ export function registerPages(app, ctx) {
     const user = req.session.user;
     const { adminPreview, role, personalUserId: userPlexId } = await buildPageScope(req, config);
     const lastSync = getLastPlaylistSync(db, userPlexId);
-    const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: false }) || [];
+    const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: true }) || [];
     const canonicalPlaylists = playlistService?.getCanonicalPlaylist(userPlexId) || { legacy: null, generated: [], curatorred: null };
     const generatedCards = generatedPlaylists
       .map((playlist) => ({

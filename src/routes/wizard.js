@@ -220,26 +220,37 @@ export async function refreshMasterTrackCache(ctx) {
 
   try {
     const tracks = [];
+    const PAGE_SIZE = 10000; // paginate to avoid V8's ~536 MB string limit on huge libraries
     for (const key of selectedKeys) {
-      const u = buildAppApiUrl(url, `library/sections/${key}/all`);
-      u.searchParams.set('type', '10'); // tracks
-      const r = await fetch(u.toString(), {
-        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-      });
-      if (!r.ok) continue;
-      const json = await r.json();
-      for (const t of json?.MediaContainer?.Metadata || []) {
-        tracks.push({
-          ratingKey: String(t.ratingKey || ''),
-          artistName: String(t.originalTitle || t.grandparentTitle || ''),
-          trackTitle: String(t.title || ''),
-          albumName: String(t.parentTitle || ''),
-          genres: (t.Genre || []).map((g) => g.tag),
-          moods: [],
-          libraryKey: String(key),
-          ratingCount: Number(t.ratingCount || 0),
-          viewCount: Number(t.viewCount || 0),
+      let start = 0;
+      let totalSize = null;
+      while (totalSize === null || start < totalSize) {
+        const u = buildAppApiUrl(url, `library/sections/${key}/all`);
+        u.searchParams.set('type', '10'); // tracks
+        u.searchParams.set('X-Plex-Container-Start', String(start));
+        u.searchParams.set('X-Plex-Container-Size', String(PAGE_SIZE));
+        const r = await fetch(u.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
         });
+        if (!r.ok) break;
+        const json = await r.json();
+        if (totalSize === null) totalSize = Number(json?.MediaContainer?.totalSize ?? json?.MediaContainer?.size ?? 0);
+        const metadata = json?.MediaContainer?.Metadata || [];
+        if (!metadata.length) break;
+        for (const t of metadata) {
+          tracks.push({
+            ratingKey: String(t.ratingKey || ''),
+            artistName: String(t.originalTitle || t.grandparentTitle || ''),
+            trackTitle: String(t.title || ''),
+            albumName: String(t.parentTitle || ''),
+            genres: (t.Genre || []).map((g) => g.tag),
+            moods: [],
+            libraryKey: String(key),
+            ratingCount: Number(t.ratingCount || 0),
+            viewCount: Number(t.viewCount || 0),
+          });
+        }
+        start += metadata.length;
       }
     }
 
@@ -254,21 +265,31 @@ export async function refreshMasterTrackCache(ctx) {
         const moodJson = await mr.json();
         const moodTags = moodJson?.MediaContainer?.Directory || [];
 
-        // Fetch tracks per mood in batches of 10
+        // Fetch tracks per mood in batches of 10, paginated to avoid string-size limits
         for (let i = 0; i < moodTags.length; i += 10) {
           await Promise.all(moodTags.slice(i, i + 10).map(async (mood) => {
             try {
-              const tracksUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
-              tracksUrl.searchParams.set('type', '10');
-              tracksUrl.searchParams.set('mood', mood.key);
-              const tr = await fetch(tracksUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
-              if (!tr.ok) return;
-              const tj = await tr.json();
-              for (const t of tj?.MediaContainer?.Metadata || []) {
-                const rk = String(t.ratingKey || '');
-                if (!rk) continue;
-                if (!moodMap.has(rk)) moodMap.set(rk, new Set());
-                moodMap.get(rk).add(mood.title);
+              let moodStart = 0;
+              let moodTotal = null;
+              while (moodTotal === null || moodStart < moodTotal) {
+                const tracksUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
+                tracksUrl.searchParams.set('type', '10');
+                tracksUrl.searchParams.set('mood', mood.key);
+                tracksUrl.searchParams.set('X-Plex-Container-Start', String(moodStart));
+                tracksUrl.searchParams.set('X-Plex-Container-Size', String(PAGE_SIZE));
+                const tr = await fetch(tracksUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
+                if (!tr.ok) break;
+                const tj = await tr.json();
+                if (moodTotal === null) moodTotal = Number(tj?.MediaContainer?.totalSize ?? tj?.MediaContainer?.size ?? 0);
+                const moodMeta = tj?.MediaContainer?.Metadata || [];
+                if (!moodMeta.length) break;
+                for (const t of moodMeta) {
+                  const rk = String(t.ratingKey || '');
+                  if (!rk) continue;
+                  if (!moodMap.has(rk)) moodMap.set(rk, new Set());
+                  moodMap.get(rk).add(mood.title);
+                }
+                moodStart += moodMeta.length;
               }
             } catch { /* non-fatal */ }
           }));
@@ -582,7 +603,16 @@ export function registerWizard(app, ctx) {
     const token = String(req.body?.plexToken || '').trim() || String(config.plex?.token || '').trim();
 
     if (!url) return renderServerWizard(res, config, 2, 'Plex server URL is required.');
-    if (!token) return renderServerWizard(res, config, 2, 'Plex token is required.');
+
+    // Token is optional — it auto-populates when the owner signs in with Plex.
+    // If no token is available yet, save the URL and skip straight to step 4
+    // (library selection requires a token and will be done later).
+    if (!token) {
+      const updated = { ...config, plex: { ...config.plex, url } };
+      saveConfig(updated);
+      pushLog({ level: 'info', app: 'wizard', action: 'plex.url-saved', message: `Plex URL saved (token pending first Plex login): ${url}` });
+      return renderServerWizard(res, updated, 4, null);
+    }
 
     let libraries = [];
     try {

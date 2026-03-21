@@ -120,7 +120,11 @@
 
       window.addEventListener("message", function(event) {
         var payload = event && event.data && typeof event.data === "object" ? event.data : null;
-        if (!payload || payload.type !== "curatorr-plex-auth-complete") return;
+        if (!payload) return;
+        // Stop polling while the popup is on the home-user selection page so that
+        // the poll cannot overwrite the session cookie set by /oauth/callback.
+        if (payload.type === "curatorr-plex-home-users-start") { stopPlexPolling(); return; }
+        if (payload.type !== "curatorr-plex-auth-complete") return;
         stopPlexPolling();
         closePlexPopup();
         plexPopup = null;

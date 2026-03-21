@@ -53,7 +53,7 @@
       <% } else if (step === 2) { %>
         <div class="wizard-body">
           <h2 class="wizard-title">Connect Plex</h2>
-          <p class="wizard-desc">Enter your Plex server URL and access token. Plex powers Now Playing and primary live play tracking, and Curatorr will try to register its Plex webhook automatically once connected.</p>
+          <p class="wizard-desc">Enter your Plex server URL. The access token is optional here — it will be filled in automatically when you sign in with your Plex owner account. Plex powers Now Playing and primary live play tracking, and Curatorr will try to register its Plex webhook automatically once connected.</p>
           <form method="post" action="/wizard/plex" class="wizard-form" id="wsf2">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <div class="wizard-field">
@@ -61,9 +61,9 @@
               <input class="wizard-input" type="url" id="plexUrl" name="plexUrl" value="<%= config.plex?.url || '' %>" placeholder="http://192.168.1.x:32400" required />
             </div>
             <div class="wizard-field">
-              <label class="wizard-label" for="plexToken">Plex token</label>
-              <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Your Plex token' %>" <%= config.plex?.tokenSet ? '' : 'required' %> />
-              <div class="wizard-hint">Find your token at <a href="https://support.plex.tv/articles/204059436" target="_blank" rel="noreferrer">support.plex.tv</a> or via Tautulli → Settings → Plex Media Server → Plex token.</div>
+              <label class="wizard-label" for="plexToken">Plex token <span class="wizard-optional">optional</span></label>
+              <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Leave blank — auto-filled on first Plex login' %>" />
+              <div class="wizard-hint">You can leave this blank and sign in with Plex below — the token will be set automatically. To find it manually: <a href="https://support.plex.tv/articles/204059436" target="_blank" rel="noreferrer">support.plex.tv</a> or Tautulli → Settings → Plex Media Server → Plex token.</div>
             </div>
           </form>
           <div class="wizard-actions">
@@ -95,7 +95,7 @@
                 <% }) %>
               </div>
             <% } else { %>
-              <p class="wizard-hint">No music libraries found. Go back and verify your Plex connection.</p>
+              <p class="wizard-hint"><% if (config.plex?.token || config.plex?.tokenSet) { %>No music libraries found. Go back and verify your Plex connection.<% } else { %>No token set yet — sign in with your Plex owner account to auto-populate the token, then re-run the wizard or select your libraries in Settings → Plex.<% } %></p>
             <% } %>
           </form>
           <div class="wizard-actions">

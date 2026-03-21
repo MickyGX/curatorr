@@ -344,7 +344,7 @@
               <% if (lastfmUsername) { %>
                 <div class="field-group-label" style="margin-top:1rem;">Last.fm Station Playlists</div>
                 <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in Plex. Updated with each playlist sync.</div>
-                <% [['recommended','Recommended'],['mix','Mix'],['library','Library'],['neighbours','Neighbours']].forEach(([key, label]) => { %>
+                <% [['recommended','Recommended'],['mix','Mix'],['library','Library'],['neighbours','Neighbours'],['loved','Loved']].forEach(([key, label]) => { %>
                   <div class="settings-access-row">
                     <label class="settings-toggle">
                       <input type="checkbox" name="lastfmStations" value="<%= key %>" <%= (lastfmEnabledStations || []).includes(key) ? 'checked' : '' %> />
@@ -353,6 +353,24 @@
                     </label>
                   </div>
                 <% }) %>
+                <% var topTracksStation = (lastfmEnabledStations || []).find(function(s) { return s.startsWith('topTracks:'); }); %>
+                <% var topTracksPeriod = topTracksStation ? topTracksStation.slice('topTracks:'.length) : ''; %>
+                <div class="settings-access-row" style="flex-wrap:wrap;gap:0.5rem;">
+                  <label class="settings-toggle" style="flex-shrink:0;">
+                    <input type="checkbox" id="topTracksToggle" <%= topTracksPeriod ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Last.fm Top Tracks</span>
+                  </label>
+                  <select name="lastfmTopTracks" id="topTracksPeriodSelect" style="margin-left:0.5rem;" <%= topTracksPeriod ? '' : 'disabled' %>>
+                    <option value="">Disabled</option>
+                    <option value="overall" <%= topTracksPeriod === 'overall' ? 'selected' : '' %>>All Time</option>
+                    <option value="7day" <%= topTracksPeriod === '7day' ? 'selected' : '' %>>Last 7 Days</option>
+                    <option value="1month" <%= topTracksPeriod === '1month' ? 'selected' : '' %>>Last Month</option>
+                    <option value="3month" <%= topTracksPeriod === '3month' ? 'selected' : '' %>>Last 3 Months</option>
+                    <option value="6month" <%= topTracksPeriod === '6month' ? 'selected' : '' %>>Last 6 Months</option>
+                    <option value="12month" <%= topTracksPeriod === '12month' ? 'selected' : '' %>>Last Year</option>
+                  </select>
+                </div>
               <% } %>
               <button class="primary-button" type="submit">Save Last.fm settings</button>
             </form>
@@ -390,6 +408,17 @@
   </div>
 
   <script>
+    (function() {
+      var toggle = document.getElementById('topTracksToggle');
+      var select = document.getElementById('topTracksPeriodSelect');
+      if (toggle && select) {
+        toggle.addEventListener('change', function() {
+          select.disabled = !toggle.checked;
+          if (!toggle.checked) select.value = '';
+          else if (!select.value) select.value = 'overall';
+        });
+      }
+    })();
     (function() {
       var btn = document.getElementById('lastfmRunBackfillBtn');
       var status = document.getElementById('lastfmBackfillStatus');

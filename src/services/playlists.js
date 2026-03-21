@@ -30,6 +30,16 @@ const LASTFM_STATION_LABELS = {
   mix: 'Mix',
   library: 'Library',
   neighbours: 'Neighbours',
+  loved: 'Loved',
+};
+
+const TOP_TRACKS_PERIOD_LABELS = {
+  overall: 'All Time',
+  '7day': 'Last 7 Days',
+  '1month': 'Last Month',
+  '3month': 'Last 3 Months',
+  '6month': 'Last 6 Months',
+  '12month': 'Last Year',
 };
 
 function escapeRegex(value) {
@@ -58,6 +68,10 @@ function getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId
   if (playlistType === CURATIVE_PLAYLIST_TYPE || rawKey === CURATIVE_PLAYLIST_KEY) return 'Curative Playlist';
   if (playlistType === 'lastfm-station' || rawKey.startsWith('lastfm:')) {
     const stationKey = rawKey.slice('lastfm:'.length);
+    if (stationKey.startsWith('topTracks:')) {
+      const period = stationKey.slice('topTracks:'.length);
+      return `Last.fm Top Tracks (${TOP_TRACKS_PERIOD_LABELS[period] || period})`;
+    }
     return LASTFM_STATION_LABELS[stationKey] ? `Last.fm ${LASTFM_STATION_LABELS[stationKey]}` : cleanFallbackTitle;
   }
   if (playlistType === 'global' || rawKey.startsWith('global:')) {
@@ -982,12 +996,93 @@ export function createPlaylistService(ctx) {
 
   async function syncLastfmStations(userId) {
     const prefs = getUserPreferences(db, userId);
-    if (!prefs.lastfmUsername || !prefs.lastfmEnabledStations?.length) return;
+    if (!prefs.lastfmUsername) return;
     const config = ctx.loadConfig();
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
 
+    // Cleanup: delete Plex playlists for stations that have been disabled
+    const enabledSet = new Set(prefs.lastfmEnabledStations || []);
+    const existingLastfm = listGenerated(userId, { activeOnly: false })
+      .filter((p) => p.playlistKey.startsWith('lastfm:') && p.active);
+    for (const existing of existingLastfm) {
+      const stationKey = existing.playlistKey.slice('lastfm:'.length);
+      if (!enabledSet.has(stationKey)) {
+        try {
+          const { url } = config.plex || {};
+          const token = ctx.resolveUserPlexServerToken(config, userId);
+          const base = String(url || '').replace(/\/$/, '');
+          if (base && token && existing.plexPlaylistId) {
+            await fetch(`${base}/playlists/${existing.plexPlaylistId}`, {
+              method: 'DELETE',
+              headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            });
+          }
+        } catch (_err) {}
+        saveUserGeneratedPlaylist(db, userId, { ...existing, active: false, plexPlaylistId: '', updatedAt: Date.now() });
+        ctx.pushLog({ level: 'info', app: 'playlist', action: 'lastfm.station.removed', message: `Last.fm ${stationKey} playlist removed for ${userId}` });
+      }
+    }
+
+    if (!enabledSet.size) return;
+
+    const apiKey = String(config.discovery?.lastfmApiKey || '').trim();
     const machineId = await resolveMachineId(ctx, config);
+
     for (const stationKey of prefs.lastfmEnabledStations) {
+      // ── Official Last.fm API: Loved tracks and Top Tracks ─────────────────
+      if (stationKey === 'loved' || stationKey.startsWith('topTracks:')) {
+        if (!apiKey) {
+          ctx.pushLog({ level: 'warn', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${stationKey} sync skipped for ${userId}: no API key configured in Discovery settings` });
+          continue;
+        }
+        let label, apiUrl;
+        if (stationKey === 'loved') {
+          label = 'Loved';
+          apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getLovedTracks&user=${encodeURIComponent(prefs.lastfmUsername)}&api_key=${encodeURIComponent(apiKey)}&format=json&limit=500`;
+        } else {
+          const period = stationKey.slice('topTracks:'.length);
+          label = `Top Tracks (${TOP_TRACKS_PERIOD_LABELS[period] || period})`;
+          apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getTopTracks&user=${encodeURIComponent(prefs.lastfmUsername)}&period=${encodeURIComponent(period)}&api_key=${encodeURIComponent(apiKey)}&format=json&limit=500`;
+        }
+        const playlistKey = `lastfm:${stationKey}`;
+        const playlistTitle = buildGeneratedPlaylistTitle(config, 'lastfm-station', playlistKey, userId, `Last.fm ${label}`);
+        try {
+          const res = await fetch(apiUrl);
+          if (!res.ok) throw new Error(`Last.fm API HTTP ${res.status}`);
+          const data = await res.json();
+          const rawTracks = stationKey === 'loved'
+            ? (data?.lovedtracks?.track || [])
+            : (data?.toptracks?.track || []);
+
+          const master = getMasterTracks(db);
+          const lookup = new Map(master.map((t) => [`${t.artistName?.toLowerCase()}|${t.trackTitle?.toLowerCase()}`, t.ratingKey]));
+          const ratingKeys = [];
+          for (const t of rawTracks) {
+            const artist = (t.artist?.name || '').toLowerCase();
+            const title = (t.name || '').toLowerCase();
+            const key = lookup.get(`${artist}|${title}`);
+            if (key) ratingKeys.push(key);
+          }
+
+          const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
+          await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+
+          const now = Date.now();
+          saveUserGeneratedPlaylist(db, userId, {
+            playlistType: 'lastfm-station', playlistKey,
+            plexPlaylistId: playlistRow.plexPlaylistId,
+            playlistTitle, algorithmVersion: 'lastfm-station-v1',
+            lastBuiltAt: now, lastSyncedAt: now,
+            trackCount: ratingKeys.length, active: true, updatedAt: now,
+          });
+          ctx.pushLog({ level: 'info', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} synced: ${ratingKeys.length}/${rawTracks.length} matched for ${userId}` });
+        } catch (err) {
+          ctx.pushLog({ level: 'warn', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} sync failed for ${userId}: ${err.message}` });
+        }
+        continue;
+      }
+
+      // ── Undocumented station endpoint: Recommended, Mix, Library, Neighbours
       const label = LASTFM_STATION_LABELS[stationKey];
       if (!label) continue;
       const playlistKey = `lastfm:${stationKey}`;

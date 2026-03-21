@@ -1064,9 +1064,14 @@ export function registerSettings(app, ctx) {
     if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     const lastfmUsername = String(req.body?.lastfmUsername || '').trim();
     const rawStations = req.body?.lastfmStations;
-    const VALID_STATIONS = ['recommended', 'mix', 'library', 'neighbours'];
+    const VALID_UNDOCUMENTED = ['recommended', 'mix', 'library', 'neighbours', 'loved'];
+    const VALID_PERIODS = ['overall', '7day', '1month', '3month', '6month', '12month'];
     const lastfmEnabledStations = (Array.isArray(rawStations) ? rawStations : rawStations ? [rawStations] : [])
-      .filter((s) => VALID_STATIONS.includes(s));
+      .filter((s) => VALID_UNDOCUMENTED.includes(s) || (s.startsWith('topTracks:') && VALID_PERIODS.includes(s.slice('topTracks:'.length))));
+    const topTracksPeriod = String(req.body?.lastfmTopTracks || '').trim();
+    if (topTracksPeriod && VALID_PERIODS.includes(topTracksPeriod)) {
+      lastfmEnabledStations.push(`topTracks:${topTracksPeriod}`);
+    }
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations });
     return res.redirect('/user-settings?success=lastfm-updated');

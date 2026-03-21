@@ -98,6 +98,19 @@
     </style>
   </head>
   <body>
+    <script>
+      // Stop the Launcharr login page from polling /api/plex/pin/status while the
+      // user selects a home profile.  If we don't stop it here the poll can write a
+      // stale session cookie that wipes out the plexMainToken set by /oauth/callback.
+      if (window.opener) {
+        try {
+          window.opener.postMessage(
+            { type: 'curatorr-plex-home-users-start' },
+            window.location.origin
+          );
+        } catch (_e) {}
+      }
+    </script>
     <div class="title"><%= title %></div>
     <div class="sub">Select a profile to continue</div>
     <div class="users">

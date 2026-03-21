@@ -42,6 +42,9 @@ seekarr/
 # Local private files
 private/
 
+# Local dev shortcuts
+dev.md
+
 # Local maintenance binaries
 bfg.jar
 
