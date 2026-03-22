@@ -47,6 +47,7 @@ import {
   listUserPersonalPlaylists,
   getUserPersonalPlaylist,
   createUserPersonalPlaylist,
+  updateUserPersonalPlaylist,
   deleteUserPersonalPlaylist,
   previewGlobalPlaylist,
   getArtistTagMap,
@@ -2498,7 +2499,7 @@ export function registerApiMusic(app, ctx) {
     return 'pp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
-  // GET /api/music/playlists/personal/preview
+  // GET /api/music/playlists/personal/preview — must be before /:id to avoid route shadowing
   app.get('/api/music/playlists/personal/preview', requireUser, (req, res) => {
     const userPlexId = resolveQueryUserId(req);
     let rules;
@@ -2508,6 +2509,15 @@ export function registerApiMusic(app, ctx) {
     const result = previewGlobalPlaylist(db, rules, userPlexId, smartSettings);
     const counts = result.forUser || { artistCount: 0, trackCount: 0 };
     res.json({ ok: true, artistCount: counts.artistCount, trackCount: counts.trackCount });
+  });
+
+  // GET /api/music/playlists/personal/:id — must be after /preview to avoid route shadowing
+  app.get('/api/music/playlists/personal/:id', requireUser, (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const id = String(req.params.id || '');
+    const playlist = getUserPersonalPlaylist(db, id, userPlexId);
+    if (!playlist) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, playlist });
   });
 
   // POST /api/music/playlists/personal
@@ -2532,6 +2542,63 @@ export function registerApiMusic(app, ctx) {
     setImmediate(async () => {
       await playlistService?.syncPersonalPlaylist(userPlexId, playlistDef).catch(() => {});
     });
+  });
+
+  // PUT /api/music/playlists/personal/:id — update name and rules for a personal playlist
+  app.put('/api/music/playlists/personal/:id', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const id = String(req.params.id || '');
+    const existing = getUserPersonalPlaylist(db, id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const rules = {
+      artistTiers:  Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
+      trackTiers:   Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
+      genres:       Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : [],
+      moods:        Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : [],
+      tags:         Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : [],
+      topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
+      sortBy: String(req.body?.sortBy || 'ratingCount'),
+    };
+    const updated = { ...existing, name, rules };
+    updateUserPersonalPlaylist(db, userPlexId, updated);
+    pushLog({ level: 'info', app: 'playlist', action: 'personal.update', message: `Personal playlist updated: ${id} for ${userPlexId}` });
+    res.json({ ok: true, playlist: updated });
+    setImmediate(async () => {
+      await playlistService?.syncPersonalPlaylist(userPlexId, updated).catch(() => {});
+    });
+  });
+
+  // DELETE /api/music/playlists/generated — remove a generated playlist from Plex and Curatorr
+  app.delete('/api/music/playlists/generated', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const playlistKey = String(req.body?.playlistKey || req.query?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required' });
+
+    const existing = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((p) => p.playlistKey === playlistKey);
+    if (!existing) return res.status(404).json({ error: 'Playlist not found' });
+    if (!['personal', 'global', 'custom'].includes(existing.playlistType)) return res.status(403).json({ error: 'Only user-created playlists can be deleted.' });
+
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = resolveUserPlexServerToken(config, userPlexId);
+    const base = String(url || '').replace(/\/$/, '');
+
+    if (base && token && existing.plexPlaylistId) {
+      try {
+        await fetch(`${base}/playlists/${existing.plexPlaylistId}`, {
+          method: 'DELETE',
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
+      } catch (_err) { /* best-effort */ }
+    }
+
+    saveUserGeneratedPlaylist(db, userPlexId, { ...existing, active: false, plexPlaylistId: '', updatedAt: Date.now() });
+    pushLog({ level: 'info', app: 'playlist', action: 'generated.delete', message: `Generated playlist deleted: ${playlistKey} for ${userPlexId}` });
+    res.json({ ok: true });
   });
 
   // DELETE /api/music/playlists/personal/:id

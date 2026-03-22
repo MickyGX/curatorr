@@ -1543,6 +1543,11 @@ export function createUserPersonalPlaylist(db, userPlexId, { id, name, rules }) 
   `).run(id, userPlexId, name, JSON.stringify(rules || {}), Date.now(), Date.now());
 }
 
+export function updateUserPersonalPlaylist(db, userPlexId, { id, name, rules }) {
+  db.prepare('UPDATE user_personal_playlists SET name = ?, rules = ?, updated_at = ? WHERE id = ? AND user_plex_id = ?')
+    .run(name, JSON.stringify(rules || {}), Date.now(), id, userPlexId);
+}
+
 export function deleteUserPersonalPlaylist(db, id, userPlexId) {
   db.prepare('DELETE FROM user_personal_playlists WHERE id = ? AND user_plex_id = ?').run(id, userPlexId);
 }

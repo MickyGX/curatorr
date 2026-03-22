@@ -45,6 +45,11 @@
         <div class="cur-panel cur-panel--playlist-carousel cur-panel--playlists-page-carousel">
           <div class="cur-panel-header cur-panel-header--playlist-carousel">
             <h3 class="cur-panel-title">Playlists</h3>
+            <div id="plSelectionBar" class="pl-selection-bar" style="display:none">
+              <span id="plSelectionCount" class="pl-selection-count"></span>
+              <button class="btn btn-sm btn-ghost pl-selection-clear" type="button" onclick="clearCardSelection()">Clear</button>
+              <button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" type="button" onclick="deleteSelectedPlaylists()">Delete Selected</button>
+            </div>
             <div class="cur-panel-actions">
               <button class="btn btn-sm btn-ghost" type="button" onclick="openSmartPlaylistModal()">+ Smart Playlist</button>
               <span class="cur-sync-status" id="syncStatus"></span>
@@ -80,14 +85,32 @@
                           <% if (p.artPath) { %>
                             <img src="/api/plex/art?path=<%= encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
                           <% } %>
-                          <% if (p.curatorrUpdatedAt > 0) { %>
-                            <div class="cur-delta-badge">
-                              <% if (p.tracksAdded > 0) { %><span class="cur-delta cur-delta--up">↑<%= p.tracksAdded %></span><% } %>
-                              <% if (p.tracksRemoved > 0) { %><span class="cur-delta cur-delta--down">↓<%= p.tracksRemoved %></span><% } %>
-                              <% if (!p.tracksAdded && !p.tracksRemoved) { %><span class="cur-delta cur-delta--neutral">=</span><% } %>
-                            </div>
+                          <% if (['personal', 'global', 'custom'].includes(p.playlistType)) { %>
+                          <label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="pl-card-checkbox" onchange="onCardCheckChange(this)" />
+                            <span class="pl-card-checkbox-ui"></span>
+                          </label>
                           <% } %>
-                          <button class="btn btn-sm btn-primary cur-playlist-carousel-rebuild" type="button" onclick="event.stopPropagation(); rebuildCurrentPlaylist()">Rebuild</button>
+                          <button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:9px" onclick="event.stopPropagation(); selectPlaylist(this.closest('.cur-playlist-carousel-card'))">
+                            <img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" />
+                          </button>
+                          <% if (p.playlistType === 'personal') { %>
+                          <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card'))">
+                            <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
+                          </button>
+                          <% } %>
+                          <div class="pl-card-dots-wrap">
+                            <button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleCardMenu(this)">⋯</button>
+                            <div class="pl-card-menu" style="display:none">
+                              <% if (p.playlistType === 'personal') { %>
+                              <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
+                              <% } %>
+                              <button type="button" onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rebuild</button>
+                              <% if (['personal', 'global', 'custom'].includes(p.playlistType)) { %>
+                              <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
+                              <% } %>
+                            </div>
+                          </div>
                         </div>
                       </div>
                       <div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">
@@ -157,7 +180,7 @@
   <div id="smartPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeSmartPlaylistModal()">
     <div class="spm-dialog" role="dialog" aria-modal="true" aria-label="Create Smart Playlist">
       <div class="spm-header">
-        <span class="spm-title">Create Smart Playlist</span>
+        <span class="spm-title" id="spm-modal-title">Create Smart Playlist</span>
         <button class="spm-close" type="button" onclick="closeSmartPlaylistModal()" aria-label="Close">✕</button>
       </div>
       <div class="spm-body">
@@ -270,7 +293,7 @@
 
       <div class="spm-footer">
         <button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>
-        <button class="btn btn-primary" type="button" id="spm-create-btn" onclick="createSmartPlaylist()">Create Playlist</button>
+        <button class="btn btn-primary" type="button" id="spm-create-btn" onclick="spmSubmit()">Create Playlist</button>
         <span id="spm-msg" style="font-size:13px;margin-left:8px"></span>
       </div>
     </div>
@@ -613,11 +636,23 @@
       card.dataset.playlistTrackCount = String(Number(data.trackCount || 0));
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
+      var isPersonal = data.playlistType === 'personal';
+      var isDeletable = ['personal', 'global', 'custom'].indexOf(data.playlistType || '') !== -1;
       card.innerHTML =
         '<div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">' +
           '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artPath ? '' : ' is-empty') + '">' +
             (data.artPath ? '<img src="/api/plex/art?path=' + encodeURIComponent(data.artPath) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
-            '<button class="btn btn-sm btn-primary cur-playlist-carousel-rebuild" type="button">Rebuild</button>' +
+            (isDeletable ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
+            '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
+            (isPersonal ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '') +
+            '<div class="pl-card-dots-wrap">' +
+              '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options">⋯</button>' +
+              '<div class="pl-card-menu" style="display:none">' +
+                (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
+                '<button type="button" class="pl-card-menu-rebuild">Rebuild</button>' +
+                (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
+              '</div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">' +
@@ -627,18 +662,22 @@
         '</div>';
       card.addEventListener('click', function() { selectPlaylist(card); });
       card.addEventListener('keydown', function(event) {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          selectPlaylist(card);
-        }
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPlaylist(card); }
       });
-      var rebuildBtn = card.querySelector('.cur-playlist-carousel-rebuild');
-      if (rebuildBtn) {
-        rebuildBtn.addEventListener('click', function(event) {
-          event.stopPropagation();
-          rebuildCurrentPlaylist();
-        });
-      }
+      var editBtn = card.querySelector('.pl-card-btn--edit');
+      if (editBtn) editBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditPlaylistModal(card); });
+      var viewBtn2 = card.querySelector('.pl-card-btn--view');
+      if (viewBtn2) viewBtn2.addEventListener('click', function(e) { e.stopPropagation(); selectPlaylist(card); });
+      var dotsBtn = card.querySelector('.pl-card-btn--dots');
+      if (dotsBtn) dotsBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleCardMenu(dotsBtn); });
+      var editMenuBtn = card.querySelector('.pl-card-menu-edit');
+      if (editMenuBtn) editMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditPlaylistModal(card); });
+      var rebuildMenuBtn = card.querySelector('.pl-card-menu-rebuild');
+      if (rebuildMenuBtn) rebuildMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); rebuildCardPlaylist(card); });
+      var deleteMenuBtn = card.querySelector('.pl-card-menu-delete');
+      if (deleteMenuBtn) deleteMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteCardPlaylist(card); });
+      var checkboxEl = card.querySelector('.pl-card-checkbox');
+      if (checkboxEl) checkboxEl.addEventListener('change', function() { onCardCheckChange(checkboxEl); });
       return card;
     }
 
@@ -833,34 +872,108 @@
     // ── Playlist actions ─────────────────────────────────────────────────────
 
     function rebuildCurrentPlaylist() {
-      var btn = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card.is-active .cur-playlist-carousel-rebuild');
+      var card = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card.is-active');
+      if (card) rebuildCardPlaylist(card);
+    }
+
+    function rebuildCardPlaylist(card) {
+      if (!card) return;
+      closeAllCardMenus();
       var status = document.getElementById('syncStatus');
-      if (!btn || btn.disabled) return;
-      var original = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '…';
+      var kind = card.dataset.playlistKind || '';
+      var key = card.dataset.plKey || '';
+      if (!canRebuildSelection(kind, card.dataset.playlistType || '')) {
+        status.textContent = 'This playlist does not support rebuilding.';
+        return;
+      }
       status.textContent = 'Rebuilding…';
       fetch('/api/music/playlists/rebuild', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
-        body: JSON.stringify({ playlistKind: _currentPlaylistKind, playlistKey: _currentPlexKey || '' }),
+        body: JSON.stringify({ playlistKind: kind, playlistKey: key }),
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          if (data.ok) {
-            status.textContent = 'Rebuilt.';
-            window.location.reload();
-          } else {
-            status.textContent = 'Error: ' + (data.error || 'Unknown');
-            btn.textContent = original;
-            btn.disabled = false;
-          }
+          if (data.ok) { status.textContent = 'Rebuilt.'; window.location.reload(); }
+          else { status.textContent = 'Error: ' + (data.error || 'Unknown'); }
         })
-        .catch(function() {
-          status.textContent = 'Network error.';
-          btn.textContent = original;
-          btn.disabled = false;
+        .catch(function() { status.textContent = 'Network error.'; });
+    }
+
+    function deleteCardPlaylist(card) {
+      if (!card) return;
+      closeAllCardMenus();
+      var playlistKey = card.dataset.plKey;
+      var playlistTitle = card.dataset.plTitle;
+      if (!playlistKey) return;
+      if (!confirm('Delete "' + playlistTitle + '" from Curatorr and Plex? This cannot be undone.')) return;
+      fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(playlistKey), {
+        method: 'DELETE',
+        headers: { 'X-CSRF-Token': CSRF },
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok) { window.location.reload(); }
+          else { alert('Could not delete: ' + (data.error || 'Unknown error')); }
+        })
+        .catch(function() { alert('Network error deleting playlist.'); });
+    }
+
+    function toggleCardMenu(btn) {
+      var menu = btn.parentElement.querySelector('.pl-card-menu');
+      if (!menu) return;
+      var isOpen = menu.style.display !== 'none';
+      closeAllCardMenus();
+      if (!isOpen) menu.style.display = '';
+    }
+
+    function closeAllCardMenus() {
+      document.querySelectorAll('.pl-card-menu').forEach(function(m) { m.style.display = 'none'; });
+    }
+
+    // ── Multi-select ──────────────────────────────────────────────────────────
+    function onCardCheckChange(cb) {
+      var card = cb.closest('.cur-playlist-carousel-card');
+      if (cb.checked) { card.classList.add('is-selected'); } else { card.classList.remove('is-selected'); }
+      updateSelectionBar();
+    }
+
+    function updateSelectionBar() {
+      var selected = document.querySelectorAll('.pl-card-checkbox:checked');
+      var bar = document.getElementById('plSelectionBar');
+      var count = document.getElementById('plSelectionCount');
+      if (selected.length) {
+        bar.style.display = '';
+        count.textContent = selected.length + ' selected';
+      } else {
+        bar.style.display = 'none';
+      }
+    }
+
+    function clearCardSelection() {
+      document.querySelectorAll('.pl-card-checkbox:checked').forEach(function(cb) {
+        cb.checked = false;
+        cb.closest('.cur-playlist-carousel-card').classList.remove('is-selected');
+      });
+      updateSelectionBar();
+    }
+
+    function deleteSelectedPlaylists() {
+      var cards = Array.from(document.querySelectorAll('.pl-card-checkbox:checked'))
+        .map(function(cb) { return cb.closest('.cur-playlist-carousel-card'); })
+        .filter(function(card) {
+          var t = card.dataset.playlistType || '';
+          return ['personal', 'global', 'custom'].indexOf(t) !== -1;
         });
+      if (!cards.length) return;
+      var titles = cards.map(function(c) { return '"' + (c.dataset.plTitle || 'Playlist') + '"'; }).join(', ');
+      if (!confirm('Delete ' + titles + ' from Curatorr and Plex? This cannot be undone.')) return;
+      var keys = cards.map(function(c) { return c.dataset.plKey; });
+      Promise.all(keys.map(function(key) {
+        return fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(key), {
+          method: 'DELETE', headers: { 'X-CSRF-Token': CSRF },
+        }).then(function(r) { return r.json(); });
+      })).then(function() { window.location.reload(); }).catch(function() { alert('Error deleting playlists.'); });
     }
 
     function viewCurrentPlaylist() {
@@ -938,12 +1051,101 @@
 
     var _spmPreviewTimer = null;
 
+    var _spmEditId = null; // non-null when editing an existing personal playlist
+
     function openSmartPlaylistModal() {
+      _spmEditId = null;
+      document.getElementById('spm-modal-title').textContent = 'Create Smart Playlist';
+      document.getElementById('spm-create-btn').textContent = 'Create Playlist';
+      document.getElementById('spm-name').value = '';
+      spmResetFilters();
       var modal = document.getElementById('smartPlModal');
       if (!modal) return;
       modal.style.display = '';
       document.getElementById('spm-name').focus();
       spmRunPreview();
+    }
+
+    function openEditPlaylistModal(card) {
+      if (!card) return;
+      var key = card.dataset.plKey || '';
+      var id = key.replace(/^personal:/, '');
+      if (!id) return;
+      fetch('/api/music/playlists/personal/preview?rules=%7B%7D', { method: 'GET' }); // warm-up (ignore)
+      fetch('/api/music/playlists/personal/' + encodeURIComponent(id))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok || !data.playlist) { alert('Could not load playlist data.'); return; }
+          _spmEditId = id;
+          var pl = data.playlist;
+          document.getElementById('spm-modal-title').textContent = 'Edit Smart Playlist';
+          document.getElementById('spm-create-btn').textContent = 'Save Changes';
+          document.getElementById('spm-name').value = pl.name || '';
+          spmResetFilters();
+          var rules = pl.rules || {};
+          spmApplyRules(rules);
+          var modal = document.getElementById('smartPlModal');
+          if (modal) modal.style.display = '';
+          document.getElementById('spm-name').focus();
+          spmRunPreview();
+        })
+        .catch(function() { alert('Network error loading playlist.'); });
+    }
+
+    function spmResetFilters() {
+      document.querySelectorAll('.spm-artist-tier').forEach(function(cb) { cb.checked = false; });
+      document.querySelectorAll('.spm-track-tier').forEach(function(cb) { cb.checked = false; });
+      document.querySelectorAll('.spm-genre-cb').forEach(function(cb) { cb.checked = false; });
+      document.querySelectorAll('.spm-mood-cb').forEach(function(cb) { cb.checked = false; });
+      document.querySelectorAll('.spm-tag-cb').forEach(function(cb) { cb.checked = false; });
+      var artistAll = document.querySelector('.spm-artist-tier-all');
+      if (artistAll) artistAll.checked = true;
+      var trackAll = document.querySelector('.spm-track-tier-all');
+      if (trackAll) trackAll.checked = true;
+      var topN = document.getElementById('spm-top-n');
+      if (topN) topN.value = '';
+      var maxT = document.getElementById('spm-max-tracks');
+      if (maxT) maxT.value = '';
+      var sortBy = document.getElementById('spm-sort-by');
+      if (sortBy) sortBy.value = 'ratingCount';
+    }
+
+    function spmApplyRules(rules) {
+      var artistAll = document.querySelector('.spm-artist-tier-all');
+      var trackAll = document.querySelector('.spm-track-tier-all');
+      if (rules.artistTiers && rules.artistTiers.length) {
+        if (artistAll) artistAll.checked = false;
+        rules.artistTiers.forEach(function(v) {
+          var cb = document.querySelector('.spm-artist-tier[value="' + v + '"]');
+          if (cb) cb.checked = true;
+        });
+      }
+      if (rules.trackTiers && rules.trackTiers.length) {
+        if (trackAll) trackAll.checked = false;
+        rules.trackTiers.forEach(function(v) {
+          var cb = document.querySelector('.spm-track-tier[value="' + v + '"]');
+          if (cb) cb.checked = true;
+        });
+      }
+      (rules.genres || []).forEach(function(v) {
+        var cb = document.querySelector('.spm-genre-cb[value="' + CSS.escape(v) + '"]') ||
+                 document.querySelector('.spm-genre-cb[value="' + v.replace(/"/g, '\\"') + '"]');
+        if (cb) cb.checked = true;
+      });
+      (rules.moods || []).forEach(function(v) {
+        var cb = document.querySelector('.spm-mood-cb[value="' + CSS.escape(v) + '"]');
+        if (cb) cb.checked = true;
+      });
+      (rules.tags || []).forEach(function(v) {
+        var cb = document.querySelector('.spm-tag-cb[value="' + CSS.escape(v) + '"]');
+        if (cb) cb.checked = true;
+      });
+      var topN = document.getElementById('spm-top-n');
+      if (topN) topN.value = rules.topNPerArtist || '';
+      var maxT = document.getElementById('spm-max-tracks');
+      if (maxT) maxT.value = rules.maxTracks || '';
+      var sortBy = document.getElementById('spm-sort-by');
+      if (sortBy && rules.sortBy) sortBy.value = rules.sortBy;
     }
 
     function closeSmartPlaylistModal() {
@@ -952,6 +1154,36 @@
       if (_spmPreviewTimer) { clearTimeout(_spmPreviewTimer); _spmPreviewTimer = null; }
       document.getElementById('spm-msg').textContent = '';
       document.getElementById('spm-create-btn').disabled = false;
+      _spmEditId = null;
+    }
+
+    function spmSubmit() {
+      if (_spmEditId) { updateSmartPlaylist(); } else { createSmartPlaylist(); }
+    }
+
+    function updateSmartPlaylist() {
+      var name = (document.getElementById('spm-name').value || '').trim();
+      if (!name) { document.getElementById('spm-msg').textContent = 'Please enter a playlist name.'; return; }
+      var rules = getSpmRules();
+      var msg = document.getElementById('spm-msg');
+      var btn = document.getElementById('spm-create-btn');
+      btn.disabled = true;
+      msg.textContent = 'Saving…';
+      fetch('/api/music/playlists/personal/' + encodeURIComponent(_spmEditId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify(Object.assign({ name: name }, rules)),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed');
+          closeSmartPlaylistModal();
+          window.location.reload();
+        })
+        .catch(function(err) {
+          msg.textContent = 'Error: ' + (err.message || 'Unknown');
+          btn.disabled = false;
+        });
     }
 
     function getSpmRules() {
@@ -1094,6 +1326,10 @@
     var initialCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card');
     if (initialCard) selectPlaylist(initialCard);
     else loadTracks(0);
+
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.pl-card-dots-wrap')) closeAllCardMenus();
+    });
   </script>
 </body>
 </html>

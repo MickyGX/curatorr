@@ -3087,6 +3087,233 @@ html[data-carousel-free-scroll="1"] .cur-discover-result-card {
   pointer-events: auto;
 }
 
+/* ── Card hover overlay — dark tint via pseudo-element ───────────────────── */
+.cur-playlist-carousel-art {
+  position: relative;
+}
+
+.cur-playlist-carousel-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.38);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.cur-playlist-carousel-card:hover .cur-playlist-carousel-art::after {
+  opacity: 1;
+}
+
+/* ── Card action buttons (direct children of art div, positioned absolutely) */
+.pl-card-btn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.6);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background .15s ease, transform .12s ease;
+  color: #fff;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cur-playlist-carousel-card:hover .pl-card-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pl-card-btn img {
+  display: block;
+}
+
+/* View (eye) — centred */
+.pl-card-btn--view {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 9px;
+}
+
+.pl-card-btn--view img {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(1);
+}
+
+.pl-card-btn--view:hover {
+  background: rgba(255,255,255,.2);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+/* Edit (pencil) — bottom-left, amber */
+.pl-card-btn--edit {
+  bottom: 8px;
+  left: 8px;
+  padding: 6px;
+  background: rgba(161, 106, 0, 0.85);
+}
+
+.pl-card-btn--edit img {
+  width: 12px;
+  height: 12px;
+}
+
+.pl-card-btn--edit:hover {
+  background: rgba(245, 158, 11, 0.95);
+  transform: scale(1.1);
+}
+
+/* ── Card checkbox (top-left, shows on hover or when checked) ─────────────── */
+.pl-card-checkbox-wrap {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s ease;
+  cursor: pointer;
+}
+
+.cur-playlist-carousel-card:hover .pl-card-checkbox-wrap,
+.cur-playlist-carousel-card.is-selected .pl-card-checkbox-wrap {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pl-card-checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pl-card-checkbox-ui {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid rgba(255,255,255,.7);
+  background: rgba(0,0,0,.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .12s ease, border-color .12s ease;
+}
+
+.pl-card-checkbox-ui::after {
+  content: '';
+  display: none;
+  width: 5px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.pl-card-checkbox:checked + .pl-card-checkbox-ui {
+  background: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.pl-card-checkbox:checked + .pl-card-checkbox-ui::after {
+  display: block;
+}
+
+.cur-playlist-carousel-card.is-selected {
+  box-shadow: inset 0 0 0 3px #7c3aed;
+}
+
+/* ── Selection bar ─────────────────────────────────────────────────────────── */
+.pl-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #eaf6f5;
+}
+
+.pl-selection-count {
+  font-weight: 600;
+}
+
+/* Three-dot wrap — bottom-right */
+.pl-card-dots-wrap {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
+}
+
+.cur-playlist-carousel-card:hover .pl-card-dots-wrap {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pl-card-btn--dots {
+  position: static;
+  opacity: 1;
+  pointer-events: auto;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 7px;
+  border-radius: 50%;
+  letter-spacing: 1px;
+}
+
+.pl-card-btn--dots:hover {
+  background: rgba(255,255,255,.2);
+}
+
+.pl-card-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  background: var(--surface, #1e2530);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 6px;
+  overflow: hidden;
+  min-width: 120px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  z-index: 99;
+}
+
+.pl-card-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: #eaf6f5;
+  text-align: left;
+  padding: 9px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+
+.pl-card-menu button:hover {
+  background: rgba(255,255,255,.1);
+}
+
+.pl-card-menu button.pl-card-menu-delete {
+  color: #f87171;
+}
+
 .cur-dashboard-playlist-art.is-empty::before,
 .cur-playlist-carousel-art.is-empty::before {
   content: '';
@@ -6207,7 +6434,7 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
 }
 .cur-delta--up   { background: #2bd56f; }
 .cur-delta--down { background: #ef4444; }
-.cur-delta--neutral { background: #f59e0b; }
+.cur-delta--neutral { display: none; }
 
 /* ── Overview Stats period toggle ───────────────────────────────────────── */
 .cur-stats-filter-group {
