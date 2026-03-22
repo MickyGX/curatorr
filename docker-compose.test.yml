@@ -1,0 +1,22 @@
+services:
+  curatorr_test:
+    build: .
+    container_name: curatorr_test
+    image: curatorr:test
+    ports:
+      - "7677:7676"
+    environment:
+      - CONFIG_PATH=/app/config/config.json
+      - DATA_DIR=/app/data
+      - BASE_URL=http://192.168.0.2:7677
+      - TRUST_PROXY=true
+      - TRUST_PROXY_HOPS=1
+      - SESSION_SECRET=test-session-secret-replace-me
+      - SESSION_COOKIE_NAME=curatorr_session_test
+      - WEBHOOK_SECRET=test-webhook-secret-replace-me
+    volumes:
+      - ./config-test:/app/config
+      - ./data-test:/app/data
+      - ./data-test/icons/custom:/app/public/icons/custom
+    network_mode: bridge
+    restart: unless-stopped

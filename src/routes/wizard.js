@@ -13,8 +13,23 @@ import {
   PRESET_VALUES,
 } from '../db.js';
 
-const SERVER_STEPS = 6;
+// Plex path has 6 steps (includes Tautulli); Jellyfin/Emby have 5 (Tautulli skipped).
+const SERVER_STEPS_PLEX = 6;
+const SERVER_STEPS_OTHER = 5;
 const USER_STEPS = 6;
+
+function resolveServerSteps(config) {
+  return String(config?.mediaServer?.type || 'plex').toLowerCase() === 'plex'
+    ? SERVER_STEPS_PLEX
+    : SERVER_STEPS_OTHER;
+}
+
+// Internal step numbers are always 1-6. For non-Plex servers, step 4 (Tautulli)
+// is auto-skipped, so step 5 displays as "4" and step 6 displays as "5".
+function resolveDisplayStep(config, internalStep) {
+  if (String(config?.mediaServer?.type || 'plex').toLowerCase() === 'plex') return internalStep;
+  return internalStep <= 3 ? internalStep : internalStep - 1;
+}
 const activePlaylistJobs = new Set();
 
 function buildWizardArtistOptions(artists = []) {
@@ -209,100 +224,24 @@ function queueWizardPlaylistJob(ctx, options) {
 }
 
 // ── Master track cache refresh ────────────────────────────────────────────────
-// Fetches all tracks from selected Plex libraries and stores in master_tracks table.
+// Fetches all tracks from the configured media server and stores them in the
+// master_tracks table. Delegates to the per-server adapter for data fetching.
 // Returns count of tracks cached.
 
 export async function refreshMasterTrackCache(ctx) {
-  const { db, loadConfig, buildAppApiUrl, buildPlexAuthHeaders, pushLog, safeMessage } = ctx;
+  const { db, loadConfig, pushLog, safeMessage } = ctx;
   const config = loadConfig();
-  const { url, token, libraries: selectedKeys = [] } = config.plex || {};
-  if (!url || !token || !selectedKeys.length) return 0;
+
+  const { getConfiguredAdapter, getConfiguredUrl, getConfiguredCredential, getConfiguredLibraryKeys } = await import('../services/media-servers/index.js');
+  const adapter = getConfiguredAdapter(config);
+  const url = getConfiguredUrl(config);
+  const credential = getConfiguredCredential(config);
+  const selectedKeys = getConfiguredLibraryKeys(config);
+
+  if (!url || !credential || !selectedKeys.length) return 0;
 
   try {
-    const tracks = [];
-    const PAGE_SIZE = 10000; // paginate to avoid V8's ~536 MB string limit on huge libraries
-    for (const key of selectedKeys) {
-      let start = 0;
-      let totalSize = null;
-      while (totalSize === null || start < totalSize) {
-        const u = buildAppApiUrl(url, `library/sections/${key}/all`);
-        u.searchParams.set('type', '10'); // tracks
-        u.searchParams.set('X-Plex-Container-Start', String(start));
-        u.searchParams.set('X-Plex-Container-Size', String(PAGE_SIZE));
-        const r = await fetch(u.toString(), {
-          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-        });
-        if (!r.ok) break;
-        const json = await r.json();
-        if (totalSize === null) totalSize = Number(json?.MediaContainer?.totalSize ?? json?.MediaContainer?.size ?? 0);
-        const metadata = json?.MediaContainer?.Metadata || [];
-        if (!metadata.length) break;
-        for (const t of metadata) {
-          tracks.push({
-            ratingKey: String(t.ratingKey || ''),
-            artistName: String(t.originalTitle || t.grandparentTitle || ''),
-            trackTitle: String(t.title || ''),
-            albumName: String(t.parentTitle || ''),
-            genres: (t.Genre || []).map((g) => g.tag),
-            moods: [],
-            libraryKey: String(key),
-            ratingCount: Number(t.ratingCount || 0),
-            viewCount: Number(t.viewCount || 0),
-          });
-        }
-        start += metadata.length;
-      }
-    }
-
-    // Plex omits Mood from bulk track listings — build ratingKey→moods map via the mood directory
-    const moodMap = new Map(); // ratingKey → Set<moodTag>
-    for (const key of selectedKeys) {
-      try {
-        const moodDirUrl = buildAppApiUrl(url, `library/sections/${key}/mood`);
-        moodDirUrl.searchParams.set('type', '10');
-        const mr = await fetch(moodDirUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
-        if (!mr.ok) continue;
-        const moodJson = await mr.json();
-        const moodTags = moodJson?.MediaContainer?.Directory || [];
-
-        // Fetch tracks per mood in batches of 10, paginated to avoid string-size limits
-        for (let i = 0; i < moodTags.length; i += 10) {
-          await Promise.all(moodTags.slice(i, i + 10).map(async (mood) => {
-            try {
-              let moodStart = 0;
-              let moodTotal = null;
-              while (moodTotal === null || moodStart < moodTotal) {
-                const tracksUrl = buildAppApiUrl(url, `library/sections/${key}/all`);
-                tracksUrl.searchParams.set('type', '10');
-                tracksUrl.searchParams.set('mood', mood.key);
-                tracksUrl.searchParams.set('X-Plex-Container-Start', String(moodStart));
-                tracksUrl.searchParams.set('X-Plex-Container-Size', String(PAGE_SIZE));
-                const tr = await fetch(tracksUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
-                if (!tr.ok) break;
-                const tj = await tr.json();
-                if (moodTotal === null) moodTotal = Number(tj?.MediaContainer?.totalSize ?? tj?.MediaContainer?.size ?? 0);
-                const moodMeta = tj?.MediaContainer?.Metadata || [];
-                if (!moodMeta.length) break;
-                for (const t of moodMeta) {
-                  const rk = String(t.ratingKey || '');
-                  if (!rk) continue;
-                  if (!moodMap.has(rk)) moodMap.set(rk, new Set());
-                  moodMap.get(rk).add(mood.title);
-                }
-                moodStart += moodMeta.length;
-              }
-            } catch { /* non-fatal */ }
-          }));
-        }
-      } catch { /* non-fatal */ }
-    }
-
-    // Apply moods to tracks
-    for (const t of tracks) {
-      const moods = moodMap.get(t.ratingKey);
-      if (moods) t.moods = [...moods];
-    }
-
+    const tracks = await adapter.getLibraryTracks(url, credential, selectedKeys);
     refreshMasterTracks(db, tracks);
     const moodCount = tracks.filter((t) => t.moods.length > 0).length;
     pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${tracks.length} tracks, ${moodCount} with moods` });
@@ -595,90 +534,141 @@ export function registerWizard(app, ctx) {
     return renderServerWizard(res, updated, 2, null);
   });
 
-  // ── Server Step 2: Plex connection ────────────────────────────────────────
+  // ── Server Step 2: Connect media server ──────────────────────────────────
+  // Handles all three server types. The form POSTs here for new installs;
+  // /wizard/plex is kept as a legacy alias for existing Plex-only installs.
 
-  app.post('/wizard/plex', async (req, res) => {
+  app.post('/wizard/media-server', async (req, res) => {
     const config = loadConfig();
-    const url = normalizeBaseUrl(String(req.body?.plexUrl || '').trim());
-    const token = String(req.body?.plexToken || '').trim() || String(config.plex?.token || '').trim();
-
-    if (!url) return renderServerWizard(res, config, 2, 'Plex server URL is required.');
-
-    // Token is optional — it auto-populates when the owner signs in with Plex.
-    // If no token is available yet, save the URL and skip straight to step 4
-    // (library selection requires a token and will be done later).
-    if (!token) {
-      const updated = { ...config, plex: { ...config.plex, url } };
-      saveConfig(updated);
-      pushLog({ level: 'info', app: 'wizard', action: 'plex.url-saved', message: `Plex URL saved (token pending first Plex login): ${url}` });
-      return renderServerWizard(res, updated, 4, null);
+    const { getAdapter } = await import('../services/media-servers/index.js');
+    const type = String(req.body?.mediaServerType || 'plex').toLowerCase();
+    if (!['plex', 'jellyfin', 'emby'].includes(type)) {
+      return renderServerWizard(res, config, 2, 'Select a media server type.');
     }
+
+    // Persist media server type immediately so renderServerWizard can compute totalSteps
+    const configWithType = { ...config, mediaServer: { ...config.mediaServer, type } };
+
+    if (type === 'plex') {
+      const url = normalizeBaseUrl(String(req.body?.plexUrl || '').trim());
+      const token = String(req.body?.plexToken || '').trim() || String(config.plex?.token || '').trim();
+      if (!url) return renderServerWizard(res, configWithType, 2, 'Plex server URL is required.');
+
+      // Token is optional — auto-filled when the owner signs in with Plex.
+      if (!token) {
+        const updated = { ...configWithType, plex: { ...config.plex, url } };
+        saveConfig(updated);
+        pushLog({ level: 'info', app: 'wizard', action: 'plex.url-saved', message: `Plex URL saved (token pending first Plex login): ${url}` });
+        return renderServerWizard(res, updated, 4, null);
+      }
+
+      let libraries = [];
+      try {
+        libraries = await fetchPlexMusicLibraries(url, token);
+      } catch (err) {
+        return renderServerWizard(res, configWithType, 2, `Could not connect to Plex: ${safeMessage(err)}`);
+      }
+      if (!libraries.length) {
+        return renderServerWizard(res, configWithType, 2, 'No music libraries found. Add a music library in Plex first.');
+      }
+
+      let machineId = '';
+      try {
+        const idUrl = buildAppApiUrl(url, '');
+        const r = await fetch(idUrl.toString(), { headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }) });
+        if (r.ok) machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
+      } catch (_) { /* non-fatal */ }
+
+      const updated = { ...configWithType, plex: { ...config.plex, url, token, machineId, availableLibraries: libraries } };
+      saveConfig(updated);
+      pushLog({ level: 'info', app: 'wizard', action: 'plex.connected', message: `Plex connected: ${url}` });
+
+      configurePlexWebhook(url, token, ctx, req)
+        .then((result) => {
+          if (!result?.ok) pushLog({ level: 'warn', app: 'wizard', action: 'plex.webhook.auto-register', message: `Plex webhook auto-registration skipped: ${result?.reason || 'unknown'}` });
+        })
+        .catch((err) => pushLog({ level: 'warn', app: 'wizard', action: 'plex.webhook.auto-register', message: `Plex webhook auto-registration failed: ${safeMessage(err)}` }));
+
+      return renderServerWizard(res, updated, 3, null);
+    }
+
+    // Jellyfin or Emby ──────────────────────────────────────────────────────
+    const url = normalizeBaseUrl(String(req.body?.serverUrl || '').trim());
+    const username = String(req.body?.serverUsername || '').trim();
+    const password = String(req.body?.serverPassword || '');
+    if (!url) return renderServerWizard(res, configWithType, 2, 'Server URL is required.');
+    if (!username || !password) return renderServerWizard(res, configWithType, 2, 'Username and password are required.');
+
+    const adapter = getAdapter(type);
+    let authResult;
+    try {
+      authResult = await adapter.authenticate(url, username, password);
+    } catch (err) {
+      return renderServerWizard(res, configWithType, 2, `Could not authenticate with ${type === 'jellyfin' ? 'Jellyfin' : 'Emby'}: ${safeMessage(err)}`);
+    }
+
+    const { token: sessionToken, userId } = authResult;
+
+    // Exchange the short-lived session token for a permanent admin API key.
+    // This ensures admin endpoints (e.g. /Plugins) keep working after the session expires.
+    let apiKey = sessionToken;
+    try {
+      const permanentKey = await adapter.createApiKey(url, sessionToken);
+      if (permanentKey) apiKey = permanentKey;
+    } catch { /* non-fatal — fall back to session token */ }
+
+    let serverInfo = { serverName: '', serverId: '' };
+    try { serverInfo = await adapter.verifyConnection(url, apiKey); } catch (_) { /* non-fatal */ }
 
     let libraries = [];
     try {
-      libraries = await fetchPlexMusicLibraries(url, token);
+      libraries = await adapter.getLibraries(url, apiKey);
     } catch (err) {
-      return renderServerWizard(res, config, 2, `Could not connect to Plex: ${safeMessage(err)}`);
+      return renderServerWizard(res, configWithType, 2, `Could not fetch libraries from ${type === 'jellyfin' ? 'Jellyfin' : 'Emby'}: ${safeMessage(err)}`);
     }
-
     if (!libraries.length) {
-      return renderServerWizard(res, config, 2, 'No music libraries found. Add a music library in Plex first.');
+      return renderServerWizard(res, configWithType, 2, 'No music libraries found. Add a music library first.');
     }
 
-    // Also fetch machine identifier for playlist URI building
-    let machineId = '';
-    try {
-      const idUrl = buildAppApiUrl(url, '');
-      const r = await fetch(idUrl.toString(), {
-        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-      });
-      if (r.ok) {
-        const json = await r.json();
-        machineId = json?.MediaContainer?.machineIdentifier || '';
-      }
-    } catch (_) { /* non-fatal */ }
-
-    const updated = { ...config, plex: { ...config.plex, url, token, machineId, availableLibraries: libraries } };
+    const serverCfg = { url, apiKey, apiKeySet: true, userId, serverName: serverInfo.serverName, serverId: serverInfo.serverId, availableLibraries: libraries };
+    const updated = { ...configWithType, [type]: serverCfg };
     saveConfig(updated);
-    pushLog({ level: 'info', app: 'wizard', action: 'plex.connected', message: `Plex connected: ${url}` });
+    pushLog({ level: 'info', app: 'wizard', action: `${type}.connected`, message: `${type} connected: ${url}` });
 
-    configurePlexWebhook(url, token, ctx, req)
-      .then((result) => {
-        if (!result?.ok) {
-          pushLog({
-            level: 'warn',
-            app: 'wizard',
-            action: 'plex.webhook.auto-register',
-            message: `Plex connected, but webhook auto-registration was skipped: ${result?.reason || 'unknown reason'}`,
-          });
-        }
-      })
-      .catch((err) => {
-        pushLog({
-          level: 'warn',
-          app: 'wizard',
-          action: 'plex.webhook.auto-register',
-          message: `Plex connected, but webhook auto-registration failed: ${safeMessage(err)}`,
-        });
-      });
+    // Auto-register webhook (non-blocking — failure is soft, manual fallback shown in UI)
+    const { buildConfiguredWebhookUrl } = ctx;
+    const webhookUrl = buildConfiguredWebhookUrl(updated, `webhook/${type}`);
+    if (webhookUrl) {
+      adapter.registerWebhook(url, apiKey, webhookUrl)
+        .then((result) => {
+          pushLog({ level: result.ok ? 'info' : 'warn', app: 'wizard', action: `${type}.webhook.auto-register`, message: result.ok ? `${type} webhook registered → ${webhookUrl}` : `${type} webhook auto-registration failed (manual): ${result.reason}` });
+        })
+        .catch((err) => pushLog({ level: 'warn', app: 'wizard', action: `${type}.webhook.auto-register`, message: `${type} webhook auto-registration failed: ${safeMessage(err)}` }));
+    }
 
     return renderServerWizard(res, updated, 3, null);
   });
+
+  // Note: /wizard/plex is removed — wizard.ejs Step 2 now POSTs to /wizard/media-server.
 
   // ── Server Step 3: Select libraries ───────────────────────────────────────
 
   app.post('/wizard/libraries', (req, res) => {
     const config = loadConfig();
+    const type = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const selected = parseCheckboxArray(req.body?.libraries);
     if (!selected.length) return renderServerWizard(res, config, 3, 'Select at least one music library.');
 
-    const validKeys = new Set((config.plex?.availableLibraries || []).map((l) => l.key));
+    const serverCfg = config[type] || config.plex || {};
+    const validKeys = new Set((serverCfg.availableLibraries || []).map((l) => l.key));
     const valid = selected.filter((k) => validKeys.has(String(k)));
     if (!valid.length) return renderServerWizard(res, config, 3, 'Invalid library selection.');
 
-    const updated = { ...config, plex: { ...config.plex, libraries: valid } };
+    // For non-Plex, auto-skip Tautulli step (step 4) and go directly to Lidarr (step 5)
+    const nextStep = type === 'plex' ? 4 : 5;
+    const updated = { ...config, [type]: { ...serverCfg, libraries: valid } };
     saveConfig(updated);
-    return renderServerWizard(res, updated, 4, null);
+    return renderServerWizard(res, updated, nextStep, null);
   });
 
   // ── Server Step 4: Tautulli (optional) ───────────────────────────────────
@@ -914,6 +904,45 @@ export function registerWizard(app, ctx) {
     }
   });
 
+  // Debug: return raw Jellyfin/Emby webhook plugin config (admin only)
+  app.get('/api/wizard/debug-webhook-plugin', requireAdmin, async (req, res) => {
+    const config = loadConfig();
+    const type = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (type === 'plex') return res.status(400).json({ error: 'Only available for Jellyfin/Emby.' });
+    const serverCfg = config[type] || {};
+    const { url, apiKey } = serverCfg;
+    if (!url || !apiKey) return res.status(400).json({ error: `${type} is not configured.` });
+    try {
+      const { getAdapter } = await import('../services/media-servers/index.js');
+      const adapter = getAdapter(type);
+      const debug = await adapter.debugWebhookPlugin(url, apiKey);
+      return res.json(debug);
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  // Auto-configure media server webhook for Jellyfin or Emby (admin, callable from settings)
+  app.post('/api/wizard/configure-media-server-webhook', requireAdmin, async (req, res) => {
+    const config = loadConfig();
+    const type = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (type === 'plex') return res.status(400).json({ error: 'Use /api/wizard/configure-plex-webhook for Plex.' });
+    const serverCfg = config[type] || {};
+    const { url, apiKey } = serverCfg;
+    if (!url || !apiKey) return res.status(400).json({ error: `${type} is not configured.` });
+    try {
+      const { getAdapter } = await import('../services/media-servers/index.js');
+      const adapter = getAdapter(type);
+      const { buildConfiguredWebhookUrl } = ctx;
+      const webhookUrl = buildConfiguredWebhookUrl(config, `webhook/${type}`);
+      if (!webhookUrl) return res.status(400).json({ error: 'Curatorr URL is not configured. Set a local or remote URL in General settings.' });
+      const result = await adapter.registerWebhook(url, apiKey, webhookUrl);
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
   // Auto-configure Tautulli webhook (admin, callable from settings)
   app.post('/api/wizard/configure-tautulli-webhook', requireAdmin, async (req, res) => {
     const config = loadConfig();
@@ -973,11 +1002,24 @@ function parseCheckboxArray(val) {
 
 function sanitizeWizardConfig(config) {
   return {
+    mediaServer: { type: String(config?.mediaServer?.type || 'plex') },
     plex: {
       url: config.plex?.url || '',
       tokenSet: Boolean(config.plex?.token),
       libraries: config.plex?.libraries || [],
       availableLibraries: config.plex?.availableLibraries || [],
+    },
+    jellyfin: {
+      url: config.jellyfin?.url || '',
+      apiKeySet: Boolean(config.jellyfin?.apiKey),
+      libraries: config.jellyfin?.libraries || [],
+      availableLibraries: config.jellyfin?.availableLibraries || [],
+    },
+    emby: {
+      url: config.emby?.url || '',
+      apiKeySet: Boolean(config.emby?.apiKey),
+      libraries: config.emby?.libraries || [],
+      availableLibraries: config.emby?.availableLibraries || [],
     },
     tautulli: { url: config.tautulli?.url || '', apiKeySet: Boolean(config.tautulli?.apiKey) },
     lidarr: { url: config.lidarr?.url || '', apiKeySet: Boolean(config.lidarr?.apiKey) },
@@ -989,7 +1031,8 @@ function renderServerWizard(res, config, step, error) {
     title: 'Curatorr Setup',
     wizardType: 'server',
     step,
-    totalSteps: SERVER_STEPS,
+    displayStep: resolveDisplayStep(config, step),
+    totalSteps: resolveServerSteps(config),
     config: sanitizeWizardConfig(config),
     error,
     extraCss: ['/styles-layout.css', '/styles-curatorr.css'],

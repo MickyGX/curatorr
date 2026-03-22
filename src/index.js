@@ -42,6 +42,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET
     console.warn('[security] SESSION_SECRET not set — generating random secret. Sessions will reset on restart. Set SESSION_SECRET for persistent sessions.');
     return crypto.randomBytes(32).toString('hex');
   })();
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'curatorr_session';
 const LOCAL_AUTH_MIN_PASSWORD = Math.max(1, Math.min(128, parseInt(process.env.LOCAL_AUTH_MIN_PASSWORD, 10) || 12));
 const TRUST_PROXY_ENABLED = parseEnvFlag(process.env.TRUST_PROXY, false);
 const TRUST_PROXY_HOPS = resolveProxyHopCount(process.env.TRUST_PROXY_HOPS, 1);
@@ -1544,7 +1545,7 @@ app.use((_req, res, next) => {
 // Session
 app.use(
   cookieSession({
-    name: 'curatorr_session',
+    name: SESSION_COOKIE_NAME,
     secret: SESSION_SECRET,
     httpOnly: true,
     sameSite: 'lax',
@@ -1602,6 +1603,7 @@ app.use((req, res, next) => {
   res.locals.sidebarCollapsed = getCookieValue(req.headers?.cookie, 'curatorr_sidebar_collapsed') === 'true';
   res.locals.serverName = config?.general?.serverName || 'Curatorr';
   res.locals.wizardCompleted = Boolean(config?.wizard?.completed);
+  res.locals.mediaServerType = String(config?.mediaServer?.type || 'plex');
   res.locals.generalSettings = {
     serverName: config?.general?.serverName || 'Curatorr',
     remoteUrl: config?.general?.remoteUrl || '',
@@ -1748,7 +1750,10 @@ export async function start() {
     // Locally created Curatorr users can still launch it manually if they want.
     _routeCtx.requireUserWizardComplete = (req, res, next) => {
       if (!req.session?.user) return next();
-      if (String(req.session.user.source || '').trim().toLowerCase() !== 'plex') return next();
+      const source = String(req.session.user.source || '').trim().toLowerCase();
+      const msType = String(loadConfig()?.mediaServer?.type || 'plex').toLowerCase();
+      const isMediaServerUser = source === 'plex' || source === msType;
+      if (!isMediaServerUser) return next();
       const userId = req.session.user.username;
       const prefs = getUserPreferences(db, userId);
       if (!prefs.userWizardCompleted) return res.redirect('/wizard/user');

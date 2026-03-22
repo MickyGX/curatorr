@@ -10,10 +10,10 @@
         </div>
         <div class="wizard-steps">
           <% for (var i = 1; i <= totalSteps; i++) { %>
-            <div class="wizard-step-dot<%= i === step ? ' wizard-step-dot--active' : (i < step ? ' wizard-step-dot--done' : '') %>"></div>
+            <div class="wizard-step-dot<%= i === displayStep ? ' wizard-step-dot--active' : (i < displayStep ? ' wizard-step-dot--done' : '') %>"></div>
           <% } %>
         </div>
-        <div class="wizard-step-label">Step <%= step %> of <%= totalSteps %></div>
+        <div class="wizard-step-label">Step <%= displayStep %> of <%= totalSteps %></div>
       </div>
 
       <% if (error) { %>
@@ -49,22 +49,81 @@
           </div>
         </div>
 
-      <%# ── Step 2: Connect Plex ────────────────────────────────────────────── %>
+      <%# ── Step 2: Connect media server ───────────────────────────────────── %>
       <% } else if (step === 2) { %>
+        <% var msType = config.mediaServer?.type || 'plex'; %>
         <div class="wizard-body">
-          <h2 class="wizard-title">Connect Plex</h2>
-          <p class="wizard-desc">Enter your Plex server URL. The access token is optional here — it will be filled in automatically when you sign in with your Plex owner account. Plex powers Now Playing and primary live play tracking, and Curatorr will try to register its Plex webhook automatically once connected.</p>
-          <form method="post" action="/wizard/plex" class="wizard-form" id="wsf2">
+          <h2 class="wizard-title">Connect your media server</h2>
+          <p class="wizard-desc">Choose your media server. Curatorr will track plays and build smart playlists from your library. Webhooks are registered automatically where supported.</p>
+          <form method="post" action="/wizard/media-server" class="wizard-form" id="wsf2">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+
+            <%# Server type selector %>
             <div class="wizard-field">
-              <label class="wizard-label" for="plexUrl">Plex server URL</label>
-              <input class="wizard-input" type="url" id="plexUrl" name="plexUrl" value="<%= config.plex?.url || '' %>" placeholder="http://192.168.1.x:32400" required />
+              <label class="wizard-label">Media server</label>
+              <div class="wizard-radio-group" id="msTypeGroup">
+                <label class="wizard-radio-item<%= msType === 'plex' ? ' wizard-radio-item--active' : '' %>">
+                  <input type="radio" name="mediaServerType" value="plex" <%= msType === 'plex' ? 'checked' : '' %> />
+                  <span class="wizard-radio-label">Plex</span>
+                </label>
+                <label class="wizard-radio-item<%= msType === 'jellyfin' ? ' wizard-radio-item--active' : '' %>">
+                  <input type="radio" name="mediaServerType" value="jellyfin" <%= msType === 'jellyfin' ? 'checked' : '' %> />
+                  <span class="wizard-radio-label">Jellyfin</span>
+                </label>
+                <label class="wizard-radio-item<%= msType === 'emby' ? ' wizard-radio-item--active' : '' %>">
+                  <input type="radio" name="mediaServerType" value="emby" <%= msType === 'emby' ? 'checked' : '' %> />
+                  <span class="wizard-radio-label">Emby</span>
+                </label>
+              </div>
             </div>
-            <div class="wizard-field">
-              <label class="wizard-label" for="plexToken">Plex token <span class="wizard-optional">optional</span></label>
-              <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Leave blank — auto-filled on first Plex login' %>" />
-              <div class="wizard-hint">You can leave this blank and sign in with Plex below — the token will be set automatically. To find it manually: <a href="https://support.plex.tv/articles/204059436" target="_blank" rel="noreferrer">support.plex.tv</a> or Tautulli → Settings → Plex Media Server → Plex token.</div>
+
+            <%# Plex fields %>
+            <div id="ms-fields-plex" class="ms-fields<%= msType !== 'plex' ? ' ms-fields--hidden' : '' %>">
+              <div class="wizard-field">
+                <label class="wizard-label" for="plexUrl">Plex server URL</label>
+                <input class="wizard-input" type="url" id="plexUrl" name="plexUrl" value="<%= config.plex?.url || '' %>" placeholder="http://192.168.1.x:32400" />
+              </div>
+              <div class="wizard-field">
+                <label class="wizard-label" for="plexToken">Plex token <span class="wizard-optional">optional</span></label>
+                <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Leave blank — auto-filled on first Plex login' %>" />
+                <div class="wizard-hint">You can leave this blank and sign in with Plex on the last step — the token will be set automatically.</div>
+              </div>
             </div>
+
+            <%# Jellyfin fields %>
+            <div id="ms-fields-jellyfin" class="ms-fields<%= msType !== 'jellyfin' ? ' ms-fields--hidden' : '' %>">
+              <div class="wizard-field">
+                <label class="wizard-label" for="jellyfinUrl">Jellyfin server URL</label>
+                <input class="wizard-input" type="url" id="jellyfinUrl" name="serverUrl" value="<%= msType === 'jellyfin' ? (config.jellyfin?.url || '') : '' %>" placeholder="http://192.168.1.x:8096" />
+              </div>
+              <div class="wizard-field">
+                <label class="wizard-label" for="jellyfinUsername">Admin username</label>
+                <input class="wizard-input" type="text" id="jellyfinUsername" name="serverUsername" autocomplete="username" placeholder="Your Jellyfin admin username" />
+              </div>
+              <div class="wizard-field">
+                <label class="wizard-label" for="jellyfinPassword">Admin password</label>
+                <input class="wizard-input" type="password" id="jellyfinPassword" name="serverPassword" autocomplete="current-password" placeholder="Your Jellyfin admin password" />
+                <div class="wizard-hint">Used once to obtain an API key. The password is not stored.</div>
+              </div>
+            </div>
+
+            <%# Emby fields %>
+            <div id="ms-fields-emby" class="ms-fields<%= msType !== 'emby' ? ' ms-fields--hidden' : '' %>">
+              <div class="wizard-field">
+                <label class="wizard-label" for="embyUrl">Emby server URL</label>
+                <input class="wizard-input" type="url" id="embyUrl" name="serverUrl" value="<%= msType === 'emby' ? (config.emby?.url || '') : '' %>" placeholder="http://192.168.1.x:8096" />
+              </div>
+              <div class="wizard-field">
+                <label class="wizard-label" for="embyUsername">Admin username</label>
+                <input class="wizard-input" type="text" id="embyUsername" name="serverUsername" autocomplete="username" placeholder="Your Emby admin username" />
+              </div>
+              <div class="wizard-field">
+                <label class="wizard-label" for="embyPassword">Admin password</label>
+                <input class="wizard-input" type="password" id="embyPassword" name="serverPassword" autocomplete="current-password" placeholder="Your Emby admin password" />
+                <div class="wizard-hint">Used once to obtain an API key. The password is not stored.</div>
+              </div>
+            </div>
+
           </form>
           <div class="wizard-actions">
             <form method="post" action="/wizard/back">
@@ -78,24 +137,27 @@
 
       <%# ── Step 3: Select music libraries ─────────────────────────────────── %>
       <% } else if (step === 3) { %>
+        <% var activeType = config.mediaServer?.type || 'plex'; %>
+        <% var activeCfg = config[activeType] || config.plex || {}; %>
+        <% var serverLabel = activeType === 'plex' ? 'Plex' : (activeType === 'jellyfin' ? 'Jellyfin' : 'Emby'); %>
         <div class="wizard-body">
           <h2 class="wizard-title">Select music libraries</h2>
-          <p class="wizard-desc">Choose which Plex music libraries Curatorr should monitor and include in smart playlists.</p>
+          <p class="wizard-desc">Choose which <%= serverLabel %> music libraries Curatorr should monitor and include in smart playlists.</p>
           <form method="post" action="/wizard/libraries" class="wizard-form" id="wsf3">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-            <% var availLibs = config.plex?.availableLibraries || []; %>
+            <% var availLibs = activeCfg.availableLibraries || []; %>
             <% if (availLibs.length) { %>
               <div class="wizard-check-grid">
                 <% availLibs.forEach(function(lib) { %>
                   <label class="wizard-check-item">
                     <input type="checkbox" name="libraries" value="<%= lib.key %>"
-                      <%= (config.plex?.libraries || []).includes(lib.key) ? 'checked' : (availLibs.length === 1 ? 'checked' : '') %> />
+                      <%= (activeCfg.libraries || []).includes(lib.key) ? 'checked' : (availLibs.length === 1 ? 'checked' : '') %> />
                     <span class="wizard-check-label"><%= lib.title %></span>
                   </label>
                 <% }) %>
               </div>
             <% } else { %>
-              <p class="wizard-hint"><% if (config.plex?.token || config.plex?.tokenSet) { %>No music libraries found. Go back and verify your Plex connection.<% } else { %>No token set yet — sign in with your Plex owner account to auto-populate the token, then re-run the wizard or select your libraries in Settings → Plex.<% } %></p>
+              <p class="wizard-hint"><% if (activeType === 'plex' && !activeCfg.tokenSet) { %>No token set yet — sign in with your Plex owner account first to auto-populate the token.<% } else { %>No music libraries found. Go back and verify your server connection.<% } %></p>
             <% } %>
           </form>
           <div class="wizard-actions">
@@ -108,7 +170,7 @@
           </div>
         </div>
 
-      <%# ── Step 4: Tautulli (optional) ────────────────────────────────────── %>
+      <%# ── Step 4: Tautulli (optional, Plex only) ─────────────────────────── %>
       <% } else if (step === 4) { %>
         <div class="wizard-body">
           <h2 class="wizard-title">Tautulli <span class="wizard-optional">optional</span></h2>
@@ -177,28 +239,76 @@
           </div>
         </div>
 
-      <%# ── Step 6: Sign in with Plex ───────────────────────────────────────── %>
+      <%# ── Step 6: Sign in ─────────────────────────────────────────────────── %>
       <% } else if (step === 6) { %>
+        <% var finalServerType = config.mediaServer?.type || 'plex'; %>
         <div class="wizard-body">
           <h2 class="wizard-title">One last thing</h2>
-          <p class="wizard-desc">Your server is configured. To use Curatorr's music features — playlists, history, discovery — you need to sign in with your <strong>Plex account</strong>.</p>
-          <div class="wizard-info-box">
-            <div class="wizard-info-row">
-              <span class="wizard-info-label">Administrator account</span>
-              <span class="wizard-info-value">Manages server settings, users, and configuration. No music features.</span>
+          <% if (finalServerType === 'plex') { %>
+            <p class="wizard-desc">Your server is configured. To use Curatorr's music features — playlists, history, discovery — you need to sign in with your <strong>Plex account</strong>.</p>
+            <div class="wizard-info-box">
+              <div class="wizard-info-row">
+                <span class="wizard-info-label">Administrator account</span>
+                <span class="wizard-info-value">Manages server settings, users, and configuration. No music features.</span>
+              </div>
+              <div class="wizard-info-row">
+                <span class="wizard-info-label">Plex account</span>
+                <span class="wizard-info-value">Your personal Curatorr experience — playlists, play history, discovery, and more.</span>
+              </div>
             </div>
-            <div class="wizard-info-row">
-              <span class="wizard-info-label">Plex account</span>
-              <span class="wizard-info-value">Your personal Curatorr experience — playlists, play history, discovery, and more.</span>
+            <div class="wizard-actions wizard-actions--col">
+              <a href="/auth/plex" class="btn btn-primary">Sign in with Plex →</a>
+              <a href="/dashboard" class="wizard-skip-link">Continue as administrator only</a>
             </div>
-          </div>
-          <div class="wizard-actions wizard-actions--col">
-            <a href="/auth/plex" class="btn btn-primary">Sign in with Plex →</a>
-            <a href="/dashboard" class="wizard-skip-link">Continue as administrator only</a>
-          </div>
+          <% } else { %>
+            <% var serverDisplayName = finalServerType === 'jellyfin' ? 'Jellyfin' : 'Emby'; %>
+            <p class="wizard-desc">Your server is configured. Sign in with your <strong><%= serverDisplayName %> account</strong> to link your personal library, playlists, and play history.</p>
+            <div class="wizard-info-box">
+              <div class="wizard-info-row">
+                <span class="wizard-info-label">Administrator account</span>
+                <span class="wizard-info-value">Manages server settings, users, and configuration. No music features.</span>
+              </div>
+              <div class="wizard-info-row">
+                <span class="wizard-info-label"><%= serverDisplayName %> account</span>
+                <span class="wizard-info-value">Your personal Curatorr experience — playlists, play history, discovery, and more.</span>
+              </div>
+            </div>
+            <div class="wizard-actions wizard-actions--col">
+              <a href="/auth/<%= finalServerType %>" class="btn btn-primary">Sign in with <%= serverDisplayName %> →</a>
+              <a href="/dashboard" class="wizard-skip-link">Continue as administrator only</a>
+            </div>
+          <% } %>
         </div>
       <% } %>
     </div>
   </div>
+
+  <script>
+    // Toggle media server field panels when type selector changes
+    (function () {
+      var radios = document.querySelectorAll('input[name="mediaServerType"]');
+      if (!radios.length) return;
+      function showPanel(type) {
+        document.querySelectorAll('.ms-fields').forEach(function (el) {
+          el.classList.add('ms-fields--hidden');
+          el.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = true; });
+        });
+        document.querySelectorAll('.wizard-radio-item').forEach(function (el) { el.classList.remove('wizard-radio-item--active'); });
+        var panel = document.getElementById('ms-fields-' + type);
+        if (panel) {
+          panel.classList.remove('ms-fields--hidden');
+          panel.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = false; });
+        }
+        var activeLabel = document.querySelector('.wizard-radio-item input[value="' + type + '"]');
+        if (activeLabel) activeLabel.closest('.wizard-radio-item').classList.add('wizard-radio-item--active');
+      }
+      radios.forEach(function (r) {
+        r.addEventListener('change', function () { showPanel(this.value); });
+      });
+      // Disable inputs in all hidden panels on page load
+      var checked = document.querySelector('input[name="mediaServerType"]:checked');
+      if (checked) showPanel(checked.value);
+    }());
+  </script>
 </body>
 </html>

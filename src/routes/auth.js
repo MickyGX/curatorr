@@ -171,6 +171,7 @@ export function registerAuth(app, ctx) {
     CLIENT_ID,
     LOCAL_AUTH_MIN_PASSWORD,
     validateLocalPasswordStrength,
+    db,
   } = ctx;
 
   app.get('/', (req, res) => {
@@ -189,6 +190,7 @@ export function registerAuth(app, ctx) {
       title: 'Curatorr',
       product: PRODUCT,
       allowLocalLogin: true,
+      mediaServerType: String(config?.mediaServer?.type || 'plex'),
       error: null,
       info: null,
     });
@@ -754,6 +756,115 @@ export function registerAuth(app, ctx) {
       pushLog({ level: 'error', app: 'plex', action: 'login.homeuser.pin', message: safeMessage(err) || 'Home user PIN login failed.' });
       return res.status(err?.status || 500).send(`Login failed: ${safeMessage(err)}`);
     }
+  });
+
+  // ─── Jellyfin / Emby auth ────────────────────────────────────────────────────
+  //
+  // Unlike Plex, Jellyfin and Emby use a direct username+password form rather than
+  // an OAuth popup. The password is validated against the media server API and is
+  // never stored — only the returned API key is kept in config (already done in wizard).
+  // Here we just authenticate the user for this session.
+
+  async function handleMediaServerLogin(req, res, serverType) {
+    const serverLabel = serverType === 'jellyfin' ? 'Jellyfin' : 'Emby';
+    const ip = getClientIp(req);
+    const blockedMinutes = checkLoginRateLimit(ip);
+    if (blockedMinutes !== null) {
+      return res.status(429).render(`${serverType}-login`, {
+        title: `${serverLabel} Sign In`,
+        error: `Too many failed login attempts. Try again in ${blockedMinutes} minute${blockedMinutes === 1 ? '' : 's'}.`,
+      });
+    }
+
+    const config = loadConfig();
+    const serverCfg = config[serverType] || {};
+    const { url: serverUrl, apiKey } = serverCfg;
+    if (!serverUrl || !apiKey) {
+      return res.status(400).render(`${serverType}-login`, {
+        title: `${serverLabel} Sign In`,
+        error: `${serverLabel} is not configured. Contact your administrator.`,
+      });
+    }
+
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+    if (!username || !password) {
+      return res.status(400).render(`${serverType}-login`, {
+        title: `${serverLabel} Sign In`,
+        error: 'Username and password are required.',
+      });
+    }
+
+    let authResult;
+    try {
+      const { getAdapter } = await import('../services/media-servers/index.js');
+      const adapter = getAdapter(serverType);
+      authResult = await adapter.authenticate(serverUrl, username, password);
+    } catch (err) {
+      recordLoginFailure(ip);
+      const nowBlocked = checkLoginRateLimit(ip);
+      const suffix = nowBlocked !== null ? ` Too many failed attempts — try again in ${nowBlocked} minute${nowBlocked === 1 ? '' : 's'}.` : '';
+      return res.status(401).render(`${serverType}-login`, {
+        title: `${serverLabel} Sign In`,
+        error: `Invalid username or password.${suffix}`,
+      });
+    }
+
+    clearLoginFailures(ip);
+
+    const { userId } = authResult;
+    req.session.user = {
+      username,
+      email: '',
+      avatar: '',
+      avatarFallback: '/icons/user-profile.svg',
+      role: 'member',
+      source: serverType,
+      serverId: userId,
+    };
+    req.session.viewRole = null;
+    req.session.previewUserId = null;
+
+    // Route first-time users to the personal wizard
+    try {
+      const { getUserPreferences } = await import('../db.js');
+      const prefs = getUserPreferences(db, username);
+      if (!prefs.userWizardCompleted) req.session.postLoginRedirect = '/wizard/user';
+    } catch (_err) { /* non-fatal */ }
+
+    const loginConfig = updateUserLogins(config, { identifier: username, curatorr: true });
+    if (loginConfig !== config) saveConfig(loginConfig);
+
+    pushLog({ level: 'info', app: serverType, action: 'login.success', message: `${serverLabel} login successful.`, meta: { user: username } });
+    return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+  }
+
+  app.get('/auth/jellyfin', (req, res) => {
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    const config = loadConfig();
+    if (String(config?.mediaServer?.type || 'plex') !== 'jellyfin') return res.redirect('/login');
+    return res.render('jellyfin-login', { title: 'Jellyfin Sign In', error: null });
+  });
+
+  app.post('/auth/jellyfin', async (req, res) => {
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    const config = loadConfig();
+    if (String(config?.mediaServer?.type || 'plex') !== 'jellyfin') return res.redirect('/login');
+    return handleMediaServerLogin(req, res, 'jellyfin');
+  });
+
+  app.get('/auth/emby', (req, res) => {
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    const config = loadConfig();
+    if (String(config?.mediaServer?.type || 'plex') !== 'emby') return res.redirect('/login');
+    return res.render('emby-login', { title: 'Emby Sign In', error: null });
+  });
+
+  app.post('/auth/emby', async (req, res) => {
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    const config = loadConfig();
+    if (String(config?.mediaServer?.type || 'plex') !== 'emby') return res.redirect('/login');
+    return handleMediaServerLogin(req, res, 'emby');
   });
 
   const logoutHandler = (req, res) => {

@@ -46,7 +46,10 @@ function daysSince(timestamp) {
 }
 
 function scoreGenreSet(genres, affinity) {
-  const weights = (Array.isArray(genres) ? genres : [])
+  const flat = (Array.isArray(genres) ? genres : [])
+    .filter(Boolean)
+    .flatMap((g) => g.split(';').map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s)));
+  const weights = flat
     .map((genre) => Number(affinity.get(keyify(genre)) || 0))
     .filter((value) => value > 0)
     .sort((a, b) => b - a);
@@ -54,7 +57,11 @@ function scoreGenreSet(genres, affinity) {
 }
 
 function topGenresFor(genres, affinity, limit = 3) {
-  return [...new Set((Array.isArray(genres) ? genres : []).filter(Boolean))]
+  // Jellyfin may store genres as semicolon-joined strings; split and flatten first
+  const flat = (Array.isArray(genres) ? genres : [])
+    .filter(Boolean)
+    .flatMap((g) => g.split(';').map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s)));
+  return [...new Set(flat)]
     .map((genre) => ({ genre, score: Number(affinity.get(keyify(genre)) || 0) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.genre.localeCompare(b.genre))
@@ -95,7 +102,9 @@ function buildCatalog(db) {
       });
     }
     const artist = artists.get(artistKey);
-    for (const genre of track.genres) if (genre) artist.genres.add(genre);
+    for (const genre of track.genres) {
+      for (const g of String(genre).split(';').map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s))) artist.genres.add(g);
+    }
     if (track.albumName) artist.albumTitles.add(track.albumName);
     artist.tracks.push(track);
 
@@ -110,7 +119,9 @@ function buildCatalog(db) {
       });
     }
     const album = albums.get(albumKey);
-    for (const genre of track.genres) if (genre) album.genres.add(genre);
+    for (const genre of track.genres) {
+      for (const g of String(genre).split(';').map((s) => s.trim()).filter(Boolean)) album.genres.add(g);
+    }
     album.tracks.push(track);
   }
 
@@ -195,9 +206,12 @@ function getUserTasteProfile(db, userPlexId, options = {}) {
 function buildGenreAffinity(profile, catalog) {
   const affinity = new Map();
   const addGenre = (genre, weight) => {
-    const key = keyify(genre);
-    if (!key) return;
-    affinity.set(key, Number(affinity.get(key) || 0) + weight);
+    // Split semicolon-joined genres (Jellyfin format) into individual genres
+    for (const g of String(genre).split(';').map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s))) {
+      const key = keyify(g);
+      if (!key) continue;
+      affinity.set(key, Number(affinity.get(key) || 0) + weight);
+    }
   };
 
   for (const genre of profile.likedGenres || []) addGenre(genre, 4);

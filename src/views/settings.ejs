@@ -50,6 +50,7 @@
             <img class="settings-tab-icon" src="/icons/settings.svg" alt="" />
             <span class="settings-tab-text">General</span>
           </button>
+          <% if (mediaServerType === 'plex' || !mediaServerType) { %>
           <button class="settings-tab-btn<%= _tab === 'plex' ? ' is-active' : '' %>" type="button" data-tab="plex">
             <img class="settings-tab-icon settings-tab-icon--app" src="/icons/plex.png" alt="" />
             <span class="settings-tab-text">Plex</span>
@@ -58,6 +59,17 @@
             <img class="settings-tab-icon settings-tab-icon--app" src="/icons/tautulli.png" alt="" />
             <span class="settings-tab-text">Tautulli</span>
           </button>
+          <% } else if (mediaServerType === 'jellyfin') { %>
+          <button class="settings-tab-btn<%= _tab === 'jellyfin' ? ' is-active' : '' %>" type="button" data-tab="jellyfin">
+            <img class="settings-tab-icon settings-tab-icon--app" src="/icons/jellyfin.png" alt="" />
+            <span class="settings-tab-text">Jellyfin</span>
+          </button>
+          <% } else if (mediaServerType === 'emby') { %>
+          <button class="settings-tab-btn<%= _tab === 'emby' ? ' is-active' : '' %>" type="button" data-tab="emby">
+            <img class="settings-tab-icon settings-tab-icon--app" src="/icons/emby.png" alt="" />
+            <span class="settings-tab-text">Emby</span>
+          </button>
+          <% } %>
           <% if (actualRole === 'admin') { %>
             <button class="settings-tab-btn<%= _tab === 'lidarr' ? ' is-active' : '' %>" type="button" data-tab="lidarr">
               <img class="settings-tab-icon settings-tab-icon--app" src="/icons/lidarr.png" alt="" />
@@ -121,6 +133,7 @@
                   <span>Base URL Path</span>
                   <input type="text" name="basePath" value="<%= config.general?.basePath || '' %>" placeholder="/curatorr" />
                 </label>
+                <% if (mediaServerType === 'plex' || !mediaServerType) { %>
                 <label class="field">
                   <span>Live playback source</span>
                   <select name="playbackSource">
@@ -129,6 +142,7 @@
                   </select>
                 </label>
                 <div class="settings-card-sub" style="margin-top:2px">Controls which webhook source writes live play events to Curatorr. Tautulli daily sync can still be used separately as gap-fill backup.</div>
+                <% } %>
                 <label class="settings-toggle" style="margin-top:4px">
                   <input type="checkbox" name="restrictGuests" value="1" <%= config.general?.restrictGuests ? 'checked' : '' %> />
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
@@ -220,7 +234,8 @@
           </div>
         </div>
 
-        <%# ── Tautulli ─────────────────────────────────────────────────────── %>
+        <%# ── Tautulli (Plex only) ────────────────────────────────────────── %>
+        <% if (mediaServerType === 'plex' || !mediaServerType) { %>
         <div class="settings-tab-panel<%= _tab === 'tautulli' ? ' is-active' : '' %>" data-tab="tautulli">
           <div class="dash-panel">
             <form method="post" action="/settings/tautulli" class="settings-form">
@@ -270,6 +285,119 @@
             </form>
           </div>
         </div>
+        <% } %>
+
+        <%# ── Jellyfin ─────────────────────────────────────────────────────── %>
+        <% if (mediaServerType === 'jellyfin') { %>
+        <div class="settings-tab-panel<%= _tab === 'jellyfin' ? ' is-active' : '' %>" data-tab="jellyfin">
+          <div class="dash-panel">
+            <form method="post" action="/settings/jellyfin" class="settings-form">
+              <fieldset <%= canManageServiceConfig ? '' : 'disabled' %> style="border:0;padding:0;margin:0;min-inline-size:0">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <div class="settings-card">
+                <div class="settings-card-title">Jellyfin Connection</div>
+                <div class="settings-card-sub">Server URL and API key used to sync your music library.</div>
+                <div class="plex-settings-fields">
+                  <label class="field">
+                    <span>Server URL</span>
+                    <input type="text" name="jellyfinUrl" value="<%= config.jellyfin?.url || '' %>" placeholder="http://192.168.1.x:8096" />
+                  </label>
+                  <label class="field field-with-action">
+                    <span>API key</span>
+                    <div class="field-action-row">
+                      <input id="jellyfin-apikey-input" type="password" name="apiKey" value="<%= config.jellyfin?.apiKey || '' %>" placeholder="<%= config.jellyfin?.apiKeySet ? '(saved — leave blank to keep)' : 'API key' %>" />
+                      <button class="icon-button" type="button" aria-label="Show API key" data-visibility-toggle="jellyfin-apikey-input" data-visibility-state="hidden">
+                        <img src="/icons/view-off.svg" alt="" />
+                      </button>
+                    </div>
+                  </label>
+                </div>
+                <% if (canViewServiceSecrets && webhookUrls?.jellyfin) { %>
+                <div class="plex-settings-note" style="margin-top:12px">
+                  Webhook URL — configure this in your Jellyfin webhook plugin:<br />
+                  <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.jellyfin %></code>
+                </div>
+                <% } %>
+                <div class="plex-settings-actions" style="margin-top:12px">
+                  <button id="jellyfin-register-webhook-btn" class="ghost-button" type="button">Register webhook in Jellyfin</button>
+                  <span id="jellyfin-webhook-status" style="font-size:12px;opacity:0.7"></span>
+                </div>
+              </div>
+              <% if (config.jellyfin?.availableLibraries?.length) { %>
+              <div class="settings-card">
+                <div class="settings-card-title">Music Libraries</div>
+                <div class="settings-card-sub">Select which Jellyfin music libraries Curatorr should monitor.</div>
+                <% config.jellyfin.availableLibraries.forEach(function(lib) { %>
+                <label class="settings-toggle">
+                  <input type="checkbox" name="libraries" value="<%= lib.key %>" <%= (config.jellyfin?.libraries || []).includes(lib.key) ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text"><%= lib.name %></span>
+                </label>
+                <% }) %>
+              </div>
+              <% } %>
+              <button class="primary-button" type="submit">Save Jellyfin settings</button>
+              </fieldset>
+            </form>
+          </div>
+        </div>
+        <% } %>
+
+        <%# ── Emby ─────────────────────────────────────────────────────────── %>
+        <% if (mediaServerType === 'emby') { %>
+        <div class="settings-tab-panel<%= _tab === 'emby' ? ' is-active' : '' %>" data-tab="emby">
+          <div class="dash-panel">
+            <form method="post" action="/settings/emby" class="settings-form">
+              <fieldset <%= canManageServiceConfig ? '' : 'disabled' %> style="border:0;padding:0;margin:0;min-inline-size:0">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <div class="settings-card">
+                <div class="settings-card-title">Emby Connection</div>
+                <div class="settings-card-sub">Server URL and API key used to sync your music library.</div>
+                <div class="plex-settings-fields">
+                  <label class="field">
+                    <span>Server URL</span>
+                    <input type="text" name="embyUrl" value="<%= config.emby?.url || '' %>" placeholder="http://192.168.1.x:8096" />
+                  </label>
+                  <label class="field field-with-action">
+                    <span>API key</span>
+                    <div class="field-action-row">
+                      <input id="emby-apikey-input" type="password" name="apiKey" value="<%= config.emby?.apiKey || '' %>" placeholder="<%= config.emby?.apiKeySet ? '(saved — leave blank to keep)' : 'API key' %>" />
+                      <button class="icon-button" type="button" aria-label="Show API key" data-visibility-toggle="emby-apikey-input" data-visibility-state="hidden">
+                        <img src="/icons/view-off.svg" alt="" />
+                      </button>
+                    </div>
+                  </label>
+                </div>
+                <% if (canViewServiceSecrets && webhookUrls?.emby) { %>
+                <div class="plex-settings-note" style="margin-top:12px">
+                  Webhook URL — configure this in Emby → Notifications:<br />
+                  <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.emby %></code>
+                </div>
+                <% } %>
+                <div class="plex-settings-actions" style="margin-top:12px">
+                  <button id="emby-register-webhook-btn" class="ghost-button" type="button">Register webhook in Emby</button>
+                  <span id="emby-webhook-status" style="font-size:12px;opacity:0.7"></span>
+                </div>
+              </div>
+              <% if (config.emby?.availableLibraries?.length) { %>
+              <div class="settings-card">
+                <div class="settings-card-title">Music Libraries</div>
+                <div class="settings-card-sub">Select which Emby music libraries Curatorr should monitor.</div>
+                <% config.emby.availableLibraries.forEach(function(lib) { %>
+                <label class="settings-toggle">
+                  <input type="checkbox" name="libraries" value="<%= lib.key %>" <%= (config.emby?.libraries || []).includes(lib.key) ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text"><%= lib.name %></span>
+                </label>
+                <% }) %>
+              </div>
+              <% } %>
+              <button class="primary-button" type="submit">Save Emby settings</button>
+              </fieldset>
+            </form>
+          </div>
+        </div>
+        <% } %>
 
         <%# ── Lidarr ───────────────────────────────────────────────────────── %>
         <% if (actualRole === 'admin') { %>
@@ -447,10 +575,10 @@
                       <%= config.smartPlaylist?.appendUsernameToPlaylistTitles !== false ? 'checked' : '' %>
                     />
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    <span class="settings-toggle-text">Append Plex username to generated playlist titles</span>
+                    <span class="settings-toggle-text">Append username to generated playlist titles</span>
                   </label>
                 </div>
-                <small class="settings-smart-helper">Applies globally. Changing this immediately renames existing generated playlists in Plex and in Curatorr.</small>
+                <small class="settings-smart-helper">Applies globally. Changing this immediately renames existing generated playlists in your media server and in Curatorr.</small>
                 <div class="cur-tier-table-wrap">
                   <table class="cur-tier-table">
                     <colgroup>
@@ -1088,7 +1216,7 @@
               %>
               <div class="settings-card">
                 <div class="settings-card-title">Curatorr Users</div>
-                <div class="settings-card-sub">Local accounts can sign in without Plex and use role-based access.</div>
+                <div class="settings-card-sub">Local accounts can sign in directly and use role-based access.</div>
                 <div class="settings-users-actions">
                   <span class="settings-users-note<%= usersQueryError ? ' settings-users-note--error' : '' %>"><%= localUsersNote %></span>
                 </div>
@@ -1207,13 +1335,19 @@
                 </div>
               </div>
 
+              <%
+                const _msTypeUsers = String(mediaServerType || 'plex').toLowerCase();
+                const _msLabelUsers = _msTypeUsers === 'jellyfin' ? 'Jellyfin' : _msTypeUsers === 'emby' ? 'Emby' : 'Plex';
+                const _msUsersEndpoint = _msTypeUsers === 'plex' ? '/settings/plex-users' : '/settings/ms-users';
+                const _msLastSeenLabel = _msTypeUsers === 'plex' ? 'Last seen (Plex)' : 'Last play';
+              %>
               <div class="settings-card">
-                <div class="settings-card-title">Plex Users</div>
-                <div class="settings-card-sub">Pull users from Plex and assign Curatorr roles.</div>
+                <div class="settings-card-title"><%= _msLabelUsers %> Users</div>
+                <div class="settings-card-sub">Pull users from <%= _msLabelUsers %> and assign Curatorr roles.</div>
                 <div class="settings-users-actions">
                   <button class="primary-button" type="button" id="fetchPlexUsersBtn">Fetch users</button>
                   <button class="primary-button" type="button" id="savePlexRolesBtn" disabled>Save roles</button>
-                  <span class="settings-users-note" id="plexUsersNote">Pull the user list from Plex to assign roles.</span>
+                  <span class="settings-users-note" id="plexUsersNote">Pull the user list from <%= _msLabelUsers %> to assign roles.</span>
                 </div>
                 <div class="settings-users-table">
                   <div class="settings-users-row settings-users-head">
@@ -1222,7 +1356,7 @@
                       <span>Name</span>
                     </div>
                     <div class="settings-users-head-cell settings-users-sort" data-sort-key="plex" role="button" tabindex="0">
-                      <span>Last seen (Plex)</span>
+                      <span><%= _msLastSeenLabel %></span>
                     </div>
                     <div class="settings-users-head-cell settings-users-sort" data-sort-key="curatorr" role="button" tabindex="0">
                       <span>Last Curatorr login</span>
@@ -1624,7 +1758,8 @@
               </div>
             </form>
 
-            <%# ── Playlist maintenance ── %>
+            <%# ── Playlist maintenance (Plex only) ── %>
+            <% if (mediaServerType === 'plex' || !mediaServerType) { %>
             <div class="settings-card" style="margin-top:20px">
               <div class="settings-card-title">Playlist Account Maintenance</div>
               <div class="settings-card-sub">
@@ -1637,6 +1772,7 @@
                 <span id="reassignPlaylistsStatus" class="settings-sub-label"></span>
               </div>
             </div>
+            <% } %>
           </div>
         </div>
         <% } %>
@@ -2368,8 +2504,54 @@
     });
   })();
 
-  // ── Plex user role editor ────────────────────────────────────────────────
+  // ── Jellyfin / Emby webhook registration ────────────────────────────────
   (function() {
+    var _csrf = '<%= csrfToken %>';
+    [['jellyfin', 'jellyfin-register-webhook-btn', 'jellyfin-webhook-status'],
+     ['emby',     'emby-register-webhook-btn',     'emby-webhook-status']
+    ].forEach(function(entry) {
+      var serverType = entry[0], btnId = entry[1], statusId = entry[2];
+      var btn = document.getElementById(btnId);
+      var status = document.getElementById(statusId);
+      if (!btn || !status) return;
+      btn.addEventListener('click', function() {
+        btn.disabled = true;
+        status.textContent = 'Registering…';
+        status.style.color = '';
+        fetch('/api/wizard/configure-media-server-webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+          body: JSON.stringify({ type: serverType }),
+        })
+          .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+          .then(function(res) {
+            if (res.data.manual) {
+              status.textContent = 'Webhook plugin not detected — copy the URL above into your ' + serverType + ' webhook plugin manually.';
+              status.style.color = '';
+            } else if (!res.ok || !res.data.ok) {
+              status.textContent = res.data.error || res.data.reason || 'Registration failed — check URL and API key are saved.';
+              status.style.color = 'var(--color-error, #f87171)';
+            } else if (res.data.created === false) {
+              status.textContent = 'Webhook already registered.';
+              status.style.color = 'var(--color-success, #4ade80)';
+            } else {
+              status.textContent = 'Webhook registered successfully.';
+              status.style.color = 'var(--color-success, #4ade80)';
+            }
+          })
+          .catch(function() {
+            status.textContent = 'Request failed — check URL and API key are saved.';
+            status.style.color = 'var(--color-error, #f87171)';
+          })
+          .finally(function() { btn.disabled = false; });
+      });
+    });
+  })();
+
+  // ── Media server user role editor ────────────────────────────────────────
+  (function() {
+    var MS_USERS_ENDPOINT = '<%= _msUsersEndpoint %>';
+    var MS_LABEL = '<%= _msLabelUsers %>';
     var fetchBtn = document.getElementById('fetchPlexUsersBtn');
     var saveBtn = document.getElementById('savePlexRolesBtn');
     var usersBody = document.getElementById('plexUsersBody');
@@ -2474,11 +2656,11 @@
         var row = document.createElement('div');
         row.className = 'settings-users-row';
         row.dataset.identifier = user.identifier || '';
-        row.dataset.name = String(user.name || user.username || 'Plex User').toLowerCase();
+        row.dataset.name = String(user.name || user.username || MS_LABEL + ' User').toLowerCase();
         row.dataset.role = String(user.role || 'user').toLowerCase();
         row.dataset.plex = String(user.lastPlexSeen ? Date.parse(user.lastPlexSeen) || 0 : 0);
         row.dataset.curatorr = String(user.lastCuratorrLogin ? Date.parse(user.lastCuratorrLogin) || 0 : 0);
-        var safeName = escapeHtml(user.name || 'Plex User');
+        var safeName = escapeHtml(user.name || MS_LABEL + ' User');
         var safeLastPlexSeen = escapeHtml(user.lastPlexSeen || '');
         var safeLastCuratorrLogin = escapeHtml(user.lastCuratorrLogin || '');
         row.innerHTML =
@@ -2499,7 +2681,7 @@
       var row = document.createElement('div');
       row.className = 'settings-users-row';
       row.innerHTML =
-        '<div class="settings-users-login">No Plex users found.</div>' +
+        '<div class="settings-users-login">No ' + MS_LABEL + ' users found.</div>' +
         '<div class="settings-users-login">—</div>' +
         '<div class="settings-users-login">—</div>' +
         '<div class="settings-users-login">' + (message || '—') + '</div>';
@@ -2509,9 +2691,9 @@
     async function fetchUsers() {
       usersLoaded = true;
       fetchBtn.disabled = true;
-      note.textContent = 'Fetching Plex users...';
+      note.textContent = 'Fetching ' + MS_LABEL + ' users...';
       try {
-        var res = await fetch('/settings/plex-users', { headers: { Accept: 'application/json' } });
+        var res = await fetch(MS_USERS_ENDPOINT, { headers: { Accept: 'application/json' } });
         var data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch users.');
         var users = Array.isArray(data.users) ? data.users : [];
@@ -2522,7 +2704,7 @@
         } else {
           renderEmpty();
           saveBtn.disabled = true;
-          note.textContent = 'No Plex users returned.';
+          note.textContent = 'No ' + MS_LABEL + ' users returned.';
         }
       } catch (err) {
         renderEmpty('Fetch failed');

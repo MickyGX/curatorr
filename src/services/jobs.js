@@ -5,12 +5,12 @@ import { getSystemJobRun, setSystemJobRun, getAllSystemJobRuns } from '../db.js'
 export const JOB_DEFS = {
   masterTrackRefresh: {
     label: 'Master Track Cache Refresh',
-    description: 'Fetches all tracks from your Plex music library and updates the local cache with genres, rating counts, and view counts.',
+    description: 'Fetches all tracks from your media server music library and updates the local cache with genres, rating counts, and view counts.',
     defaultIntervalMinutes: 360,
   },
   smartPlaylistSync: {
     label: 'Smart Playlist Sync',
-    description: 'Rebuilds each user\'s smart playlist based on their listening habits and syncs it to Plex.',
+    description: 'Rebuilds each user\'s smart playlist based on their listening habits and syncs it to your media server.',
     defaultIntervalMinutes: 30,
   },
   lidarrReviewArtists: {
@@ -25,12 +25,12 @@ export const JOB_DEFS = {
   },
   dailyMixSync: {
     label: 'Daily Mix Sync',
-    description: 'Builds each user\'s Daily Mix playlist based on recent favourites, suggestions, and fresh library tracks, then syncs it to Plex.',
+    description: 'Builds each user\'s Daily Mix playlist based on recent favourites, suggestions, and fresh library tracks, then syncs it to your media server.',
     defaultIntervalMinutes: 1440,
   },
   tautulliDailySync: {
     label: 'Tautulli Gap-Fill Sync',
-    description: 'Optional backup job that fetches recent Tautulli history and fills in plays missed by Plex webhooks without overwriting Plex-recorded listens.',
+    description: 'Optional backup job that fetches recent Tautulli history and fills in plays missed by webhooks without overwriting already-recorded listens.',
     defaultIntervalMinutes: 1440,
   },
   lastfmTagSync: {

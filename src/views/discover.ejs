@@ -286,7 +286,7 @@
             </details>
             <% if (_suggestedArtists.length) { %>
               <ul class="cur-list">
-                <% _suggestedArtists.forEach(function(a) { const topGenres = Array.isArray(a.reason?.topGenres) ? a.reason.topGenres.filter(Boolean).slice(0, 3) : []; %>
+                <% _suggestedArtists.forEach(function(a) { const topGenres = [...new Set((Array.isArray(a.reason?.topGenres) ? a.reason.topGenres : []).filter(Boolean).flatMap(function(g){ return g.split(';').map(function(s){ return s.trim(); }).filter(function(s){ return s && !/^\d+$/.test(s); }); }))].slice(0, 3); %>
                   <li class="cur-list-item cur-suggest-item">
                     <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>">
                       <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />

@@ -59,7 +59,7 @@
               </details>
               <% if (_suggestedTracks.length) { %>
                 <ul class="cur-list">
-                  <% _suggestedTracks.forEach(function(t) { const topGenres = Array.isArray(t.reason?.topGenres) ? t.reason.topGenres.filter(Boolean).slice(0, 3) : []; %>
+                  <% _suggestedTracks.forEach(function(t) { const topGenres = [...new Set((Array.isArray(t.reason?.topGenres) ? t.reason.topGenres : []).filter(Boolean).flatMap(function(g){ return g.split(';').map(function(s){ return s.trim(); }).filter(function(s){ return s && !/^\d+$/.test(s); }); }))].slice(0, 3); %>
                     <li class="cur-list-item cur-suggest-item">
                       <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.ratingKey || '' %>">
                         <img src="/api/music/thumb/track/<%= encodeURIComponent(t.ratingKey || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
@@ -103,7 +103,7 @@
               </details>
               <% if (_suggestedAlbums.length) { %>
                 <ul class="cur-list">
-                  <% _suggestedAlbums.forEach(function(a) { const topGenres = Array.isArray(a.reason?.topGenres) ? a.reason.topGenres.filter(Boolean).slice(0, 2) : []; const fallbackRatingKey = Array.isArray(a.reason?.sourceTracks) && a.reason.sourceTracks[0] ? a.reason.sourceTracks[0].ratingKey : ''; %>
+                  <% _suggestedAlbums.forEach(function(a) { const topGenres = [...new Set((Array.isArray(a.reason?.topGenres) ? a.reason.topGenres : []).filter(Boolean).flatMap(function(g){ return g.split(';').map(function(s){ return s.trim(); }).filter(function(s){ return s && !/^\d+$/.test(s); }); }))].slice(0, 2); const fallbackRatingKey = Array.isArray(a.reason?.sourceTracks) && a.reason.sourceTracks[0] ? a.reason.sourceTracks[0].ratingKey : ''; %>
                     <li class="cur-list-item cur-suggest-item">
                       <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="album" data-cur-overview-artist="<%= a.artistName %>" data-cur-overview-album="<%= a.albumTitle %>">
                         <img src="/api/music/thumb/album?artist=<%= encodeURIComponent(a.artistName) %>&album=<%= encodeURIComponent(a.albumTitle) %>" alt="" loading="lazy" onerror="this.src='/api/music/thumb/track/<%= encodeURIComponent(fallbackRatingKey) %>';this.onerror=function(){this.style.visibility='hidden'}" />
@@ -141,7 +141,7 @@
               <div class="cur-score-explainer-body">
                 <p>An aggregated summary of every track Curatorr has seen you play, ordered by most played.</p>
                 <ul>
-                  <li><strong>Plays / Skips</strong> — total lifetime counts from Tautulli or Plex webhooks.</li>
+                  <li><strong>Plays / Skips</strong> — total lifetime counts from your media server.</li>
                   <li><strong>Status</strong> — your current tier for that track: <strong>Belter</strong> (top tier), <strong>Decent</strong>, <strong>Pinned</strong> (force-included in playlists), or no badge if unranked.</li>
                   <li><strong>Exclude</strong> — removes the track from smart playlist scoring. Use this to hide tracks you never want suggested. <strong>Re-include</strong> reverses it.</li>
                 </ul>
@@ -181,7 +181,7 @@
                 </div>
               </div>
             <% } else { %>
-              <div class="cur-empty">No track data yet. Plays will appear once Tautulli or Plex webhooks start sending events.</div>
+              <div class="cur-empty">No track data yet. Play something in your media server to start tracking.</div>
             <% } %>
           </div>
         </div>

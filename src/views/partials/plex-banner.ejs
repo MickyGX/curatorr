@@ -2,17 +2,22 @@
   <%
     const _adminPreview = adminPreview && typeof adminPreview === 'object' ? adminPreview : null;
     const _previewOptions = Array.isArray(_adminPreview?.options) ? _adminPreview.options : [];
-    const _selectedName = String(_adminPreview?.selectedName || 'Plex user').trim();
+    const _selectedName = String(_adminPreview?.selectedName || 'Media server user').trim();
     const _selectedAvatarUrl = String(_adminPreview?.selectedAvatarUrl || '').trim();
     const _selectedAvatarLabel = String(_adminPreview?.selectedAvatarLabel || 'P').trim() || 'P';
   %>
   <div class="local-admin-banner" role="status">
+    <%
+      const _msType = String(locals.mediaServerType || 'plex').toLowerCase();
+      const _msLabel = _msType === 'jellyfin' ? 'Jellyfin' : (_msType === 'emby' ? 'Emby' : 'Plex');
+      const _msAuthUrl = _msType === 'plex' ? '/auth/plex' : `/auth/${_msType}`;
+    %>
     <span class="local-admin-banner__text">
-      You're signed in as the Curatorr administrator. Music features (playlists, history, discovery) require a Plex account.
-      <a class="local-admin-banner__link" href="/auth/plex">Sign in with Plex →</a>
+      You're signed in as the Curatorr administrator. Music features (playlists, history, discovery) require a <%= _msLabel %> account.
+      <a class="local-admin-banner__link" href="<%= _msAuthUrl %>">Sign in with <%= _msLabel %> →</a>
     </span>
     <% if (_previewOptions.length) { %>
-      <div class="local-admin-preview" aria-label="Preview Plex user">
+      <div class="local-admin-preview" aria-label="Preview <%= _msLabel %> user">
         <span class="local-admin-preview__label">Viewing</span>
         <details class="local-admin-preview__menu">
           <summary class="local-admin-preview__summary">

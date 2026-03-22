@@ -34,6 +34,8 @@
         const _lastSync = lastSync || null;
         const _playlistCards = Array.isArray(playlistCards) ? playlistCards : [];
         const _plexMachineId = String(plexMachineId || '').trim();
+        const _msType = String(typeof mediaServerType !== 'undefined' ? mediaServerType : 'plex').trim().toLowerCase();
+        const _msLabel = _msType === 'jellyfin' ? 'Jellyfin' : _msType === 'emby' ? 'Emby' : 'Plex';
         function fmtDate(ts) {
           if (!ts) return '—';
           return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -83,7 +85,7 @@
                       <div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">
                         <div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art<%= p.artPath ? '' : ' is-empty' %>">
                           <% if (p.artPath) { %>
-                            <img src="/api/plex/art?path=<%= encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
+                            <img src="<%= (_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(p.artPath) + (p.artTag ? '&tag=' + encodeURIComponent(p.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
                           <% } %>
                           <% if (['personal', 'global', 'custom'].includes(p.playlistType)) { %>
                           <label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()">
@@ -323,6 +325,8 @@
     var _sortAsc = true;
     var CSRF = '<%= csrfToken %>';
     var PLEX_MACHINE_ID = '<%= _plexMachineId %>';
+    var MS_LABEL = '<%= _msLabel %>';
+    var _msType = '<%= _msType %>';
 
     function fmtDuration(ms) {
       if (!ms) return '';
@@ -476,11 +480,18 @@
       row.dataset.ratingKey = t.ratingKey || '';
       row.dataset.playlistItemId = t.playlistItemID || '';
 
-      var albumThumbHtml = t.albumThumb
-        ? '<img src="/api/plex/art?path=' + encodeURIComponent(t.albumThumb) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentElement.innerHTML=\'<div class=&quot;cur-pl-no-art&quot;>♫</div>\'" />'
+      var _isNonPlex = _msType === 'jellyfin' || _msType === 'emby';
+      var albumThumbUrl = t.albumThumb
+        ? (_isNonPlex ? t.albumThumb : '/api/plex/art?path=' + encodeURIComponent(t.albumThumb))
+        : '';
+      var artistThumbUrl = t.artistThumb
+        ? (_isNonPlex ? t.artistThumb : '/api/plex/art?path=' + encodeURIComponent(t.artistThumb))
+        : '';
+      var albumThumbHtml = albumThumbUrl
+        ? '<img src="' + albumThumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentElement.innerHTML=\'<div class=&quot;cur-pl-no-art&quot;>♫</div>\'" />'
         : '<div class="cur-pl-no-art">♫</div>';
-      var artistThumbHtml = t.artistThumb
-        ? '<img src="/api/plex/art?path=' + encodeURIComponent(t.artistThumb) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentElement.innerHTML=\'<div class=&quot;cur-pl-no-art&quot;>♫</div>\'" />'
+      var artistThumbHtml = artistThumbUrl
+        ? '<img src="' + artistThumbUrl + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentElement.innerHTML=\'<div class=&quot;cur-pl-no-art&quot;>♫</div>\'" />'
         : '<div class="cur-pl-no-art">♫</div>';
 
       var artistHtml = '<span class="cur-overview-trigger cur-pl-artist-name" role="button" tabindex="0"' +
@@ -609,7 +620,7 @@
       var canRebuild = canRebuildSelection(_currentPlaylistKind, _currentPlaylistType);
       if (viewBtn) {
         viewBtn.disabled = !canView;
-        viewBtn.title = canView ? 'Open this playlist in Plex' : 'This playlist is not yet available to open in Plex.';
+        viewBtn.title = canView ? ('Open this playlist in ' + MS_LABEL) : ('This playlist is not yet available to open in ' + MS_LABEL + '.');
       }
       document.querySelectorAll('#playlistCarouselTrack .cur-playlist-carousel-rebuild').forEach(function(rebuildBtn) {
         rebuildBtn.disabled = !canRebuild;
@@ -641,7 +652,7 @@
       card.innerHTML =
         '<div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">' +
           '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artPath ? '' : ' is-empty') + '">' +
-            (data.artPath ? '<img src="/api/plex/art?path=' + encodeURIComponent(data.artPath) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
+            (data.artPath ? '<img src="' + ((_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(data.artPath) + (data.artTag ? '&tag=' + encodeURIComponent(data.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(data.artPath)) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
             (isDeletable ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
             '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
             (isPersonal ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '') +
@@ -736,7 +747,7 @@
         document.getElementById('trackListLoading').style.display = 'none';
         document.getElementById('loadMoreWrap').style.display = 'none';
         var emptyEl = document.getElementById('trackListEmpty');
-        emptyEl.textContent = 'Not yet synced to Plex. It will be created automatically on the next scheduled run.';
+        emptyEl.textContent = 'Not yet synced to ' + MS_LABEL + '. It will be created automatically on the next scheduled run.';
         emptyEl.style.display = '';
         return;
       }
@@ -782,7 +793,9 @@
           if (!data.ok || !data.playlistTitle) {
             var emptyEl = document.getElementById('trackListEmpty');
             emptyEl.style.display = '';
-            emptyEl.innerHTML = 'No playlist found. <a href="/wizard/user">Complete your personal setup</a> to create your playlist.';
+            emptyEl.innerHTML = data.error
+              ? 'Error loading tracks: ' + data.error
+              : 'No playlist found. <a href="/wizard/user">Complete your personal setup</a> to create your playlist.';
             return data;
           }
 
@@ -808,7 +821,8 @@
           if (generation !== _trackLoadGeneration) return;
           document.getElementById('trackListLoading').style.display = 'none';
           document.getElementById('trackListEmpty').style.display = '';
-          document.getElementById('trackListEmpty').textContent = 'Failed to load tracks.';
+          document.getElementById('trackListEmpty').textContent = 'Failed to load tracks: ' + err.message;
+          console.error('Track load error:', err);
           throw err;
         });
     }
@@ -906,7 +920,7 @@
       var playlistKey = card.dataset.plKey;
       var playlistTitle = card.dataset.plTitle;
       if (!playlistKey) return;
-      if (!confirm('Delete "' + playlistTitle + '" from Curatorr and Plex? This cannot be undone.')) return;
+      if (!confirm('Delete "' + playlistTitle + '" from Curatorr and ' + MS_LABEL + '? This cannot be undone.')) return;
       fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(playlistKey), {
         method: 'DELETE',
         headers: { 'X-CSRF-Token': CSRF },
@@ -967,7 +981,7 @@
         });
       if (!cards.length) return;
       var titles = cards.map(function(c) { return '"' + (c.dataset.plTitle || 'Playlist') + '"'; }).join(', ');
-      if (!confirm('Delete ' + titles + ' from Curatorr and Plex? This cannot be undone.')) return;
+      if (!confirm('Delete ' + titles + ' from Curatorr and ' + MS_LABEL + '? This cannot be undone.')) return;
       var keys = cards.map(function(c) { return c.dataset.plKey; });
       Promise.all(keys.map(function(key) {
         return fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(key), {

@@ -46,9 +46,20 @@
           </form>
           <div class="login-divider">or sign in with</div>
         <% } %>
-        <a class="plex-button" id="plex-login-button" href="/auth/plex" aria-label="Sign in with Plex">
-          <img src="/icons/plex-login-white.svg" alt="Sign in with Plex" />
-        </a>
+        <% var msType = locals.mediaServerType || 'plex'; %>
+        <% if (msType === 'jellyfin') { %>
+          <a class="plex-button media-server-button" href="/auth/jellyfin" aria-label="Sign in with Jellyfin">
+            Sign in with Jellyfin
+          </a>
+        <% } else if (msType === 'emby') { %>
+          <a class="plex-button media-server-button" href="/auth/emby" aria-label="Sign in with Emby">
+            Sign in with Emby
+          </a>
+        <% } else { %>
+          <a class="plex-button" id="plex-login-button" href="/auth/plex" aria-label="Sign in with Plex">
+            <img src="/icons/plex-login-white.svg" alt="Sign in with Plex" />
+          </a>
+        <% } %>
       </div>
     </div>
   </main>

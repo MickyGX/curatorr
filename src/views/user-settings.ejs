@@ -55,7 +55,7 @@
             ? error
             : (successMap[success] || (isLocalUser
               ? 'Update your Curatorr account details.'
-              : 'This profile is managed by your Plex account.'));
+              : 'This profile is managed by your ' + (String(user?.source || 'plex').charAt(0).toUpperCase() + String(user?.source || 'plex').slice(1)) + ' account.'));
         %>
 
         <div class="settings-form">
@@ -63,7 +63,8 @@
             <div class="settings-profile-head">
               <div class="settings-profile-head-copy">
                 <div class="settings-card-title">Profile</div>
-                <div class="settings-card-sub"><%= isLocalUser ? 'Curatorr account details' : 'Plex account details' %></div>
+                <% var _srcLabel = isLocalUser ? 'Curatorr' : (String(user?.source || 'plex').charAt(0).toUpperCase() + String(user?.source || 'plex').slice(1)); %>
+                <div class="settings-card-sub"><%= _srcLabel %> account details</div>
               </div>
               <strong class="settings-role-pill settings-role-pill--profile">
                 <img class="settings-role-pill-icon" src="/icons/role.svg" alt="" />
@@ -100,7 +101,7 @@
               <% } %>
               <div class="settings-card-line">
                 <span>Account source</span>
-                <strong><%= isLocalUser ? 'Curatorr local' : 'Plex' %></strong>
+                <strong><%= isLocalUser ? 'Curatorr local' : _srcLabel %></strong>
               </div>
             </div>
 
@@ -343,7 +344,7 @@
               </label>
               <% if (lastfmUsername) { %>
                 <div class="field-group-label" style="margin-top:1rem;">Last.fm Station Playlists</div>
-                <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in Plex. Updated with each playlist sync.</div>
+                <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in your media server. Updated with each playlist sync.</div>
                 <% [['recommended','Recommended'],['mix','Mix'],['library','Library'],['neighbours','Neighbours'],['loved','Loved']].forEach(([key, label]) => { %>
                   <div class="settings-access-row">
                     <label class="settings-toggle">

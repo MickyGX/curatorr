@@ -598,12 +598,94 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
   return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
 }
 
+// ─── Shared rule-based playlist filtering ────────────────────────────────────
+// Used by both Plex and Jellyfin paths for global/personal playlist rule eval.
+
+function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
+  const masterTracks = getMasterTracks(db);
+  if (!masterTracks.length) return [];
+
+  const smartSettings = config.smartPlaylist || {};
+  const skipRank   = Number(smartSettings.artistSkipRank   ?? 2);
+  const belterRank = Number(smartSettings.artistBelterRank ?? 8);
+  const rules = playlistDef.rules || {};
+
+  function classifyArtist(score) {
+    if (score === null || score === undefined) return 'unranked';
+    if (score >= belterRank) return 'belter';
+    if (score >= 5) return 'decent';
+    if (score > skipRank) return 'halfDecent';
+    return 'skip';
+  }
+
+  const artistMap = new Map(
+    db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId)
+      .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
+  );
+  const trackMap = new Map(
+    db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(userId)
+      .map((r) => [r.plex_rating_key, r]),
+  );
+
+  const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
+  const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
+  const genreFilter      = Array.isArray(rules.genres)      && rules.genres.length      ? new Set(rules.genres)      : null;
+  const moodFilter       = Array.isArray(rules.moods)       && rules.moods.length       ? new Set(rules.moods)       : null;
+  const tagFilter        = Array.isArray(rules.tags)        && rules.tags.length        ? new Set(rules.tags)        : null;
+  const artistTagMap     = tagFilter ? getArtistTagMap(db) : null;
+  const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
+  const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
+  const sortBy = rules.sortBy || 'ratingCount';
+
+  const byArtist = new Map();
+  for (const t of masterTracks) {
+    const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
+    const artistTier = classifyArtist(score);
+    if (artistTierFilter && !artistTierFilter.has(artistTier)) continue;
+
+    const stat = trackMap.get(t.ratingKey);
+    const rawTier = stat?.tier || 'curatorr';
+    const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
+    if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
+
+    if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
+    if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
+    if (tagFilter) {
+      const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+      if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
+    }
+
+    if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
+    byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });
+  }
+
+  let ratingKeys = [];
+  for (const [, tracks] of byArtist) {
+    const sorted = [...tracks].sort((a, b) => {
+      if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);
+      if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc);
+      return (b.rc - a.rc) || (b.tw - a.tw);
+    });
+    const selected = topN ? sorted.slice(0, topN) : sorted;
+    ratingKeys.push(...selected.map((t) => t.ratingKey));
+  }
+  if (maxT) ratingKeys = ratingKeys.slice(0, maxT);
+  return ratingKeys;
+}
+
 // ─── Full crescive / curative sync ───────────────────────────────────────────
 
 async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options = {}) {
   const { db, loadConfig, pushLog } = ctx;
   const config = loadConfig();
   const forceFullRebuild = Boolean(options?.forceFullRebuild);
+  const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+
+  if (msType === 'jellyfin' || msType === 'emby') {
+    return syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options);
+  }
+
+  // ── Plex path ─────────────────────────────────────────────────────────────
   // Skip local-only users — they have no personal Plex token so any playlist
   // operation would fall back to the admin token and appear on the wrong account.
   if (!ctx.userHasOwnPlexToken(config, userId)) return;
@@ -636,13 +718,11 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   let finalTrackList;
 
   if (!existing.length) {
-    // ── Initial build ──────────────────────────────────────────────────────
     const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
     setPlaylistTracks(db, userId, playlistKey, trackList);
     finalTrackList = trackList;
     pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `Initial ${playlistType} build: ${ratingKeys.length} tracks for ${userId}` });
   } else {
-    // ── Evolution pass ─────────────────────────────────────────────────────
     const { toAdd, toRemove } = applyPlaylistEvolution(db, userId, playlistKey, smartConfig, masterTracks);
     if (toAdd.length) addPlaylistTracks(db, userId, playlistKey, toAdd);
     if (toRemove.length) removePlaylistTracks(db, userId, playlistKey, toRemove);
@@ -667,6 +747,77 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   });
   recordPlaylistSync(db, {
     userPlexId: userId, plexPlaylistId: playlistRow.plexPlaylistId,
+    playlistTitle: title, trackCount: ratingKeys.length,
+    excludedTracks: 0, excludedArtists: 0, trigger: 'auto',
+  });
+}
+
+async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options = {}) {
+  const { db, loadConfig, pushLog } = ctx;
+  const config = loadConfig();
+  const msType = String(config?.mediaServer?.type || 'jellyfin').toLowerCase();
+  const forceFullRebuild = Boolean(options?.forceFullRebuild);
+
+  const serverCfg = config[msType] || {};
+  const { url, apiKey } = serverCfg;
+  if (!url || !apiKey) return;
+
+  const masterTracks = getMasterTracks(db);
+  if (!masterTracks.length) return;
+
+  // Resolve the Jellyfin user ID for this Curatorr user
+  const { getAdapter } = await import('./media-servers/index.js');
+  const adapter = getAdapter(msType);
+
+  let jellyfinUserId;
+  try {
+    jellyfinUserId = await adapter.getUserIdByName(url, apiKey, userId);
+  } catch (err) {
+    pushLog({ level: 'warn', app: 'playlist', action: `${playlistKey}.jellyfin.user`, message: `Could not resolve Jellyfin user "${userId}": ${err.message}` });
+    return;
+  }
+
+  if (forceFullRebuild) clearPlaylistState(db, userId, playlistKey);
+
+  const existing = getPlaylistTracks(db, userId, playlistKey);
+  let finalTrackList;
+
+  if (!existing.length) {
+    const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
+    setPlaylistTracks(db, userId, playlistKey, trackList);
+    finalTrackList = trackList;
+    pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `Initial ${playlistType} build: ${ratingKeys.length} tracks for ${userId}` });
+  } else {
+    const { toAdd, toRemove } = applyPlaylistEvolution(db, userId, playlistKey, smartConfig, masterTracks);
+    if (toAdd.length) addPlaylistTracks(db, userId, playlistKey, toAdd);
+    if (toRemove.length) removePlaylistTracks(db, userId, playlistKey, toRemove);
+    finalTrackList = getPlaylistTracks(db, userId, playlistKey);
+    if (toAdd.length || toRemove.length) {
+      pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.evolve`, message: `${playlistType} evolved: +${toAdd.length} / -${toRemove.length} for ${userId}` });
+    }
+  }
+
+  const ratingKeys = finalTrackList.map((t) => t.ratingKey);
+  const title = buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId);
+
+  // Always resolve the playlist via ensurePlaylist (searches by name first, creates if missing).
+  // This handles stale UUIDs from externally-deleted playlists.
+  const { playlistId } = await adapter.ensurePlaylist(url, apiKey, jellyfinUserId, title);
+
+  await adapter.replacePlaylistItems(url, apiKey, playlistId, ratingKeys, jellyfinUserId);
+
+  const now = Date.now();
+  saveUserGeneratedPlaylist(db, userId, {
+    playlistType, playlistKey,
+    plexPlaylistId: playlistId,
+    playlistTitle: title,
+    algorithmVersion: ALGORITHM_VERSION,
+    lastBuiltAt: now, lastSyncedAt: now,
+    trackCount: ratingKeys.length,
+    active: true, updatedAt: now,
+  });
+  recordPlaylistSync(db, {
+    userPlexId: userId, plexPlaylistId: playlistId,
     playlistTitle: title, trackCount: ratingKeys.length,
     excludedTracks: 0, excludedArtists: 0, trigger: 'auto',
   });
@@ -738,6 +889,8 @@ export function createPlaylistService(ctx) {
 
   async function syncDailyMix(userPlexId, options = {}) {
     const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') throw new Error('Daily Mix playlist sync is not yet supported for Jellyfin/Emby.');
     if (!ctx.userHasOwnPlexToken(config, userPlexId)) throw new Error('User has no Plex account — playlist sync is not available for local-only users.');
     const { url } = config.plex || {};
     const token = ctx.resolveUserPlexServerToken(config, userPlexId);
@@ -785,79 +938,15 @@ export function createPlaylistService(ctx) {
 
   async function syncGlobalPlaylist(userId, playlistDef) {
     const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    // Jellyfin/Emby: use the generic adapter path
+    if (msType === 'jellyfin' || msType === 'emby') return syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType);
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
     const { url, machineId: storedMid = '' } = config.plex || {};
     const token = ctx.resolveUserPlexServerToken(config, userId);
     if (!url || !token) return;
 
-    const masterTracks = getMasterTracks(db);
-    if (!masterTracks.length) return;
-
-    const smartSettings = config.smartPlaylist || {};
-    const skipRank   = Number(smartSettings.artistSkipRank   ?? 2);
-    const belterRank = Number(smartSettings.artistBelterRank ?? 8);
-    const rules = playlistDef.rules || {};
-
-    function classifyArtist(score) {
-      if (score === null || score === undefined) return 'unranked';
-      if (score >= belterRank) return 'belter';
-      if (score >= 5) return 'decent';
-      if (score > skipRank) return 'halfDecent';
-      return 'skip';
-    }
-
-    const artistMap = new Map(
-      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId)
-        .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
-    );
-    const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(userId)
-        .map((r) => [r.plex_rating_key, r]),
-    );
-
-    const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
-    const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
-    const genreFilter      = Array.isArray(rules.genres)      && rules.genres.length      ? new Set(rules.genres)      : null;
-    const moodFilter       = Array.isArray(rules.moods)       && rules.moods.length       ? new Set(rules.moods)       : null;
-    const tagFilter        = Array.isArray(rules.tags)        && rules.tags.length        ? new Set(rules.tags)        : null;
-    const artistTagMap     = tagFilter ? getArtistTagMap(db) : null;
-    const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
-    const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
-    const sortBy = rules.sortBy || 'ratingCount';
-
-    const byArtist = new Map();
-    for (const t of masterTracks) {
-      const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
-      const artistTier = classifyArtist(score);
-      if (artistTierFilter && !artistTierFilter.has(artistTier)) continue;
-
-      const stat = trackMap.get(t.ratingKey);
-      const rawTier = stat?.tier || 'curatorr';
-      const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
-      if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
-
-      if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
-      if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
-      if (tagFilter) {
-        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
-        if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
-      }
-
-      if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
-      byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });
-    }
-
-    let ratingKeys = [];
-    for (const [, tracks] of byArtist) {
-      const sorted = [...tracks].sort((a, b) => {
-        if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);
-        if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc);
-        return (b.rc - a.rc) || (b.tw - a.tw); // default: ratingCount
-      });
-      const selected = topN ? sorted.slice(0, topN) : sorted;
-      ratingKeys.push(...selected.map((t) => t.ratingKey));
-    }
-    if (maxT) ratingKeys = ratingKeys.slice(0, maxT);
+    const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
     if (!ratingKeys.length) return;
 
     const adminToken = String(config.plex?.token || '').trim() || token;
@@ -890,80 +979,40 @@ export function createPlaylistService(ctx) {
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
+  async function syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType) {
+    const { getAdapter } = await import('./media-servers/index.js');
+    const adapter = getAdapter(msType);
+    const { url, apiKey } = config[msType] || {};
+    if (!url || !apiKey) return;
+
+    const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
+    if (!ratingKeys.length) return;
+
+    let jellyfinUserId;
+    try { jellyfinUserId = await adapter.getUserIdByName(url, apiKey, userId); }
+    catch { return; }
+
+    const playlistKey   = `global:${playlistDef.id}`;
+    const playlistTitle = buildGeneratedPlaylistTitle(config, 'global', playlistKey, userId, playlistDef.name);
+    // Always resolve via ensurePlaylist to handle externally-deleted playlists.
+    const { playlistId } = await adapter.ensurePlaylist(url, apiKey, jellyfinUserId, playlistTitle);
+    await adapter.replacePlaylistItems(url, apiKey, playlistId, ratingKeys, jellyfinUserId);
+
+    const now = Date.now();
+    saveUserGeneratedPlaylist(db, userId, { playlistType: 'global', playlistKey, plexPlaylistId: playlistId, playlistTitle, algorithmVersion: 'global-playlist-v1', lastBuiltAt: now, lastSyncedAt: now, trackCount: ratingKeys.length, active: true, updatedAt: now });
+    ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced (${msType}): ${ratingKeys.length} tracks for ${userId}` });
+  }
+
   async function syncPersonalPlaylist(userId, playlistDef) {
     const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') return syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType);
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
     const { url, machineId: storedMid = '' } = config.plex || {};
     const token = ctx.resolveUserPlexServerToken(config, userId);
     if (!url || !token) return;
 
-    const masterTracks = getMasterTracks(db);
-    if (!masterTracks.length) return;
-
-    const smartSettings = config.smartPlaylist || {};
-    const skipRank   = Number(smartSettings.artistSkipRank   ?? 2);
-    const belterRank = Number(smartSettings.artistBelterRank ?? 8);
-    const rules = playlistDef.rules || {};
-
-    function classifyArtist(score) {
-      if (score === null || score === undefined) return 'unranked';
-      if (score >= belterRank) return 'belter';
-      if (score >= 5) return 'decent';
-      if (score > skipRank) return 'halfDecent';
-      return 'skip';
-    }
-
-    const artistMap = new Map(
-      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId)
-        .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
-    );
-    const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(userId)
-        .map((r) => [r.plex_rating_key, r]),
-    );
-
-    const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
-    const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
-    const genreFilter      = Array.isArray(rules.genres)      && rules.genres.length      ? new Set(rules.genres)      : null;
-    const moodFilter       = Array.isArray(rules.moods)       && rules.moods.length       ? new Set(rules.moods)       : null;
-    const tagFilter        = Array.isArray(rules.tags)        && rules.tags.length        ? new Set(rules.tags)        : null;
-    const artistTagMap     = tagFilter ? getArtistTagMap(db) : null;
-    const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
-    const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
-    const sortBy = rules.sortBy || 'ratingCount';
-
-    const byArtist = new Map();
-    for (const t of masterTracks) {
-      const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
-      const artistTier = classifyArtist(score);
-      if (artistTierFilter && !artistTierFilter.has(artistTier)) continue;
-
-      const stat = trackMap.get(t.ratingKey);
-      const rawTier = stat?.tier || 'curatorr';
-      const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
-      if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
-
-      if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
-      if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
-      if (tagFilter) {
-        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
-        if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
-      }
-
-      if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
-      byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });
-    }
-
-    let ratingKeys = [];
-    for (const [, tracks] of byArtist) {
-      const sorted = [...tracks].sort((a, b) => {
-        if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);
-        if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc);
-        return (b.rc - a.rc) || (b.tw - a.tw);
-      });
-      ratingKeys.push(...(topN ? sorted.slice(0, topN) : sorted).map((t) => t.ratingKey));
-    }
-    if (maxT) ratingKeys = ratingKeys.slice(0, maxT);
+    const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
     if (!ratingKeys.length) return;
 
     const adminToken = String(config.plex?.token || '').trim() || token;
@@ -994,10 +1043,41 @@ export function createPlaylistService(ctx) {
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
+  async function syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType) {
+    const { getAdapter } = await import('./media-servers/index.js');
+    const adapter = getAdapter(msType);
+    const { url, apiKey } = config[msType] || {};
+    if (!url || !apiKey) return;
+
+    const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
+    if (!ratingKeys.length) return;
+
+    let jellyfinUserId;
+    try { jellyfinUserId = await adapter.getUserIdByName(url, apiKey, userId); }
+    catch { return; }
+
+    const playlistKey   = `personal:${playlistDef.id}`;
+    const playlistTitle = buildGeneratedPlaylistTitle(config, 'personal', playlistKey, userId, playlistDef.name);
+    const existing_row  = listGenerated(userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
+    let playlistId = existing_row?.plexPlaylistId || '';
+    if (!playlistId) {
+      const { playlistId: newId } = await adapter.ensurePlaylist(url, apiKey, jellyfinUserId, playlistTitle);
+      playlistId = newId;
+    }
+    await adapter.replacePlaylistItems(url, apiKey, playlistId, ratingKeys, jellyfinUserId);
+
+    const now = Date.now();
+    saveUserGeneratedPlaylist(db, userId, { playlistType: 'personal', playlistKey, plexPlaylistId: playlistId, playlistTitle, algorithmVersion: 'personal-playlist-v1', lastBuiltAt: now, lastSyncedAt: now, trackCount: ratingKeys.length, active: true, updatedAt: now });
+    ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced (${msType}): ${ratingKeys.length} tracks for ${userId}` });
+  }
+
   async function syncLastfmStations(userId) {
     const prefs = getUserPreferences(db, userId);
     if (!prefs.lastfmUsername) return;
     const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    // Jellyfin/Emby: Last.fm station playlist sync not yet implemented
+    if (msType === 'jellyfin' || msType === 'emby') return;
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
 
     // Cleanup: delete Plex playlists for stations that have been disabled

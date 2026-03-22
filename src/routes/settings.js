@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags } from '../db.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
+import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
+import * as embyAdapter from '../services/media-servers/emby.js';
 
 // Settings routes — GET /settings and all POST /settings/*
 
@@ -356,9 +358,12 @@ export function registerSettings(app, ctx) {
       role: getEffectiveRole(req),
       actualRole,
       canViewServiceSecrets,
+      mediaServerType: String(config?.mediaServer?.type || 'plex'),
       webhookUrls: canViewServiceSecrets ? {
         plex: buildReachableWebhookUrl(config, req, 'webhook/plex'),
         tautulli: buildReachableWebhookUrl(config, req, 'webhook/tautulli'),
+        jellyfin: buildReachableWebhookUrl(config, req, 'webhook/jellyfin'),
+        emby: buildReachableWebhookUrl(config, req, 'webhook/emby'),
       } : null,
       config: renderedConfig,
       users,
@@ -493,6 +498,32 @@ export function registerSettings(app, ctx) {
     const updated = { ...config, tautulli: { url: localUrl, localUrl, remoteUrl, apiKey } };
     saveConfig(updated);
     return res.redirect('/settings?tab=tautulli&success=1');
+  });
+
+  // ── Jellyfin settings ─────────────────────────────────────────────────────
+
+  app.post('/settings/jellyfin', requireAdmin, (req, res) => {
+    const config = loadConfig();
+    const url = normalizeBaseUrl(String(req.body?.jellyfinUrl || '').trim());
+    const apiKey = String(req.body?.apiKey || '').trim();
+    const librariesRaw = req.body?.libraries;
+    const libraries = Array.isArray(librariesRaw) ? librariesRaw : (librariesRaw ? [librariesRaw] : config.jellyfin?.libraries || []);
+    const updated = { ...config, jellyfin: { ...config.jellyfin, ...(url ? { url } : {}), ...(apiKey ? { apiKey, apiKeySet: true } : {}), libraries } };
+    saveConfig(updated);
+    return res.redirect('/settings?tab=jellyfin&success=1');
+  });
+
+  // ── Emby settings ─────────────────────────────────────────────────────────
+
+  app.post('/settings/emby', requireAdmin, (req, res) => {
+    const config = loadConfig();
+    const url = normalizeBaseUrl(String(req.body?.embyUrl || '').trim());
+    const apiKey = String(req.body?.apiKey || '').trim();
+    const librariesRaw = req.body?.libraries;
+    const libraries = Array.isArray(librariesRaw) ? librariesRaw : (librariesRaw ? [librariesRaw] : config.emby?.libraries || []);
+    const updated = { ...config, emby: { ...config.emby, ...(url ? { url } : {}), ...(apiKey ? { apiKey, apiKeySet: true } : {}), libraries } };
+    saveConfig(updated);
+    return res.redirect('/settings?tab=emby&success=1');
   });
 
   // ── Lidarr settings ───────────────────────────────────────────────────────
@@ -931,6 +962,71 @@ export function registerSettings(app, ctx) {
       return res.json({ ok: true, users: payload });
     } catch (err) {
       pushLog({ level: 'error', app: 'plex', action: 'users', message: safeMessage(err) });
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  // ── Jellyfin / Emby user list for role assignment ─────────────────────────
+  app.get('/settings/ms-users', requireAdmin, async (_req, res) => {
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+    if (msType !== 'jellyfin' && msType !== 'emby') {
+      return res.status(400).json({ error: 'This endpoint is only available for Jellyfin/Emby.' });
+    }
+    const msCfg = config?.[msType] || {};
+    const msUrl  = String(msCfg?.url    || '').trim();
+    const msKey  = String(msCfg?.apiKey || '').trim();
+    if (!msUrl || !msKey) return res.status(400).json({ error: `${msType} not configured.` });
+
+    const curatorrLoginStore = config?.userLogins?.curatorr && typeof config.userLogins.curatorr === 'object'
+      ? config.userLogins.curatorr : {};
+    const admins         = loadAdmins();
+    const coAdmins       = loadCoAdmins();
+    const powerUsers     = loadPowerUsers();
+    const guests         = loadGuestUsers();
+    const disabledUsers  = loadDisabledUsers();
+    const ownerKey       = admins[0] ? String(admins[0]).trim().toLowerCase() : '';
+    const hasMatch = (list, ids) => {
+      const set = new Set((Array.isArray(list) ? list : []).map((e) => String(e || '').trim().toLowerCase()).filter(Boolean));
+      return ids.some((id) => set.has(id));
+    };
+    const resolveLogin = (ids) => {
+      for (const id of ids) if (curatorrLoginStore[id]) return curatorrLoginStore[id];
+      return '';
+    };
+    const lastPlayStmt = db.prepare('SELECT MAX(started_at) AS last_play_at FROM play_events WHERE user_plex_id = ?');
+
+    try {
+      const adapter = msType === 'emby' ? embyAdapter : jellyfinAdapter;
+      const users   = await adapter.getUsers(msUrl, msKey);
+      const payload = users.map((u) => {
+        const identifier = u.name;
+        const ids = [u.name.toLowerCase()];
+        const locked = ownerKey ? ids.includes(ownerKey) : false;
+        let role = 'user';
+        if (locked) role = 'admin';
+        else if (hasMatch(disabledUsers, ids)) role = 'disabled';
+        else if (hasMatch(admins, ids))        role = 'admin';
+        else if (hasMatch(coAdmins, ids))      role = 'co-admin';
+        else if (hasMatch(powerUsers, ids))    role = 'power-user';
+        else if (hasMatch(guests, ids))        role = 'guest';
+        const lastPlayAt = Number(lastPlayStmt.get(identifier)?.last_play_at || 0);
+        const lastPlayIso = lastPlayAt ? new Date(lastPlayAt).toISOString() : '';
+        return {
+          id: u.id,
+          name: u.name,
+          username: u.name,
+          email: '',
+          identifier,
+          lastPlexSeen: lastPlayIso,
+          lastCuratorrLogin: resolveLogin(ids),
+          role,
+          locked,
+        };
+      });
+      return res.json({ ok: true, users: payload });
+    } catch (err) {
+      pushLog({ level: 'error', app: msType, action: 'users', message: safeMessage(err) });
       return res.status(500).json({ error: safeMessage(err) });
     }
   });
