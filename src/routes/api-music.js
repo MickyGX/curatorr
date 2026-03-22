@@ -63,6 +63,9 @@ const THUMB_CACHE_TTL_MS = 30 * 60 * 1000;
 const THUMB_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 const THUMB_CACHE_MAX = 600;
 const thumbCache = new Map();
+// Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
+const msUserIdCache = new Map();
+const MS_USERID_CACHE_TTL_MS = 60 * 60 * 1000;
 
 function stripArtistSuffix(title, artist) {
   if (!title || !artist) return title || '';
@@ -1647,36 +1650,102 @@ export function registerApiMusic(app, ctx) {
   app.get('/api/music/playlist/tracks', requireUser, async (req, res) => {
     const userPlexId = resolveQueryUserId(req);
     const config = loadConfig();
-    const { url } = config.plex || {};
-    const token = resolveUserPlexServerToken(config, req.session?.user || userPlexId, req.session?.plexServerToken || '');
-    if (!url || !token) return res.json({ tracks: [], total: 0, playlistTitle: null });
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
 
     const offset = Math.max(0, Number(req.query.offset || 0));
     const limit = Math.min(200, Math.max(1, Number(req.query.limit || 100)));
 
-    // Optional: caller may specify a specific Plex playlist ID to view
+    // Resolve playlist ownership from DB (shared by Plex and Jellyfin/Emby paths)
+    // Uses case-insensitive user_plex_id comparison to tolerate login-time casing differences.
     let playlistId, playlistTitle;
     const requestedPlexId = String(req.query.plexPlaylistId || '').trim();
     if (requestedPlexId) {
-      // Validate ownership — must be the user's legacy or one of their generated playlists
-      const legacyRow = getUserPlaylist(db, userPlexId);
-      const generated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
-        .find((p) => p.plexPlaylistId === requestedPlexId);
-      if (generated) {
-        playlistId = generated.plexPlaylistId;
-        playlistTitle = generated.playlistTitle;
-      } else if (legacyRow?.playlist_id === requestedPlexId) {
-        playlistId = legacyRow.playlist_id;
-        playlistTitle = legacyRow.playlist_title;
+      // Case-insensitive lookup for generated playlists
+      const generatedRow = db.prepare(
+        `SELECT * FROM user_generated_playlists WHERE plex_playlist_id = ? AND LOWER(user_plex_id) = LOWER(?) LIMIT 1`
+      ).get(requestedPlexId, userPlexId);
+      // Also check legacy (user_playlists) table
+      const legacyRow = db.prepare(
+        `SELECT * FROM user_playlists WHERE playlist_id = ? AND LOWER(user_plex_id) = LOWER(?) LIMIT 1`
+      ).get(requestedPlexId, userPlexId);
+      if (generatedRow) {
+        playlistId = String(generatedRow.plex_playlist_id || '');
+        playlistTitle = String(generatedRow.playlist_title || generatedRow.playlist_key || 'Playlist');
+      } else if (legacyRow) {
+        playlistId = String(legacyRow.playlist_id || '');
+        playlistTitle = String(legacyRow.playlist_title || 'Playlist');
       } else {
         return res.status(403).json({ error: 'Not authorized to view this playlist.' });
       }
     } else {
-      const playlistRow = getUserPlaylist(db, userPlexId);
+      const playlistRow = db.prepare(
+        `SELECT * FROM user_playlists WHERE LOWER(user_plex_id) = LOWER(?) LIMIT 1`
+      ).get(userPlexId);
       if (!playlistRow?.playlist_id) return res.json({ tracks: [], total: 0, playlistTitle: null });
       playlistId = playlistRow.playlist_id;
-      playlistTitle = playlistRow.playlist_title;
+      playlistTitle = String(playlistRow.playlist_title || 'Playlist');
     }
+
+    // ── Jellyfin / Emby path ──────────────────────────────────────────────────
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { url: msUrl, apiKey } = config[msType] || {};
+      if (!msUrl || !apiKey) return res.json({ tracks: [], total: 0, playlistTitle: null });
+      try {
+        // Resolve Jellyfin userId for this user — cached to avoid a /Users round-trip on every page
+        const userCacheKey = `${String(userPlexId || '').toLowerCase()}@${msUrl}`;
+        let jellyfinUserId = '';
+        const cachedUser = msUserIdCache.get(userCacheKey);
+        if (cachedUser && cachedUser.expiresAt > Date.now()) {
+          jellyfinUserId = cachedUser.id;
+        } else {
+          const usersRes = await fetch(new URL('/Users', msUrl).toString(), {
+            headers: { 'X-Emby-Token': apiKey, Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000),
+          });
+          const usersList = usersRes.ok ? ((await usersRes.json()) || []) : [];
+          const usersArray = Array.isArray(usersList) ? usersList : (usersList?.Items || []);
+          const lower = String(userPlexId || '').toLowerCase();
+          const jellyfinUser = usersArray.find((u) => String(u.Name || '').toLowerCase() === lower);
+          jellyfinUserId = jellyfinUser?.Id || '';
+          msUserIdCache.set(userCacheKey, { id: jellyfinUserId, expiresAt: Date.now() + MS_USERID_CACHE_TTL_MS });
+        }
+
+        const itemsUrl = new URL(`/Playlists/${encodeURIComponent(playlistId)}/Items`, msUrl);
+        if (jellyfinUserId) itemsUrl.searchParams.set('UserId', jellyfinUserId);
+        itemsUrl.searchParams.set('Fields', 'RunTimeTicks,AlbumArtist,Album,Artists');
+        itemsUrl.searchParams.set('StartIndex', String(offset));
+        itemsUrl.searchParams.set('Limit', String(limit));
+
+        const r = await fetch(itemsUrl.toString(), {
+          headers: { 'X-Emby-Token': apiKey, Accept: 'application/json' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!r.ok) return res.status(502).json({ error: `${msType} returned ${r.status}` });
+        const json = await r.json();
+        const tracks = (json?.Items || []).map((t) => {
+          const artistName = String(t.AlbumArtist || (Array.isArray(t.Artists) ? t.Artists[0] : '') || '');
+          const trackId = String(t.Id || '');
+          return {
+            ratingKey: trackId,
+            title: String(t.Name || ''),
+            artistName,
+            albumName: String(t.Album || ''),
+            duration: Math.round((t.RunTimeTicks || 0) / 10000),
+            albumThumb: trackId ? `/api/music/thumb/track/${encodeURIComponent(trackId)}` : '',
+            artistThumb: artistName ? `/api/music/thumb/artist/${encodeURIComponent(artistName)}` : '',
+            playlistItemID: String(t.PlaylistItemId || ''),
+          };
+        });
+        return res.json({ ok: true, tracks, total: Number(json?.TotalRecordCount || 0), playlistTitle, playlistId });
+      } catch (err) {
+        return res.status(500).json({ error: safeMessage(err) });
+      }
+    }
+
+    // ── Plex path ─────────────────────────────────────────────────────────────
+    const { url } = config.plex || {};
+    const token = resolveUserPlexServerToken(config, req.session?.user || userPlexId, req.session?.plexServerToken || '');
+    if (!url || !token) return res.json({ tracks: [], total: 0, playlistTitle: null });
 
     try {
       const plexUrl = new URL(`${url.replace(/\/$/, '')}/playlists/${playlistId}/items`);
@@ -2040,6 +2109,22 @@ export function registerApiMusic(app, ctx) {
   // Album art for a track by its Plex rating key (uses parentThumb from metadata)
   app.get('/api/music/thumb/track/:key', async (req, res) => {
     const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { url, apiKey } = config[msType] || {};
+      if (!url || !apiKey) return res.status(404).end();
+      const key = req.params.key;
+      try {
+        const imgUrl = new URL(`/Items/${encodeURIComponent(key)}/Images/Primary`, url);
+        imgUrl.searchParams.set('maxWidth', '600');
+        const ir = await fetch(imgUrl.toString(), { headers: { 'X-Emby-Token': apiKey }, signal: AbortSignal.timeout(8000) });
+        if (!ir.ok) return res.status(404).end();
+        const buf = await ir.arrayBuffer();
+        res.set('Content-Type', ir.headers.get('Content-Type') || 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.send(Buffer.from(buf));
+      } catch (_) { return res.status(404).end(); }
+    }
     const { url, token } = config.plex || {};
     if (!url || !token) return res.status(404).end();
     const key = req.params.key;
@@ -2070,12 +2155,74 @@ export function registerApiMusic(app, ctx) {
   // Artist art — prefer real Plex artist metadata, fall back to a named artist lookup
   app.get('/api/music/thumb/artist/:name', async (req, res) => {
     const config = loadConfig();
-    const { url, token, libraries: selectedKeys = [] } = config.plex || {};
-    if (!url || !token) return res.status(404).end();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const artistName = decodeURIComponent(req.params.name);
     const cacheKey = `artist:${normalizeArtistMatchText(artistName)}`;
     const cached = getThumbCache(cacheKey);
     if (cached) return sendCachedThumbResponse(res, cached);
+
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { url: msUrl, apiKey } = config[msType] || {};
+      if (msUrl && apiKey) {
+        try {
+          // Search Jellyfin for the artist by name
+          const searchUrl = new URL('/Items', msUrl);
+          searchUrl.searchParams.set('IncludeItemTypes', 'MusicArtist');
+          searchUrl.searchParams.set('SearchTerm', artistName);
+          searchUrl.searchParams.set('Recursive', 'true');
+          searchUrl.searchParams.set('Limit', '5');
+          const searchRes = await fetch(searchUrl.toString(), { headers: { 'X-Emby-Token': apiKey }, signal: AbortSignal.timeout(8000) });
+          if (searchRes.ok) {
+            const searchJson = await searchRes.json();
+            const artists = Array.isArray(searchJson?.Items) ? searchJson.Items : [];
+            const match = artists.find((a) => artistNamesMatch(a.Name, artistName)) || artists[0];
+            if (match?.Id) {
+              const imgUrl = new URL(`/Items/${encodeURIComponent(match.Id)}/Images/Primary`, msUrl);
+              imgUrl.searchParams.set('maxWidth', '600');
+              const ir = await fetch(imgUrl.toString(), { headers: { 'X-Emby-Token': apiKey }, signal: AbortSignal.timeout(8000) });
+              if (ir.ok) {
+                const buf = await ir.arrayBuffer();
+                return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
+              }
+            }
+          }
+          // Fall back: use album art from a track by this artist
+          const trackRow = db.prepare('SELECT rating_key FROM master_tracks WHERE artist_name = ? LIMIT 1').get(artistName);
+          if (trackRow?.rating_key) {
+            const imgUrl = new URL(`/Items/${encodeURIComponent(trackRow.rating_key)}/Images/Primary`, msUrl);
+            imgUrl.searchParams.set('maxWidth', '600');
+            const ir = await fetch(imgUrl.toString(), { headers: { 'X-Emby-Token': apiKey }, signal: AbortSignal.timeout(8000) });
+            if (ir.ok) {
+              const buf = await ir.arrayBuffer();
+              return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
+            }
+          }
+        } catch (_) { /* fall through to Deezer */ }
+      }
+      // Deezer fallback for Jellyfin when no local art found
+      try {
+        const deezerUrl = new URL('https://api.deezer.com/search/artist');
+        deezerUrl.searchParams.set('q', artistName);
+        const deezerRes = await fetch(deezerUrl.toString(), { headers: { Accept: 'application/json', 'User-Agent': 'Curatorr/1.0' } });
+        if (deezerRes.ok) {
+          const deezerJson = await deezerRes.json();
+          const candidates = Array.isArray(deezerJson?.data) ? deezerJson.data : [];
+          const picked = candidates.find((item) => artistNamesMatch(item?.name, artistName)) || candidates[0];
+          const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
+          if (remoteThumb) {
+            const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' } });
+            if (ir.ok) {
+              const buf = await ir.arrayBuffer();
+              return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
+            }
+          }
+        }
+      } catch (_) { /* ignore */ }
+      return sendThumbNotFound(res, cacheKey);
+    }
+
+    const { url, token, libraries: selectedKeys = [] } = config.plex || {};
+    if (!url || !token) return res.status(404).end();
     const base = url.replace(/\/$/, '');
     const trackRowsForArtist = db.prepare(`
       SELECT rating_key, album_name
@@ -2241,14 +2388,40 @@ export function registerApiMusic(app, ctx) {
 
   app.get('/api/music/thumb/album', async (req, res) => {
     const config = loadConfig();
-    const { url, token } = config.plex || {};
-    if (!url || !token) return res.status(404).end();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const artistName = String(req.query?.artist || '').trim();
     const albumName = String(req.query?.album || '').trim();
     if (!artistName || !albumName) return res.status(404).end();
     const cacheKey = `album:${normalizeArtistMatchText(artistName)}::${normalizeAlbumMatchText(albumName)}`;
     const cached = getThumbCache(cacheKey);
     if (cached) return sendCachedThumbResponse(res, cached);
+
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { url: msUrl, apiKey } = config[msType] || {};
+      const fallbackArtistLocation = `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=jf-album-fallback-1`;
+      if (msUrl && apiKey) {
+        try {
+          const trackRows = db.prepare('SELECT rating_key, album_name FROM master_tracks WHERE artist_name = ? LIMIT 500').all(artistName);
+          const wanted = normalizeAlbumMatchText(albumName);
+          const trackRow = trackRows.find((r) => normalizeAlbumMatchText(r?.album_name) === wanted)
+            || trackRows.find((r) => normalizeAlbumMatchText(r?.album_name).includes(wanted) || wanted.includes(normalizeAlbumMatchText(r?.album_name)))
+            || trackRows[0];
+          if (trackRow?.rating_key) {
+            const imgUrl = new URL(`/Items/${encodeURIComponent(trackRow.rating_key)}/Images/Primary`, msUrl);
+            imgUrl.searchParams.set('maxWidth', '600');
+            const ir = await fetch(imgUrl.toString(), { headers: { 'X-Emby-Token': apiKey }, signal: AbortSignal.timeout(8000) });
+            if (ir.ok) {
+              const buf = await ir.arrayBuffer();
+              return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
+            }
+          }
+        } catch (_) { /* fall through */ }
+      }
+      return sendThumbRedirect(res, cacheKey, fallbackArtistLocation);
+    }
+
+    const { url, token } = config.plex || {};
+    if (!url || !token) return res.status(404).end();
     const base = url.replace(/\/$/, '');
     const fallbackArtistLocation = `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-album-fallback-1`;
     const fallbackArtistThumb = () => sendThumbRedirect(res, cacheKey, fallbackArtistLocation);

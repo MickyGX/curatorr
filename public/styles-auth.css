@@ -193,6 +193,17 @@
   background:linear-gradient(90deg, transparent, rgba(255,255,255,.2));
 }
 
+.login-alt-link {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.65;
+  color: inherit;
+  text-decoration: none;
+  margin-top: 4px;
+}
+.login-alt-link:hover { opacity: 1; text-decoration: underline; }
+
 .field-with-action .field-action-row{
   display:flex;
   align-items:center;

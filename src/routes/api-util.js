@@ -70,7 +70,10 @@ export function registerApiUtil(app, ctx) {
         WHERE TRIM(COALESCE(user_plex_id, '')) = ?
         LIMIT 1
       `).get(requestedUserId);
-      setPreviewUserId(req, exists ? requestedUserId : '');
+      // For Jellyfin/Emby, users may not have any play history yet — accept them anyway.
+      const msType = String(loadConfig()?.mediaServer?.type || 'plex').trim().toLowerCase();
+      const isNonPlex = msType === 'jellyfin' || msType === 'emby';
+      setPreviewUserId(req, (exists || isNonPlex) ? requestedUserId : '');
     }
     const nextPath = String(req.body?.next || req.headers?.referer || '/dashboard').trim();
     return res.redirect(nextPath.startsWith('/') ? nextPath : '/dashboard');

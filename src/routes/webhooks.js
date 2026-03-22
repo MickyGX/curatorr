@@ -186,13 +186,22 @@ export function registerWebhooks(app, ctx) {
 
   function resolveLivePlaybackSource() {
     const config = loadConfig();
-    return String(config?.general?.playbackSource || 'plex').trim().toLowerCase() === 'tautulli'
-      ? 'tautulli'
-      : 'plex';
+    const override = String(config?.general?.playbackSource || '').trim().toLowerCase();
+    if (override === 'tautulli') return 'tautulli';
+    // Default to configured media server type; fall back to 'plex' for existing installs
+    const serverType = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+    return serverType; // 'plex' | 'jellyfin' | 'emby'
+  }
+
+  function resolveEventSource(playbackSource) {
+    if (playbackSource === 'tautulli') return 'tautulli';
+    if (playbackSource === 'jellyfin') return 'jellyfin_webhook';
+    if (playbackSource === 'emby') return 'emby_webhook';
+    return 'plex_webhook';
   }
 
   function purgeInactiveSourceSessions(activeSource = resolveLivePlaybackSource()) {
-    const activeEventSource = activeSource === 'tautulli' ? 'tautulli' : 'plex_webhook';
+    const activeEventSource = resolveEventSource(activeSource);
     const stale = db.prepare(
       'SELECT session_key, event_source FROM open_sessions WHERE event_source != ?',
     ).all(activeEventSource);
@@ -540,12 +549,12 @@ export function registerWebhooks(app, ctx) {
     try {
       if (!requireWebhookKey(req, res, 'tautulli')) return;
       if (resolveLivePlaybackSource() !== 'tautulli') {
-        purgeInactiveSourceSessions('plex');
+        purgeInactiveSourceSessions(resolveLivePlaybackSource());
         pushLog({
           level: 'info',
           app: 'webhook',
           action: 'tautulli.ignored',
-          message: 'Ignored Tautulli webhook because live playback source is set to Plex.',
+          message: 'Ignored Tautulli webhook because live playback source is not Tautulli.',
         });
         return res.json({ ok: true, ignored: 'disabled_source' });
       }
@@ -789,7 +798,7 @@ export function registerWebhooks(app, ctx) {
     try {
       if (!requireWebhookKey(req, res, 'plex')) return;
       if (resolveLivePlaybackSource() !== 'plex') {
-        purgeInactiveSourceSessions('tautulli');
+        purgeInactiveSourceSessions(resolveLivePlaybackSource());
         pushLog({
           level: 'info',
           app: 'webhook',
@@ -1066,6 +1075,279 @@ export function registerWebhooks(app, ctx) {
       return res.status(500).json({ error: 'Webhook processing failed.' });
     }
   });
+
+  // ── Jellyfin & Emby webhooks ──────────────────────────────────────────────
+  //
+  // Both servers use the same JSON payload shape (Emby is a close Jellyfin fork).
+  // Configure in:
+  //   Jellyfin: Dashboard → Plugins → Webhook → Add destination
+  //             URL: http://curatorr:7676/webhook/jellyfin
+  //             Events: PlaybackStart, PlaybackStop, PlaybackProgress
+  //   Emby:     Dashboard → Notifications → Add webhook
+  //             URL: http://curatorr:7676/webhook/emby
+  //             Events: Playback events, Audio only
+
+  function normalizeJellyfinAction(notificationType) {
+    const t = String(notificationType || '').toLowerCase();
+    if (t.includes('start'))    return 'play';
+    if (t.includes('stop'))     return 'stop';
+    if (t.includes('pause'))    return 'pause';
+    if (t.includes('resume') || t.includes('unpause')) return 'resume';
+    if (t.includes('progress')) return 'progress';
+    return '';
+  }
+
+  async function handleJellyfinEmbyWebhook(req, res, serverType) {
+    try {
+      const eventSource = serverType === 'emby' ? 'emby_webhook' : 'jellyfin_webhook';
+      if (!requireWebhookKey(req, res, serverType)) return;
+
+      const activeSource = resolveLivePlaybackSource();
+      if (activeSource !== serverType) {
+        purgeInactiveSourceSessions(activeSource);
+        pushLog({ level: 'info', app: 'webhook', action: `${serverType}.ignored`, message: `Ignored ${serverType} webhook because live playback source is "${activeSource}".` });
+        return res.json({ ok: true, ignored: 'disabled_source' });
+      }
+
+      const body = req.body || {};
+      const notificationType = String(body.NotificationType || body.Event || '').trim();
+      const action = normalizeJellyfinAction(notificationType);
+      if (!action) return res.json({ ok: true, ignored: 'unsupported_event' });
+
+      // Only process audio tracks
+      const itemType = String(body.ItemType || body.MediaType || '').toLowerCase();
+      if (itemType && itemType !== 'audio') return res.json({ ok: true, ignored: 'non_track' });
+
+      const userServerId = String(body.UserId || body.User?.Id || '').trim();
+      const itemId = String(body.ItemId || body.Item?.Id || '').trim();
+      if (!userServerId || !itemId) return res.json({ ok: true, ignored: 'missing_identity' });
+
+      // Prefer display name; fall back to user ID for session dedup
+      const userDisplayName = String(body.NotificationUsername || body.User?.Name || body.UserName || userServerId).trim();
+      const trackTitle  = String(body.Name || body.Item?.Name || '').trim();
+      const artistName  = String(body.AlbumArtist || body.Artists?.[0] || body.Item?.AlbumArtist || '').trim();
+      const albumName   = String(body.Album || body.Item?.Album || '').trim();
+      // RunTimeTicks is in 100-nanosecond intervals; divide by 10,000 for ms
+      const trackDurationMs   = Math.round(Number(body.RunTimeTicks   || body.Item?.RunTimeTicks   || 0) / 10_000);
+      const observedPositionMs = Math.round(Number(body.PlaybackPositionTicks || body.PositionTicks || 0) / 10_000);
+
+      const config = loadConfig();
+      const smartSettings = resolveUserSmartConfig(db, config, userDisplayName);
+      const now = Date.now();
+      const sessionKey = `${serverType}-${userServerId}-${itemId}`;
+      const playerScope = `${serverType}-${userServerId}-`;
+
+      // Finalize any previous session on same player when a new track starts
+      if (action === 'play') {
+        const previous = db.prepare(`
+          SELECT * FROM open_sessions
+          WHERE user_plex_id = ?
+            AND event_source = ?
+            AND player_scope LIKE ?
+            AND plex_rating_key != ?
+          ORDER BY started_at DESC LIMIT 1
+        `).get(userDisplayName, eventSource, `${playerScope}%`, itemId);
+
+        if (previous) {
+          recordOrUpdateSessionPlay({ session: previous, endedAt: now, smartSettings, eventSource });
+        }
+      }
+
+      if (action === 'play' || action === 'resume') {
+        const existingSession = getOpenSession(db, sessionKey);
+        const resumedPositionMs = observedPositionMs > 0
+          ? observedPositionMs
+          : Math.max(0, Number(existingSession?.last_position_ms || 0));
+        const nextSession = existingSession
+          ? continueSession(existingSession, { endedAt: now, observedPositionMs: resumedPositionMs, playbackState: 'playing', trackDurationMs, trackTitle, artistName, albumName })
+          : {
+              session_key: sessionKey,
+              user_plex_id: userDisplayName,
+              plex_rating_key: itemId,
+              track_title: trackTitle,
+              artist_name: artistName,
+              album_name: albumName,
+              library_key: '',
+              track_duration_ms: trackDurationMs,
+              started_at: now,
+              event_source: eventSource,
+              player_scope: playerScope,
+              playback_state: 'playing',
+              last_position_ms: resumedPositionMs,
+              max_position_ms: resumedPositionMs,
+              accumulated_ms: 0,
+              playing_since: now,
+              last_event_at: now,
+            };
+        saveSessionState(nextSession, eventSource);
+      } else if (action === 'pause') {
+        const existingSession = getOpenSession(db, sessionKey);
+        if (existingSession) {
+          saveSessionState(
+            continueSession(existingSession, { endedAt: now, observedPositionMs, playbackState: 'paused', trackDurationMs }),
+            eventSource,
+          );
+        }
+      } else if (action === 'progress') {
+        const existingSession = getOpenSession(db, sessionKey);
+        if (existingSession) {
+          saveSessionState(
+            continueSession(existingSession, { endedAt: now, observedPositionMs, playbackState: existingSession.playback_state || 'playing', trackDurationMs }),
+            eventSource,
+          );
+        }
+      } else if (action === 'stop') {
+        const existingSession = getOpenSession(db, sessionKey);
+        if (existingSession) {
+          const result = recordOrUpdateSessionPlay({ session: existingSession, endedAt: now, playbackPositionMs: observedPositionMs, smartSettings, eventSource });
+          if (!result.duplicate) {
+            classifyTier(db, config, userDisplayName, itemId);
+            scheduleRebuild(ctx, userDisplayName);
+          }
+          closeSession(db, sessionKey);
+        }
+      }
+
+      pushLog({
+        level: 'info',
+        app: 'webhook',
+        action: `${serverType}.${action}`,
+        message: `${action} — "${trackTitle}" by ${artistName} [user=${userDisplayName}]`,
+      });
+      return res.json({ ok: true });
+    } catch (err) {
+      pushLog({ level: 'error', app: 'webhook', action: `${serverType}.error`, message: safeMessage(err) });
+      return res.status(500).json({ error: 'Webhook processing failed.' });
+    }
+  }
+
+  app.post('/webhook/jellyfin', (req, res) => handleJellyfinEmbyWebhook(req, res, 'jellyfin'));
+  app.post('/webhook/emby',     (req, res) => handleJellyfinEmbyWebhook(req, res, 'emby'));
+
+  // ── Jellyfin / Emby session poller ───────────────────────────────────────
+  // Polls the media server's /Sessions API every 30s to track playback without
+  // requiring any webhook plugin on the Jellyfin/Emby side.
+
+  const _pollPrev = new Map(); // sessionKey → last seen session data
+  let _pollFirstRun = true;
+
+  async function pollMediaServerSessions() {
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType !== 'jellyfin' && msType !== 'emby') return;
+
+    const serverCfg = config[msType] || {};
+    const { url, apiKey } = serverCfg;
+    if (!url || !apiKey) return;
+
+    const eventSource = resolveEventSource(msType); // 'jellyfin_webhook' | 'emby_webhook'
+
+    let currentSessions;
+    try {
+      const { getAdapter } = await import('../services/media-servers/index.js');
+      const adapter = getAdapter(msType);
+      currentSessions = await adapter.getActiveSessions(url, apiKey);
+    } catch (err) {
+      pushLog({ level: 'warn', app: 'poller', action: `${msType}.poll.error`, message: safeMessage(err) });
+      return;
+    }
+
+    const now = Date.now();
+    const currentKeys = new Set(currentSessions.map((s) => `${msType}-${s.userId}-${s.itemId}`));
+
+    // On first poll after startup, close any stale open_sessions from before the restart
+    if (_pollFirstRun) {
+      _pollFirstRun = false;
+      const stale = db.prepare(
+        `SELECT session_key FROM open_sessions WHERE event_source = ?`
+      ).all(eventSource);
+      for (const { session_key } of stale) {
+        if (!currentKeys.has(session_key)) {
+          const existing = getOpenSession(db, session_key);
+          if (existing) {
+            const smartSettings = resolveUserSmartConfig(db, config, existing.user_plex_id);
+            const result = recordOrUpdateSessionPlay({ session: existing, endedAt: now, smartSettings, eventSource });
+            if (!result.duplicate) {
+              classifyTier(db, config, existing.user_plex_id, existing.plex_rating_key);
+              scheduleRebuild(ctx, existing.user_plex_id);
+            }
+            closeSession(db, session_key);
+            pushLog({ level: 'info', app: 'poller', action: `${msType}.stale`, message: `Closed stale session: "${existing.track_title}" by ${existing.artist_name} [user=${existing.user_plex_id}]` });
+          }
+        }
+      }
+    }
+
+    for (const s of currentSessions) {
+      const sessionKey = `${msType}-${s.userId}-${s.itemId}`;
+      const playerScope = `${msType}-${s.userId}-`;
+
+      const userDisplayName = s.username || s.userId;
+      const existing = getOpenSession(db, sessionKey);
+
+      if (!existing) {
+        // New session started
+        const newSession = {
+          session_key: sessionKey,
+          user_plex_id: userDisplayName,
+          plex_rating_key: s.itemId,
+          track_title: s.trackTitle,
+          artist_name: s.artist,
+          album_name: s.album,
+          library_key: '',
+          track_duration_ms: s.durationMs,
+          started_at: now,
+          event_source: eventSource,
+          player_scope: playerScope,
+          playback_state: s.isPaused ? 'paused' : 'playing',
+          last_position_ms: s.positionMs,
+          max_position_ms: s.positionMs,
+          accumulated_ms: 0,
+          playing_since: s.isPaused ? null : now,
+          last_event_at: now,
+        };
+        saveSessionState(newSession, eventSource);
+        pushLog({ level: 'info', app: 'poller', action: `${msType}.play`, message: `Started tracking "${s.trackTitle}" by ${s.artist} [user=${userDisplayName}]` });
+      } else {
+        // Update progress
+        const updated = continueSession(existing, {
+          endedAt: now,
+          observedPositionMs: s.positionMs,
+          playbackState: s.isPaused ? 'paused' : 'playing',
+          trackDurationMs: s.durationMs,
+          trackTitle: s.trackTitle,
+          artistName: s.artist,
+          albumName: s.album,
+        });
+        saveSessionState(updated, eventSource);
+      }
+
+      _pollPrev.set(sessionKey, s);
+    }
+
+    // Finalise sessions that have disappeared
+    for (const [sessionKey] of _pollPrev) {
+      if (currentKeys.has(sessionKey)) continue;
+      _pollPrev.delete(sessionKey);
+      const existing = getOpenSession(db, sessionKey);
+      if (!existing) continue;
+      const smartSettings = resolveUserSmartConfig(db, config, existing.user_plex_id);
+      const result = recordOrUpdateSessionPlay({ session: existing, endedAt: now, smartSettings, eventSource });
+      if (!result.duplicate) {
+        classifyTier(db, config, existing.user_plex_id, existing.plex_rating_key);
+        scheduleRebuild(ctx, existing.user_plex_id);
+      }
+      closeSession(db, sessionKey);
+      pushLog({ level: 'info', app: 'poller', action: `${msType}.stop`, message: `Session ended: "${existing.track_title}" by ${existing.artist_name} [user=${existing.user_plex_id}]` });
+    }
+  }
+
+  // Kick off immediately (after a short delay to let the server fully start)
+  // then repeat every 15s.
+  setTimeout(() => {
+    pollMediaServerSessions().catch(() => {});
+    setInterval(() => { pollMediaServerSessions().catch(() => {}); }, 15_000);
+  }, 5_000);
 
   // ── Status endpoint ───────────────────────────────────────────────────────
 

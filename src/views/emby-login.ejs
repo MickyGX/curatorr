@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title><%= title %></title>
+    <%- include('partials/theme-init') %>
+    <link rel="stylesheet" href="/styles.css?v=<%= assetVersion %>" />
+    <link rel="stylesheet" href="/styles-auth.css?v=<%= assetVersion %>" />
+    <link rel="icon" type="image/svg+xml" href="/icons/curatorr-icon.svg" />
+    <meta name="theme-color" content="#8b5cf6" />
+  </head>
+  <body class="login-body">
+    <div class="login-stars"></div>
+    <div class="login-planet"></div>
+    <main class="login-wrap">
+      <div class="login-hero">
+        <div class="login-brand">
+          <span class="login-brand-mark">
+            <img src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          </span>
+          <div class="login-brand-title">Curatorr</div>
+          <div class="login-brand-subtitle">Sign in with Emby</div>
+        </div>
+        <div class="login-card">
+          <div class="login-card-title">Emby</div>
+          <div class="login-card-sub">Enter your Emby credentials</div>
+          <% if (error) { %>
+            <div class="login-error"><%= error %></div>
+          <% } %>
+          <form class="login-form" method="post" action="/auth/emby">
+            <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
+            <label class="login-field">
+              <span>Username</span>
+              <input class="login-input" type="text" name="username" autocomplete="username" required autofocus />
+            </label>
+            <label class="login-field">
+              <span>Password</span>
+              <input class="login-input" type="password" name="password" autocomplete="current-password" required />
+            </label>
+            <button class="primary-button" type="submit">Sign in with Emby →</button>
+          </form>
+          <div class="login-divider">or</div>
+          <a class="login-alt-link" href="/login">Sign in as administrator</a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

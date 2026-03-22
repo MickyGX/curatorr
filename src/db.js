@@ -1148,7 +1148,12 @@ export function getPlayStatsByDay(db, userPlexId, days = 30) {
 }
 
 export function getAllUserIds(db) {
-  return db.prepare('SELECT DISTINCT user_plex_id FROM play_events').all().map((r) => r.user_plex_id);
+  const rows = db.prepare(`
+    SELECT user_plex_id FROM play_events
+    UNION
+    SELECT user_plex_id FROM user_preferences WHERE user_wizard_completed = 1
+  `).all();
+  return [...new Set(rows.map((r) => r.user_plex_id))];
 }
 
 export function recordPlaylistSync(db, {
@@ -1485,7 +1490,16 @@ export function clearPlaylistState(db, userId, playlistKey) {
 
 export function getGenresFromMaster(db) {
   const rows = db.prepare('SELECT DISTINCT value FROM master_tracks, json_each(master_tracks.genres) ORDER BY value').all();
-  return rows.map((r) => r.value).filter(Boolean);
+  // Jellyfin may store genres as semicolon-joined strings; split and deduplicate
+  const genres = new Set();
+  for (const row of rows) {
+    if (!row.value) continue;
+    for (const g of String(row.value).split(';').map((s) => s.trim()).filter(Boolean)) {
+      if (/^\d+$/.test(g)) continue; // skip bare numeric IDs
+      genres.add(g);
+    }
+  }
+  return [...genres].sort();
 }
 
 export function getMoodsFromMaster(db) {

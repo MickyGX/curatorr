@@ -2497,11 +2497,48 @@ body.cur-modal-open {
   font-size: 13px;
   color: var(--text, #e8eef7);
   cursor: pointer;
+  padding: 8px 16px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .wizard-radio-item input[type="radio"] {
   accent-color: var(--teal, #8b5cf6);
 }
+
+.wizard-radio-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wizard-radio-item--active {
+  border-color: var(--teal, #8b5cf6);
+  background: rgba(139,92,246,.12);
+}
+
+.ms-fields--hidden {
+  display: none;
+}
+
+/* Jellyfin/Emby sign-in button on login page */
+.media-server-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px 20px;
+  background: var(--teal, #8b5cf6);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+.media-server-button:hover { opacity: 0.85; }
 
 .wizard-artist-picker-card {
   margin-top: 6px;
@@ -4355,7 +4392,7 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   }
 
   .cur-panel--playlists-page-carousel {
-    margin: 10px 10px 6px;
+    margin: 0 0 6px;
     top: auto;
   }
 

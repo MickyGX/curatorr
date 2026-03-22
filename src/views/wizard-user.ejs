@@ -269,7 +269,8 @@
       <% } else if (step === 6) { %>
         <div class="wizard-body">
           <h2 class="wizard-title">All set!</h2>
-          <p class="wizard-desc">Curatorr will now create or update <strong>"<%= user.username %>'s Curatorred Playlist"</strong> in Plex, starting with all qualifying tracks from your library (<%= extra.masterCount || 'thousands of' %> tracks, minus your exclusions).</p>
+          <% var _msName = locals.mediaServerType === 'jellyfin' ? 'Jellyfin' : (locals.mediaServerType === 'emby' ? 'Emby' : 'Plex'); %>
+          <p class="wizard-desc">Curatorr will now create or update <strong>"<%= user.username %>'s Curatorred Playlist"</strong> in <%= _msName %>, starting with all qualifying tracks from your library (<%= extra.masterCount || 'thousands of' %> tracks, minus your exclusions).</p>
           <p class="wizard-desc">As you listen, tracks and artists you skip too often are automatically removed. Your liked artists are protected and stay in forever.</p>
           <p class="wizard-desc">This now runs in the background, so you can carry on using Curatorr while the playlist job completes. Live status will appear on the Playlists page.</p>
           <form method="post" action="/wizard/user/create-playlist" id="wuf6">

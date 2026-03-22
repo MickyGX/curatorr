@@ -130,6 +130,153 @@ export function registerApiPlex(app, ctx) {
     }
   });
 
+  // ── Media-server-agnostic art proxy ──────────────────────────────────────────
+
+  app.get('/api/ms/art', requireUser, async (req, res) => {
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { url, apiKey } = config[msType] || {};
+      if (!url || !apiKey) return res.status(404).end();
+      const id = String(req.query?.id || '').trim();
+      if (!id) return res.status(400).end();
+      try {
+        const imgUrl = new URL(`/Items/${encodeURIComponent(id)}/Images/Primary`, url);
+        imgUrl.searchParams.set('maxWidth', '600');
+        const tag = String(req.query?.tag || '').trim();
+        if (tag) imgUrl.searchParams.set('tag', tag);
+        const upstream = await fetch(imgUrl.toString(), {
+          headers: { 'X-Emby-Token': apiKey },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!upstream.ok) return res.status(404).end();
+        const ct = upstream.headers.get('content-type') || 'image/jpeg';
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        res.set('Content-Type', ct);
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.end(buf);
+      } catch {
+        return res.status(500).end();
+      }
+    }
+    // Plex fallback — same as /api/plex/art but via ?id= path param for consistency
+    const { url, token } = config.plex || {};
+    if (!url || !token) return res.status(400).end();
+    const path = String(req.query?.path || '').trim();
+    if (!path || !path.startsWith('/')) return res.status(400).end();
+    try {
+      const artUrl = buildAppApiUrl(url, path.replace(/^\//, ''));
+      const upstream = await fetch(artUrl.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const ct = upstream.headers.get('content-type') || 'image/jpeg';
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.set('Content-Type', ct);
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.end(buf);
+    } catch {
+      return res.status(500).end();
+    }
+  });
+
+  // ── Generic media server sessions (Plex / Jellyfin / Emby) ──────────────────
+
+  app.get('/api/media-server/sessions', requireUser, async (_req, res) => {
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+
+    if (msType === 'plex') {
+      // Delegate to existing Plex logic
+      const { url, token, libraries: selectedKeys = [] } = config.plex || {};
+      if (!url || !token) return res.status(400).json({ error: 'Plex not configured.' });
+      try {
+        const sessionsUrl = buildAppApiUrl(url, 'status/sessions');
+        const fetchRes = await fetch(sessionsUrl.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
+        if (!fetchRes.ok) return res.status(502).json({ error: 'Plex returned ' + fetchRes.status });
+        const json = await fetchRes.json();
+        const all = json?.MediaContainer?.Metadata || [];
+        const sessions = all
+          .filter((s) => s.type === 'track')
+          .filter((s) => !selectedKeys.length || selectedKeys.includes(String(s.librarySectionID || '')))
+          .map((s) => ({
+            key: String(s.ratingKey || ''),
+            title: String(s.title || ''),
+            artist: String(s.grandparentTitle || ''),
+            album: String(s.parentTitle || ''),
+            albumThumb: s.parentThumb || s.thumb || '',
+            artistThumb: s.grandparentThumb || '',
+            duration: Number(s.duration || 0),
+            viewOffset: Number(s.viewOffset || 0),
+            state: String(s.Player?.state || 'playing'),
+            playerTitle: String(s.Player?.title || ''),
+            userName: String(s.User?.title || ''),
+            userThumb: String(s.User?.thumb || ''),
+          }));
+        return res.json({ ok: true, sessions });
+      } catch (err) {
+        return res.status(500).json({ error: safeMessage(err) });
+      }
+    }
+
+    // Jellyfin or Emby
+    const serverCfg = config[msType] || {};
+    const { url, apiKey } = serverCfg;
+    if (!url || !apiKey) return res.status(400).json({ error: `${msType} not configured.` });
+    try {
+      const { getAdapter } = await import('../services/media-servers/index.js');
+      const adapter = getAdapter(msType);
+      const raw = await adapter.getActiveSessions(url, apiKey);
+      const sessions = raw.map((s) => ({
+        key:         s.itemId,
+        title:       s.trackTitle,
+        artist:      s.artist,
+        album:       s.album,
+        albumThumb:  s.albumId ? `/api/media-server/art?itemId=${encodeURIComponent(s.albumId)}` : '',
+        artistThumb: '',
+        duration:    s.durationMs,
+        viewOffset:  s.positionMs,
+        state:       s.isPaused ? 'paused' : 'playing',
+        playerTitle: s.deviceName,
+        userName:    s.username,
+        userThumb:   '',
+      }));
+      return res.json({ ok: true, sessions });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  // ── Media server art proxy (Jellyfin / Emby album art) ────────────────────
+
+  app.get('/api/media-server/art', requireUser, async (req, res) => {
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'plex') return res.status(400).end();
+    const { url, apiKey } = config[msType] || {};
+    if (!url || !apiKey) return res.status(400).end();
+    const itemId = String(req.query?.itemId || '').trim();
+    if (!itemId) return res.status(400).end();
+    try {
+      const base = String(url).replace(/\/+$/, '');
+      const artUrl = `${base}/Items/${encodeURIComponent(itemId)}/Images/Primary`;
+      const upstream = await fetch(artUrl, {
+        headers: { 'X-Emby-Token': apiKey, Accept: 'image/*,*/*' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const ct = upstream.headers.get('content-type') || 'image/jpeg';
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.set('Content-Type', ct);
+      res.set('Cache-Control', 'public, max-age=3600');
+      res.end(buf);
+    } catch (err) {
+      return res.status(500).end();
+    }
+  });
+
   // ── Playlists ─────────────────────────────────────────────────────────────
 
   app.get('/api/plex/playlists', requireUser, async (_req, res) => {

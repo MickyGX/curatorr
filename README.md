@@ -2,11 +2,13 @@
 
 Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart playlist generation, playback tracking, and optional Lidarr automation. It learns your listening habits over time and surfaces artists and tracks from your own library that you have not given enough attention to yet.
 
+**Current release: v0.1.27**
+
 ---
 
 ## Contents
 
-- [What's New in v0.1.17](#whats-new-in-v0117)
+- [What's New](#whats-new)
 - [What It Does](#what-it-does)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
@@ -24,13 +26,23 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 
 ---
 
-## What's New in v0.1.17
+## What's New
 
-- **Dashboard period toggle** — the Overview Stats panel has a `7d · 30d · All` toggle in the title bar. Each card shows the selected period's value with a comparison sub-line (e.g. "30d: 352"). All data is embedded at page load; switching periods is instant with no server round-trip.
-- **Stat card icons** — all stat cards now display a large theme-coloured icon on the right side of each card with a subtle brand-colour glow. Icons adapt automatically to your Curatorr theme colour.
-- **Library Artists glance card** — the "Curatorr at a glance" panel now shows a unique Library Artists count, including artists from Various Artists compilations but excluding duplicates and placeholder names.
-- **Playlist delta badges** — playlist artwork on the dashboard and Playlists page now shows a ↑/↓/= pill overlay tracking how many tracks were added or removed in the last sync. Persisted per sync via two new database columns.
-- **Last.fm dedup fix** — the scrobble backfill duplicate-detection window now uses the known track duration rather than a fixed 90 s window, handles Unicode hyphens in Tautulli-stored artist names, and matches Tautulli's `"Track - Artist"` title suffix pattern.
+- **Playlist card actions** — playlist cards now reveal hover actions: view tracks inline, edit personal playlist rules, rebuild, and delete. Multi-select with bulk delete is also supported.
+- **Edit personal playlists** — the personal playlist modal can now be opened pre-filled with existing rules to edit and re-sync in place, without deleting and recreating.
+- **Last.fm Loved and Top Tracks playlists** — two new Last.fm playlist types in User Settings: *Loved* syncs your manually loved tracks, and *Top Tracks* syncs your most-played tracks with a configurable period (7 days, 1 month, 3 months, 6 months, 1 year, all time). Both match against your Plex library and update with each sync.
+- **Last.fm station cleanup** — disabling a Last.fm station playlist now removes it from Plex and hides it from the playlists page on next sync.
+- **Plex Home Users** — users with Plex Home profiles are presented with a "Who's watching?" picker after Plex SSO login. PIN-protected profiles prompt for a PIN. Each home user gets their own scoped Curatorr session.
+- **Admin user overview** — a new admin-only `/admin/users` page shows all Plex users with avatars, roles, activity stats, playlist counts, Lidarr totals, and sign-in history.
+- **Local admin preview mode** — the local Curatorr admin account can switch into any Plex user's context to see exactly what that user sees across dashboard, history, discover, artists, tracks, and playlists.
+- **Last.fm Neighbours station** — a fourth Last.fm station playlist option (Neighbours) joins Recommended, Mix, and Library in User Profile.
+- **Per-user Last.fm backfill** — users can trigger and reset their own Last.fm history backfill from User Profile without needing admin access.
+- **Last.fm History Sync and Backfill** — periodic per-user scrobble sync and a cursor-driven full history backfill, matched against your Plex library and contributing to artist and track scoring.
+- **Last.fm Station Playlists** — Recommended, Mix, Library, and Neighbours playlists generated from Last.fm and kept in sync with your Plex library.
+- **Multi-range dashboard stats** — overview stat cards show `7d / 30d / all time` values inline.
+- **Playlist title suffix toggle** — Settings includes a global option to append or omit `(username)` from all generated playlist names, with immediate rename propagated to Plex.
+- **Regular-user Lidarr access** — Lidarr automation and discovery now fully honour configured weekly quotas for the `user` role instead of restricting to admin/co-admin/power-user only.
+- **Large library support** — the Master Track Cache Refresh job handles libraries with 600,000+ tracks by fetching in pages, preventing V8 memory errors on large collections.
 
 ---
 

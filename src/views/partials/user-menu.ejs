@@ -11,26 +11,6 @@
           <span class="user-pill-caret" aria-hidden="true"></span>
           <div class="user-menu" role="menu">
             <% const _actualRole = (typeof actualRole !== 'undefined' && actualRole) ? actualRole : role; %>
-            <% if (_actualRole === 'admin') { %>
-              <details class="user-menu-role-picker" data-user-role-picker>
-                <summary class="user-menu-item user-menu-role-trigger">
-                  <img class="user-menu-icon" src="/icons/view.svg" alt="" />
-                  <span class="user-menu-text">Role view</span>
-                  <span class="user-menu-role-caret" aria-hidden="true"></span>
-                </summary>
-                <div class="user-menu-role-options" role="group" aria-label="Role view options">
-                  <% ['guest', 'user', 'power-user', 'co-admin', 'admin'].forEach(function(r) { %>
-                    <form class="user-menu-inline-form" method="post" action="/switch-view">
-                      <input type="hidden" name="_csrf" value="<%= csrfToken || '' %>" />
-                      <input type="hidden" name="role" value="<%= r %>" />
-                      <button class="user-menu-item user-menu-item--button user-menu-role-option<%= role === r ? ' is-active' : '' %>" type="submit">
-                        <span class="user-menu-role-name"><%= r.charAt(0).toUpperCase() + r.slice(1) %></span>
-                      </button>
-                    </form>
-                  <% }) %>
-                </div>
-              </details>
-            <% } %>
             <a class="user-menu-item" href="/user-settings">
               <img class="user-menu-icon" src="/icons/user-profile.svg" alt="" />
               <span class="user-menu-text">User profile</span>

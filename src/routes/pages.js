@@ -28,6 +28,8 @@ import {
   getSkipTierArtists,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
+import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
+import * as embyAdapter from '../services/media-servers/emby.js';
 
 // Returns the DB filter key for a user:
 // - local admin accounts can inspect global activity
@@ -309,6 +311,33 @@ async function buildAdminUsersPageData({
     }
   }
 
+  // ── Jellyfin / Emby: fetch live user list when no Plex token is configured ──
+  const msType = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+  if (livePlexUsers.length === 0 && (msType === 'jellyfin' || msType === 'emby')) {
+    const msCfg = config?.[msType] || {};
+    const msUrl  = String(msCfg?.url    || '').trim();
+    const msKey  = String(msCfg?.apiKey || '').trim();
+    if (msUrl && msKey) {
+      try {
+        const adapter = msType === 'emby' ? embyAdapter : jellyfinAdapter;
+        const users = await adapter.getUsers(msUrl, msKey);
+        for (const u of users) {
+          livePlexUsers.push({
+            id:          u.name,
+            uuid:        u.id,
+            username:    u.name,
+            email:       '',
+            title:       u.name,
+            thumb:       '',
+            lastSeenAt:  '',
+          });
+        }
+      } catch (_err) {
+        // Fall back to observed IDs.
+      }
+    }
+  }
+
   const livePlexRows = livePlexUsers.map((user) => {
     const ids = normalizeIdentityList([
       user?.email,
@@ -504,6 +533,66 @@ async function buildLocalAdminPreviewData({
     return !localIdentitySet.has(id.toLowerCase());
   });
 
+  const msTypePreview = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+  const isNonPlexMs = msTypePreview === 'jellyfin' || msTypePreview === 'emby';
+
+  // ── Jellyfin / Emby: always use the media server's user list as the source of truth ──
+  if (isNonPlexMs) {
+    const msCfg = config?.[msTypePreview] || {};
+    const msUrl = String(msCfg?.url || '').trim();
+    const msKey = String(msCfg?.apiKey || '').trim();
+    const msLabelPreview = msTypePreview === 'emby' ? 'Emby' : 'Jellyfin';
+    let options = [];
+    if (msUrl && msKey) {
+      try {
+        const adapter = msTypePreview === 'emby' ? embyAdapter : jellyfinAdapter;
+        const msUsers = await adapter.getUsers(msUrl, msKey);
+        // Build a map from lowercase name → DB-stored user_plex_id (preserves login-time casing)
+        const dbUserRows = db.prepare('SELECT user_plex_id FROM user_preferences').all();
+        const dbUserMap = new Map(dbUserRows.map((r) => [String(r.user_plex_id || '').toLowerCase(), r.user_plex_id]));
+        // Build the observed-user set for last-play lookups
+        const observedMap = new Map(observedRows.map((r) => [r.id.toLowerCase(), r.lastPlayAt]));
+        options = msUsers.map((u) => {
+          const lower = u.name.toLowerCase();
+          // Use the DB-stored ID (login-time casing) if this user has logged in before, else Jellyfin name
+          const id = dbUserMap.get(lower) || u.name;
+          return {
+            id,
+            name:        u.name,
+            avatarUrl:   '',
+            avatarLabel: u.name.charAt(0).toUpperCase() || 'U',
+            isOwner:     false,
+            lastPlayAt:  observedMap.get(lower) || 0,
+          };
+        });
+      } catch (_err) { /* fall through to empty */ }
+    }
+    if (!options.length) {
+      setPreviewUserId(req, '');
+      return {
+        enabled: true,
+        selectedUserId: '',
+        selectedName: `No ${msLabelPreview} users found`,
+        selectedAvatarUrl: '',
+        selectedAvatarLabel: 'C',
+        options: [],
+      };
+    }
+    const selectedKey = String(getPreviewUserId(req) || '').trim().toLowerCase();
+    const selectedOption = options.find((o) => o.id.toLowerCase() === selectedKey) || options[0];
+    setPreviewUserId(req, selectedOption?.id || '');
+    return {
+      enabled: true,
+      selectedUserId: String(selectedOption?.id || '').trim(),
+      selectedName: String(selectedOption?.name || '').trim(),
+      selectedAvatarUrl: '',
+      selectedAvatarLabel: selectedOption?.avatarLabel || 'U',
+      options,
+      returnTo: req.originalUrl,
+    };
+  }
+
+  // ── Plex: fall back to empty state when no observed users ─────────────────
   if (!observedRows.length) {
     setPreviewUserId(req, '');
     return {
@@ -637,7 +726,7 @@ async function buildLocalAdminPreviewData({
   return {
     enabled: true,
     selectedUserId: String(selectedOption?.id || '').trim(),
-    selectedName: String(selectedOption?.name || 'Select a Plex user').trim(),
+    selectedName: String(selectedOption?.name || '').trim(),
     selectedAvatarUrl: String(selectedOption?.avatarUrl || '').trim(),
     selectedAvatarLabel: String(selectedOption?.avatarLabel || 'P').trim() || 'P',
     options,
@@ -1058,17 +1147,50 @@ export function registerPages(app, ctx) {
       });
     }
     playlistCards.push(...generatedCards);
-    const { url: plexUrl, token: plexToken } = config.plex || {};
-    if (playlistCards.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
-      try {
-        const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
-        const plexPlaylistMap = new Map(plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]));
-        playlistCards.forEach((playlist) => {
-          const plexPlaylist = plexPlaylistMap.get(String(playlist.plexPlaylistId || '')) || null;
-          playlist.artPath = String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || '');
-        });
-      } catch (_err) {
-        // Leave cards on placeholder artwork if Plex metadata is unavailable.
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') {
+      // For Jellyfin/Emby, fetch ImageTags so each playlist gets its unique art URL.
+      const { url: msUrl, apiKey: msApiKey } = config[msType] || {};
+      const playlistIds = playlistCards.map((p) => p.plexPlaylistId).filter(Boolean);
+      let imageTagMap = {};
+      if (msUrl && msApiKey && playlistIds.length) {
+        try {
+          const batchUrl = new URL('/Items', msUrl);
+          batchUrl.searchParams.set('Ids', playlistIds.join(','));
+          batchUrl.searchParams.set('Fields', 'ImageTags');
+          const batchRes = await fetch(batchUrl.toString(), {
+            headers: { 'X-Emby-Token': msApiKey },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (batchRes.ok) {
+            const batchJson = await batchRes.json();
+            for (const item of batchJson?.Items || []) {
+              const tag = item?.ImageTags?.Primary;
+              if (item.Id && tag) imageTagMap[String(item.Id)] = String(tag);
+            }
+          }
+        } catch { /* leave artPaths empty on error */ }
+      }
+      playlistCards.forEach((playlist) => {
+        if (playlist.plexPlaylistId) {
+          playlist.artPath = String(playlist.plexPlaylistId);
+          const tag = imageTagMap[playlist.plexPlaylistId];
+          if (tag) playlist.artTag = tag;
+        }
+      });
+    } else {
+      const { url: plexUrl, token: plexToken } = config.plex || {};
+      if (playlistCards.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
+        try {
+          const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
+          const plexPlaylistMap = new Map(plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]));
+          playlistCards.forEach((playlist) => {
+            const plexPlaylist = plexPlaylistMap.get(String(playlist.plexPlaylistId || '')) || null;
+            playlist.artPath = String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || '');
+          });
+        } catch (_err) {
+          // Leave cards on placeholder artwork if Plex metadata is unavailable.
+        }
       }
     }
 

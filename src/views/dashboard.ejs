@@ -281,7 +281,7 @@
                 </div>
               <% }) %>
               <% if (!_byDay.length) { %>
-                <div class="cur-empty">No play data yet. Plays will appear here once Tautulli or Plex webhooks start sending events.</div>
+                <div class="cur-empty">No play data yet. Plays will appear here once your media server starts sending events.</div>
               <% } %>
             </div>
           </div>
@@ -433,7 +433,7 @@
                 <% }) %>
               </div>
             <% } else { %>
-              <div class="cur-empty">No play history yet. Configure Tautulli or Plex webhooks to start tracking.</div>
+              <div class="cur-empty">No play history yet. Play something in your media server to start tracking.</div>
             <% } %>
           </div>
         </div>
@@ -596,7 +596,7 @@
             '<div class="plex-poster-well cur-discover-result-art cur-stream-card-art is-empty">' +
               '<div class="cur-stream-empty-copy">' +
                 '<div class="cur-stream-empty-title">No active streams</div>' +
-                '<div class="cur-stream-empty-sub">Start a track in Plex and it will appear here.</div>' +
+                '<div class="cur-stream-empty-sub">Start a track in <%= mediaServerType === "jellyfin" ? "Jellyfin" : (mediaServerType === "emby" ? "Emby" : "Plex") %> and it will appear here.</div>' +
               '</div>' +
             '</div>' +
           '</div>' +
@@ -669,7 +669,7 @@
     window.addEventListener('resize', updateNav);
 
     function poll() {
-      fetch('/api/plex/sessions', { cache: 'no-store', headers: { Accept: 'application/json' } })
+      fetch('/api/media-server/sessions', { cache: 'no-store', headers: { Accept: 'application/json' } })
         .then(function(r){ return r.json(); })
         .then(function(d){ if (d.ok) render(d.sessions); })
         .catch(function(){ render([]); });
