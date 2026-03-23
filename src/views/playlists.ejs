@@ -201,10 +201,6 @@
                 <span class="cur-badge cur-badge--<%= t[2] %>"><%= t[1] %></span>
               </label>
               <% }); %>
-              <label class="gp-chip-label">
-                <input type="checkbox" class="spm-artist-tier-all" checked />
-                <span class="cur-badge cur-badge--neutral">All</span>
-              </label>
             </div>
           </div>
 
@@ -217,10 +213,6 @@
                 <span class="cur-badge cur-badge--<%= t[2] %>"><%= t[1] %></span>
               </label>
               <% }); %>
-              <label class="gp-chip-label">
-                <input type="checkbox" class="spm-track-tier-all" checked />
-                <span class="cur-badge cur-badge--neutral">All</span>
-              </label>
             </div>
           </div>
         </div>
@@ -1135,10 +1127,6 @@
       if (window.spmSetBlendUsers) window.spmSetBlendUsers([], 'average');
       var blendModeDefault = document.querySelector('input[name="spm-blend-mode"][value="average"]');
       if (blendModeDefault) blendModeDefault.checked = true;
-      var artistAll = document.querySelector('.spm-artist-tier-all');
-      if (artistAll) artistAll.checked = true;
-      var trackAll = document.querySelector('.spm-track-tier-all');
-      if (trackAll) trackAll.checked = true;
       var topN = document.getElementById('spm-top-n');
       if (topN) topN.value = '';
       var maxT = document.getElementById('spm-max-tracks');
@@ -1236,17 +1224,13 @@
     })();
 
     function spmApplyRules(rules) {
-      var artistAll = document.querySelector('.spm-artist-tier-all');
-      var trackAll = document.querySelector('.spm-track-tier-all');
       if (rules.artistTiers && rules.artistTiers.length) {
-        if (artistAll) artistAll.checked = false;
         rules.artistTiers.forEach(function(v) {
           var cb = document.querySelector('.spm-artist-tier[value="' + v + '"]');
           if (cb) cb.checked = true;
         });
       }
       if (rules.trackTiers && rules.trackTiers.length) {
-        if (trackAll) trackAll.checked = false;
         rules.trackTiers.forEach(function(v) {
           var cb = document.querySelector('.spm-track-tier[value="' + v + '"]');
           if (cb) cb.checked = true;
@@ -1314,14 +1298,8 @@
     }
 
     function getSpmRules() {
-      var artistTierAll = document.querySelector('.spm-artist-tier-all');
-      var trackTierAll = document.querySelector('.spm-track-tier-all');
-      var artistTiers = (artistTierAll && artistTierAll.checked)
-        ? []
-        : Array.from(document.querySelectorAll('.spm-artist-tier:checked')).map(function(el) { return el.value; });
-      var trackTiers = (trackTierAll && trackTierAll.checked)
-        ? []
-        : Array.from(document.querySelectorAll('.spm-track-tier:checked')).map(function(el) { return el.value; });
+      var artistTiers = Array.from(document.querySelectorAll('.spm-artist-tier:checked')).map(function(el) { return el.value; });
+      var trackTiers = Array.from(document.querySelectorAll('.spm-track-tier:checked')).map(function(el) { return el.value; });
       var genres = Array.from(document.querySelectorAll('.spm-genre-cb:checked')).map(function(el) { return el.value; });
       var moods = Array.from(document.querySelectorAll('.spm-mood-cb:checked')).map(function(el) { return el.value; });
       var tags = Array.from(document.querySelectorAll('.spm-tag-cb:checked')).map(function(el) { return el.value; });
@@ -1400,33 +1378,9 @@
     }
 
     function initSmartPlaylistModal() {
-      var artistAll = document.querySelector('.spm-artist-tier-all');
-      if (artistAll) {
-        artistAll.addEventListener('change', function() {
-          document.querySelectorAll('.spm-artist-tier').forEach(function(cb) { cb.checked = false; });
-          spmSchedulePreview();
-        });
-        document.querySelectorAll('.spm-artist-tier').forEach(function(cb) {
-          cb.addEventListener('change', function() {
-            if (this.checked && artistAll) artistAll.checked = false;
-            spmSchedulePreview();
-          });
-        });
-      }
-
-      var trackAll = document.querySelector('.spm-track-tier-all');
-      if (trackAll) {
-        trackAll.addEventListener('change', function() {
-          document.querySelectorAll('.spm-track-tier').forEach(function(cb) { cb.checked = false; });
-          spmSchedulePreview();
-        });
-        document.querySelectorAll('.spm-track-tier').forEach(function(cb) {
-          cb.addEventListener('change', function() {
-            if (this.checked && trackAll) trackAll.checked = false;
-            spmSchedulePreview();
-          });
-        });
-      }
+      document.querySelectorAll('.spm-artist-tier, .spm-track-tier').forEach(function(cb) {
+        cb.addEventListener('change', spmSchedulePreview);
+      });
 
       document.querySelectorAll('.spm-genre-cb, .spm-mood-cb, .spm-tag-cb').forEach(function(cb) {
         cb.addEventListener('change', spmSchedulePreview);

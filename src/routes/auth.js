@@ -4,6 +4,8 @@ import crypto from 'crypto';
 const loginAttempts = new Map(); // ip -> { failures: number, windowStart: ms }
 
 const PIN_MAX_AGE_MS = 15 * 60 * 1000; // Plex PIN valid for 15 minutes
+const homeUserSelections = new Map();
+const HOME_USER_SELECTION_TTL_MS = 15 * 1000;
 
 function isValidPlexPinId(v) {
   const s = String(v || '').trim();
@@ -49,6 +51,57 @@ function clearLoginFailures(ip) {
   loginAttempts.delete(ip);
 }
 
+function buildHomeUserSelectionKey(mainToken, userId) {
+  return crypto.createHash('sha256')
+    .update(String(mainToken || ''))
+    .update('\0')
+    .update(String(userId || ''))
+    .digest('hex');
+}
+
+function getHomeUserSelectionEntry(selectionKey) {
+  const entry = homeUserSelections.get(selectionKey);
+  if (!entry) return null;
+  const age = Date.now() - Number(entry.completedAt || entry.startedAt || 0);
+  if (age > HOME_USER_SELECTION_TTL_MS) {
+    homeUserSelections.delete(selectionKey);
+    return null;
+  }
+  return entry;
+}
+
+function rememberHomeUserSelection(selectionKey, promise) {
+  const entry = {
+    startedAt: Date.now(),
+    promise,
+    result: null,
+  };
+  homeUserSelections.set(selectionKey, entry);
+  promise.then((result) => {
+    const current = homeUserSelections.get(selectionKey);
+    if (!current || current.promise !== promise) return;
+    current.result = result;
+    current.completedAt = Date.now();
+    delete current.promise;
+  }).catch(() => {
+    const current = homeUserSelections.get(selectionKey);
+    if (current && current.promise === promise) homeUserSelections.delete(selectionKey);
+  });
+  return entry;
+}
+
+function completeHomeUserSelectionResponse(res, result) {
+  const authMode = String(result?.authMode || 'redirect').trim().toLowerCase();
+  const redirectTarget = String(result?.redirectTarget || '/dashboard').trim() || '/dashboard';
+  if (authMode === 'popup') {
+    return res.render('plex-auth-complete', {
+      title: 'Plex Login Complete',
+      redirectTarget,
+    });
+  }
+  return res.redirect(redirectTarget);
+}
+
 // Rate limiting for POST /setup — 5 failures per 15 min per IP
 const setupAttempts = new Map();
 const SETUP_RATE_LIMIT_MAX = 5;
@@ -59,6 +112,14 @@ setInterval(() => {
     if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) setupAttempts.delete(ip);
   }
 }, 30 * 60 * 1000).unref();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [selectionKey, entry] of homeUserSelections) {
+    const age = now - Number(entry?.completedAt || entry?.startedAt || 0);
+    if (age > HOME_USER_SELECTION_TTL_MS) homeUserSelections.delete(selectionKey);
+  }
+}, 60 * 1000).unref();
 
 function checkSetupRateLimit(ip) {
   const now = Date.now();
@@ -793,9 +854,10 @@ export function registerAuth(app, ctx) {
 
   app.post('/auth/plex/home-users/select', async (req, res) => {
     try {
+      if (req.session?.user) return res.redirect('/dashboard');
+
       const pending = validatePendingHomeSession(req);
       if (!pending) {
-        req.session = null;
         return res.redirect('/login');
       }
       const { mainToken, homeUsers } = pending;
@@ -809,24 +871,39 @@ export function registerAuth(app, ctx) {
         return res.redirect('/auth/plex/home-users/pin');
       }
 
-      // Admin (home owner) already authenticated — use main token directly.
-      // Non-admin without PIN: switch using uuid.
-      const homeUserToken = selectedUser.admin
-        ? mainToken
-        : await switchPlexHomeUser(mainToken, userId, null);
-      const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
-      if (req.session) {
-        delete req.session.pendingHomeUsers;
-        delete req.session.pendingHomeUserId;
-        delete req.session.pendingHomeUsersAt;
-        delete req.session.plexAuthMode;
+      const selectionKey = buildHomeUserSelectionKey(mainToken, userId);
+      const existingSelection = getHomeUserSelectionEntry(selectionKey);
+      if (existingSelection?.result) {
+        return completeHomeUserSelectionResponse(res, existingSelection.result);
       }
-      await completePlexLogin(req, homeUserToken);
-      req.session.plexMainToken = mainToken;
+      if (existingSelection?.promise) {
+        const result = await existingSelection.promise;
+        return completeHomeUserSelectionResponse(res, result);
+      }
 
-      const redirectTarget = consumePostLoginRedirect(req, '/dashboard');
-      if (authMode === 'popup') return res.render('plex-auth-complete', { title: 'Plex Login Complete', redirectTarget });
-      return res.redirect(redirectTarget);
+      const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
+      const selectionPromise = (async () => {
+        // Admin (home owner) already authenticated — use main token directly.
+        // Non-admin without PIN: switch using uuid.
+        const homeUserToken = selectedUser.admin
+          ? mainToken
+          : await switchPlexHomeUser(mainToken, userId, null);
+        await completePlexLogin(req, homeUserToken);
+        req.session.plexMainToken = mainToken;
+        if (req.session) {
+          delete req.session.pendingHomeUsers;
+          delete req.session.pendingHomeUserId;
+          delete req.session.pendingHomeUsersAt;
+          delete req.session.plexAuthMode;
+        }
+        return {
+          authMode,
+          redirectTarget: consumePostLoginRedirect(req, '/dashboard'),
+        };
+      })();
+      rememberHomeUserSelection(selectionKey, selectionPromise);
+      const result = await selectionPromise;
+      return completeHomeUserSelectionResponse(res, result);
     } catch (err) {
       pushLog({ level: 'error', app: 'plex', action: 'login.homeuser.select', message: safeMessage(err) || 'Home user selection failed.' });
       return res.status(err?.status || 500).send(`Login failed: ${safeMessage(err)}`);

@@ -6317,13 +6317,16 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
 }
 .spm-tiers-row {
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 14px;
 }
 .spm-tiers-row .spm-filter-section {
-  flex: 1 1 45%;
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 0;
 }
 .spm-filter-section {
   display: flex;
@@ -6372,6 +6375,31 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+.spm-tiers-row .spm-filter-label {
+  margin: 0;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.spm-tiers-row .spm-filter-chips {
+  display: grid;
+  grid-template-columns: 74px 74px 120px 66px 112px;
+  gap: 10px;
+  min-width: 0;
+  overflow: visible;
+  padding: 2px 0;
+}
+.spm-tiers-row .gp-chip-label {
+  width: 100%;
+  min-width: 0;
+}
+.spm-tiers-row .gp-chip-label .cur-badge {
+  width: 100%;
+  min-height: 0;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 3px;
+  box-sizing: border-box;
 }
 .spm-preview {
   display: flex;
@@ -6448,10 +6476,36 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
 .gp-chip-label { display: inline-flex; align-items: center; cursor: pointer; }
 .gp-chip-label input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
 .gp-chip-label:has(input:checked) .cur-badge {
-  outline: 2px solid var(--accent, #818cf8);
-  outline-offset: 1px;
+  position: relative;
+  z-index: 1;
+  border-color: rgba(var(--brand-rgb, 129,140,248), 0.58);
+  box-shadow:
+    0 0 8px rgba(var(--brand-rgb, 129,140,248), 0.34),
+    0 0 16px rgba(var(--brand-rgb, 129,140,248), 0.16);
 }
 .gp-filter-hint { font-size: 10px; font-weight: 400; opacity: 0.6; text-transform: none; letter-spacing: 0; }
+
+@media (max-width: 860px) {
+  .spm-tiers-row .spm-filter-section {
+    width: 100%;
+    gap: 8px;
+  }
+  .spm-tiers-row .spm-filter-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+  .spm-tiers-row .gp-chip-label {
+    width: auto;
+    flex: 0 0 auto;
+  }
+  .spm-tiers-row .gp-chip-label .cur-badge {
+    width: auto;
+  }
+}
 
 /* ── Playlist delta overlay badge ───────────────────────────────────────── */
 .cur-delta-badge {

@@ -137,6 +137,127 @@ function resolveConfiguredPlexRole(identifier, roleSets) {
   return 'user';
 }
 
+function buildPlexIdentityLookup(entries, normalizeIdentityList) {
+  const lookup = new Map();
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    normalizeIdentityList([
+      entry?.email,
+      entry?.username,
+      entry?.title,
+      String(entry?.id || ''),
+      String(entry?.uuid || ''),
+    ]).forEach((value) => {
+      const key = String(value || '').trim().toLowerCase();
+      if (!key || lookup.has(key)) return;
+      lookup.set(key, entry);
+    });
+  });
+  return lookup;
+}
+
+async function fetchLivePlexUsersWithHomeData({
+  config,
+  normalizeIdentityList,
+  fetchPlexUser,
+  fetchPlexHomeUsers,
+  parsePlexUsers,
+}) {
+  const token = String(config?.plex?.token || '').trim();
+  const machineId = String(config?.plex?.machineId || '').trim();
+  if (!token || !fetchPlexUser || !parsePlexUsers) {
+    return { liveUsers: [], homeUsers: [], ownerIdentitySet: new Set() };
+  }
+
+  const liveUsers = [];
+  const homeUsers = [];
+  const homeThumbByKey = new Map();
+  let ownerIdentitySet = new Set();
+
+  try {
+    const [usersRes, ownerUser, fetchedHomeUsers] = await Promise.all([
+      fetch('https://plex.tv/api/users', { headers: { Accept: 'application/xml', 'X-Plex-Token': token } }),
+      fetchPlexUser(token).catch(() => null),
+      fetchPlexHomeUsers ? fetchPlexHomeUsers(token).catch(() => []) : [],
+    ]);
+
+    (Array.isArray(fetchedHomeUsers) ? fetchedHomeUsers : []).forEach((homeUser) => {
+      const normalizedUser = {
+        id: String(homeUser?.id || '').trim(),
+        uuid: String(homeUser?.uuid || '').trim(),
+        username: String(homeUser?.username || '').trim(),
+        email: String(homeUser?.email || '').trim(),
+        title: String(homeUser?.title || homeUser?.username || homeUser?.email || homeUser?.id || 'User').trim() || 'User',
+        thumb: String(homeUser?.thumb || '').trim(),
+        admin: Boolean(homeUser?.admin),
+      };
+      homeUsers.push(normalizedUser);
+      if (!normalizedUser.thumb) return;
+      normalizeIdentityList([
+        normalizedUser.title,
+        normalizedUser.username,
+        normalizedUser.email,
+        normalizedUser.id,
+        normalizedUser.uuid,
+      ]).forEach((value) => {
+        const key = String(value || '').trim().toLowerCase();
+        if (!key || homeThumbByKey.has(key)) return;
+        homeThumbByKey.set(key, normalizedUser.thumb);
+      });
+    });
+
+    if (usersRes.ok) {
+      const xmlText = await usersRes.text();
+      const parsedUsers = parsePlexUsers(xmlText, { machineId }).map((entry) => {
+        const thumb = String(entry?.thumb || '').trim();
+        if (thumb) return entry;
+        const ids = normalizeIdentityList([
+          entry?.email,
+          entry?.username,
+          entry?.title,
+          String(entry?.id || ''),
+          String(entry?.uuid || ''),
+        ]).map((value) => String(value || '').trim().toLowerCase());
+        const matchedThumb = ids.map((id) => homeThumbByKey.get(id)).find(Boolean) || '';
+        return matchedThumb ? { ...entry, thumb: matchedThumb } : entry;
+      });
+      liveUsers.push(...parsedUsers);
+    }
+
+    if (ownerUser) {
+      ownerIdentitySet = new Set(
+        normalizeIdentityList([
+          ownerUser.email,
+          ownerUser.username,
+          ownerUser.title,
+          String(ownerUser.id || ''),
+          String(ownerUser.uuid || ''),
+        ]).map((value) => String(value || '').trim().toLowerCase()),
+      );
+      const alreadyPresent = liveUsers.some((entry) => normalizeIdentityList([
+        entry?.email,
+        entry?.username,
+        entry?.title,
+        String(entry?.id || ''),
+        String(entry?.uuid || ''),
+      ]).some((value) => ownerIdentitySet.has(String(value || '').trim().toLowerCase())));
+      if (!alreadyPresent) {
+        liveUsers.unshift({
+          id: String(ownerUser.id || ''),
+          uuid: String(ownerUser.uuid || ''),
+          username: ownerUser.username || '',
+          email: ownerUser.email || '',
+          title: ownerUser.title || ownerUser.username || ownerUser.email || '',
+          thumb: String(ownerUser.thumb || '').trim(),
+        });
+      }
+    }
+  } catch (_err) {
+    return { liveUsers: [], homeUsers: [], ownerIdentitySet: new Set() };
+  }
+
+  return { liveUsers, homeUsers, ownerIdentitySet };
+}
+
 async function buildAdminUsersPageData({
   db,
   config,
@@ -608,100 +729,16 @@ async function buildLocalAdminPreviewData({
     };
   }
 
-  const liveUsers = [];
-  let ownerIdentitySet = new Set();
-  const homeThumbByKey = new Map();
-  const token = String(config?.plex?.token || '').trim();
-  const machineId = String(config?.plex?.machineId || '').trim();
-
-  if (token && fetchPlexUser && parsePlexUsers) {
-    try {
-      const [usersRes, ownerUser, homeUsers] = await Promise.all([
-        fetch('https://plex.tv/api/users', { headers: { Accept: 'application/xml', 'X-Plex-Token': token } }),
-        fetchPlexUser(token).catch(() => null),
-        fetchPlexHomeUsers ? fetchPlexHomeUsers(token).catch(() => []) : [],
-      ]);
-
-      (Array.isArray(homeUsers) ? homeUsers : []).forEach((homeUser) => {
-        const thumb = String(homeUser?.thumb || '').trim();
-        normalizeIdentityList([
-          homeUser?.title,
-          homeUser?.username,
-          homeUser?.email,
-          String(homeUser?.id || ''),
-          String(homeUser?.uuid || ''),
-        ]).forEach((value) => {
-          const key = String(value || '').trim().toLowerCase();
-          if (!key || !thumb || homeThumbByKey.has(key)) return;
-          homeThumbByKey.set(key, thumb);
-        });
-      });
-
-      if (usersRes.ok) {
-        const xmlText = await usersRes.text();
-        const parsedUsers = parsePlexUsers(xmlText, { machineId }).map((entry) => {
-          const thumb = String(entry?.thumb || '').trim();
-          if (thumb) return entry;
-          const ids = normalizeIdentityList([
-            entry?.email,
-            entry?.username,
-            entry?.title,
-            String(entry?.id || ''),
-            String(entry?.uuid || ''),
-          ]).map((value) => String(value || '').trim().toLowerCase());
-          const matchedThumb = ids.map((id) => homeThumbByKey.get(id)).find(Boolean) || '';
-          return matchedThumb ? { ...entry, thumb: matchedThumb } : entry;
-        });
-        liveUsers.push(...parsedUsers);
-      }
-
-      if (ownerUser) {
-        ownerIdentitySet = new Set(
-          normalizeIdentityList([
-            ownerUser.email,
-            ownerUser.username,
-            ownerUser.title,
-            String(ownerUser.id || ''),
-            String(ownerUser.uuid || ''),
-          ]).map((value) => String(value || '').trim().toLowerCase()),
-        );
-        const alreadyPresent = liveUsers.some((entry) => normalizeIdentityList([
-          entry?.email,
-          entry?.username,
-          entry?.title,
-          String(entry?.id || ''),
-          String(entry?.uuid || ''),
-        ]).some((value) => ownerIdentitySet.has(String(value || '').trim().toLowerCase())));
-        if (!alreadyPresent) {
-          liveUsers.unshift({
-            id: String(ownerUser.id || ''),
-            uuid: String(ownerUser.uuid || ''),
-            username: ownerUser.username || '',
-            email: ownerUser.email || '',
-            title: ownerUser.title || ownerUser.username || ownerUser.email || '',
-            thumb: String(ownerUser.thumb || '').trim(),
-          });
-        }
-      }
-    } catch (_err) {
-      // Fall back to observed IDs only when live Plex lookups are unavailable.
-    }
-  }
-
-  const liveUserByObservedKey = new Map();
-  liveUsers.forEach((entry) => {
-    const ids = normalizeIdentityList([
-      entry?.email,
-      entry?.username,
-      entry?.title,
-      String(entry?.id || ''),
-      String(entry?.uuid || ''),
-    ]).map((value) => String(value || '').trim().toLowerCase());
-    ids.forEach((id) => {
-      if (!id || liveUserByObservedKey.has(id)) return;
-      liveUserByObservedKey.set(id, { entry, ids });
-    });
+  const livePlexData = await fetchLivePlexUsersWithHomeData({
+    config,
+    normalizeIdentityList,
+    fetchPlexUser,
+    fetchPlexHomeUsers,
+    parsePlexUsers,
   });
+  const liveUsers = livePlexData.liveUsers;
+  const ownerIdentitySet = livePlexData.ownerIdentitySet;
+  const liveUserByObservedKey = buildPlexIdentityLookup(liveUsers, normalizeIdentityList);
 
   // Deduplicate: if two observed user_plex_ids resolve to the same live Plex identity (e.g. one is
   // username and the other is email for the same account), keep only the first occurrence.
@@ -709,15 +746,21 @@ async function buildLocalAdminPreviewData({
   const plexApiAvailable = liveUsers.length > 0;
   const seenPlexEntries = new Set();
   const options = observedRows.reduce((acc, row) => {
-    const match = liveUserByObservedKey.get(String(row.id || '').trim().toLowerCase()) || null;
-    const entry = match?.entry || null;
+    const entry = liveUserByObservedKey.get(String(row.id || '').trim().toLowerCase()) || null;
     // When Plex API was reachable, skip users with no real Plex identity (managed home accounts)
     if (plexApiAvailable && !entry) return acc;
     // Deduplicate by Plex numeric id or uuid — two rows that resolve to the same Plex user are merged
     const entryDedupeKey = entry ? String(entry?.uuid || entry?.id || '').trim() : null;
     if (entryDedupeKey && seenPlexEntries.has(entryDedupeKey)) return acc;
     if (entryDedupeKey) seenPlexEntries.add(entryDedupeKey);
-    const ids = match?.ids || [String(row.id || '').trim().toLowerCase()];
+    const ids = normalizeIdentityList([
+      entry?.email,
+      entry?.username,
+      entry?.title,
+      String(entry?.id || ''),
+      String(entry?.uuid || ''),
+      String(row.id || ''),
+    ]).map((value) => String(value || '').trim().toLowerCase());
     const name = String(entry?.title || entry?.username || entry?.email || row.id).trim() || row.id;
     acc.push({
       id: row.id,
@@ -749,7 +792,16 @@ async function buildLocalAdminPreviewData({
   };
 }
 
-async function buildBlendableUsers(db, config, adminPreview, resolveLocalUsers) {
+async function buildBlendableUsers(
+  db,
+  config,
+  adminPreview,
+  resolveLocalUsers,
+  normalizeIdentityList,
+  fetchPlexUser,
+  fetchPlexHomeUsers,
+  parsePlexUsers,
+) {
   try {
     const localIdentitySet = new Set(
       (resolveLocalUsers ? resolveLocalUsers(config) : [])
@@ -790,12 +842,49 @@ async function buildBlendableUsers(db, config, adminPreview, resolveLocalUsers) 
       .map((r) => String(r.user_plex_id || '').trim())
       .filter((id) => id && !localIdentitySet.has(id.toLowerCase()));
 
-    return userIds.map((id) => ({
-      id,
-      name: id,
-      avatarUrl: '',
-      avatarLabel: id.charAt(0).toUpperCase() || 'P',
-    }));
+    if (!userIds.length) return [];
+
+    const msType = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+    if (msType !== 'plex') {
+      return userIds.map((id) => ({
+        id,
+        name: id,
+        avatarUrl: '',
+        avatarLabel: id.charAt(0).toUpperCase() || 'P',
+      }));
+    }
+
+    const { liveUsers, homeUsers } = await fetchLivePlexUsersWithHomeData({
+      config,
+      normalizeIdentityList,
+      fetchPlexUser,
+      fetchPlexHomeUsers,
+      parsePlexUsers,
+    });
+    const liveUserByObservedKey = buildPlexIdentityLookup(liveUsers, normalizeIdentityList);
+    const homeUserByObservedKey = buildPlexIdentityLookup(homeUsers, normalizeIdentityList);
+    const seenEntries = new Set();
+
+    return userIds.reduce((acc, id) => {
+      const key = String(id || '').trim().toLowerCase();
+      if (!key) return acc;
+      const liveEntry = liveUserByObservedKey.get(key) || null;
+      const homeEntry = homeUserByObservedKey.get(key) || null;
+      const canonicalEntry = liveEntry || homeEntry || null;
+      const dedupeKey = canonicalEntry
+        ? `${liveEntry ? 'plex' : 'home'}:${String(canonicalEntry.uuid || canonicalEntry.id || id).trim().toLowerCase()}`
+        : `observed:${key}`;
+      if (seenEntries.has(dedupeKey)) return acc;
+      seenEntries.add(dedupeKey);
+      const name = String(canonicalEntry?.title || canonicalEntry?.username || canonicalEntry?.email || id).trim() || id;
+      acc.push({
+        id,
+        name,
+        avatarUrl: String(canonicalEntry?.thumb || '').trim(),
+        avatarLabel: name.charAt(0).toUpperCase() || 'P',
+      });
+      return acc;
+    }, []);
   } catch { return []; }
 }
 
@@ -1413,7 +1502,16 @@ export function registerPages(app, ctx) {
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
       currentUserId: userPlexId,
-      blendableUsers: await buildBlendableUsers(db, config, adminPreview, resolveLocalUsers),
+      blendableUsers: await buildBlendableUsers(
+        db,
+        config,
+        adminPreview,
+        resolveLocalUsers,
+        normalizeIdentityList,
+        fetchPlexUser,
+        fetchPlexHomeUsers,
+        parsePlexUsers,
+      ),
       userPersonalPlaylists: (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })(),
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
@@ -1424,7 +1522,16 @@ export function registerPages(app, ctx) {
   app.get('/blend', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const { adminPreview, role, userPlexId } = await buildPageScope(req, config);
-    const blendableUsers = await buildBlendableUsers(db, config, adminPreview, resolveLocalUsers);
+    const blendableUsers = await buildBlendableUsers(
+      db,
+      config,
+      adminPreview,
+      resolveLocalUsers,
+      normalizeIdentityList,
+      fetchPlexUser,
+      fetchPlexHomeUsers,
+      parsePlexUsers,
+    );
     const blendCarouselUsers = await buildBlendCarouselUsers(
       db,
       config,

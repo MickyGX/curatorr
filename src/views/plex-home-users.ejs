@@ -137,5 +137,22 @@
       </form>
       <% }); %>
     </div>
+    <script>
+      document.querySelectorAll('.user-form').forEach(function(form) {
+        form.addEventListener('submit', function(event) {
+          if (form.dataset.submitting === '1') {
+            event.preventDefault();
+            return;
+          }
+          form.dataset.submitting = '1';
+          const button = form.querySelector('.user-btn');
+          if (button) {
+            button.disabled = true;
+            button.style.cursor = 'progress';
+            button.style.opacity = '0.8';
+          }
+        });
+      });
+    </script>
   </body>
 </html>

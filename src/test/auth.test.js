@@ -36,10 +36,14 @@ function createClient(options = {}) {
   const cookies = new Map();
   const maxCookieSize = Number(options.maxCookieSize || 0);
 
-  function updateCookies(response) {
-    const setCookies = typeof response.headers.getSetCookie === 'function'
+  function getSetCookieEntries(response) {
+    return typeof response.headers.getSetCookie === 'function'
       ? response.headers.getSetCookie()
       : (response.headers.get('set-cookie') ? [response.headers.get('set-cookie')] : []);
+  }
+
+  function updateCookies(response) {
+    const setCookies = getSetCookieEntries(response);
     for (const entry of setCookies) {
       const [pair] = String(entry || '').split(';');
       const eq = pair.indexOf('=');
@@ -101,7 +105,15 @@ function createClient(options = {}) {
     });
   }
 
-  return { request, postForm, postJson };
+  function cookieHeader() {
+    return [...cookies.entries()].map(([key, value]) => `${key}=${value}`).join('; ');
+  }
+
+  function ingestCookies(response) {
+    updateCookies(response);
+  }
+
+  return { request, postForm, postJson, cookieHeader, ingestCookies };
 }
 
 async function readConfig() {
@@ -344,6 +356,114 @@ describe('auth flows', () => {
       assert.match(res.text, /Who&#39;s watching\?/);
       assert.match(res.text, /Kid One/);
       assert.doesNotMatch(res.text, /metadata\.plex\.tv/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('tolerates duplicate home-user selection submits', async () => {
+    const client = createClient();
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === 'https://plex.tv/api/v2/pins/123456') {
+        return new Response(JSON.stringify({ authToken: 'plex-main-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users') {
+        return new Response(JSON.stringify([
+          { id: 'home-owner', title: 'Owner', protected: false, admin: true },
+          { id: 'home-kid-2', title: 'Kid Two', protected: false, admin: false },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users/home-kid-2/switch') {
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        return new Response(JSON.stringify({ authToken: 'plex-home-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/user') {
+        const authToken = String(options?.headers?.['X-Plex-Token'] || options?.headers?.get?.('X-Plex-Token') || '');
+        if (authToken === 'plex-home-token') {
+          return new Response(JSON.stringify({
+            id: 'home-kid-2',
+            username: 'KidTwo',
+            title: 'Kid Two',
+            email: 'kidtwo@example.com',
+            thumb: '',
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      if (target.startsWith('https://plex.tv/api/v2/resources')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in test: ${target}`);
+    };
+
+    try {
+      let res = await client.request('/auth/plex');
+      assert.equal(res.status, 200);
+
+      res = await client.postJson('/api/plex/pin', { pinId: '123456' }, '/login');
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+
+      res = await client.request('/oauth/callback');
+      assert.equal(res.status, 302);
+      assert.equal(res.location, '/auth/plex/home-users');
+
+      const selectionPage = await client.request('/auth/plex/home-users');
+      assert.equal(selectionPage.status, 200);
+      const csrfToken = extractCsrfToken(selectionPage.text);
+      assert.ok(csrfToken, 'Expected CSRF token on home user selector');
+      const cookieHeader = client.cookieHeader();
+      assert.ok(cookieHeader.includes('curatorr_session='), 'Expected session cookie before duplicate submit test');
+
+      const doSelect = async () => {
+        const response = await fetch(`${baseUrl}/auth/plex/home-users/select`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            cookie: cookieHeader,
+          },
+          body: new URLSearchParams({ _csrf: csrfToken, userId: 'home-kid-2' }),
+          redirect: 'manual',
+        });
+        const text = await response.text();
+        return {
+          status: response.status,
+          headers: response.headers,
+          text,
+          location: response.headers.get('location') || '',
+        };
+      };
+
+      const [firstSelect, secondSelect] = await Promise.all([doSelect(), doSelect()]);
+      client.ingestCookies(firstSelect);
+      client.ingestCookies(secondSelect);
+
+      assert.equal(firstSelect.status, 302);
+      assert.equal(secondSelect.status, 302);
+      assert.notEqual(firstSelect.location, '/login');
+      assert.equal(secondSelect.location, firstSelect.location);
+      assert.equal(secondSelect.headers.get('set-cookie'), null);
+
+      const postLoginRes = await client.request(firstSelect.location);
+      assert.notEqual(postLoginRes.location, '/login');
+      assert.doesNotMatch(postLoginRes.text, /Incorrect username or password/i);
     } finally {
       global.fetch = originalFetch;
     }

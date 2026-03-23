@@ -74,7 +74,7 @@
                           </label>
                           <span class="blend-card-score"><%= card.compatibilityScore === null || card.compatibilityScore === undefined ? 'N/A' : `${card.compatibilityScore}%` %></span>
                           <span class="blend-card-avatar">
-                            <% if (card.avatarUrl && /^https?:\/\//i.test(card.avatarUrl)) { %>
+                            <% if (card.avatarUrl) { %>
                               <img class="local-admin-preview__avatar" src="<%= card.avatarUrl %>" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
                               <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:none"><%= card.avatarLabel || 'P' %></span>
                             <% } else { %>

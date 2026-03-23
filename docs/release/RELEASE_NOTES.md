@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.31 (2026-03-23)
+
+- Fixed the Plex Home login flow again by preventing duplicate profile-selection submits from dropping users back to `/login` after choosing their home profile.
+- Fixed Blend and blended smart-playlist user avatars for normal Plex users, so non-admin sessions now resolve live Plex/Home profile images instead of falling back to initials only.
+- Simplified the smart-playlist tier filters by removing the redundant `All` option and tightening the tier-chip layout under the Artist Tier and Track Tier labels.
+
 ## v0.1.30 (2026-03-23)
 
 - Fixed a Plex Home login loop where some browsers would drop the cookie-backed session before profile selection completed, sending users back to `/login` after successful Plex authentication.
