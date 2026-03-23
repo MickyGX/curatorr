@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.29 (2026-03-23)
+
+- Added a new Blend page with a compatibility-ranked user carousel, playlist-style artwork cards, and live shared artist/track breakdowns for building blends around the current listener.
+- Added blended smart playlists, allowing playlists to be generated from two or more users instead of a single listener.
+- Added a Plex owner sign-in token fetch flow to the server setup wizard, so Plex tokens can be stored without manual copy/paste.
+- Fixed the user setup wizard so Plex-backed genre and artist selection bootstrap correctly even when the Plex token was skipped earlier in setup.
+- Fixed Plex playback finalisation so repeated plays of the same track are tracked as separate completed events instead of collapsing together.
+- Fixed Lidarr artist-list request error handling for abort/timeout cases and increased the request timeout for large libraries.
+
 ## v0.1.23 (2026-03-19)
 
 - Added Last.fm Neighbours station playlist — toggle alongside Recommended, Mix, and Library in User Profile.
