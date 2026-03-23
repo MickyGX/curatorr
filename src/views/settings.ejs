@@ -917,6 +917,43 @@
                 </div>
               </div>
 
+              <%# Blend %>
+              <% if ((blendableUsers || []).length > 1) { %>
+              <div class="gp-filter-section gp-blend-section">
+                <div class="gp-filter-label">
+                  Blend users
+                  <span class="gp-filter-hint">(combine multiple users' listening data)</span>
+                </div>
+                <div class="blend-slots" id="gp-blend-picker-rows"></div>
+                <button class="blend-add-btn" id="gp-blend-add-btn" type="button">+ Add user</button>
+                <div id="gp-blend-mode-wrap" style="display:none">
+                  <div class="gp-filter-label" style="margin-top:10px">Blend mode</div>
+                  <div class="gp-blend-modes">
+                    <label class="gp-blend-mode-option">
+                      <input type="radio" name="gp-blend-mode" value="average" checked />
+                      <span class="gp-blend-mode-name">Average</span>
+                      <span class="gp-blend-mode-desc">Average each user's artist scores and track ratings together. Tracks rise or fall based on combined opinion — a shared favourite scores higher, a polarising track lands in the middle.</span>
+                    </label>
+                    <label class="gp-blend-mode-option">
+                      <input type="radio" name="gp-blend-mode" value="intersection" />
+                      <span class="gp-blend-mode-name">Intersection</span>
+                      <span class="gp-blend-mode-desc">Only include tracks that <em>every</em> selected user qualifies individually. The safest choice for shared listening — nothing appears unless everyone would have included it.</span>
+                    </label>
+                    <label class="gp-blend-mode-option">
+                      <input type="radio" name="gp-blend-mode" value="union" />
+                      <span class="gp-blend-mode-name">Union</span>
+                      <span class="gp-blend-mode-desc">Include tracks that <em>any</em> selected user qualifies. The broadest result — a track only needs one fan to make the cut. Great for discovery across tastes.</span>
+                    </label>
+                    <label class="gp-blend-mode-option">
+                      <input type="radio" name="gp-blend-mode" value="veto" />
+                      <span class="gp-blend-mode-name">Veto</span>
+                      <span class="gp-blend-mode-desc">Start with the union (anything any user likes), then remove tracks that <em>any</em> user has skipped. Nobody gets music they hate, but everyone's favourites are still represented.</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <% } %>
+
               <%# Preview %>
               <div class="gp-preview-bar">
                 <div class="gp-preview-left">
@@ -967,6 +1004,9 @@
                   <% if (_tg.length) { %><span class="gp-rule-chip">Tags: <%= _tg.join(', ') %></span><% } %>
                   <% if (gp.rules?.topNPerArtist) { %><span class="gp-rule-chip">Top <%= gp.rules.topNPerArtist %>/artist</span><% } %>
                   <% if (gp.rules?.maxTracks) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracks %> tracks</span><% } %>
+                  <% if ((gp.rules?.blendUsers || []).length) { %>
+                  <span class="gp-rule-chip gp-rule-chip--blend">Blend (<%= gp.rules.blendMode || 'average' %>): <%= gp.rules.blendUsers.join(', ') %></span>
+                  <% } %>
                 </div>
               </div>
               <% }); %>
@@ -995,6 +1035,7 @@
                 document.querySelectorAll('.gp-mood-cb:checked').forEach(function(c) { moods.push(c.value); });
                 var tags = [];
                 document.querySelectorAll('.gp-tag-cb:checked').forEach(function(c) { tags.push(c.value); });
+                var blendModeEl = document.querySelector('input[name="gp-blend-mode"]:checked');
                 return {
                   artistTiers: artistTiers,
                   trackTiers: trackTiers,
@@ -1004,8 +1045,100 @@
                   topNPerArtist: document.getElementById('gp-top-n').value ? parseInt(document.getElementById('gp-top-n').value) : null,
                   maxTracks: document.getElementById('gp-max-tracks').value ? parseInt(document.getElementById('gp-max-tracks').value) : null,
                   sortBy: document.getElementById('gp-sort-by').value,
+                  blendUsers: window.gpGetBlendUsers ? window.gpGetBlendUsers() : [],
+                  blendMode: blendModeEl ? blendModeEl.value : 'average',
                 };
               }
+
+              // Show/hide blend mode selector and preview user dropdown based on blend slots
+              function updateBlendModeVisibility() {
+                var pickerRows = document.getElementById('gp-blend-picker-rows');
+                var anyRows = pickerRows && pickerRows.querySelectorAll('.blend-slot').length > 0;
+                var wrap = document.getElementById('gp-blend-mode-wrap');
+                if (wrap) wrap.style.display = anyRows ? '' : 'none';
+                var previewLeft = document.querySelector('.gp-preview-left');
+                if (previewLeft) previewLeft.style.display = anyRows ? 'none' : '';
+              }
+              document.querySelectorAll('input[name="gp-blend-mode"]').forEach(function(r) {
+                r.addEventListener('change', schedulePreview);
+              });
+
+              // Blend picker initialisation (if blend section exists)
+              (function() {
+                var GP_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatar || '' }; })) %>;
+                var slotsEl = document.getElementById('gp-blend-picker-rows');
+                var addBtn = document.getElementById('gp-blend-add-btn');
+                if (!slotsEl || !addBtn) return;
+
+                function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+                function avatarSrc(u) { return (u && u.avatar) || '/icons/user-profile.svg'; }
+
+                function buildOptionsList(selId) {
+                  return GP_BLEND_USERS.map(function(u) {
+                    return '<button class="blend-slot__option' + (u.id === selId ? ' is-active' : '') + '" type="button" data-uid="' + escH(u.id) + '">' +
+                      '<img class="blend-slot__opt-avatar" src="' + escH(avatarSrc(u)) + '" alt="" onerror="this.onerror=null;this.src=\'/icons/user-profile.svg\';" />' +
+                      '<span class="blend-slot__optname">' + escH(u.id) + '</span>' +
+                    '</button>';
+                  }).join('');
+                }
+
+                function gpCreateSlot(userId) {
+                  var user = GP_BLEND_USERS.find(function(u) { return u.id === userId; }) || { id: userId, avatar: '' };
+                  var slot = document.createElement('div');
+                  slot.className = 'blend-slot';
+                  slot.dataset.uid = userId;
+                  slot.innerHTML =
+                    '<details class="blend-slot__menu">' +
+                      '<summary class="blend-slot__summary">' +
+                        '<img class="blend-slot__avatar" src="' + escH(avatarSrc(user)) + '" alt="" onerror="this.onerror=null;this.src=\'/icons/user-profile.svg\';" />' +
+                        '<span class="blend-slot__name">' + escH(user.id) + '</span>' +
+                        '<span class="blend-slot__chev" aria-hidden="true"></span>' +
+                      '</summary>' +
+                      '<div class="blend-slot__list">' + buildOptionsList(userId) + '</div>' +
+                    '</details>' +
+                    '<button class="blend-slot__remove" type="button" aria-label="Remove">×</button>';
+                  var menu = slot.querySelector('.blend-slot__menu');
+                  slot.querySelectorAll('.blend-slot__option').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                      var uid = btn.dataset.uid;
+                      var chosen = GP_BLEND_USERS.find(function(u) { return u.id === uid; }) || { id: uid, avatar: '' };
+                      slot.dataset.uid = uid;
+                      slot.querySelector('.blend-slot__avatar').src = avatarSrc(chosen);
+                      slot.querySelector('.blend-slot__name').textContent = uid;
+                      slot.querySelectorAll('.blend-slot__option').forEach(function(b) { b.classList.toggle('is-active', b === btn); });
+                      menu.removeAttribute('open');
+                      updateBlendModeVisibility(); schedulePreview();
+                    });
+                  });
+                  slot.querySelector('.blend-slot__remove').addEventListener('click', function() {
+                    slot.remove();
+                    updateBlendModeVisibility(); schedulePreview();
+                  });
+                  document.addEventListener('click', function(e) { if (!slot.contains(e.target)) menu.removeAttribute('open'); });
+                  return slot;
+                }
+
+                window.gpGetBlendUsers = function() {
+                  return Array.from(slotsEl.querySelectorAll('.blend-slot')).map(function(s) { return s.dataset.uid; });
+                };
+
+                window.gpSetBlendUsers = function(userIds, mode) {
+                  slotsEl.innerHTML = '';
+                  (userIds || []).forEach(function(uid) { slotsEl.appendChild(gpCreateSlot(uid)); });
+                  if (mode) {
+                    var radio = document.querySelector('input[name="gp-blend-mode"][value="' + mode + '"]');
+                    if (radio) radio.checked = true;
+                  }
+                  updateBlendModeVisibility();
+                };
+
+                addBtn.addEventListener('click', function() {
+                  var first = GP_BLEND_USERS[0];
+                  if (first) { slotsEl.appendChild(gpCreateSlot(first.id)); updateBlendModeVisibility(); schedulePreview(); }
+                });
+
+                updateBlendModeVisibility();
+              })();
 
               function runPreview() {
                 var rules = getBuilderRules();
@@ -1114,6 +1247,7 @@
                   if (empty) empty.remove();
                   var at = (d.playlist.rules?.artistTiers || []); var tt = (d.playlist.rules?.trackTiers || []);
                   var gr = (d.playlist.rules?.genres || []); var mo = (d.playlist.rules?.moods || []); var tg = (d.playlist.rules?.tags || []);
+                  var bu = (d.playlist.rules?.blendUsers || []); var bm = d.playlist.rules?.blendMode || 'average';
                   var card = document.createElement('div');
                   card.className = 'settings-card gp-card'; card.dataset.gpId = d.playlist.id;
                   card.innerHTML = '<div class="gp-card-header"><span class="settings-card-title gp-card-name">' + d.playlist.name + '</span>'
@@ -1126,6 +1260,7 @@
                     + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
                     + (d.playlist.rules?.topNPerArtist ? '<span class="gp-rule-chip">Top ' + d.playlist.rules.topNPerArtist + '/artist</span>' : '')
                     + (d.playlist.rules?.maxTracks ? '<span class="gp-rule-chip">Max ' + d.playlist.rules.maxTracks + ' tracks</span>' : '')
+                    + (bu.length ? '<span class="gp-rule-chip gp-rule-chip--blend">Blend (' + bm + '): ' + bu.join(', ') + '</span>' : '')
                     + '</div>';
                   document.getElementById('gp-list').appendChild(card);
                   card.querySelector('.gp-delete-btn').addEventListener('click', function() {

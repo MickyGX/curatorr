@@ -63,3 +63,7 @@ config/config.quickstart-backup.json
 launcharr-test-build.tar
 config-temp/
 data-temp/
+config-test/
+data-test/
+config-test.bak-*/
+data-test.bak-*/

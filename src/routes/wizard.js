@@ -111,6 +111,86 @@ async function resolveWizardMachineId(ctx, url, token, machineId = '') {
   return resolvedMachineId;
 }
 
+async function bootstrapPlexWizardSetup(ctx, req) {
+  const {
+    db,
+    loadConfig,
+    saveConfig,
+    resolveUserPlexServerToken,
+    fetchPlexMusicLibraries,
+    pushLog,
+    safeMessage,
+  } = ctx;
+  const config = loadConfig();
+  const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+  if (msType !== 'plex') return false;
+
+  const plexCfg = config?.plex || {};
+  const plexUrl = String(plexCfg.url || plexCfg.localUrl || plexCfg.remoteUrl || '').trim();
+  if (!plexUrl) return false;
+
+  const sessionUser = req.session?.user || null;
+  const sessionToken = String(req.session?.plexServerToken || '').trim();
+  const plexToken = String(
+    resolveUserPlexServerToken(config, sessionUser || '', sessionToken)
+    || plexCfg.token
+    || sessionToken
+  ).trim();
+  if (!plexToken) return false;
+
+  let nextPlex = { ...plexCfg };
+  let changed = false;
+
+  if (String(sessionUser?.role || '').trim().toLowerCase() === 'admin' && plexToken !== String(nextPlex.token || '').trim()) {
+    nextPlex.token = plexToken;
+    changed = true;
+  }
+
+  const machineId = await resolveWizardMachineId(ctx, plexUrl, plexToken, nextPlex.machineId || '');
+  if (machineId && machineId !== String(nextPlex.machineId || '').trim()) {
+    nextPlex.machineId = machineId;
+    changed = true;
+  }
+
+  const hasAvailableLibraries = Array.isArray(nextPlex.availableLibraries) && nextPlex.availableLibraries.length > 0;
+  const hasSelectedLibraries = Array.isArray(nextPlex.libraries) && nextPlex.libraries.length > 0;
+
+  if (!hasAvailableLibraries || !hasSelectedLibraries) {
+    try {
+      const libraries = await fetchPlexMusicLibraries(plexUrl, plexToken);
+      if (libraries.length) {
+        nextPlex.availableLibraries = libraries;
+        changed = true;
+
+        if (!hasSelectedLibraries) {
+          nextPlex.libraries = libraries.map((lib) => String(lib.key || '')).filter(Boolean);
+          changed = true;
+          pushLog({
+            level: 'info',
+            app: 'wizard',
+            action: 'plex.libraries.auto-selected',
+            message: 'Auto-selected ' + nextPlex.libraries.length + ' Plex music librar' + (nextPlex.libraries.length === 1 ? 'y' : 'ies') + ' after first Plex login.',
+          });
+        }
+      }
+    } catch (err) {
+      pushLog({
+        level: 'warn',
+        app: 'wizard',
+        action: 'plex.libraries.bootstrap.error',
+        message: 'Could not finish Plex library setup from the user wizard: ' + safeMessage(err),
+      });
+    }
+  }
+
+  if (changed) saveConfig({ ...config, plex: nextPlex });
+
+  if (Array.isArray(nextPlex.libraries) && nextPlex.libraries.length > 0 && getMasterTrackCount(db) === 0) {
+    await refreshMasterTrackCache(ctx).catch(() => {});
+  }
+
+  return changed;
+}
 async function buildWizardPlaylistPayload(ctx, userId, ignoredArtists = [], likedArtists = []) {
   const { db, pushLog } = ctx;
   let masterTracks = getMasterTracks(db);
@@ -489,13 +569,32 @@ export function registerWizard(app, ctx) {
     db,
   } = ctx;
 
+  function consumeServerWizardNotice(req) {
+    const notice = req.session?.serverWizardNotice || null;
+    if (req.session) delete req.session.serverWizardNotice;
+    return notice && typeof notice === 'object' ? notice : null;
+  }
+
   // ── Server wizard entry ───────────────────────────────────────────────────
 
   app.get('/wizard', (req, res) => {
     const config = loadConfig();
     if (config.wizard?.completed) return res.redirect('/dashboard');
     const hasAdminAccount = resolveLocalUsers(config).length > 0;
-    return renderServerWizard(res, config, hasAdminAccount ? 2 : 1, null);
+    const minimumStep = hasAdminAccount ? 2 : 1;
+    const maximumStep = resolveServerSteps(config);
+    const requestedStep = Math.round(Number(req.query?.step || minimumStep));
+    const step = Number.isFinite(requestedStep)
+      ? Math.max(minimumStep, Math.min(maximumStep, requestedStep))
+      : minimumStep;
+    const notice = consumeServerWizardNotice(req);
+    return renderServerWizard(
+      res,
+      config,
+      step,
+      notice?.type === 'error' ? notice.message : null,
+      notice?.type === 'info' ? notice.message : null,
+    );
   });
 
   // ── Server Step 1: Create admin account ───────────────────────────────────
@@ -554,12 +653,8 @@ export function registerWizard(app, ctx) {
       const token = String(req.body?.plexToken || '').trim() || String(config.plex?.token || '').trim();
       if (!url) return renderServerWizard(res, configWithType, 2, 'Plex server URL is required.');
 
-      // Token is optional — auto-filled when the owner signs in with Plex.
       if (!token) {
-        const updated = { ...configWithType, plex: { ...config.plex, url } };
-        saveConfig(updated);
-        pushLog({ level: 'info', app: 'wizard', action: 'plex.url-saved', message: `Plex URL saved (token pending first Plex login): ${url}` });
-        return renderServerWizard(res, updated, 4, null);
+        return renderServerWizard(res, configWithType, 2, 'Enter a Plex token or use Fetch from Plex to sign in and save it automatically.');
       }
 
       let libraries = [];
@@ -649,6 +744,32 @@ export function registerWizard(app, ctx) {
     return renderServerWizard(res, updated, 3, null);
   });
 
+  app.post('/wizard/plex/fetch-token', (req, res) => {
+    const config = loadConfig();
+    const url = normalizeBaseUrl(String(req.body?.plexUrl || '').trim());
+    if (!url) return renderServerWizard(res, { ...config, mediaServer: { ...config.mediaServer, type: 'plex' } }, 2, 'Plex server URL is required.');
+
+    const currentUrl = normalizeBaseUrl(String(config?.plex?.url || '').trim());
+    const urlChanged = url !== currentUrl;
+    const updated = {
+      ...config,
+      mediaServer: { ...config.mediaServer, type: 'plex' },
+      plex: {
+        ...config.plex,
+        url,
+        ...(urlChanged ? {
+          token: '',
+          machineId: '',
+          libraries: [],
+          availableLibraries: [],
+        } : {}),
+      },
+    };
+    saveConfig(updated);
+    pushLog({ level: 'info', app: 'wizard', action: 'plex.token-fetch.start', message: `Starting Plex owner login to fetch a server token for ${url}` });
+    return res.redirect(`/auth/plex?purpose=wizard-server-token&next=${encodeURIComponent('/wizard?step=3')}`);
+  });
+
   // Note: /wizard/plex is removed — wizard.ejs Step 2 now POSTs to /wizard/media-server.
 
   // ── Server Step 3: Select libraries ───────────────────────────────────────
@@ -668,6 +789,17 @@ export function registerWizard(app, ctx) {
     const nextStep = type === 'plex' ? 4 : 5;
     const updated = { ...config, [type]: { ...serverCfg, libraries: valid } };
     saveConfig(updated);
+    if (type === 'plex') {
+      const plexUrl = normalizeBaseUrl(String(updated?.plex?.url || '').trim());
+      const plexToken = String(updated?.plex?.token || '').trim();
+      if (plexUrl && plexToken) {
+        configurePlexWebhook(plexUrl, plexToken, ctx, req)
+          .then((result) => {
+            if (!result?.ok) pushLog({ level: 'warn', app: 'wizard', action: 'plex.webhook.auto-register', message: `Plex webhook auto-registration skipped: ${result?.reason || 'unknown'}` });
+          })
+          .catch((err) => pushLog({ level: 'warn', app: 'wizard', action: 'plex.webhook.auto-register', message: `Plex webhook auto-registration failed: ${safeMessage(err)}` }));
+      }
+    }
     return renderServerWizard(res, updated, nextStep, null);
   });
 
@@ -765,6 +897,9 @@ export function registerWizard(app, ctx) {
     const config = loadConfig();
     if (!config.wizard?.completed) return res.redirect('/wizard');
     req.session.userWizard = resolveWizardState(req, db, loadConfig);
+    if (getMasterTrackCount(db) === 0) {
+      await bootstrapPlexWizardSetup(ctx, req).catch(() => {});
+    }
     let genres = getGenresFromMaster(db);
     if (!genres.length && getMasterTrackCount(db) === 0) {
       await refreshMasterTrackCache(ctx).catch(() => {});
@@ -1026,7 +1161,7 @@ function sanitizeWizardConfig(config) {
   };
 }
 
-function renderServerWizard(res, config, step, error) {
+function renderServerWizard(res, config, step, error, info = null) {
   return res.render('wizard', {
     title: 'Curatorr Setup',
     wizardType: 'server',
@@ -1035,6 +1170,7 @@ function renderServerWizard(res, config, step, error) {
     totalSteps: resolveServerSteps(config),
     config: sanitizeWizardConfig(config),
     error,
+    info,
     extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
   });
 }

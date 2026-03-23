@@ -19,6 +19,9 @@
       <% if (error) { %>
         <div class="wizard-error"><%= error %></div>
       <% } %>
+      <% if (info) { %>
+        <div class="wizard-info-banner"><%= info %></div>
+      <% } %>
 
       <%# ── Step 1: Create admin account ────────────────────────────────────── %>
       <% if (step === 1) { %>
@@ -84,9 +87,9 @@
                 <input class="wizard-input" type="url" id="plexUrl" name="plexUrl" value="<%= config.plex?.url || '' %>" placeholder="http://192.168.1.x:32400" />
               </div>
               <div class="wizard-field">
-                <label class="wizard-label" for="plexToken">Plex token <span class="wizard-optional">optional</span></label>
-                <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Leave blank — auto-filled on first Plex login' %>" />
-                <div class="wizard-hint">You can leave this blank and sign in with Plex on the last step — the token will be set automatically.</div>
+                <label class="wizard-label" for="plexToken">Plex token</label>
+                <input class="wizard-input" type="text" id="plexToken" name="plexToken" value="" placeholder="<%= config.plex?.tokenSet ? '(saved — leave blank to keep)' : 'Paste a Plex server token or fetch one below' %>" />
+                <div class="wizard-hint">Recommended: use Fetch from Plex to sign in as the server owner and save the token automatically.</div>
               </div>
             </div>
 
@@ -131,6 +134,15 @@
               <input type="hidden" name="step" value="2" />
               <button type="submit" class="btn btn-ghost">← Back</button>
             </form>
+            <button
+              type="submit"
+              form="wsf2"
+              formaction="/wizard/plex/fetch-token"
+              class="btn btn-secondary"
+              id="plex-fetch-token-btn"
+              <%= msType === 'plex' ? '' : 'hidden' %>>
+              Fetch from Plex →
+            </button>
             <button type="submit" form="wsf2" class="btn btn-primary">Connect &amp; continue →</button>
           </div>
         </div>
@@ -288,6 +300,7 @@
     (function () {
       var radios = document.querySelectorAll('input[name="mediaServerType"]');
       if (!radios.length) return;
+      var plexFetchButton = document.getElementById('plex-fetch-token-btn');
       function showPanel(type) {
         document.querySelectorAll('.ms-fields').forEach(function (el) {
           el.classList.add('ms-fields--hidden');
@@ -299,6 +312,7 @@
           panel.classList.remove('ms-fields--hidden');
           panel.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = false; });
         }
+        if (plexFetchButton) plexFetchButton.hidden = type !== 'plex';
         var activeLabel = document.querySelector('.wizard-radio-item input[value="' + type + '"]');
         if (activeLabel) activeLabel.closest('.wizard-radio-item').classList.add('wizard-radio-item--active');
       }

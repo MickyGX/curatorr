@@ -28,6 +28,10 @@
   <img class="nav-icon" src="/icons/category.svg" alt="" />
   <span class="nav-label">Playlists</span>
 </a>
+<a class="nav-item<%= _navActivePage === 'blend' ? ' active' : '' %>" href="/blend">
+  <img class="nav-icon" src="/icons/blend.svg" alt="" />
+  <span class="nav-label">Blend</span>
+</a>
 <% if (_navActualRole === 'admin') { %>
 <a class="nav-item<%= _navActivePage === 'admin-users' ? ' active' : '' %>" href="/admin/users">
   <img class="nav-icon" src="/icons/user-profile.svg" alt="" />

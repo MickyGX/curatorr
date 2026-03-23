@@ -2363,16 +2363,8 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
   const topN = rules?.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules?.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
 
-  function runForUser(uid) {
-    const artistMap = new Map(
-      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(uid)
-        .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
-    );
-    const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
-        .map((r) => [r.plex_rating_key, r]),
-    );
-
+  // Returns { artistCount, trackCount } for a given pre-built artistMap + trackMap
+  function runWithMaps(artistMap, trackMap) {
     const byArtist = new Map();
     for (const t of masterTracks) {
       const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
@@ -2392,7 +2384,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
       }
 
       if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
-      byArtist.get(t.artistName).push({ rc: t.ratingCount || 0, tw: stat?.tier_weight || 0 });
+      byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, tw: stat?.tier_weight || 0 });
     }
 
     let totalTracks = 0;
@@ -2403,6 +2395,109 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
     return { artistCount: byArtist.size, trackCount: totalTracks };
   }
 
+  // Returns the Set of qualifying ratingKeys for a single user (used by blend set ops)
+  function runKeysForUser(uid) {
+    const artistMap = new Map(
+      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(uid)
+        .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
+    );
+    const trackMap = new Map(
+      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
+        .map((r) => [r.plex_rating_key, r]),
+    );
+    const keys = new Set();
+    for (const t of masterTracks) {
+      const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
+      if (artistTierFilter && !artistTierFilter.has(classifyArtist(score))) continue;
+      const stat = trackMap.get(t.ratingKey);
+      const rawTier = stat?.tier || 'curatorr';
+      const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
+      if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
+      if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
+      if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
+      if (tagFilter) {
+        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+        if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
+      }
+      keys.add(t.ratingKey);
+    }
+    return keys;
+  }
+
+  function runForUser(uid) {
+    const artistMap = new Map(
+      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(uid)
+        .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
+    );
+    const trackMap = new Map(
+      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
+        .map((r) => [r.plex_rating_key, r]),
+    );
+    return runWithMaps(artistMap, trackMap);
+  }
+
+  // ── Blend preview ──────────────────────────────────────────────────────────
+  const blendUsers = Array.isArray(rules?.blendUsers) && rules.blendUsers.length ? rules.blendUsers : null;
+  const blendMode  = blendUsers ? (rules?.blendMode || 'average') : null;
+
+  if (blendMode === 'average') {
+    const artistGroups = new Map();
+    const trackGroups  = new Map();
+    for (const uid of blendUsers) {
+      db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(uid)
+        .forEach((r) => {
+          const key = r.artist_name.toLowerCase();
+          if (!artistGroups.has(key)) artistGroups.set(key, []);
+          artistGroups.get(key).push(r.ranking_score);
+        });
+      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
+        .forEach((r) => {
+          if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, { weights: [], tiers: [] });
+          const d = trackGroups.get(r.plex_rating_key);
+          d.weights.push(r.tier_weight || 0);
+          d.tiers.push(r.tier || 'curatorr');
+        });
+    }
+    const avgArtistMap = new Map();
+    for (const [name, scores] of artistGroups) {
+      avgArtistMap.set(name, scores.reduce((a, b) => a + b, 0) / scores.length);
+    }
+    const avgTrackMap = new Map();
+    for (const [key, data] of trackGroups) {
+      const tierCounts = {};
+      for (const t of data.tiers) tierCounts[t] = (tierCounts[t] || 0) + 1;
+      const tier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
+      avgTrackMap.set(key, { tier, tier_weight: data.weights.reduce((a, b) => a + b, 0) / data.weights.length });
+    }
+    return { forUser: runWithMaps(avgArtistMap, avgTrackMap), average: null };
+  }
+
+  if (blendMode === 'intersection' || blendMode === 'union' || blendMode === 'veto') {
+    const perUserSets = blendUsers.map(runKeysForUser);
+    let resultKeys;
+    if (blendMode === 'intersection') {
+      if (!perUserSets.length) return { forUser: { artistCount: 0, trackCount: 0 }, average: null };
+      const [first, ...rest] = perUserSets;
+      resultKeys = new Set([...first].filter((k) => rest.every((s) => s.has(k))));
+    } else {
+      resultKeys = new Set();
+      for (const s of perUserSets) for (const k of s) resultKeys.add(k);
+      if (blendMode === 'veto') {
+        for (const uid of blendUsers) {
+          db.prepare("SELECT plex_rating_key FROM track_stats WHERE user_plex_id = ? AND tier = 'skip'").all(uid)
+            .forEach((r) => resultKeys.delete(r.plex_rating_key));
+        }
+      }
+    }
+    // Count distinct artists from the result key set
+    const artistSet = new Set(
+      masterTracks.filter((t) => resultKeys.has(t.ratingKey)).map((t) => t.artistName),
+    );
+    const trackCount = maxT ? Math.min(resultKeys.size, maxT) : resultKeys.size;
+    return { forUser: { artistCount: artistSet.size, trackCount }, average: null };
+  }
+
+  // ── Standard single-user or all-users average ──────────────────────────────
   if (userIdFilter) {
     return { forUser: runForUser(userIdFilter), average: null };
   }

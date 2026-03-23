@@ -601,14 +601,60 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
 // ─── Shared rule-based playlist filtering ────────────────────────────────────
 // Used by both Plex and Jellyfin paths for global/personal playlist rule eval.
 
-function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
-  const masterTracks = getMasterTracks(db);
-  if (!masterTracks.length) return [];
+function _getUserStatMaps(db, userId) {
+  const artistMap = new Map(
+    db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId)
+      .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
+  );
+  const trackMap = new Map(
+    db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(userId)
+      .map((r) => [r.plex_rating_key, r]),
+  );
+  return { artistMap, trackMap };
+}
 
+// Blend — average: aggregate numeric scores across all blend users.
+// Artist score = mean ranking_score; track tier = majority vote; tier_weight = mean.
+function _buildAverageStatMaps(db, userIds) {
+  const artistGroups = new Map();
+  const trackGroups  = new Map();
+  for (const uid of userIds) {
+    db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(uid)
+      .forEach((r) => {
+        const key = r.artist_name.toLowerCase();
+        if (!artistGroups.has(key)) artistGroups.set(key, []);
+        artistGroups.get(key).push(r.ranking_score);
+      });
+    db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
+      .forEach((r) => {
+        if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, { weights: [], tiers: [], playCounts: [] });
+        const d = trackGroups.get(r.plex_rating_key);
+        d.weights.push(r.tier_weight || 0);
+        d.tiers.push(r.tier || 'curatorr');
+        d.playCounts.push(r.play_count || 0);
+      });
+  }
+  const artistMap = new Map();
+  for (const [name, scores] of artistGroups) {
+    artistMap.set(name, scores.reduce((a, b) => a + b, 0) / scores.length);
+  }
+  const trackMap = new Map();
+  for (const [key, data] of trackGroups) {
+    const avgWeight    = data.weights.reduce((a, b) => a + b, 0) / data.weights.length;
+    const avgPlayCount = Math.round(data.playCounts.reduce((a, b) => a + b, 0) / data.playCounts.length);
+    const tierCounts   = {};
+    for (const t of data.tiers) tierCounts[t] = (tierCounts[t] || 0) + 1;
+    const tier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
+    trackMap.set(key, { tier, tier_weight: avgWeight, play_count: avgPlayCount });
+  }
+  return { artistMap, trackMap };
+}
+
+// Core filter: given pre-built artist/track maps, apply all rules and return rating keys.
+function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config) {
   const smartSettings = config.smartPlaylist || {};
   const skipRank   = Number(smartSettings.artistSkipRank   ?? 2);
   const belterRank = Number(smartSettings.artistBelterRank ?? 8);
-  const rules = playlistDef.rules || {};
 
   function classifyArtist(score) {
     if (score === null || score === undefined) return 'unranked';
@@ -617,15 +663,6 @@ function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
     if (score > skipRank) return 'halfDecent';
     return 'skip';
   }
-
-  const artistMap = new Map(
-    db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId)
-      .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
-  );
-  const trackMap = new Map(
-    db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(userId)
-      .map((r) => [r.plex_rating_key, r]),
-  );
 
   const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
   const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
@@ -667,10 +704,52 @@ function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
       return (b.rc - a.rc) || (b.tw - a.tw);
     });
     const selected = topN ? sorted.slice(0, topN) : sorted;
-    ratingKeys.push(...selected.map((t) => t.ratingKey));
+    ratingKeys.push(...selected.map((track) => track.ratingKey));
   }
   if (maxT) ratingKeys = ratingKeys.slice(0, maxT);
   return ratingKeys;
+}
+
+function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
+  const masterTracks = getMasterTracks(db);
+  if (!masterTracks.length) return [];
+
+  const rules      = playlistDef.rules || {};
+  const blendUsers = Array.isArray(rules.blendUsers) && rules.blendUsers.length ? rules.blendUsers : null;
+  const blendMode  = blendUsers ? (rules.blendMode || 'average') : null;
+
+  if (blendMode === 'intersection' || blendMode === 'union' || blendMode === 'veto') {
+    const perUserSets = blendUsers.map((uid) => {
+      const { artistMap, trackMap } = _getUserStatMaps(db, uid);
+      return new Set(_applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config));
+    });
+
+    if (blendMode === 'intersection') {
+      if (!perUserSets.length) return [];
+      const [first, ...rest] = perUserSets;
+      return [...first].filter((k) => rest.every((s) => s.has(k)));
+    }
+
+    // union and veto both start with the full union
+    const result = new Set();
+    for (const s of perUserSets) for (const k of s) result.add(k);
+    if (blendMode === 'union') return [...result];
+
+    // veto: remove any track that ANY blend user has explicitly skipped
+    const skipKeys = new Set(
+      blendUsers.flatMap((uid) =>
+        db.prepare("SELECT plex_rating_key FROM track_stats WHERE user_plex_id = ? AND tier = 'skip'").all(uid)
+          .map((r) => r.plex_rating_key),
+      ),
+    );
+    return [...result].filter((k) => !skipKeys.has(k));
+  }
+
+  // average blend or standard single-user
+  const { artistMap, trackMap } = (blendMode === 'average' && blendUsers)
+    ? _buildAverageStatMaps(db, blendUsers)
+    : _getUserStatMaps(db, userId);
+  return _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config);
 }
 
 // ─── Full crescive / curative sync ───────────────────────────────────────────
@@ -941,6 +1020,9 @@ export function createPlaylistService(ctx) {
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     // Jellyfin/Emby: use the generic adapter path
     if (msType === 'jellyfin' || msType === 'emby') return syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType);
+    // Blend playlists only sync for users listed in blendUsers
+    const blendUsersList = Array.isArray(playlistDef.rules?.blendUsers) ? playlistDef.rules.blendUsers : null;
+    if (blendUsersList?.length && !blendUsersList.includes(userId)) return;
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
     const { url, machineId: storedMid = '' } = config.plex || {};
     const token = ctx.resolveUserPlexServerToken(config, userId);
@@ -980,6 +1062,9 @@ export function createPlaylistService(ctx) {
   }
 
   async function syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType) {
+    // Blend playlists only sync for users listed in blendUsers
+    const blendUsersList = Array.isArray(playlistDef.rules?.blendUsers) ? playlistDef.rules.blendUsers : null;
+    if (blendUsersList?.length && !blendUsersList.includes(userId)) return;
     const { getAdapter } = await import('./media-servers/index.js');
     const adapter = getAdapter(msType);
     const { url, apiKey } = config[msType] || {};

@@ -385,6 +385,21 @@ export function registerSettings(app, ctx) {
       lastfmRegionOptions: buildLastfmRegionOptions(renderedConfig.discovery?.region || DEFAULT_LASTFM_REGION),
       globalPlaylists: config.globalPlaylists || [],
       allUserIds: (() => { try { return db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats').all().map((r) => r.user_plex_id); } catch { return []; } })(),
+      blendableUsers: (() => {
+        try {
+          const cfg = loadConfig();
+          const laMap = new Map(
+            resolveLocalUsers(cfg)
+              .filter((u) => u.username && u.avatar)
+              .map((u) => [u.username.toLowerCase(), normalizeStoredAvatarPath(u.avatar)]),
+          );
+          return db.prepare(
+            'SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, \'\')) != \'\' ORDER BY user_plex_id COLLATE NOCASE',
+          ).all()
+            .map((r) => String(r.user_plex_id || '').trim()).filter(Boolean)
+            .map((id) => ({ id, avatar: laMap.get(id.toLowerCase()) || '' }));
+        } catch { return []; }
+      })(),
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
@@ -1235,6 +1250,8 @@ export function registerSettings(app, ctx) {
   app.post('/api/playlists/global', requireAdmin, (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
+    const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {
       artistTiers: Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
       trackTiers:  Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
@@ -1244,6 +1261,8 @@ export function registerSettings(app, ctx) {
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy: String(req.body?.sortBy || 'ratingCount'),
+      blendUsers,
+      blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
     };
     const entry = { id: makeGlobalPlaylistId(), name, rules, enabled: true, createdAt: Date.now() };
     const config = loadConfig();
@@ -1251,12 +1270,12 @@ export function registerSettings(app, ctx) {
     saveConfig({ ...config, globalPlaylists: playlists });
     pushLog({ level: 'info', app: 'playlist', action: 'global.create', message: `Global playlist created: ${name}` });
     res.json({ ok: true, playlist: entry });
-    // Sync immediately in background for all users so new playlist appears in Plex without waiting for the next job run
+    // Sync immediately in background. Blend playlists only go to blend users; regular to all.
     setImmediate(async () => {
-      const userIds = getAllUserIds(db);
-      for (const userId of userIds) {
-        const prefs = getUserPreferences(db, userId);
-        if (!prefs.userWizardCompleted) continue;
+      const syncIds = blendUsers.length
+        ? blendUsers
+        : getAllUserIds(db).filter((uid) => getUserPreferences(db, uid).userWizardCompleted);
+      for (const userId of syncIds) {
         await playlistService?.syncGlobalPlaylist(userId, entry).catch(() => {});
       }
     });
@@ -1270,6 +1289,10 @@ export function registerSettings(app, ctx) {
     const idx = playlists.findIndex((p) => p.id === id);
     if (idx === -1) return res.status(404).json({ error: 'Not found' });
     const existing = playlists[idx];
+    const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
+    const updBlendUsers = req.body?.blendUsers !== undefined
+      ? (Array.isArray(req.body.blendUsers) ? req.body.blendUsers.filter(Boolean) : [])
+      : (existing.rules?.blendUsers || []);
     const updated = {
       ...existing,
       name: req.body?.name !== undefined ? String(req.body.name).trim() || existing.name : existing.name,
@@ -1283,6 +1306,10 @@ export function registerSettings(app, ctx) {
         topNPerArtist: req.body?.topNPerArtist !== undefined ? (req.body.topNPerArtist ? Number(req.body.topNPerArtist) : null) : existing.rules?.topNPerArtist,
         maxTracks:     req.body?.maxTracks     !== undefined ? (req.body.maxTracks     ? Number(req.body.maxTracks)     : null) : existing.rules?.maxTracks,
         sortBy: req.body?.sortBy !== undefined ? String(req.body.sortBy) : existing.rules?.sortBy || 'ratingCount',
+        blendUsers: updBlendUsers,
+        blendMode: req.body?.blendMode !== undefined
+          ? (BLEND_MODES.includes(req.body.blendMode) ? req.body.blendMode : 'average')
+          : (existing.rules?.blendMode || 'average'),
       },
       updatedAt: Date.now(),
     };

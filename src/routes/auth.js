@@ -145,6 +145,133 @@ function consumePostLoginRedirect(req, fallback = '/dashboard') {
   }
 }
 
+function serializePendingPlexHomeUsers(homeUsers) {
+  if (!Array.isArray(homeUsers)) return [];
+  return homeUsers
+    .map((user) => {
+      const id = String(user?.uuid || user?.id || '').trim();
+      if (!id) return null;
+      return {
+        id,
+        title: String(user?.title || user?.username || 'User').trim() || 'User',
+        protected: Boolean(user?.protected),
+        admin: Boolean(user?.admin),
+      };
+    })
+    .filter(Boolean);
+}
+
+export async function completePlexWizardTokenFetch(ctx, req, authToken) {
+  const {
+    loadConfig,
+    saveConfig,
+    fetchPlexResources,
+    resolvePlexServerToken,
+    resolvePlexMachineIdentifier,
+    fetchPlexMusicLibraries,
+    pushLog,
+    safeMessage,
+  } = ctx;
+
+  const config = loadConfig();
+  const plexCfg = (config?.plex && typeof config.plex === 'object') ? config.plex : {};
+  const plexUrl = String(plexCfg.url || plexCfg.localUrl || plexCfg.remoteUrl || '').trim();
+  if (!plexUrl) {
+    return { ok: false, step: 2, message: 'Set your Plex server URL first, then fetch the token again.' };
+  }
+
+  try {
+    const lookup = { machineId: plexCfg.machineId || '', plexUrl };
+    const resources = await fetchPlexResources(authToken);
+    const machineId = resolvePlexMachineIdentifier(resources, lookup) || String(plexCfg.machineId || '').trim();
+    const serverToken = String(
+      resolvePlexServerToken(resources, { machineId, plexUrl })
+      || plexCfg.token
+      || ''
+    ).trim();
+
+    if (!serverToken) {
+      return {
+        ok: false,
+        step: 2,
+        message: 'Could not resolve a Plex server token for this server. Sign in with the Plex server owner account.',
+      };
+    }
+
+    let libraries = [];
+    try {
+      libraries = await fetchPlexMusicLibraries(plexUrl, serverToken);
+    } catch (err) {
+      saveConfig({
+        ...config,
+        mediaServer: { ...config.mediaServer, type: 'plex' },
+        plex: {
+          ...plexCfg,
+          url: plexUrl,
+          token: serverToken,
+          machineId,
+        },
+      });
+      pushLog({
+        level: 'warn',
+        app: 'wizard',
+        action: 'plex.token-fetch.libraries.error',
+        message: 'Plex token saved, but libraries could not be fetched: ' + safeMessage(err),
+      });
+      return {
+        ok: false,
+        step: 2,
+        message: 'Plex token saved, but Curatorr could not fetch your music libraries yet. Check the server URL and try again.',
+      };
+    }
+
+    saveConfig({
+      ...config,
+      mediaServer: { ...config.mediaServer, type: 'plex' },
+      plex: {
+        ...plexCfg,
+        url: plexUrl,
+        token: serverToken,
+        machineId,
+        availableLibraries: libraries,
+      },
+    });
+
+    if (!libraries.length) {
+      return {
+        ok: false,
+        step: 2,
+        message: 'Plex token saved, but no music libraries were found. Add a music library in Plex first.',
+      };
+    }
+
+    req.session.plexServerToken = serverToken;
+    pushLog({
+      level: 'info',
+      app: 'wizard',
+      action: 'plex.token-fetch.success',
+      message: 'Plex token fetched from owner login and saved for the setup wizard.',
+    });
+    return {
+      ok: true,
+      step: 3,
+      message: 'Plex connected. Token saved. Select the music libraries Curatorr should use.',
+    };
+  } catch (err) {
+    pushLog({
+      level: 'error',
+      app: 'wizard',
+      action: 'plex.token-fetch.error',
+      message: safeMessage(err),
+    });
+    return {
+      ok: false,
+      step: 2,
+      message: 'Could not fetch a Plex token: ' + safeMessage(err),
+    };
+  }
+}
+
 export function registerAuth(app, ctx) {
   const {
     loadConfig,
@@ -163,7 +290,11 @@ export function registerAuth(app, ctx) {
     exchangePin,
     completePlexLogin,
     fetchPlexHomeUsers,
+    fetchPlexResources,
+    fetchPlexMusicLibraries,
     switchPlexHomeUser,
+    resolvePlexServerToken,
+    resolvePlexMachineIdentifier,
     safeMessage,
     PRODUCT,
     PLATFORM,
@@ -375,6 +506,8 @@ export function registerAuth(app, ctx) {
   app.get('/auth/plex', async (req, res) => {
     try {
       const popupRequested = String(req.query?.popup || '').trim() === '1';
+      const authPurpose = String(req.query?.purpose || '').trim().toLowerCase();
+      if (req.query?.next) setPostLoginRedirect(req, req.query.next);
       // Always use the request's actual Host header for the callback URL so the
       // forwardUrl matches the origin the browser is accessing from.  This keeps
       // the session cookie in scope when Plex redirects back.  Fall back to the
@@ -390,6 +523,7 @@ export function registerAuth(app, ctx) {
         req.session.pinIssuedAt = null; // reset any stale pin from a previous flow
         req.session.pinId = null;
         req.session.plexAuthMode = popupRequested ? 'popup' : 'redirect';
+        req.session.plexAuthPurpose = authPurpose;
       }
       pushLog({
         level: 'info',
@@ -484,6 +618,32 @@ export function registerAuth(app, ctx) {
         return res.status(401).send('Plex login not completed. Try again.');
       }
 
+      const authPurpose = String(req.session?.plexAuthPurpose || '').trim().toLowerCase();
+      if (authPurpose === 'wizard-server-token') {
+        const result = await completePlexWizardTokenFetch({
+          loadConfig,
+          saveConfig,
+          fetchPlexResources,
+          resolvePlexServerToken,
+          resolvePlexMachineIdentifier,
+          fetchPlexMusicLibraries,
+          pushLog,
+          safeMessage,
+        }, req, authToken);
+        if (req.session) {
+          req.session.serverWizardNotice = {
+            type: result.ok ? 'info' : 'error',
+            message: result.message,
+          };
+          req.session.plexState = null;
+          req.session.pinId = null;
+          req.session.pinIssuedAt = null;
+          delete req.session.plexAuthMode;
+          delete req.session.plexAuthPurpose;
+        }
+        return res.redirect(consumePostLoginRedirect(req, `/wizard?step=${result.step}`));
+      }
+
       // ── Check for Plex Home users ──────────────────────────────────────────
       let homeUsers = [];
       try {
@@ -495,7 +655,7 @@ export function registerAuth(app, ctx) {
       if (homeUsers.length > 1) {
         // Store main token and home users for the selection step
         req.session.plexMainToken = authToken;
-        req.session.pendingHomeUsers = homeUsers;
+        req.session.pendingHomeUsers = serializePendingPlexHomeUsers(homeUsers);
         req.session.pendingHomeUsersAt = Date.now();
         // Clean up PIN/state (preserve plexAuthMode and postLoginRedirect)
         req.session.plexState = null;

@@ -286,6 +286,26 @@
           </label>
         </div>
 
+        <% if ((blendableUsers || []).length > 1) { %>
+        <div class="spm-filter-section gp-blend-section">
+          <div class="spm-filter-label">
+            Blend users
+            <span class="gp-filter-hint">(combine listening data from other users)</span>
+          </div>
+          <div class="blend-slots" id="spm-blend-picker-rows"></div>
+          <button class="blend-add-btn" id="spm-blend-add-btn" type="button">+ Add user</button>
+          <div id="spm-blend-mode-wrap" style="display:none">
+            <div class="spm-filter-label" style="margin-top:10px">Blend mode</div>
+            <div class="gp-blend-modes">
+              <label class="gp-blend-mode-option"><input type="radio" name="spm-blend-mode" value="average" checked /><span class="gp-blend-mode-name">Average</span><span class="gp-blend-mode-desc">Average each user's scores together — shared favourites rise, polarising tracks land in the middle.</span></label>
+              <label class="gp-blend-mode-option"><input type="radio" name="spm-blend-mode" value="intersection" /><span class="gp-blend-mode-name">Intersection</span><span class="gp-blend-mode-desc">Only tracks every selected user qualifies. Safest for shared listening.</span></label>
+              <label class="gp-blend-mode-option"><input type="radio" name="spm-blend-mode" value="union" /><span class="gp-blend-mode-name">Union</span><span class="gp-blend-mode-desc">Tracks any selected user qualifies. Broadest result — great for discovery.</span></label>
+              <label class="gp-blend-mode-option"><input type="radio" name="spm-blend-mode" value="veto" /><span class="gp-blend-mode-name">Veto</span><span class="gp-blend-mode-desc">Union minus any track someone has skipped. Nobody gets music they hate.</span></label>
+            </div>
+          </div>
+        </div>
+        <% } %>
+
         <div class="spm-preview">
           <span class="spm-preview-label">Preview:</span>
           <span id="spm-prev-artists">—</span> artists ·
@@ -1112,6 +1132,9 @@
       document.querySelectorAll('.spm-genre-cb').forEach(function(cb) { cb.checked = false; });
       document.querySelectorAll('.spm-mood-cb').forEach(function(cb) { cb.checked = false; });
       document.querySelectorAll('.spm-tag-cb').forEach(function(cb) { cb.checked = false; });
+      if (window.spmSetBlendUsers) window.spmSetBlendUsers([], 'average');
+      var blendModeDefault = document.querySelector('input[name="spm-blend-mode"][value="average"]');
+      if (blendModeDefault) blendModeDefault.checked = true;
       var artistAll = document.querySelector('.spm-artist-tier-all');
       if (artistAll) artistAll.checked = true;
       var trackAll = document.querySelector('.spm-track-tier-all');
@@ -1122,7 +1145,95 @@
       if (maxT) maxT.value = '';
       var sortBy = document.getElementById('spm-sort-by');
       if (sortBy) sortBy.value = 'ratingCount';
+      spmUpdateBlendVisibility();
     }
+
+    function spmUpdateBlendVisibility() {
+      var pickerRows = document.getElementById('spm-blend-picker-rows');
+      var anyRows = pickerRows && pickerRows.querySelectorAll('.blend-slot').length > 0;
+      var wrap = document.getElementById('spm-blend-mode-wrap');
+      if (wrap) wrap.style.display = anyRows ? '' : 'none';
+    }
+    document.querySelectorAll('input[name="spm-blend-mode"]').forEach(function(r) {
+      r.addEventListener('change', spmSchedulePreview);
+    });
+
+    // Blend picker initialisation
+    (function() {
+      var SPM_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatarUrl || u.avatar || '' }; })) %>;
+      var slotsEl = document.getElementById('spm-blend-picker-rows');
+      var addBtn = document.getElementById('spm-blend-add-btn');
+      if (!slotsEl || !addBtn) return;
+
+      function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+      function avatarSrc(u) { return (u && u.avatar) || '/icons/user-profile.svg'; }
+
+      function buildOptionsList(selId) {
+        return SPM_BLEND_USERS.map(function(u) {
+          return '<button class="blend-slot__option' + (u.id === selId ? ' is-active' : '') + '" type="button" data-uid="' + escH(u.id) + '">' +
+            '<img class="blend-slot__opt-avatar" src="' + escH(avatarSrc(u)) + '" alt="" onerror="this.onerror=null;this.src=\'/icons/user-profile.svg\';" />' +
+            '<span class="blend-slot__optname">' + escH(u.id) + '</span>' +
+          '</button>';
+        }).join('');
+      }
+
+      function spmCreateSlot(userId) {
+        var user = SPM_BLEND_USERS.find(function(u) { return u.id === userId; }) || { id: userId, avatar: '' };
+        var slot = document.createElement('div');
+        slot.className = 'blend-slot';
+        slot.dataset.uid = userId;
+        slot.innerHTML =
+          '<details class="blend-slot__menu">' +
+            '<summary class="blend-slot__summary">' +
+              '<img class="blend-slot__avatar" src="' + escH(avatarSrc(user)) + '" alt="" onerror="this.onerror=null;this.src=\'/icons/user-profile.svg\';" />' +
+              '<span class="blend-slot__name">' + escH(user.id) + '</span>' +
+              '<span class="blend-slot__chev" aria-hidden="true"></span>' +
+            '</summary>' +
+            '<div class="blend-slot__list">' + buildOptionsList(userId) + '</div>' +
+          '</details>' +
+          '<button class="blend-slot__remove" type="button" aria-label="Remove">×</button>';
+        var menu = slot.querySelector('.blend-slot__menu');
+        slot.querySelectorAll('.blend-slot__option').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var uid = btn.dataset.uid;
+            var chosen = SPM_BLEND_USERS.find(function(u) { return u.id === uid; }) || { id: uid, avatar: '' };
+            slot.dataset.uid = uid;
+            slot.querySelector('.blend-slot__avatar').src = avatarSrc(chosen);
+            slot.querySelector('.blend-slot__name').textContent = uid;
+            slot.querySelectorAll('.blend-slot__option').forEach(function(b) { b.classList.toggle('is-active', b === btn); });
+            menu.removeAttribute('open');
+            spmUpdateBlendVisibility(); spmSchedulePreview();
+          });
+        });
+        slot.querySelector('.blend-slot__remove').addEventListener('click', function() {
+          slot.remove();
+          spmUpdateBlendVisibility(); spmSchedulePreview();
+        });
+        document.addEventListener('click', function(e) { if (!slot.contains(e.target)) menu.removeAttribute('open'); });
+        return slot;
+      }
+
+      window.spmGetBlendUsers = function() {
+        return Array.from(slotsEl.querySelectorAll('.blend-slot')).map(function(s) { return s.dataset.uid; });
+      };
+
+      window.spmSetBlendUsers = function(userIds, mode) {
+        slotsEl.innerHTML = '';
+        (userIds || []).forEach(function(uid) { slotsEl.appendChild(spmCreateSlot(uid)); });
+        if (mode) {
+          var radio = document.querySelector('input[name="spm-blend-mode"][value="' + mode + '"]');
+          if (radio) radio.checked = true;
+        }
+        spmUpdateBlendVisibility();
+      };
+
+      addBtn.addEventListener('click', function() {
+        var first = SPM_BLEND_USERS[0];
+        if (first) { slotsEl.appendChild(spmCreateSlot(first.id)); spmUpdateBlendVisibility(); spmSchedulePreview(); }
+      });
+
+      spmUpdateBlendVisibility();
+    })();
 
     function spmApplyRules(rules) {
       var artistAll = document.querySelector('.spm-artist-tier-all');
@@ -1154,6 +1265,8 @@
         var cb = document.querySelector('.spm-tag-cb[value="' + CSS.escape(v) + '"]');
         if (cb) cb.checked = true;
       });
+      if (window.spmSetBlendUsers) window.spmSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
+      spmUpdateBlendVisibility();
       var topN = document.getElementById('spm-top-n');
       if (topN) topN.value = rules.topNPerArtist || '';
       var maxT = document.getElementById('spm-max-tracks');
@@ -1215,7 +1328,10 @@
       var topN = parseInt(document.getElementById('spm-top-n').value, 10) || null;
       var maxTracks = parseInt(document.getElementById('spm-max-tracks').value, 10) || null;
       var sortBy = document.getElementById('spm-sort-by').value || 'ratingCount';
-      return { artistTiers: artistTiers, trackTiers: trackTiers, genres: genres, moods: moods, tags: tags, topNPerArtist: topN, maxTracks: maxTracks, sortBy: sortBy };
+      var blendUsers = (window.spmGetBlendUsers ? window.spmGetBlendUsers() : []);
+      var blendModeEl = document.querySelector('input[name="spm-blend-mode"]:checked');
+      var blendMode = blendModeEl ? blendModeEl.value : 'average';
+      return { artistTiers: artistTiers, trackTiers: trackTiers, genres: genres, moods: moods, tags: tags, topNPerArtist: topN, maxTracks: maxTracks, sortBy: sortBy, blendUsers: blendUsers, blendMode: blendMode };
     }
 
     function spmSchedulePreview() {
@@ -1340,6 +1456,22 @@
     var initialCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card');
     if (initialCard) selectPlaylist(initialCard);
     else loadTracks(0);
+
+    // Auto-open smart playlist modal with blend users if navigated from blend page
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var blendParam = params.get('blend');
+      var nameParam = params.get('name');
+      if (!blendParam) return;
+      var otherUsers = blendParam.split(',').map(function(u) { return u.trim(); }).filter(Boolean);
+      if (!otherUsers.length) return;
+      var currentUserId = <%- JSON.stringify(currentUserId || '') %>;
+      var blendUsers = currentUserId ? [currentUserId].concat(otherUsers) : otherUsers;
+      openSmartPlaylistModal();
+      if (window.spmSetBlendUsers) window.spmSetBlendUsers(blendUsers, 'average');
+      if (nameParam) document.getElementById('spm-name').value = nameParam;
+      spmRunPreview();
+    })();
 
     document.addEventListener('click', function(e) {
       if (!e.target.closest('.pl-card-dots-wrap')) closeAllCardMenus();

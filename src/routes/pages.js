@@ -22,10 +22,13 @@ import {
   getMoodsFromMaster,
   getAllLastfmTags,
   listUserPersonalPlaylists,
+  listUserGeneratedPlaylists,
+  getPlaylistTracks,
   getMasterTrackCount,
   getMasterArtistCount,
   getExcludedTrackKeys,
   getSkipTierArtists,
+  getAllUserIds,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
@@ -700,20 +703,32 @@ async function buildLocalAdminPreviewData({
     });
   });
 
-  const options = observedRows.map((row) => {
+  // Deduplicate: if two observed user_plex_ids resolve to the same live Plex identity (e.g. one is
+  // username and the other is email for the same account), keep only the first occurrence.
+  // Also filter managed home users (no real Plex account) when the Plex API was reachable.
+  const plexApiAvailable = liveUsers.length > 0;
+  const seenPlexEntries = new Set();
+  const options = observedRows.reduce((acc, row) => {
     const match = liveUserByObservedKey.get(String(row.id || '').trim().toLowerCase()) || null;
     const entry = match?.entry || null;
+    // When Plex API was reachable, skip users with no real Plex identity (managed home accounts)
+    if (plexApiAvailable && !entry) return acc;
+    // Deduplicate by Plex numeric id or uuid — two rows that resolve to the same Plex user are merged
+    const entryDedupeKey = entry ? String(entry?.uuid || entry?.id || '').trim() : null;
+    if (entryDedupeKey && seenPlexEntries.has(entryDedupeKey)) return acc;
+    if (entryDedupeKey) seenPlexEntries.add(entryDedupeKey);
     const ids = match?.ids || [String(row.id || '').trim().toLowerCase()];
     const name = String(entry?.title || entry?.username || entry?.email || row.id).trim() || row.id;
-    return {
+    acc.push({
       id: row.id,
       name,
       avatarUrl: String(entry?.thumb || '').trim(),
       avatarLabel: name.charAt(0).toUpperCase() || 'P',
       isOwner: ids.some((id) => ownerIdentitySet.has(id)),
       lastPlayAt: row.lastPlayAt,
-    };
-  });
+    });
+    return acc;
+  }, []);
 
   const selectedKey = String(getPreviewUserId(req) || '').trim().toLowerCase();
   const selectedOption = options.find((option) => String(option.id || '').trim().toLowerCase() === selectedKey)
@@ -732,6 +747,240 @@ async function buildLocalAdminPreviewData({
     options,
     returnTo: req.originalUrl,
   };
+}
+
+async function buildBlendableUsers(db, config, adminPreview, resolveLocalUsers) {
+  try {
+    const localIdentitySet = new Set(
+      (resolveLocalUsers ? resolveLocalUsers(config) : [])
+        .flatMap((user) => [user?.username, user?.email])
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
+
+    // When adminPreview is available, use its options as the canonical deduplicated user list
+    // (already filtered for local accounts and managed Plex accounts), then cross-check artist_stats.
+    const adminOptions = adminPreview?.options || [];
+    if (adminOptions.length) {
+      const statsIds = new Set(
+        db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, \'\')) != \'\'')
+          .all().map((r) => String(r.user_plex_id || '').trim().toLowerCase()).filter(Boolean),
+      );
+      return adminOptions
+        .filter((opt) => {
+          const id = String(opt?.id || '').trim();
+          return id && !localIdentitySet.has(id.toLowerCase()) && statsIds.has(id.toLowerCase());
+        })
+        .map((opt) => {
+          const id = String(opt.id || '').trim();
+          const name = String(opt?.name || id).trim() || id;
+          return {
+            id,
+            name,
+            avatarUrl: String(opt?.avatarUrl || '').trim(),
+            avatarLabel: String(opt?.avatarLabel || name.charAt(0).toUpperCase() || 'P').trim() || 'P',
+          };
+        });
+    }
+
+    // Fallback when adminPreview is not available (non-admin or Plex-logged-in user)
+    const userIds = db.prepare(
+      'SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, \'\')) != \'\' ORDER BY user_plex_id COLLATE NOCASE',
+    ).all()
+      .map((r) => String(r.user_plex_id || '').trim())
+      .filter((id) => id && !localIdentitySet.has(id.toLowerCase()));
+
+    return userIds.map((id) => ({
+      id,
+      name: id,
+      avatarUrl: '',
+      avatarLabel: id.charAt(0).toUpperCase() || 'P',
+    }));
+  } catch { return []; }
+}
+
+function buildBlendArtistMap(db, userId) {
+  return new Map(
+    db.prepare('SELECT artist_name, ranking_score, play_count FROM artist_stats WHERE user_plex_id = ?').all(userId)
+      .map((row) => [String(row.artist_name || '').trim().toLowerCase(), row]),
+  );
+}
+
+function summarizeBlendArtistMaps(userArtistMaps, { skipRank, belterRank }) {
+  const allArtistKeys = new Set(userArtistMaps.flatMap((map) => [...map.keys()]));
+  const sharedArtistKeys = [...allArtistKeys].filter((key) => userArtistMaps.every((map) => map.has(key)));
+
+  let compatibilityScore = null;
+  let sharedBelters = 0;
+  let agreedSkips = 0;
+
+  if (sharedArtistKeys.length) {
+    let totalSimilarity = 0;
+    for (const key of sharedArtistKeys) {
+      const scores = userArtistMaps.map((map) => Number(map.get(key)?.ranking_score || 0));
+      const mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+      const avgDeviation = scores.reduce((sum, score) => sum + Math.abs(score - mean), 0) / scores.length;
+      totalSimilarity += 1 - avgDeviation / 10;
+      if (scores.every((score) => score >= belterRank)) sharedBelters++;
+      if (scores.every((score) => score <= skipRank)) agreedSkips++;
+    }
+    compatibilityScore = Math.round((totalSimilarity / sharedArtistKeys.length) * 100);
+  }
+
+  return {
+    rawCompatibilityScore: compatibilityScore,
+    compatibilityScore: applyBlendConfidence(compatibilityScore, sharedArtistKeys.length),
+    sharedArtists: sharedArtistKeys.length,
+    totalArtists: allArtistKeys.size,
+    sharedBelters,
+    agreedSkips,
+  };
+}
+
+function applyBlendConfidence(rawScore, sharedArtists) {
+  if (rawScore === null || rawScore === undefined) return null;
+  const confidence = Math.max(0, Math.min(1, Number(sharedArtists || 0) / 30));
+  return Math.round(50 + (Number(rawScore || 0) - 50) * confidence);
+}
+
+function pickBlendShowcasePlaylist(playlists = []) {
+  const ordered = [
+    playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'curative' || String(playlist?.playlistKey || '').trim() === 'curative'),
+    playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'crescive' || String(playlist?.playlistKey || '').trim() === 'crescive'),
+    playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'daily-mix' || String(playlist?.playlistKey || '').trim() === 'daily-mix'),
+    playlists[0] || null,
+  ];
+  return ordered.find(Boolean) || null;
+}
+
+async function attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken) {
+  const playlistCards = Array.isArray(cards) ? cards : [];
+  if (!playlistCards.length) return playlistCards;
+
+  const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+  if (msType === 'jellyfin' || msType === 'emby') {
+    const { url: msUrl, apiKey: msApiKey } = config[msType] || {};
+    const playlistIds = playlistCards.map((playlist) => String(playlist?.plexPlaylistId || '')).filter(Boolean);
+    const imageTagMap = {};
+    if (msUrl && msApiKey && playlistIds.length) {
+      try {
+        const batchUrl = new URL('/Items', msUrl);
+        batchUrl.searchParams.set('Ids', playlistIds.join(','));
+        batchUrl.searchParams.set('Fields', 'ImageTags');
+        const batchRes = await fetch(batchUrl.toString(), {
+          headers: { 'X-Emby-Token': msApiKey },
+          signal: AbortSignal.timeout(6000),
+        });
+        if (batchRes.ok) {
+          const batchJson = await batchRes.json();
+          for (const item of batchJson?.Items || []) {
+            const tag = item?.ImageTags?.Primary;
+            if (item.Id && tag) imageTagMap[String(item.Id)] = String(tag);
+          }
+        }
+      } catch {
+        // Leave cards on fallback artwork if media-server metadata is unavailable.
+      }
+    }
+    playlistCards.forEach((playlist) => {
+      if (!playlist?.plexPlaylistId) return;
+      playlist.artPath = String(playlist.plexPlaylistId);
+      const tag = imageTagMap[String(playlist.plexPlaylistId || '')];
+      if (tag) playlist.artTag = tag;
+    });
+    return playlistCards;
+  }
+
+  const { url: plexUrl, token: plexToken } = config.plex || {};
+  if (plexUrl && plexToken && fetchPlexPlaylistsForToken) {
+    try {
+      const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
+      const plexPlaylistMap = new Map(
+        plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]),
+      );
+      playlistCards.forEach((playlist) => {
+        const plexPlaylist = plexPlaylistMap.get(String(playlist?.plexPlaylistId || '')) || null;
+        playlist.artPath = String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || '');
+      });
+    } catch {
+      // Leave cards on fallback artwork if Plex metadata is unavailable.
+    }
+  }
+
+  return playlistCards;
+}
+
+function finalizeBlendArtwork(cards, mediaServerType) {
+  const msType = String(mediaServerType || 'plex').toLowerCase();
+  for (const card of (Array.isArray(cards) ? cards : [])) {
+    if (card?.artPath) {
+      card.artUrl = msType === 'jellyfin' || msType === 'emby'
+        ? `/api/ms/art?id=${encodeURIComponent(card.artPath)}${card.artTag ? `&tag=${encodeURIComponent(card.artTag)}` : ''}`
+        : `/api/plex/art?path=${encodeURIComponent(card.artPath)}`;
+    } else if (card?.fallbackTrackRatingKey) {
+      card.artUrl = `/api/music/thumb/track/${encodeURIComponent(String(card.fallbackTrackRatingKey || ''))}`;
+    } else {
+      card.artUrl = '';
+    }
+  }
+  return cards;
+}
+
+async function buildBlendCarouselUsers(db, config, currentUserId, blendableUsers, fetchPlexPlaylistsForToken) {
+  const currentId = String(currentUserId || '').trim();
+  if (!currentId) return [];
+
+  const smartSettings = config.smartPlaylist || {};
+  const skipRank = Number(smartSettings.artistSkipRank ?? 2);
+  const belterRank = Number(smartSettings.artistBelterRank ?? 8);
+  const currentArtistMap = buildBlendArtistMap(db, currentId);
+
+  const cards = (Array.isArray(blendableUsers) ? blendableUsers : [])
+    .filter((user) => String(user?.id || '').trim() && String(user.id).trim().toLowerCase() !== currentId.toLowerCase())
+    .map((user) => {
+      const userId = String(user.id || '').trim();
+      const candidateArtistMap = buildBlendArtistMap(db, userId);
+      const summary = summarizeBlendArtistMaps([currentArtistMap, candidateArtistMap], { skipRank, belterRank });
+      const showcasePlaylist = pickBlendShowcasePlaylist(
+        listUserGeneratedPlaylists(db, userId, { activeOnly: true }),
+      );
+      const fallbackTrack = showcasePlaylist?.playlistKey
+        ? getPlaylistTracks(db, userId, showcasePlaylist.playlistKey)[0] || null
+        : null;
+      return {
+        id: userId,
+        name: String(user?.name || userId).trim() || userId,
+        avatarUrl: String(user?.avatarUrl || '').trim(),
+        avatarLabel: String(user?.avatarLabel || userId.charAt(0).toUpperCase() || 'P').trim() || 'P',
+        compatibilityScore: summary.compatibilityScore,
+        rawCompatibilityScore: summary.rawCompatibilityScore,
+        sharedArtists: summary.sharedArtists,
+        totalArtists: summary.totalArtists,
+        sharedBelters: summary.sharedBelters,
+        agreedSkips: summary.agreedSkips,
+        plexPlaylistId: String(showcasePlaylist?.plexPlaylistId || '').trim(),
+        playlistTitle: String(showcasePlaylist?.playlistTitle || '').trim(),
+        playlistType: String(showcasePlaylist?.playlistType || '').trim(),
+        artPath: '',
+        artTag: '',
+        fallbackTrackRatingKey: String(fallbackTrack?.ratingKey || '').trim(),
+      };
+    });
+
+  await attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken);
+  finalizeBlendArtwork(cards, String(config?.mediaServer?.type || 'plex'));
+
+  cards.sort((a, b) => {
+    const aScore = a.compatibilityScore === null ? -1 : Number(a.compatibilityScore || 0);
+    const bScore = b.compatibilityScore === null ? -1 : Number(b.compatibilityScore || 0);
+    if (bScore !== aScore) return bScore - aScore;
+    if (Number(b.sharedArtists || 0) !== Number(a.sharedArtists || 0)) {
+      return Number(b.sharedArtists || 0) - Number(a.sharedArtists || 0);
+    }
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+
+  return cards;
 }
 
 export function registerPages(app, ctx) {
@@ -1147,52 +1396,7 @@ export function registerPages(app, ctx) {
       });
     }
     playlistCards.push(...generatedCards);
-    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
-    if (msType === 'jellyfin' || msType === 'emby') {
-      // For Jellyfin/Emby, fetch ImageTags so each playlist gets its unique art URL.
-      const { url: msUrl, apiKey: msApiKey } = config[msType] || {};
-      const playlistIds = playlistCards.map((p) => p.plexPlaylistId).filter(Boolean);
-      let imageTagMap = {};
-      if (msUrl && msApiKey && playlistIds.length) {
-        try {
-          const batchUrl = new URL('/Items', msUrl);
-          batchUrl.searchParams.set('Ids', playlistIds.join(','));
-          batchUrl.searchParams.set('Fields', 'ImageTags');
-          const batchRes = await fetch(batchUrl.toString(), {
-            headers: { 'X-Emby-Token': msApiKey },
-            signal: AbortSignal.timeout(6000),
-          });
-          if (batchRes.ok) {
-            const batchJson = await batchRes.json();
-            for (const item of batchJson?.Items || []) {
-              const tag = item?.ImageTags?.Primary;
-              if (item.Id && tag) imageTagMap[String(item.Id)] = String(tag);
-            }
-          }
-        } catch { /* leave artPaths empty on error */ }
-      }
-      playlistCards.forEach((playlist) => {
-        if (playlist.plexPlaylistId) {
-          playlist.artPath = String(playlist.plexPlaylistId);
-          const tag = imageTagMap[playlist.plexPlaylistId];
-          if (tag) playlist.artTag = tag;
-        }
-      });
-    } else {
-      const { url: plexUrl, token: plexToken } = config.plex || {};
-      if (playlistCards.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
-        try {
-          const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
-          const plexPlaylistMap = new Map(plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]));
-          playlistCards.forEach((playlist) => {
-            const plexPlaylist = plexPlaylistMap.get(String(playlist.plexPlaylistId || '')) || null;
-            playlist.artPath = String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || '');
-          });
-        } catch (_err) {
-          // Leave cards on placeholder artwork if Plex metadata is unavailable.
-        }
-      }
-    }
+    await attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken);
 
     res.render('playlists', {
       title: 'Playlists — Curatorr',
@@ -1207,7 +1411,42 @@ export function registerPages(app, ctx) {
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
+      allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
+      currentUserId: userPlexId,
+      blendableUsers: await buildBlendableUsers(db, config, adminPreview, resolveLocalUsers),
       userPersonalPlaylists: (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })(),
+      extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
+    });
+  });
+
+  // ── Blend ─────────────────────────────────────────────────────────────────
+
+  app.get('/blend', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
+    const config = loadConfig();
+    const { adminPreview, role, userPlexId } = await buildPageScope(req, config);
+    const blendableUsers = await buildBlendableUsers(db, config, adminPreview, resolveLocalUsers);
+    const blendCarouselUsers = await buildBlendCarouselUsers(
+      db,
+      config,
+      userPlexId,
+      blendableUsers,
+      fetchPlexPlaylistsForToken,
+    );
+    const currentBlendUser = blendableUsers.find((entry) => String(entry?.id || '').trim().toLowerCase() === String(userPlexId || '').trim().toLowerCase()) || null;
+    res.render('blend', {
+      title: 'Blend — Curatorr',
+      user: req.session.user,
+      role,
+      actualRole: getActualRole(req),
+      adminPreview,
+      config: safeConfig(config),
+      blendableUsers,
+      blendCarouselUsers,
+      currentUserId: userPlexId,
+      currentUserName: String(currentBlendUser?.name || userPlexId).trim() || userPlexId,
+      currentUserAvatarUrl: String(currentBlendUser?.avatarUrl || req.session?.user?.thumb || '').trim(),
+      currentUserAvatarLabel: String(currentBlendUser?.avatarLabel || userPlexId).trim().charAt(0).toUpperCase() || 'P',
+      mediaServerType: String(config?.mediaServer?.type || 'plex').toLowerCase(),
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });

@@ -393,6 +393,8 @@ export function registerWebhooks(app, ctx) {
     playbackPositionMs = 0,
     smartSettings,
     eventSource = 'plex_webhook',
+
+    allowRecentPlayReuse = true,
   }) {
     if (!session) return { duplicate: true, listenedMs: 0, isSkip: false };
     const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
@@ -414,21 +416,8 @@ export function registerWebhooks(app, ctx) {
     );
 
     const recentCutoff = Date.now() - 10 * 60 * 1000;
-    const existing = db.prepare(`
-      SELECT id, duration_ms
-      FROM play_events
-      WHERE session_key = ?
-        AND plex_rating_key = ?
-        AND ended_at > ?
-        AND started_at >= ?
-      ORDER BY ended_at DESC, id DESC
-      LIMIT 1
-    `).get(
-      session.session_key,
-      session.plex_rating_key,
-      recentCutoff,
-      Number(session.started_at || endedAt) - 60 * 1000,
-    );
+
+    const existing = allowRecentPlayReuse ? db.prepare(`SELECT id, duration_ms FROM play_events WHERE session_key = ? AND plex_rating_key = ? AND ended_at > ? AND started_at >= ? ORDER BY ended_at DESC, id DESC LIMIT 1`).get(session.session_key, session.plex_rating_key, recentCutoff, Number(session.started_at || endedAt) - 60 * 1000) : null;
 
     let finalizedListenedMs = listenedMs;
     let finalizedTrackDurationMs = resolvedTrackDuration;
@@ -444,7 +433,8 @@ export function registerWebhooks(app, ctx) {
         .run(listenedMs, endedAt, isSkip ? 1 : 0, resolvedTrackDuration, existing.id);
       usedRebuildPath = true;
     } else {
-      const mergeCandidate = findRecentPlayMergeCandidate(session);
+
+      const mergeCandidate = allowRecentPlayReuse ? findRecentPlayMergeCandidate(session) : null;
       if (mergeCandidate) {
         finalizedTrackDurationMs = Math.max(
           Number(mergeCandidate.track_duration_ms || 0),
@@ -608,6 +598,8 @@ export function registerWebhooks(app, ctx) {
             endedAt: now,
             smartSettings,
             eventSource: 'tautulli',
+
+            allowRecentPlayReuse: false,
           });
           if (result.duplicate) {
             pushLog({
@@ -769,6 +761,8 @@ export function registerWebhooks(app, ctx) {
           playbackPositionMs: viewOffsetMs,
           smartSettings,
           eventSource: 'tautulli',
+
+          allowRecentPlayReuse: !session,
         });
         if (result.duplicate) return res.json({ ok: true, ignored: 'duplicate' });
       }
@@ -922,6 +916,8 @@ export function registerWebhooks(app, ctx) {
             endedAt: now,
             smartSettings,
             eventSource: 'plex_webhook',
+
+            allowRecentPlayReuse: false,
           });
         }
       }
@@ -1059,6 +1055,8 @@ export function registerWebhooks(app, ctx) {
           playbackPositionMs: observedPositionMs,
           smartSettings,
           eventSource: 'plex_webhook',
+
+          allowRecentPlayReuse: !session,
         });
         if (result.duplicate) return res.json({ ok: true, ignored: 'duplicate' });
       }
@@ -1149,7 +1147,7 @@ export function registerWebhooks(app, ctx) {
         `).get(userDisplayName, eventSource, `${playerScope}%`, itemId);
 
         if (previous) {
-          recordOrUpdateSessionPlay({ session: previous, endedAt: now, smartSettings, eventSource });
+          recordOrUpdateSessionPlay({ session: previous, endedAt: now, smartSettings, eventSource, allowRecentPlayReuse: false });
         }
       }
 
@@ -1199,7 +1197,7 @@ export function registerWebhooks(app, ctx) {
       } else if (action === 'stop') {
         const existingSession = getOpenSession(db, sessionKey);
         if (existingSession) {
-          const result = recordOrUpdateSessionPlay({ session: existingSession, endedAt: now, playbackPositionMs: observedPositionMs, smartSettings, eventSource });
+          const result = recordOrUpdateSessionPlay({ session: existingSession, endedAt: now, playbackPositionMs: observedPositionMs, smartSettings, eventSource, allowRecentPlayReuse: false });
           if (!result.duplicate) {
             classifyTier(db, config, userDisplayName, itemId);
             scheduleRebuild(ctx, userDisplayName);
@@ -1266,7 +1264,7 @@ export function registerWebhooks(app, ctx) {
           const existing = getOpenSession(db, session_key);
           if (existing) {
             const smartSettings = resolveUserSmartConfig(db, config, existing.user_plex_id);
-            const result = recordOrUpdateSessionPlay({ session: existing, endedAt: now, smartSettings, eventSource });
+            const result = recordOrUpdateSessionPlay({ session: existing, endedAt: now, smartSettings, eventSource, allowRecentPlayReuse: false });
             if (!result.duplicate) {
               classifyTier(db, config, existing.user_plex_id, existing.plex_rating_key);
               scheduleRebuild(ctx, existing.user_plex_id);
@@ -1332,7 +1330,7 @@ export function registerWebhooks(app, ctx) {
       const existing = getOpenSession(db, sessionKey);
       if (!existing) continue;
       const smartSettings = resolveUserSmartConfig(db, config, existing.user_plex_id);
-      const result = recordOrUpdateSessionPlay({ session: existing, endedAt: now, smartSettings, eventSource });
+      const result = recordOrUpdateSessionPlay({ session: existing, endedAt: now, smartSettings, eventSource, allowRecentPlayReuse: false });
       if (!result.duplicate) {
         classifyTier(db, config, existing.user_plex_id, existing.plex_rating_key);
         scheduleRebuild(ctx, existing.user_plex_id);

@@ -28,3 +28,7 @@ private
 .claude
 .Claude
 dev.md
+config-test
+data-test
+config-test.bak-*
+data-test.bak-*

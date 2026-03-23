@@ -1060,7 +1060,7 @@ function canUserAccessLidarrAutomation(config, user) {
   return resolveUserIdentifiers(user).some((entry) => enabled.has(entry));
 }
 
-export { canUserAccessLidarrAutomation };
+export { canUserAccessLidarrAutomation, completePlexLogin };
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
@@ -1332,6 +1332,8 @@ function resolvePlexServerResource(resources, { machineId, plexUrl }) {
       if (match) return match;
     } catch (err) { /* ignore */ }
   }
+  const ownedServers = servers.filter((server) => isPlexServerOwner(server));
+  if (ownedServers.length === 1) return ownedServers[0];
   return servers.length === 1 ? servers[0] : null;
 }
 
@@ -1421,18 +1423,30 @@ async function completePlexLogin(req, authToken) {
   try {
     const resources = await fetchPlexResources(authToken);
     const plexCfg = config.plex || {};
-    const serverToken = resolvePlexServerToken(resources, { machineId: plexCfg.machineId || '', plexUrl: plexCfg.url || '' });
+    const serverLookup = { machineId: plexCfg.machineId || '', plexUrl: plexCfg.url || '' };
+    const serverToken = resolvePlexServerToken(resources, serverLookup);
     if (serverToken) {
       req.session.plexServerToken = serverToken;
       const nextUserServerTokens = {
         ...(plexCfg.userServerTokens && typeof plexCfg.userServerTokens === 'object' ? plexCfg.userServerTokens : {}),
       };
       for (const id of resolveUserIdentifiers(req.session.user)) nextUserServerTokens[id] = serverToken;
+      const serverResource = resolvePlexServerResource(resources, serverLookup);
+      const needsPlexBootstrap = !String(plexCfg.token || '').trim()
+        && String(plexCfg.url || '').trim()
+        && (
+          !config.wizard?.completed
+          || !Array.isArray(plexCfg.availableLibraries) || !plexCfg.availableLibraries.length
+          || !Array.isArray(plexCfg.libraries) || !plexCfg.libraries.length
+        );
+      const shouldPersistGlobalToken = (role === 'admin' || (needsPlexBootstrap && isPlexServerOwner(serverResource)));
+      const machineId = resolvePlexMachineIdentifier(resources, serverLookup);
       config = {
         ...config,
         plex: {
           ...plexCfg,
-          ...(role === 'admin' && serverToken !== plexCfg.token ? { token: serverToken } : {}),
+          ...(shouldPersistGlobalToken && serverToken !== plexCfg.token ? { token: serverToken } : {}),
+          ...(machineId && machineId !== plexCfg.machineId ? { machineId } : {}),
           userServerTokens: nextUserServerTokens,
         },
       };

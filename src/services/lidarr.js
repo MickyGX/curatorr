@@ -125,6 +125,16 @@ function summarizeLidarrErrorBody(body, status) {
   };
 }
 
+function wrapErrorWithMetadata(err, { message = '', code = '', ...extra } = {}) {
+  const wrapped = new Error(message || String(err?.message || err || 'Request failed.'));
+  if (err !== undefined) wrapped.cause = err;
+  if (code) wrapped.code = code;
+  Object.entries(extra).forEach(([key, value]) => {
+    if (value !== undefined) wrapped[key] = value;
+  });
+  return wrapped;
+}
+
 function scoreRelease(release, settings) {
   const peers = Math.max(0, normalizeNumber(release?.peers, normalizeNumber(release?.seeders, 0)));
   const ageHours = Math.max(0, normalizeNumber(release?.ageHours, normalizeNumber(release?.age, 0)));
@@ -280,16 +290,20 @@ export function createLidarrService(ctx) {
       if (lastErr) throw lastErr;
       throw new Error('Lidarr request failed.');
     } catch (err) {
+      let nextErr = err;
       if (err?.name === 'AbortError') {
-        err.code = err.code || 'REQUEST_TIMEOUT';
-        err.message = 'Lidarr timed out while processing the request.';
+        nextErr = wrapErrorWithMetadata(err, {
+          message: 'Lidarr timed out while processing the request.',
+          code: 'REQUEST_TIMEOUT',
+          pathname,
+        });
       }
       logEvent('error', 'request.error', `Lidarr request failed for ${pathname}`, {
         method: String(fetchInit?.method || 'GET').toUpperCase(),
-        error: safeMessage(err),
-        detail: String(err?.detail || '').slice(0, 2000),
+        error: safeMessage(nextErr),
+        detail: String(nextErr?.detail || err?.detail || '').slice(0, 2000),
       });
-      throw err;
+      throw nextErr;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -553,7 +567,7 @@ export function createLidarrService(ctx) {
 
   async function listArtists(options = {}) {
     const pageSize = Math.max(100, Math.min(5000, Number(options.pageSize || 2000)));
-    const timeoutMs = Number(options.timeoutMs || 15000);
+    const timeoutMs = Number(options.timeoutMs || 30000);
     logEvent('info', 'artist.list.start', 'Fetching Lidarr artist list', { pageSize, timeoutMs });
     try {
       const list = await request(`/artist?page=1&pageSize=${pageSize}`, {

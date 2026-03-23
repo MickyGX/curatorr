@@ -479,6 +479,8 @@ export function registerApiMusic(app, ctx) {
     resolveUserPlexServerToken,
     buildAppApiUrl,
     buildPlexAuthHeaders,
+    resolveLocalUsers,
+    normalizeStoredAvatarPath,
   } = ctx;
 
   function resolveOverviewUserId(req) {
@@ -2698,6 +2700,8 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveQueryUserId(req);
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
+    const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {
       artistTiers:  Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
       trackTiers:   Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
@@ -2707,13 +2711,19 @@ export function registerApiMusic(app, ctx) {
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy: String(req.body?.sortBy || 'ratingCount'),
+      blendUsers,
+      blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
     };
     const playlistDef = { id: makePersonalPlaylistId(), name, rules };
     createUserPersonalPlaylist(db, userPlexId, playlistDef);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.create', message: `Personal playlist created: ${name} for ${userPlexId}` });
     res.json({ ok: true, playlist: playlistDef });
+    // Sync for owner + all blend users so playlist appears on everyone's account
     setImmediate(async () => {
-      await playlistService?.syncPersonalPlaylist(userPlexId, playlistDef).catch(() => {});
+      const syncIds = blendUsers.length ? [...new Set([userPlexId, ...blendUsers])] : [userPlexId];
+      for (const uid of syncIds) {
+        await playlistService?.syncPersonalPlaylist(uid, playlistDef).catch(() => {});
+      }
     });
   });
 
@@ -2725,6 +2735,8 @@ export function registerApiMusic(app, ctx) {
     if (!existing) return res.status(404).json({ error: 'Not found' });
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
+    const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {
       artistTiers:  Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
       trackTiers:   Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
@@ -2734,13 +2746,18 @@ export function registerApiMusic(app, ctx) {
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy: String(req.body?.sortBy || 'ratingCount'),
+      blendUsers,
+      blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
     };
     const updated = { ...existing, name, rules };
     updateUserPersonalPlaylist(db, userPlexId, updated);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.update', message: `Personal playlist updated: ${id} for ${userPlexId}` });
     res.json({ ok: true, playlist: updated });
     setImmediate(async () => {
-      await playlistService?.syncPersonalPlaylist(userPlexId, updated).catch(() => {});
+      const syncIds = blendUsers.length ? [...new Set([userPlexId, ...blendUsers])] : [userPlexId];
+      for (const uid of syncIds) {
+        await playlistService?.syncPersonalPlaylist(uid, updated).catch(() => {});
+      }
     });
   });
 
@@ -2783,6 +2800,148 @@ export function registerApiMusic(app, ctx) {
     deleteUserPersonalPlaylist(db, id, userPlexId);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.delete', message: `Personal playlist deleted: ${id} for ${userPlexId}` });
     res.json({ ok: true });
+  });
+
+  // ── Blend ────────────────────────────────────────────────────────────────────
+
+  // GET /api/blend/users
+  // Returns users who have play history in artist_stats, with local avatar URLs where available.
+  app.get('/api/blend/users', requireUser, (req, res) => {
+    try {
+      const rows = db.prepare(
+        'SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, \'\')) != \'\' ORDER BY user_plex_id COLLATE NOCASE',
+      ).all();
+      const cfg = loadConfig();
+      const localUsers = resolveLocalUsers ? resolveLocalUsers(cfg) : [];
+      const localIdentitySet = new Set(
+        localUsers
+          .flatMap((u) => [u?.username, u?.email])
+          .map((value) => String(value || '').trim().toLowerCase())
+          .filter(Boolean),
+      );
+      const userIds = rows
+        .map((r) => String(r.user_plex_id || '').trim())
+        .filter((id) => id && !localIdentitySet.has(id.toLowerCase()));
+      const avatarMap = new Map(
+        localUsers
+          .filter((u) => u.username && u.avatar)
+          .map((u) => [u.username.toLowerCase(), normalizeStoredAvatarPath ? normalizeStoredAvatarPath(u.avatar) : u.avatar]),
+      );
+      const users = userIds.map((id) => ({ id, avatar: avatarMap.get(id.toLowerCase()) || '' }));
+      return res.json({ ok: true, users });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: String(err?.message || 'Failed to load blend users') });
+    }
+  });
+
+  // GET /api/blend/stats?users[]=u1&users[]=u2[&limit=20]
+  // Returns compatibility score, shared artist counts, and blended top artists/tracks.
+  app.get('/api/blend/stats', requireUser, (req, res) => {
+    const raw = req.query.users;
+    const users = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String).filter(Boolean);
+    if (users.length < 2) return res.status(400).json({ error: 'At least 2 users required' });
+
+    const config = loadConfig();
+    const smartSettings = config.smartPlaylist || {};
+    const skipRank   = Number(smartSettings.artistSkipRank   ?? 2);
+    const belterRank = Number(smartSettings.artistBelterRank ?? 8);
+    const limit      = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+
+    function classifyScore(s) {
+      if (s === null || s === undefined) return 'unranked';
+      if (s >= belterRank) return 'belter';
+      if (s >= 5) return 'decent';
+      if (s > skipRank) return 'halfDecent';
+      return 'skip';
+    }
+
+    function applyBlendConfidence(rawScore, sharedArtists) {
+      if (rawScore === null || rawScore === undefined) return null;
+      const confidence = Math.max(0, Math.min(1, Number(sharedArtists || 0) / 30));
+      return Math.round(50 + (Number(rawScore || 0) - 50) * confidence);
+    }
+
+    // Per-user artist maps: lowercase name → { artist_name, ranking_score, play_count }
+    const userArtistMaps = users.map((uid) =>
+      new Map(db.prepare('SELECT artist_name, ranking_score, play_count FROM artist_stats WHERE user_plex_id = ?').all(uid)
+        .map((r) => [r.artist_name.toLowerCase(), r])),
+    );
+
+    // Per-user track maps: rating_key → { tier, tier_weight, play_count }
+    const userTrackMaps = users.map((uid) =>
+      new Map(db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
+        .map((r) => [r.plex_rating_key, r])),
+    );
+
+    // Shared artists = artists that every user has play data for
+    const allArtistKeys = new Set(userArtistMaps.flatMap((m) => [...m.keys()]));
+    const sharedArtistKeys = [...allArtistKeys].filter((k) => userArtistMaps.every((m) => m.has(k)));
+
+    // Compatibility score: mean score-agreement across shared artists (0–100)
+    let compatibilityScore = null;
+    let sharedBelters = 0;
+    let agreedSkips = 0;
+
+    if (sharedArtistKeys.length) {
+      let totalSim = 0;
+      for (const key of sharedArtistKeys) {
+        const scores = userArtistMaps.map((m) => m.get(key).ranking_score);
+        const mean   = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const avgDev = scores.reduce((a, s) => a + Math.abs(s - mean), 0) / scores.length;
+        totalSim += 1 - avgDev / 10;
+        if (scores.every((s) => s >= belterRank)) sharedBelters++;
+        if (scores.every((s) => s <= skipRank))   agreedSkips++;
+      }
+      compatibilityScore = applyBlendConfidence(
+        Math.round((totalSim / sharedArtistKeys.length) * 100),
+        sharedArtistKeys.length,
+      );
+    }
+
+    // Blended top artists: shared by all, sorted by averaged score
+    const topArtists = sharedArtistKeys
+      .map((key) => {
+        const entries = userArtistMaps.map((m) => m.get(key));
+        const avgScore = entries.reduce((a, e) => a + e.ranking_score, 0) / entries.length;
+        const avgPlays = Math.round(entries.reduce((a, e) => a + (e.play_count || 0), 0) / entries.length);
+        return { artist_name: entries[0].artist_name, avg_score: Math.round(avgScore * 10) / 10, avg_plays: avgPlays, tier: classifyScore(avgScore) };
+      })
+      .sort((a, b) => b.avg_score - a.avg_score || b.avg_plays - a.avg_plays)
+      .slice(0, limit);
+
+    // Blended top tracks: shared by all users, sorted by averaged tier_weight
+    const masterTrackMap = new Map(getMasterTracks(db).map((t) => [t.ratingKey, t]));
+    const allTrackKeys   = new Set(userTrackMaps.flatMap((m) => [...m.keys()]));
+    const sharedTrackKeys = [...allTrackKeys].filter((k) => userTrackMaps.every((m) => m.has(k)));
+
+    const topTracks = sharedTrackKeys
+      .map((key) => {
+        const master = masterTrackMap.get(key);
+        if (!master) return null;
+        const entries   = userTrackMaps.map((m) => m.get(key));
+        const avgWeight = entries.reduce((a, e) => a + (e.tier_weight || 0), 0) / entries.length;
+        const avgPlays  = Math.round(entries.reduce((a, e) => a + (e.play_count || 0), 0) / entries.length);
+        const tierCounts = {};
+        for (const e of entries) tierCounts[e.tier || 'curatorr'] = (tierCounts[e.tier || 'curatorr'] || 0) + 1;
+        const tier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
+        const normTier = tier === 'half-decent' ? 'halfDecent' : tier === 'curatorr' ? 'unplayed' : tier;
+        return { track_title: master.trackTitle, artist_name: master.artistName, rating_key: key, avg_tier_weight: Math.round(avgWeight * 10) / 10, avg_plays: avgPlays, tier, normTier };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.avg_tier_weight - a.avg_tier_weight || b.avg_plays - a.avg_plays)
+      .slice(0, limit);
+
+    res.json({
+      ok: true,
+      users,
+      compatibilityScore,
+      sharedArtists: sharedArtistKeys.length,
+      totalArtists:  allArtistKeys.size,
+      sharedBelters,
+      agreedSkips,
+      topArtists,
+      topTracks,
+    });
   });
 
 }

@@ -6221,6 +6221,97 @@ html[data-square-corners="1"] .widget-card-customize-panel {
 }
 .gp-checklist-item input[type="checkbox"] { accent-color: var(--accent, #818cf8); cursor: pointer; }
 
+/* Blend section */
+.gp-blend-section { border-top: 1px solid rgba(255,255,255,.08); padding-top: 12px; }
+.gp-blend-users {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface-1, #1a1a1a);
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255,255,255,0.10));
+}
+.gp-blend-modes { display: flex; flex-direction: column; gap: 6px; }
+.gp-blend-mode-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255,255,255,0.10));
+  background: var(--surface-1, #1a1a1a);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.gp-blend-mode-option:hover { background: var(--surface-2, rgba(255,255,255,0.06)); }
+.gp-blend-mode-option:has(input:checked) {
+  background: var(--accent-subtle, rgba(99,102,241,0.15));
+  border-color: var(--accent, #818cf8);
+}
+.gp-blend-mode-option input[type="radio"] {
+  grid-row: 1 / 3;
+  margin-top: 3px;
+  accent-color: var(--accent, #818cf8);
+  cursor: pointer;
+}
+.gp-blend-mode-name { font-weight: 600; font-size: 13px; }
+.gp-blend-mode-desc { font-size: 12px; opacity: 0.65; line-height: 1.4; }
+.gp-rule-chip--blend {
+  background: var(--accent-subtle, rgba(99,102,241,0.15));
+  border-color: var(--accent, #818cf8);
+  color: var(--accent, #818cf8);
+}
+
+/* Blend user slots (shared with settings page) */
+.blend-slots { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 8px; align-items: center; }
+.blend-slot { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.blend-slot__menu { position: relative; }
+.blend-slot__summary {
+  list-style: none; display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 10px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05);
+  cursor: pointer; user-select: none;
+}
+.blend-slot__summary::-webkit-details-marker { display: none; }
+.blend-slot__summary:hover { background: rgba(255,255,255,.08); }
+.blend-slot__avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: rgba(255,255,255,.08); }
+.blend-slot__name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.88); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blend-slot__chev { width: 6px; height: 6px; flex-shrink: 0; border-right: 1.5px solid rgba(255,255,255,.5); border-bottom: 1.5px solid rgba(255,255,255,.5); transform: rotate(45deg) translateY(-1px); }
+.blend-slot__menu[open] .blend-slot__chev { transform: rotate(-135deg) translate(-1px,-1px); }
+.blend-slot__list {
+  position: absolute; left: 0; top: calc(100% + 6px); min-width: 200px;
+  padding: 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,.1);
+  background: rgba(18,22,34,.98); box-shadow: 0 14px 28px rgba(0,0,0,.3); z-index: 40;
+  max-height: 280px; overflow-y: auto;
+}
+.blend-slot__option {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border: 0; border-radius: 8px; background: transparent;
+  color: rgba(255,255,255,.88); text-align: left; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.blend-slot__option + .blend-slot__option { margin-top: 2px; }
+.blend-slot__option:hover { background: rgba(255,255,255,.06); }
+.blend-slot__option.is-active { background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(99,102,241,.35); }
+.blend-slot__opt-avatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: rgba(255,255,255,.08); }
+.blend-slot__optname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blend-slot__remove {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,.12); background: transparent;
+  color: rgba(255,255,255,.4); cursor: pointer; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s;
+}
+.blend-slot__remove:hover { background: rgba(248,113,113,.15); color: #f87171; border-color: rgba(248,113,113,.4); }
+.blend-add-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px dashed rgba(255,255,255,.25); background: transparent;
+  color: rgba(255,255,255,.55); cursor: pointer; transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.blend-add-btn:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.4); color: rgba(255,255,255,.88); }
+
 /* Preview bar */
 .gp-preview-bar {
   display: flex;

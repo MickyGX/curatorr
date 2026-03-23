@@ -15,7 +15,7 @@ process.env.PORT = String(37000 + (process.pid % 1000));
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
-const { start, stop, canUserAccessLidarrAutomation } = await import('../index.js');
+const { start, stop, canUserAccessLidarrAutomation, completePlexLogin } = await import('../index.js');
 const { initDb, listLidarrRequests } = await import('../db.js');
 const { createLidarrService } = await import('../services/lidarr.js');
 const { runTautulliDailySync } = await import('../services/tautulli-sync.js');
@@ -24,6 +24,7 @@ const {
   checkLoginRateLimit,
   recordLoginFailure,
   clearLoginFailures,
+  completePlexWizardTokenFetch,
 } = await import('../routes/auth.js');
 
 function extractCsrfToken(html) {
@@ -31,8 +32,9 @@ function extractCsrfToken(html) {
   return match ? match[1] : '';
 }
 
-function createClient() {
+function createClient(options = {}) {
   const cookies = new Map();
+  const maxCookieSize = Number(options.maxCookieSize || 0);
 
   function updateCookies(response) {
     const setCookies = typeof response.headers.getSetCookie === 'function'
@@ -42,6 +44,7 @@ function createClient() {
       const [pair] = String(entry || '').split(';');
       const eq = pair.indexOf('=');
       if (eq <= 0) continue;
+      if (maxCookieSize > 0 && pair.length > maxCookieSize) continue;
       cookies.set(pair.slice(0, eq), pair.slice(eq + 1));
     }
   }
@@ -271,6 +274,79 @@ describe('auth flows', () => {
     const client = createClient();
     const res = await client.postForm('/login', { username: 'testadmin', password: 'wrong' }, '/login');
     assert.equal(res.status, 401);
+  });
+
+  it('keeps the Plex Home selection session under browser cookie limits', async () => {
+    const client = createClient({ maxCookieSize: 4096 });
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === 'https://plex.tv/api/v2/pins/123456') {
+        return new Response(JSON.stringify({ authToken: 'plex-main-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users') {
+        return new Response(JSON.stringify([
+          {
+            id: 'home-owner',
+            title: 'Owner',
+            protected: false,
+            admin: true,
+            thumb: `https://metadata.plex.tv/${'a'.repeat(1800)}`,
+          },
+          {
+            id: 'home-kid-1',
+            title: 'Kid One',
+            protected: true,
+            admin: false,
+            thumb: `https://metadata.plex.tv/${'b'.repeat(1800)}`,
+          },
+          {
+            id: 'home-kid-2',
+            title: 'Kid Two',
+            protected: false,
+            admin: false,
+            thumb: `https://metadata.plex.tv/${'c'.repeat(1800)}`,
+          },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in test: ${target}`);
+    };
+
+    try {
+      let res = await client.request('/auth/plex');
+      assert.equal(res.status, 200);
+
+      res = await client.postJson('/api/plex/pin', { pinId: '123456' }, '/login');
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+
+      res = await client.request('/oauth/callback');
+      assert.equal(res.status, 302);
+      assert.equal(res.location, '/auth/plex/home-users');
+      const setCookies = typeof res.headers.getSetCookie === 'function'
+        ? res.headers.getSetCookie()
+        : (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : []);
+      const sessionCookie = setCookies.find((entry) => String(entry || '').startsWith('curatorr_session='))
+        || setCookies[0]
+        || '';
+      assert.ok(sessionCookie.length > 0);
+      assert.ok(sessionCookie.length < 4096);
+
+      res = await client.request('/auth/plex/home-users');
+      assert.equal(res.status, 200);
+      assert.match(res.text, /Who&#39;s watching\?/);
+      assert.match(res.text, /Kid One/);
+      assert.doesNotMatch(res.text, /metadata\.plex\.tv/);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });
 
@@ -1050,6 +1126,48 @@ describe('security guards', () => {
     assert.equal(lidarrService.resolveAutomationRoleForUserId('emmal142'), 'co-admin');
   });
 
+  it('wraps Lidarr artist-list abort errors without mutating read-only error codes', async () => {
+    const lidarrService = createLidarrService({
+      db: null,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => {
+      const err = new Error('The operation was aborted.');
+      err.name = 'AbortError';
+      Object.defineProperty(err, 'code', {
+        configurable: true,
+        enumerable: true,
+        get() { return 'UND_ERR_ABORTED'; },
+      });
+      throw err;
+    };
+
+    try {
+      await assert.rejects(
+        () => lidarrService.listArtists({ timeoutMs: 1 }),
+        (err) => {
+          assert.equal(err?.message, 'Lidarr timed out while processing the request.');
+          assert.equal(err?.code, 'REQUEST_TIMEOUT');
+          return true;
+        },
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('blocks co-admin access to admin-only wizard actions', async () => {
     const { client, response } = await login('coadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
@@ -1072,5 +1190,314 @@ describe('security guards', () => {
     assert.ok(!settingsRes.text.includes('plex-secret-token'));
     assert.ok(!settingsRes.text.includes('tautulli-secret-key'));
     assert.ok(!settingsRes.text.includes(webhookKey));
+  });
+
+  it('redirects the server wizard token fetch action into Plex auth', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const fetchRes = await client.postForm('/wizard/plex/fetch-token', {
+      plexUrl: 'http://plex.local',
+      mediaServerType: 'plex',
+    }, '/wizard');
+    assert.equal(fetchRes.status, 302);
+    assert.ok(fetchRes.location.startsWith('/auth/plex?purpose=wizard-server-token&next='));
+
+    const nextConfig = await readConfig();
+    assert.equal(nextConfig?.mediaServer?.type, 'plex');
+    assert.equal(nextConfig?.plex?.url, 'http://plex.local');
+  });
+
+  it('fetches and stores the Plex owner token for the server wizard without replacing the current session user', async () => {
+    let currentConfig = {
+      mediaServer: { type: 'plex' },
+      plex: {
+        url: 'http://plex.local',
+        token: '',
+        machineId: '',
+        libraries: [],
+        availableLibraries: [],
+      },
+    };
+    const req = {
+      session: {
+        user: {
+          username: 'testadmin',
+          source: 'local',
+          role: 'admin',
+        },
+      },
+    };
+
+    const result = await completePlexWizardTokenFetch({
+      loadConfig: () => currentConfig,
+      saveConfig: (nextConfig) => { currentConfig = nextConfig; },
+      fetchPlexResources: async (token) => {
+        assert.equal(token, 'plex-auth-token');
+        return [{
+          name: 'Plex Server',
+          provides: 'server',
+          owned: true,
+          clientIdentifier: 'wizard-machine',
+          accessToken: 'plex-owner-token',
+          connections: [{ uri: 'http://plex.local' }],
+        }];
+      },
+      resolvePlexServerToken: () => 'plex-owner-token',
+      resolvePlexMachineIdentifier: () => 'wizard-machine',
+      fetchPlexMusicLibraries: async (url, token) => {
+        assert.equal(url, 'http://plex.local');
+        assert.equal(token, 'plex-owner-token');
+        return [{ key: '12', title: 'Music', type: 'artist' }];
+      },
+      pushLog: () => {},
+      safeMessage: (err) => String(err?.message || err || ''),
+    }, req, 'plex-auth-token');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.step, 3);
+    assert.equal(req.session.user?.username, 'testadmin');
+    assert.equal(req.session.user?.source, 'local');
+    assert.equal(req.session.plexServerToken, 'plex-owner-token');
+    assert.equal(currentConfig?.plex?.token, 'plex-owner-token');
+    assert.equal(currentConfig?.plex?.machineId, 'wizard-machine');
+    assert.equal(currentConfig?.plex?.availableLibraries?.[0]?.key, '12');
+  });
+
+  it('stores the Plex owner token for the server wizard when Plex returns multiple servers and only one is owned', async () => {
+    let currentConfig = {
+      mediaServer: { type: 'plex' },
+      plex: {
+        url: 'http://192.168.0.20:32400',
+        token: '',
+        machineId: '',
+        libraries: [],
+        availableLibraries: [],
+      },
+    };
+    const req = {
+      session: {
+        user: {
+          username: 'testadmin',
+          source: 'local',
+          role: 'admin',
+        },
+      },
+    };
+
+    const result = await completePlexWizardTokenFetch({
+      loadConfig: () => currentConfig,
+      saveConfig: (nextConfig) => { currentConfig = nextConfig; },
+      fetchPlexResources: async () => ([
+        {
+          name: 'Remote Shared Server',
+          provides: 'server',
+          owned: false,
+          clientIdentifier: 'shared-machine',
+          accessToken: 'shared-token',
+          connections: [{ uri: 'http://remote-server:32400' }],
+        },
+        {
+          name: 'Owner Server',
+          provides: 'server',
+          owned: true,
+          clientIdentifier: 'owner-machine',
+          accessToken: 'owner-token',
+          connections: [{ uri: 'http://plexbox.local:32400' }],
+        },
+      ]),
+      resolvePlexServerToken: (resources, opts) => {
+        const match = resources.find((server) => String(server?.clientIdentifier || '') === 'owner-machine');
+        return match?.accessToken || '';
+      },
+      resolvePlexMachineIdentifier: () => 'owner-machine',
+      fetchPlexMusicLibraries: async (_url, token) => {
+        assert.equal(token, 'owner-token');
+        return [{ key: '22', title: 'Music', type: 'artist' }];
+      },
+      pushLog: () => {},
+      safeMessage: (err) => String(err?.message || err || ''),
+    }, req, 'plex-auth-token');
+
+    assert.equal(result.ok, true);
+    assert.equal(currentConfig?.plex?.token, 'owner-token');
+    assert.equal(currentConfig?.plex?.machineId, 'owner-machine');
+    assert.equal(currentConfig?.plex?.availableLibraries?.[0]?.key, '22');
+  });
+
+  it('stores the global Plex token during first owner login when Plex setup is still incomplete', async () => {
+    await writeFile(join(process.env.DATA_DIR, 'admins.json'), JSON.stringify({ admins: ['existing-admin'] }, null, 2));
+
+    const config = await readConfig();
+    await writeConfig({
+      ...config,
+      wizard: { completed: true, completedAt: new Date().toISOString() },
+      mediaServer: { ...(config.mediaServer || {}), type: 'plex' },
+      plex: {
+        ...(config.plex || {}),
+        url: 'http://plex.local',
+        token: '',
+        machineId: '',
+        libraries: [],
+        availableLibraries: [],
+        userServerTokens: {},
+      },
+    });
+
+    const req = { session: {} };
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      const token = options?.headers?.['X-Plex-Token'];
+
+      if (target === 'https://plex.tv/api/v2/user') {
+        assert.equal(token, 'plex-auth-token');
+        return new Response(JSON.stringify({
+          id: 'plex-user-1',
+          username: 'MickyGX',
+          email: 'micky@example.com',
+          title: 'MickyGX',
+          thumb: '/avatar.png',
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (target.startsWith('https://plex.tv/api/v2/resources')) {
+        assert.equal(token, 'plex-auth-token');
+        return new Response(JSON.stringify([{
+          name: 'Plex Server',
+          provides: 'server',
+          owned: true,
+          clientIdentifier: 'wizard-machine',
+          accessToken: 'plex-owner-server-token',
+          connections: [{ uri: 'http://plex.local' }],
+        }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      throw new Error('Unexpected fetch in test: ' + target);
+    };
+
+    try {
+      await completePlexLogin(req, 'plex-auth-token');
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    assert.equal(req.session.user?.role, 'user');
+    assert.equal(req.session.plexServerToken, 'plex-owner-server-token');
+
+    const nextConfig = await readConfig();
+    assert.equal(nextConfig?.plex?.token, 'plex-owner-server-token');
+    assert.equal(nextConfig?.plex?.machineId, 'wizard-machine');
+    assert.equal(nextConfig?.plex?.userServerTokens?.mickygx, 'plex-owner-server-token');
+  });
+
+  it('bootstraps Plex libraries and genres on first user wizard load after tokenless setup', async () => {
+    runDbStatement('DELETE FROM master_tracks');
+
+    const config = await readConfig();
+    await writeConfig({
+      ...config,
+      wizard: { completed: true, completedAt: new Date().toISOString() },
+      mediaServer: { ...(config.mediaServer || {}), type: 'plex' },
+      plex: {
+        ...(config.plex || {}),
+        url: 'http://plex.local',
+        token: '',
+        machineId: '',
+        libraries: [],
+        availableLibraries: [],
+        userServerTokens: {
+          ...((config.plex && config.plex.userServerTokens) || {}),
+          testadmin: 'plex-user-token',
+        },
+      },
+    });
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+
+      const headers = options?.headers || {};
+      const token = typeof headers.get === 'function' ? headers.get('X-Plex-Token') : headers['X-Plex-Token'];
+      assert.equal(token, 'plex-user-token');
+
+      if (target === 'http://plex.local' || target === 'http://plex.local/') {
+        return new Response(JSON.stringify({
+          MediaContainer: { machineIdentifier: 'wizard-machine' },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (target === 'http://plex.local/library/sections' || target.startsWith('http://plex.local/library/sections?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: {
+            Directory: [{ key: '12', title: 'Music', type: 'artist', agent: 'tv.plex.agents.music' }],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (target.startsWith('http://plex.local/library/sections/12/all?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: {
+            totalSize: 1,
+            Metadata: [{
+              ratingKey: 'track-1',
+              originalTitle: 'Bootstrap Artist',
+              title: 'Bootstrap Song',
+              parentTitle: 'Bootstrap Album',
+              Genre: [{ tag: 'Rock' }],
+              ratingCount: 0,
+              viewCount: 0,
+            }],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (target.startsWith('http://plex.local/library/sections/12/mood?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Directory: [] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      throw new Error('Unexpected fetch in test: ' + target);
+    };
+
+    try {
+      const wizardRes = await client.request('/wizard/user');
+      assert.equal(wizardRes.status, 200);
+      assert.ok(!wizardRes.text.includes('No genres found yet'));
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    const nextConfig = await readConfig();
+    assert.equal(nextConfig?.plex?.token, 'plex-user-token');
+    assert.equal(nextConfig?.plex?.machineId, 'wizard-machine');
+    assert.deepEqual(nextConfig?.plex?.libraries, ['12']);
+    assert.equal(nextConfig?.plex?.availableLibraries?.[0]?.key, '12');
+
+    const masterRow = readDbRow('SELECT COUNT(*) AS count FROM master_tracks');
+    assert.ok(Number(masterRow?.count || 0) > 0);
   });
 });

@@ -1,0 +1,441 @@
+<%- include('partials/head', { pageTitle: title || 'Blend — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body cur-blend-page">
+  <div class="dash-frame<%= typeof sidebarCollapsed !== 'undefined' && sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div><div class="dash-title">Curatorr</div></div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'blend', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/blend.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Blend</span>
+        </div>
+        <div class="main-window-spacer"></div>
+      </div>
+
+      <%
+        const _blendCards = Array.isArray(blendCarouselUsers) ? blendCarouselUsers : [];
+        const _currentUserId = String(currentUserId || '').trim();
+        const _currentUserName = String(currentUserName || _currentUserId || 'Current user').trim();
+      %>
+
+      <div class="dash-content dash-content--blend">
+        <%- include('partials/plex-banner') %>
+
+        <div class="cur-panel cur-panel--playlist-carousel blend-carousel-panel">
+          <div class="cur-panel-header cur-panel-header--playlist-carousel">
+            <h3 class="cur-panel-title">Blend Queue</h3>
+            <div class="cur-panel-actions blend-carousel-actions">
+              <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="blendCarouselPrev" aria-label="Previous">
+                <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
+              </button>
+              <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="blendCarouselNext" aria-label="Next">
+                <span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+          <div class="cur-panel-body cur-panel-body--playlist-carousel">
+            <% if (_blendCards.length) { %>
+              <div class="cur-playlist-carousel-viewport plex-carousel-viewport" id="blendCarouselViewport">
+                <div class="cur-playlist-carousel-track plex-carousel-track" id="blendCarouselTrack">
+                  <% _blendCards.forEach(function(card) { %>
+                    <div class="plex-card cur-discover-result-card cur-playlist-carousel-card blend-playlist-card<%= card.artUrl ? '' : ' is-empty' %>"
+                      role="button"
+                      tabindex="0"
+                      data-blend-card
+                      data-user-id="<%= card.id %>"
+                      data-user-name="<%= card.name || card.id %>"
+                      data-user-avatar-url="<%= card.avatarUrl || '' %>"
+                      data-user-avatar-label="<%= card.avatarLabel || 'P' %>"
+                      data-compatibility="<%= card.compatibilityScore === null ? '' : card.compatibilityScore %>"
+                      aria-pressed="false">
+                      <div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">
+                        <div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art blend-playlist-art<%= card.artUrl ? '' : ' is-empty' %>">
+                          <% if (card.artUrl) { %>
+                            <img src="<%= card.artUrl %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
+                          <% } %>
+                          <label class="pl-card-checkbox-wrap blend-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()">
+                            <input type="checkbox" class="pl-card-checkbox blend-card-checkbox" onchange="toggleBlendCard(this.closest('.blend-playlist-card'))" />
+                            <span class="pl-card-checkbox-ui"></span>
+                          </label>
+                          <span class="blend-card-score"><%= card.compatibilityScore === null || card.compatibilityScore === undefined ? 'N/A' : `${card.compatibilityScore}%` %></span>
+                          <span class="blend-card-avatar">
+                            <% if (card.avatarUrl && /^https?:\/\//i.test(card.avatarUrl)) { %>
+                              <img class="local-admin-preview__avatar" src="<%= card.avatarUrl %>" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                              <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:none"><%= card.avatarLabel || 'P' %></span>
+                            <% } else { %>
+                              <span class="local-admin-preview__avatar-fallback" aria-hidden="true" style="display:flex"><%= card.avatarLabel || 'P' %></span>
+                            <% } %>
+                          </span>
+                        </div>
+                      </div>
+                      <div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">
+                        <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= card.name || card.id %></div>
+                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(card.sharedArtists || 0).toLocaleString() %> shared artists</div>
+                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(card.sharedBelters || 0).toLocaleString() %> belters · <%= Number(card.agreedSkips || 0).toLocaleString() %> agreed skips</div>
+                      </div>
+                    </div>
+                  <% }) %>
+                </div>
+              </div>
+            <% } else { %>
+              <div class="cur-empty blend-carousel-empty">No other listeners with blend data are available yet.</div>
+            <% } %>
+          </div>
+        </div>
+
+        <div class="blend-results-wrap">
+          <div id="blend-results" style="display:none">
+            <div class="cur-panel blend-compat-panel">
+              <div class="cur-panel-header">
+                <div class="blend-results-heading">
+                  <div class="blend-results-sub" id="blendResultsSub">Select listeners from the carousel to build the blend.</div>
+                </div>
+                <div class="cur-panel-actions">
+                  <a id="blendCreatePlaylistBtn" class="btn btn-sm btn-ghost" href="/playlists" style="display:none">+ Blended Playlist</a>
+                </div>
+              </div>
+              <div class="cur-panel-body blend-compat-body">
+              <div class="blend-compat-row">
+                <div class="blend-compat-score-wrap">
+                  <div class="blend-compat-score" id="blend-compat-score">—</div>
+                  <div class="blend-compat-label">Compatibility</div>
+                </div>
+                <div class="blend-stat-grid">
+                  <div class="blend-stat-card">
+                    <div class="blend-stat-num" id="blend-shared-artists">—</div>
+                    <div class="blend-stat-desc">Shared artists</div>
+                  </div>
+                  <div class="blend-stat-card">
+                    <div class="blend-stat-num" id="blend-shared-belters">—</div>
+                    <div class="blend-stat-desc">Shared belters</div>
+                  </div>
+                  <div class="blend-stat-card">
+                    <div class="blend-stat-num" id="blend-agreed-skips">—</div>
+                    <div class="blend-stat-desc">Agreed skips</div>
+                  </div>
+                  <div class="blend-stat-card">
+                    <div class="blend-stat-num" id="blend-total-artists">—</div>
+                    <div class="blend-stat-desc">Combined artists</div>
+                  </div>
+                </div>
+              </div>
+              </div>
+            </div>
+
+            <div class="blend-lists-row">
+              <div class="cur-panel blend-list-panel">
+                <div class="cur-panel-header">
+                  <div>
+                    <h3 class="cur-panel-title">Top Blended Artists</h3>
+                    <div class="cur-panel-sub">Artists known to all selected listeners, ranked by averaged score.</div>
+                  </div>
+                </div>
+                <div class="cur-panel-body blend-list-panel__body">
+                  <ul class="cur-list" id="blend-artists-list"></ul>
+                  <div class="cur-empty" id="blend-artists-empty" style="display:none">No shared artists found.</div>
+                </div>
+              </div>
+              <div class="cur-panel blend-list-panel">
+                <div class="cur-panel-header">
+                  <div>
+                    <h3 class="cur-panel-title">Top Blended Tracks</h3>
+                    <div class="cur-panel-sub">Tracks shared across the selected listeners, ranked by averaged tier weight.</div>
+                  </div>
+                </div>
+                <div class="cur-panel-body blend-list-panel__body">
+                  <ul class="cur-list" id="blend-tracks-list"></ul>
+                  <div class="cur-empty" id="blend-tracks-empty" style="display:none">No shared tracks found.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="blend-empty-state" class="cur-empty blend-empty-state">
+            Pick people from the carousel to build a blend around <strong><%= _currentUserName %></strong>.
+          </div>
+
+          <div id="blend-loading" style="display:none" class="blend-loading">Loading blend data…</div>
+          <div id="blend-error" style="display:none" class="blend-error"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+  (function() {
+    var CURRENT_USER_ID = <%- JSON.stringify(_currentUserId) %>;
+    var CURRENT_USER_NAME = <%- JSON.stringify(_currentUserName) %>;
+    var BLEND_USERS = <%- JSON.stringify(_blendCards.map(function(card) {
+      return {
+        id: card.id,
+        name: card.name || card.id,
+        compatibilityScore: card.compatibilityScore,
+      };
+    })) %>;
+    var selectedUsers = new Set();
+    var activeController = null;
+    var activeRequestId = 0;
+    var TIER_TONE = { belter: 'belter', decent: 'decent', halfDecent: 'half-decent', 'half-decent': 'half-decent', skip: 'skip', unplayed: 'muted', curatorr: 'muted', unranked: 'muted' };
+    var TIER_LABEL = { belter: 'Belter', decent: 'Decent', halfDecent: 'Half-Decent', 'half-decent': 'Half-Decent', skip: 'Skip', unplayed: 'Unplayed', curatorr: 'Unplayed', unranked: 'Unranked' };
+
+    function escHtml(value) {
+      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function scoreColor(score) {
+      if (score >= 80) return 'var(--tier-belter, #a3e635)';
+      if (score >= 60) return 'var(--tier-decent, #60a5fa)';
+      if (score >= 40) return 'var(--tier-half, #f59e0b)';
+      return 'var(--tier-skip, #f87171)';
+    }
+
+    function renderArtistItem(artist) {
+      var tone = TIER_TONE[artist.tier] || 'muted';
+      var label = TIER_LABEL[artist.tier] || artist.tier;
+      var scoreBar = Math.round(artist.avg_score * 10);
+      var item = document.createElement('li');
+      item.className = 'cur-list-item';
+      item.innerHTML =
+        '<span class="cur-list-thumb">' +
+          '<img src="/api/music/thumb/artist/' + encodeURIComponent(artist.artist_name) + '" alt="" onerror="this.style.display=\'none\'" />' +
+        '</span>' +
+        '<span class="cur-list-primary">' +
+          '<span class="cur-list-titleline">' +
+            '<span class="cur-list-name">' + escHtml(artist.artist_name) + '</span>' +
+            '<span class="cur-badge cur-badge--' + tone + '">' + label + '</span>' +
+          '</span>' +
+          '<span class="cur-artist-score-bar" title="Avg score: ' + artist.avg_score + '/10">' +
+            '<span class="cur-artist-score-fill" style="width:' + scoreBar + '%"></span>' +
+          '</span>' +
+        '</span>' +
+        '<span class="cur-list-meta">' + Number(artist.avg_plays || 0).toLocaleString() + ' avg plays</span>';
+      return item;
+    }
+
+    function renderTrackItem(track) {
+      var rawTier = track.normTier || track.tier;
+      var tone = TIER_TONE[rawTier] || 'muted';
+      var label = TIER_LABEL[rawTier] || rawTier;
+      var item = document.createElement('li');
+      item.className = 'cur-list-item';
+      item.innerHTML =
+        '<span class="cur-list-thumb">' +
+          '<img src="/api/music/thumb/artist/' + encodeURIComponent(track.artist_name) + '" alt="" onerror="this.style.display=\'none\'" />' +
+        '</span>' +
+        '<span class="cur-list-primary">' +
+          '<span class="cur-list-titleline">' +
+            '<span class="cur-list-name">' + escHtml(track.track_title) + '</span>' +
+            '<span class="cur-badge cur-badge--' + tone + '">' + label + '</span>' +
+          '</span>' +
+          '<span class="cur-list-sub">' + escHtml(track.artist_name) + '</span>' +
+        '</span>' +
+        '<span class="cur-list-meta">' + Number(track.avg_plays || 0).toLocaleString() + ' avg plays</span>';
+      return item;
+    }
+
+    function getSelectedUserIds() {
+      return BLEND_USERS.map(function(user) { return user.id; }).filter(function(id) { return selectedUsers.has(id); });
+    }
+
+    function getSelectedUsers() {
+      var ids = getSelectedUserIds();
+      return BLEND_USERS.filter(function(user) { return ids.indexOf(user.id) !== -1; });
+    }
+
+    function updateCarouselSummary() {
+      var summaryEl = document.getElementById('blendCarouselSummary');
+      var count = selectedUsers.size;
+      if (!summaryEl) return;
+      summaryEl.textContent = count ? (count === 1 ? '1 user selected' : count + ' users selected') : 'Select at least 1 user';
+    }
+
+    function syncCardState() {
+      document.querySelectorAll('[data-blend-card]').forEach(function(card) {
+        var selected = selectedUsers.has(card.dataset.userId);
+        card.classList.toggle('is-selected', selected);
+        card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        var checkbox = card.querySelector('.blend-card-checkbox');
+        if (checkbox) checkbox.checked = selected;
+      });
+      updateCarouselSummary();
+    }
+
+    function updateResultsHeading(selectedUsersList) {
+      var sub = document.getElementById('blendResultsSub');
+      if (sub) sub.textContent = CURRENT_USER_NAME + ' + ' + selectedUsersList.map(function(user) { return user.name; }).join(' + ');
+
+      var btn = document.getElementById('blendCreatePlaylistBtn');
+      if (btn) {
+        var otherIds = selectedUsersList.map(function(u) { return u.id; });
+        var defaultName = CURRENT_USER_NAME + ' + ' + selectedUsersList.map(function(u) { return u.name; }).join(' + ');
+        var params = new URLSearchParams();
+        params.set('blend', otherIds.join(','));
+        params.set('name', defaultName);
+        btn.href = '/playlists?' + params.toString();
+        btn.style.display = '';
+      }
+    }
+
+    function showIdleState() {
+      if (activeController) {
+        activeController.abort();
+        activeController = null;
+      }
+      document.getElementById('blend-results').style.display = 'none';
+      document.getElementById('blend-loading').style.display = 'none';
+      document.getElementById('blend-error').style.display = 'none';
+      document.getElementById('blend-empty-state').style.display = '';
+      var btn = document.getElementById('blendCreatePlaylistBtn');
+      if (btn) btn.style.display = 'none';
+    }
+
+    function showLoadingState() {
+      document.getElementById('blend-empty-state').style.display = 'none';
+      document.getElementById('blend-results').style.display = 'none';
+      document.getElementById('blend-error').style.display = 'none';
+      document.getElementById('blend-loading').style.display = '';
+    }
+
+    function showErrorState(message) {
+      document.getElementById('blend-loading').style.display = 'none';
+      document.getElementById('blend-results').style.display = 'none';
+      var errorEl = document.getElementById('blend-error');
+      errorEl.textContent = message;
+      errorEl.style.display = '';
+    }
+
+    function renderBlendResults(data, selectedUsersList) {
+      updateResultsHeading(selectedUsersList);
+      var score = data.compatibilityScore;
+      var scoreEl = document.getElementById('blend-compat-score');
+      scoreEl.textContent = score !== null ? score + '%' : 'N/A';
+      scoreEl.style.color = score !== null ? scoreColor(score) : '';
+      document.getElementById('blend-shared-artists').textContent = Number(data.sharedArtists || 0).toLocaleString();
+      document.getElementById('blend-shared-belters').textContent = Number(data.sharedBelters || 0).toLocaleString();
+      document.getElementById('blend-agreed-skips').textContent = Number(data.agreedSkips || 0).toLocaleString();
+      document.getElementById('blend-total-artists').textContent = Number(data.totalArtists || 0).toLocaleString();
+
+      var artistsList = document.getElementById('blend-artists-list');
+      var artistsEmpty = document.getElementById('blend-artists-empty');
+      artistsList.innerHTML = '';
+      if (Array.isArray(data.topArtists) && data.topArtists.length) {
+        data.topArtists.forEach(function(artist) { artistsList.appendChild(renderArtistItem(artist)); });
+        artistsEmpty.style.display = 'none';
+      } else {
+        artistsEmpty.style.display = '';
+      }
+
+      var tracksList = document.getElementById('blend-tracks-list');
+      var tracksEmpty = document.getElementById('blend-tracks-empty');
+      tracksList.innerHTML = '';
+      if (Array.isArray(data.topTracks) && data.topTracks.length) {
+        data.topTracks.forEach(function(track) { tracksList.appendChild(renderTrackItem(track)); });
+        tracksEmpty.style.display = 'none';
+      } else {
+        tracksEmpty.style.display = '';
+      }
+
+      document.getElementById('blend-loading').style.display = 'none';
+      document.getElementById('blend-error').style.display = 'none';
+      document.getElementById('blend-empty-state').style.display = 'none';
+      document.getElementById('blend-results').style.display = '';
+    }
+
+    function requestBlendStats() {
+      var selectedUsersList = getSelectedUsers();
+      if (!selectedUsersList.length) {
+        showIdleState();
+        return;
+      }
+
+      if (activeController) activeController.abort();
+      activeController = new AbortController();
+      activeRequestId += 1;
+      var requestId = activeRequestId;
+      showLoadingState();
+
+      var params = new URLSearchParams();
+      params.append('users[]', CURRENT_USER_ID);
+      selectedUsersList.forEach(function(user) { params.append('users[]', user.id); });
+
+      fetch('/api/blend/stats?' + params.toString(), { signal: activeController.signal })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+          if (requestId !== activeRequestId) return;
+          activeController = null;
+          if (!data.ok) {
+            showErrorState(data.error || 'Error loading blend data.');
+            return;
+          }
+          renderBlendResults(data, selectedUsersList);
+        })
+        .catch(function(err) {
+          if (err && err.name === 'AbortError') return;
+          if (requestId !== activeRequestId) return;
+          activeController = null;
+          showErrorState('Network error: ' + err.message);
+        });
+    }
+
+    function toggleCard(card) {
+      if (!card) return;
+      var userId = card.dataset.userId;
+      if (!userId) return;
+      if (selectedUsers.has(userId)) selectedUsers.delete(userId);
+      else selectedUsers.add(userId);
+      syncCardState();
+      requestBlendStats();
+    }
+
+    window.toggleBlendCard = function(card) {
+      toggleCard(card);
+    };
+
+    document.querySelectorAll('[data-blend-card]').forEach(function(card) {
+      card.addEventListener('click', function(event) {
+        if (event.target.closest('.blend-card-checkbox-wrap')) return;
+        toggleCard(card);
+      });
+      card.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleCard(card);
+        }
+      });
+    });
+
+    (function wireCarouselNav() {
+      var viewport = document.getElementById('blendCarouselViewport');
+      var prev = document.getElementById('blendCarouselPrev');
+      var next = document.getElementById('blendCarouselNext');
+      if (!viewport || !prev || !next) return;
+      prev.addEventListener('click', function() { viewport.scrollBy({ left: Math.max(260, Math.floor(viewport.clientWidth * 0.8)) * -1, behavior: 'smooth' }); });
+      next.addEventListener('click', function() { viewport.scrollBy({ left: Math.max(260, Math.floor(viewport.clientWidth * 0.8)), behavior: 'smooth' }); });
+    })();
+
+    syncCardState();
+    showIdleState();
+  })();
+  </script>
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/starfield-3d.js"></script>
+</body>
+</html>
