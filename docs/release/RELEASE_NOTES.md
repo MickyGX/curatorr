@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.30 (2026-03-23)
+
+- Fixed a Plex Home login loop where some browsers would drop the cookie-backed session before profile selection completed, sending users back to `/login` after successful Plex authentication.
+- Fixed the Blend page shell so it now loads the shared dashboard scripts, restoring the animated music-note background and the user-pill pop-up menu.
+
 ## v0.1.29 (2026-03-23)
 
 - Added a new Blend page with a compatibility-ranked user carousel, playlist-style artwork cards, and live shared artist/track breakdowns for building blends around the current listener.
