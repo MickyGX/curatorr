@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.32 (2026-03-23)
+
+- Restored the Blend page header status area so the current version badge and the light/dark theme toggle appear again.
+- Polished the Blend page layout by tightening panel spacing, reducing oversized helper text, and matching the Top Blended Artists and Top Blended Tracks panel heights more closely.
+- Restored the leading left-edge gutter on the Playlists and Blend carousels so the first card no longer sits flush against the panel edge.
+
 ## v0.1.31 (2026-03-23)
 
 - Fixed the Plex Home login flow again by preventing duplicate profile-selection submits from dropping users back to `/login` after choosing their home profile.
