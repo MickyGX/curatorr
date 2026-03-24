@@ -40,10 +40,11 @@ Open `http://localhost:7676/wizard`.
 
 The wizard walks through:
 
-1. Plex connection and library selection
-2. Local admin creation or Plex admin sign-in
-3. Optional Tautulli connection
-4. Optional Lidarr connection
+1. Media server selection (`Plex`, `Jellyfin`, or `Emby`)
+2. Server connection and library selection
+3. Local admin creation or media-server sign-in
+4. Optional Tautulli connection on Plex installs
+5. Optional Lidarr connection
 
 ## 4. Choose your playback source
 
@@ -53,6 +54,8 @@ Curatorr can ingest live playback from either:
 - `Tautulli` — useful if you prefer Tautulli as the live event source
 
 Set this in `Settings -> General -> Playback source`.
+
+This setting only applies to Plex installs. Jellyfin and Emby use their own native live playback path.
 
 Notes:
 
@@ -71,9 +74,10 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 
 ## 6. Recommended first checks
 
-- `Settings -> Plex`
-  - verify token, machine ID, and selected music libraries
-  - use `Refresh libraries` if you add a new Plex music library later
+- `Settings -> Plex / Jellyfin / Emby`
+  - verify the configured server URL and selected music libraries
+  - on Plex, verify the token and machine ID
+  - on Plex, use `Refresh libraries` if you add a new Plex music library later
 - `Settings -> Jobs`
   - confirm the core jobs you want are enabled
 - `User Profile`
@@ -83,7 +87,7 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 
 ## What to expect
 
-- Smart playlists appear in Plex after the next sync cycle.
+- Smart playlists appear in your connected media server after the next sync cycle.
 - Track tiers begin to populate as plays come in.
 - Suggested artists become useful once there is enough listening history.
 - If Lidarr is configured, add/queue actions and progression appear on the Artists page.

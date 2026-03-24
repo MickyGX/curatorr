@@ -4,17 +4,18 @@
 
 Curatorr supports two login methods side by side:
 
-### Plex sign-in
+### Media server sign-in
 
-Users authenticate with Plex.
+Users authenticate with the selected media server.
 
 This supports:
 
-- normal Plex users
-- Plex Home users
-- managed home-user selection after sign-in
+- Plex users
+- Plex Home users and managed home-user selection after sign-in
+- Jellyfin users
+- Emby users
 
-The Plex server owner is treated as the main admin account when matched against the configured Plex admin user.
+On Plex installs, the Plex server owner is treated as the main admin account when matched against the configured Plex admin user.
 
 ### Local admin account
 

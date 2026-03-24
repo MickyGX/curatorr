@@ -77,7 +77,7 @@ let versionCache = { fetchedAt: 0, payload: null };
 
 const DEFAULT_LOG_SETTINGS = { maxEntries: 500, maxDays: 30, visibleRows: 25 };
 
-const ALLOWED_BRAND_THEMES = new Set(['custom', 'curatorr', 'pulsarr', 'plex', 'lidarr']);
+const ALLOWED_BRAND_THEMES = new Set(['custom', 'curatorr', 'launcharr', 'rocketship', 'pulsarr', 'plex', 'radarr', 'sonarr', 'lidarr', 'readarr']);
 const DEFAULT_THEME_SETTINGS = {
   mode: '',
   brandTheme: 'curatorr',

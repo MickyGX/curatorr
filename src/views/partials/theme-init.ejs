@@ -42,7 +42,7 @@
           ? launcharrThemeMode
           : (stored || modeFromDefaults || (prefersLight ? "day" : "night"));
         var defaultBrandTheme = String(themeDefaults && themeDefaults.brandTheme || "").trim().toLowerCase();
-        var isAllowedBrandTheme = /^(custom|curatorr|pulsarr|plex|lidarr)$/.test(defaultBrandTheme);
+        var isAllowedBrandTheme = /^(custom|curatorr|launcharr|rocketship|pulsarr|plex|radarr|sonarr|lidarr|readarr)$/.test(defaultBrandTheme);
         var brandTheme = localStorage.getItem("curatorr-brand-theme") || (isAllowedBrandTheme ? defaultBrandTheme : "curatorr");
         document.documentElement.dataset.theme = mode;
         document.documentElement.dataset.brandTheme = brandTheme;

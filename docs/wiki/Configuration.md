@@ -20,10 +20,16 @@ Curatorr is configured through container environment variables and the Settings 
 
 All runtime configuration lives in `Settings`.
 
+The visible media-server settings depend on the server type selected in the setup wizard:
+
+- `Plex`
+- `Jellyfin`
+- `Emby`
+
 ### General
 
 - server name and URLs
-- playback source (`Plex` or `Tautulli`)
+- playback source (`Plex` or `Tautulli`) on Plex installs
 - guest restriction behavior
 - global theme defaults
 
@@ -40,6 +46,20 @@ Important behavior:
 - If you deselect a library and save, Curatorr removes that library's derived Curatorr data from its own database.
 - This cleanup affects Curatorr data only, not Plex or Tautulli itself.
 
+### Jellyfin
+
+- Jellyfin server URL
+- API key
+- selected music libraries
+- webhook/session-based playback tracking
+
+### Emby
+
+- Emby server URL
+- API key
+- selected music libraries
+- webhook/session-based playback tracking
+
 ### Tautulli
 
 - URL and API key
@@ -49,6 +69,8 @@ Tautulli can be used for:
 
 - live playback, if selected as the active playback source
 - manual or scheduled gap-fill/backfill
+
+Tautulli is only relevant for Plex installs.
 
 ### Lidarr
 
@@ -73,7 +95,7 @@ Tautulli can be used for:
 
 ### Users
 
-- view user roles and Plex-linked identities
+- view user roles and linked Plex, Jellyfin, or Emby identities
 - change roles
 - remove users
 

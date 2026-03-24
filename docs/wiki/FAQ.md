@@ -11,6 +11,16 @@ Plex webhooks can be the live playback source on their own. Tautulli is optional
 - live playback, if you choose it as the playback source
 - gap-fill / backfill repair
 
+On Jellyfin and Emby installs, Tautulli is not used.
+
+---
+
+**Does Curatorr only work with Plex?**
+
+No.
+
+Curatorr supports `Plex`, `Jellyfin`, and `Emby` as its primary media server. Plex currently has the broadest feature set, including Tautulli support, Daily Mix, Last.fm station playlists, and ListenBrainz playlist suggestion sync.
+
 ---
 
 **Does Curatorr require Lidarr?**
