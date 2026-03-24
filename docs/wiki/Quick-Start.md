@@ -2,8 +2,6 @@
 
 ## 1. Create your compose file
 
-Create a `docker-compose.yml` with the following content. Change `SESSION_SECRET` to a randomly generated value (`openssl rand -hex 32`).
-
 ```yaml
 services:
   curatorr:
@@ -24,6 +22,12 @@ services:
     restart: unless-stopped
 ```
 
+Generate `SESSION_SECRET` with:
+
+```bash
+openssl rand -hex 32
+```
+
 ## 2. Start the container
 
 ```bash
@@ -32,30 +36,61 @@ docker compose up -d
 
 ## 3. Complete the setup wizard
 
-Open `http://localhost:7676/wizard` in your browser.
+Open `http://localhost:7676/wizard`.
 
-![Curatorr login page](../media/curatorr-login.png)
+The wizard walks through:
 
-The wizard walks you through:
+1. Plex connection and library selection
+2. Local admin creation or Plex admin sign-in
+3. Optional Tautulli connection
+4. Optional Lidarr connection
 
-1. **Plex connection** — enter your Plex server URL, token, and machine ID
-2. **Admin account** — create a local admin account or sign in with Plex
-3. **Tautulli connection** — enter your Tautulli URL and API key, then configure the webhook (see [Integrations](Integrations))
-4. **Lidarr connection** — optional; enter your Lidarr URL and API key if you want automation
+## 4. Choose your playback source
 
-## 4. Let Curatorr build your library cache
+Curatorr can ingest live playback from either:
 
-After setup, Curatorr runs a **Master Track Cache Refresh** to index your Plex music library. This may take a few minutes for large libraries. Once complete, smart playlists and artist suggestions will begin appearing.
+- `Plex` — recommended default
+- `Tautulli` — useful if you prefer Tautulli as the live event source
+
+Set this in `Settings -> General -> Playback source`.
+
+Notes:
+
+- Plex webhooks are the most direct live source.
+- Tautulli gap-fill does not require the Tautulli webhook.
+- If you want live playback from Tautulli, you must both set playback source to `Tautulli` and register the Tautulli webhook.
+
+## 5. Let Curatorr build the library cache
+
+After setup, run or wait for:
+
+- `Master Track Cache Refresh`
+- `Smart Playlist Sync`
+
+Large libraries can take a while on first refresh. Curatorr pages tracks through Plex so it can handle very large libraries more safely than the older all-at-once approach.
+
+## 6. Recommended first checks
+
+- `Settings -> Plex`
+  - verify token, machine ID, and selected music libraries
+  - use `Refresh libraries` if you add a new Plex music library later
+- `Settings -> Jobs`
+  - confirm the core jobs you want are enabled
+- `User Profile`
+  - optional: set Last.fm username
+  - optional: set ListenBrainz username/token
+  - optional: adjust your theme
 
 ## What to expect
 
-- **Smart Playlists** — a Curatorr playlist appears in Plex within the first sync cycle (default: 30 minutes)
-- **Track tiers** — tracks are classified as plays come in via Tautulli webhooks; the first few plays set the baseline
-- **Artist Suggestions** — the Artists page starts showing scored suggestions once you have enough play history to build a taste profile
-- **Lidarr Activity** — appears as soon as you add a first artist through the suggestion panel
+- Smart playlists appear in Plex after the next sync cycle.
+- Track tiers begin to populate as plays come in.
+- Suggested artists become useful once there is enough listening history.
+- If Lidarr is configured, add/queue actions and progression appear on the Artists page.
 
 ## Next steps
 
-- [Configuration](Configuration) — environment variables and settings reference
-- [Integrations](Integrations) — Tautulli webhook setup and Lidarr connection details
-- [Authentication and Roles](Authentication-and-Roles) — managing users, roles, and access
+- [Configuration](Configuration)
+- [Integrations](Integrations)
+- [Authentication and Roles](Authentication-and-Roles)
+- [Smart Playlists](Smart-Playlists)

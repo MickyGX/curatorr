@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags } from '../db.js';
 import { JOB_DEFS } from '../services/jobs.js';
+import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
 import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
+import { buildBlendableUsers } from './pages.js';
 
 // Settings routes — GET /settings and all POST /settings/*
 
@@ -271,6 +273,8 @@ export function registerSettings(app, ctx) {
     saveDisabledUsers,
     parsePlexUsers,
     fetchPlexUser,
+    fetchPlexHomeUsers,
+    fetchPlexMusicLibraries,
     buildAppApiUrl,
     buildConfiguredWebhookUrl,
     getWebhookSharedSecret,
@@ -303,7 +307,7 @@ export function registerSettings(app, ctx) {
 
   // ── GET /settings ─────────────────────────────────────────────────────────
 
-  app.get('/settings', requireSettingsAdmin, (req, res) => {
+  app.get('/settings', requireSettingsAdmin, async (req, res) => {
     const config = loadConfig();
     const themeDefaultsResult = String(req.query?.themeDefaultsResult || '').trim();
     const themeDefaultsError = String(req.query?.themeDefaultsError || '').trim();
@@ -352,6 +356,17 @@ export function registerSettings(app, ctx) {
     const aboutCurrentVersion = normalizeVersionTag(APP_VERSION || '') || 'Unknown';
     const aboutReleases = loadSettingsReleases({ limit: 12, currentVersion: aboutCurrentVersion });
 
+    const blendableUsers = await buildBlendableUsers(
+      db,
+      config,
+      null,
+      resolveLocalUsers,
+      normalizeIdentityList,
+      fetchPlexUser,
+      fetchPlexHomeUsers,
+      parsePlexUsers,
+    );
+
     res.render('settings', {
       title: 'Settings — Curatorr',
       user: req.session.user,
@@ -385,21 +400,7 @@ export function registerSettings(app, ctx) {
       lastfmRegionOptions: buildLastfmRegionOptions(renderedConfig.discovery?.region || DEFAULT_LASTFM_REGION),
       globalPlaylists: config.globalPlaylists || [],
       allUserIds: (() => { try { return db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats').all().map((r) => r.user_plex_id); } catch { return []; } })(),
-      blendableUsers: (() => {
-        try {
-          const cfg = loadConfig();
-          const laMap = new Map(
-            resolveLocalUsers(cfg)
-              .filter((u) => u.username && u.avatar)
-              .map((u) => [u.username.toLowerCase(), normalizeStoredAvatarPath(u.avatar)]),
-          );
-          return db.prepare(
-            'SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, \'\')) != \'\' ORDER BY user_plex_id COLLATE NOCASE',
-          ).all()
-            .map((r) => String(r.user_plex_id || '').trim()).filter(Boolean)
-            .map((id) => ({ id, avatar: laMap.get(id.toLowerCase()) || '' }));
-        } catch { return []; }
-      })(),
+      blendableUsers,
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
@@ -496,10 +497,74 @@ export function registerSettings(app, ctx) {
 
     const librariesRaw = req.body?.libraries;
     const libraries = Array.isArray(librariesRaw) ? librariesRaw : (librariesRaw ? [librariesRaw] : config.plex?.libraries || []);
+    const previousLibraries = Array.isArray(config.plex?.libraries) ? config.plex.libraries : [];
+    const removedLibraries = previousLibraries.filter((key) => !libraries.includes(key));
 
     // Keep url in sync with localUrl so existing code that reads config.plex.url keeps working
     const updated = { ...config, plex: { ...config.plex, url: localUrl, localUrl, remoteUrl, machineId, adminUser, libraries, ...(token ? { token } : {}) } };
     saveConfig(updated);
+
+    if (removedLibraries.length) {
+      await pruneDeselectedPlexLibraries(ctx, { removedLibraryKeys: removedLibraries });
+    }
+
+    if (JSON.stringify(previousLibraries) !== JSON.stringify(libraries)) {
+      const { refreshMasterTrackCache } = await import('./wizard.js');
+      refreshMasterTrackCache(ctx).catch(() => {});
+    }
+
+    return res.redirect('/settings?tab=plex&success=1');
+  });
+
+  app.post('/settings/plex/refresh-libraries', requireAdmin, async (_req, res) => {
+    const config = loadConfig();
+    const plexUrl = normalizeBaseUrl(String(config?.plex?.localUrl || config?.plex?.url || '').trim());
+    const plexToken = String(config?.plex?.token || '').trim();
+    if (!plexUrl || !plexToken) {
+      const message = encodeURIComponent('Save a working Plex URL and token before refreshing libraries.');
+      return res.redirect(`/settings?tab=plex&error=${message}`);
+    }
+
+    let libraries = [];
+    try {
+      libraries = await fetchPlexMusicLibraries(plexUrl, plexToken);
+    } catch (err) {
+      pushLog({ level: 'error', app: 'plex', action: 'libraries.refresh.error', message: safeMessage(err) });
+      const message = encodeURIComponent(`Could not refresh Plex libraries: ${safeMessage(err)}`);
+      return res.redirect(`/settings?tab=plex&error=${message}`);
+    }
+
+    const validKeys = new Set(libraries.map((library) => String(library?.key || '').trim()).filter(Boolean));
+    const previousLibraries = Array.isArray(config?.plex?.libraries) ? config.plex.libraries : [];
+    const nextLibraries = previousLibraries.filter((key) => validKeys.has(String(key || '').trim()));
+    const removedLibraries = previousLibraries.filter((key) => !nextLibraries.includes(key));
+    const updated = {
+      ...config,
+      plex: {
+        ...config.plex,
+        url: plexUrl,
+        localUrl: String(config?.plex?.localUrl || '').trim() ? plexUrl : (config?.plex?.localUrl || ''),
+        availableLibraries: libraries,
+        libraries: nextLibraries,
+      },
+    };
+    saveConfig(updated);
+
+    if (removedLibraries.length) {
+      await pruneDeselectedPlexLibraries(ctx, { removedLibraryKeys: removedLibraries });
+    }
+    if (JSON.stringify(previousLibraries) !== JSON.stringify(nextLibraries)) {
+      const { refreshMasterTrackCache } = await import('./wizard.js');
+      refreshMasterTrackCache(ctx).catch(() => {});
+    }
+
+    pushLog({
+      level: 'info',
+      app: 'plex',
+      action: 'libraries.refresh',
+      message: `Refreshed Plex libraries: ${libraries.length} music librar${libraries.length === 1 ? 'y' : 'ies'} found.`,
+      meta: { selectedLibraries: nextLibraries },
+    });
     return res.redirect('/settings?tab=plex&success=1');
   });
 
@@ -1149,7 +1214,16 @@ export function registerSettings(app, ctx) {
   app.post('/user-settings/theme', requireUser, (req, res) => {
     const config = loadConfig();
     const { normalizeThemeSettings, serializeUserThemePreferences } = ctx;
-    const settings = normalizeThemeSettings(req.body || {});
+    const settings = normalizeThemeSettings({
+      mode: req.body?.mode ?? req.body?.theme_mode,
+      brandTheme: req.body?.brandTheme ?? req.body?.theme_brand_theme,
+      customColor: req.body?.customColor ?? req.body?.theme_custom_color,
+      sidebarInvert: req.body?.sidebarInvert ?? req.body?.theme_sidebar_invert,
+      squareCorners: req.body?.squareCorners ?? req.body?.theme_square_corners,
+      bgMotion: req.body?.bgMotion ?? req.body?.theme_bg_motion,
+      carouselFreeScroll: req.body?.carouselFreeScroll ?? req.body?.theme_carousel_free_scroll,
+      hideScrollbars: req.body?.hideScrollbars ?? req.body?.theme_hide_scrollbars,
+    });
     const updated = serializeUserThemePreferences(config, req.session.user, settings);
     saveConfig(updated);
     return res.redirect('/user-settings?success=theme-updated');
@@ -1186,6 +1260,36 @@ export function registerSettings(app, ctx) {
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations });
     return res.redirect('/user-settings?success=lastfm-updated');
+  });
+
+  app.post('/user-settings/listenbrainz', requireUser, (req, res) => {
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    const listenbrainzUsername = String(req.body?.listenbrainzUsername || '').trim();
+    const listenbrainzToken = String(req.body?.listenbrainzToken || '').trim();
+    const rawPlaylists = req.body?.listenbrainzPlaylists;
+    const VALID_PLAYLISTS = ['daily-jams', 'weekly-jams', 'weekly-exploration'];
+    const listenbrainzEnabledPlaylists = (Array.isArray(rawPlaylists) ? rawPlaylists : rawPlaylists ? [rawPlaylists] : [])
+      .filter((playlistKey) => VALID_PLAYLISTS.includes(String(playlistKey || '').trim()));
+    const prefs = getUserPreferences(db, userPlexId);
+    saveUserPreferences(db, userPlexId, {
+      ...prefs,
+      listenbrainzUsername,
+      listenbrainzToken,
+      listenbrainzEnabledPlaylists,
+    });
+    pushLog({
+      level: 'info',
+      app: 'listenbrainz',
+      action: 'settings.saved',
+      message: `ListenBrainz settings saved for ${userPlexId}.`,
+      meta: {
+        username: listenbrainzUsername,
+        enabledPlaylists: listenbrainzEnabledPlaylists,
+        tokenConfigured: Boolean(listenbrainzToken),
+      },
+    });
+    return res.redirect('/user-settings?success=listenbrainz-updated');
   });
 
   app.post('/user-settings/lastfm/run-backfill', requireUser, (req, res) => {

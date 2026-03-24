@@ -16,8 +16,9 @@ process.env.PORT = String(37000 + (process.pid % 1000));
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
 const { start, stop, canUserAccessLidarrAutomation, completePlexLogin } = await import('../index.js');
-const { initDb, listLidarrRequests } = await import('../db.js');
+const { initDb, listLidarrRequests, getUserPreferences, saveUserPreferences, listUserGeneratedPlaylists } = await import('../db.js');
 const { createLidarrService } = await import('../services/lidarr.js');
+const { createPlaylistService } = await import('../services/playlists.js');
 const { runTautulliDailySync } = await import('../services/tautulli-sync.js');
 const {
   resetLoginAttempts,
@@ -482,6 +483,43 @@ describe('page scoping', () => {
   });
 });
 
+describe('user settings integrations', () => {
+  it('saves ListenBrainz playlist preferences', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const page = await client.request('/user-settings');
+    const csrfToken = extractCsrfToken(page.text);
+    assert.ok(csrfToken, 'Expected CSRF token on /user-settings');
+
+    const form = new URLSearchParams();
+    form.set('_csrf', csrfToken);
+    form.set('listenbrainzUsername', 'lb-user');
+    form.set('listenbrainzToken', 'lb-token');
+    form.append('listenbrainzPlaylists', 'daily-jams');
+    form.append('listenbrainzPlaylists', 'weekly-exploration');
+
+    const res = await client.request('/user-settings/listenbrainz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form,
+    });
+    assert.equal(res.status, 302);
+    assert.equal(res.location, '/user-settings?success=listenbrainz-updated');
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const prefs = getUserPreferences(db, 'testadmin');
+      assert.equal(prefs.listenbrainzUsername, 'lb-user');
+      assert.equal(prefs.listenbrainzToken, 'lb-token');
+      assert.deepEqual(prefs.listenbrainzEnabledPlaylists, ['daily-jams', 'weekly-exploration']);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe('security guards', () => {
   it('redirects unauthenticated dashboard access to /login', async () => {
     const client = createClient();
@@ -515,6 +553,60 @@ describe('security guards', () => {
     });
     assert.equal(res.status, 200);
     assert.equal(res.json?.ok, true);
+  });
+
+  it('ignores Tautulli webhooks from Plex libraries that are not selected', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      plex: {
+        ...originalConfig.plex,
+        libraries: ['1'],
+        availableLibraries: [
+          { key: '1', title: 'Music' },
+          { key: '2', title: 'Audiobooks' },
+        ],
+      },
+      general: {
+        ...(originalConfig.general || {}),
+        playbackSource: 'tautulli',
+      },
+    });
+
+    try {
+      const client = createClient();
+      const user = `tautulli-user-${Date.now()}`;
+      const ratingKey = `track-${Date.now()}`;
+      const res = await client.request(`/webhook/tautulli?key=${encodeURIComponent(webhookKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'play',
+          media_type: 'track',
+          user,
+          rating_key: ratingKey,
+          session_key: `session-${Date.now()}`,
+          title: 'Ignored Audiobook',
+          grandparent_title: 'Audiobook Author',
+          parent_title: 'Ignored Album',
+          section_id: '2',
+          library_name: 'Audiobooks',
+          duration: 4,
+          view_offset: 0,
+        }),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ignored, 'library_not_selected');
+
+      const eventRow = readDbRow(
+        'SELECT id FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ?',
+        user,
+        ratingKey,
+      );
+      assert.equal(eventRow, undefined);
+    } finally {
+      await writeConfig(originalConfig);
+    }
   });
 
   it('upgrades a short Tautulli stop to the later highest session progress', async () => {
@@ -780,6 +872,353 @@ describe('security guards', () => {
     assert.equal(eventRow.event_source, 'plex_webhook');
     assert.equal(Number(eventRow.duration_ms || 0), 120000);
     assert.equal(Number(eventRow.is_skip || 0), 0);
+  });
+
+  it('ignores Tautulli gap-fill rows from Plex libraries that are not selected', async () => {
+    const originalConfig = await readConfig();
+    const updatedConfig = {
+      ...originalConfig,
+      plex: {
+        ...originalConfig.plex,
+        libraries: ['1'],
+        availableLibraries: [
+          { key: '1', title: 'Music' },
+          { key: '2', title: 'Audiobooks' },
+        ],
+      },
+    };
+    await writeConfig(updatedConfig);
+
+    const user = `plex-user-${Date.now()}`;
+    const ratingKey = `plex-track-${Date.now()}`;
+    const startedAt = Date.now() - 10 * 60 * 1000;
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => new Response(JSON.stringify({
+      response: {
+        data: {
+          data: [{
+            media_type: 'track',
+            user,
+            rating_key: ratingKey,
+            started: Math.floor(startedAt / 1000),
+            stopped: Math.floor((startedAt + 220000) / 1000),
+            play_duration: 220,
+            full_duration: 240,
+            title: 'Ignored Audiobook',
+            original_title: 'Audiobook Author',
+            parent_title: 'Ignored Album',
+            section_id: '2',
+            section_name: 'Audiobooks',
+            watched_status: 1,
+          }],
+        },
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const result = await runTautulliDailySync({
+        db,
+        loadConfig: () => updatedConfig,
+        pushLog: () => {},
+        safeMessage: (err) => String(err?.message || err || ''),
+      });
+      assert.equal(result.inserted, 0);
+      assert.equal(result.skipped, 1);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+      await writeConfig(originalConfig);
+    }
+
+    const eventRow = readDbRow(
+      'SELECT id FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ?',
+      user,
+      ratingKey,
+    );
+    assert.equal(eventRow, undefined);
+  });
+
+  it('removes stale Plex library data when a library is deselected in settings', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      plex: {
+        ...originalConfig.plex,
+        libraries: ['1', '2'],
+        availableLibraries: [
+          { key: '1', title: 'Music' },
+          { key: '2', title: 'Audiobooks' },
+        ],
+      },
+    });
+
+    const user = `cleanup-user-${Date.now()}`;
+    const keepRatingKey = `keep-track-${Date.now()}`;
+    const removedRatingKey = `remove-track-${Date.now()}`;
+    const artistName = `cleanup-artist-${Date.now()}`;
+    const now = Date.now();
+
+    runDbStatement(
+      `INSERT INTO play_events (
+        user_plex_id, plex_rating_key, track_title, artist_name, album_name,
+        library_key, started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      user,
+      keepRatingKey,
+      'Kept Song',
+      artistName,
+      'Kept Album',
+      '1',
+      now - 300000,
+      now - 60000,
+      240000,
+      240000,
+      0,
+      'tautulli_sync',
+      `keep-${user}`,
+    );
+    runDbStatement(
+      `INSERT INTO play_events (
+        user_plex_id, plex_rating_key, track_title, artist_name, album_name,
+        library_key, started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      user,
+      removedRatingKey,
+      'Removed Song',
+      artistName,
+      'Removed Album',
+      '2',
+      now - 200000,
+      now - 100000,
+      100000,
+      240000,
+      0,
+      'tautulli_sync',
+      `remove-${user}`,
+    );
+    runDbStatement(
+      `INSERT INTO open_sessions (
+        session_key, user_plex_id, plex_rating_key, track_title, artist_name, album_name,
+        library_key, track_duration_ms, player_scope, playback_state, last_position_ms,
+        max_position_ms, accumulated_ms, playing_since, last_event_at, started_at, event_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `open-${user}`,
+      user,
+      removedRatingKey,
+      'Removed Song',
+      artistName,
+      'Removed Album',
+      '2',
+      240000,
+      '',
+      'playing',
+      0,
+      0,
+      0,
+      now - 50000,
+      now - 50000,
+      now - 50000,
+      'tautulli',
+    );
+    runDbStatement(
+      `INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        manually_excluded, manually_included, tier, tier_weight,
+        last_played_at, last_skipped_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      removedRatingKey,
+      user,
+      'Removed Song',
+      artistName,
+      'Removed Album',
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      'belter',
+      1,
+      now - 100000,
+      null,
+      now,
+    );
+    runDbStatement(
+      `INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included,
+        ranking_score, last_played_at, last_skipped_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      artistName,
+      user,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      7,
+      now - 60000,
+      null,
+      now,
+    );
+    runDbStatement(
+      `INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, genres, library_key, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      keepRatingKey,
+      artistName,
+      'Kept Song',
+      'Kept Album',
+      '[]',
+      '1',
+      0,
+      0,
+      now,
+    );
+    runDbStatement(
+      `INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, genres, library_key, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      removedRatingKey,
+      artistName,
+      'Removed Song',
+      'Removed Album',
+      '[]',
+      '2',
+      0,
+      0,
+      now,
+    );
+
+    try {
+      const { client, response } = await login('testadmin', 'TestPassword1!');
+      assert.equal(response.status, 302);
+
+      const settingsPage = await client.request('/settings?tab=plex');
+      const csrfToken = extractCsrfToken(settingsPage.text);
+      assert.ok(csrfToken);
+
+      const form = new URLSearchParams({
+        _csrf: csrfToken,
+        plexLocalUrl: '',
+        plexRemoteUrl: '',
+        plexToken: '',
+        machineId: String(originalConfig?.plex?.machineId || ''),
+        plexAdminUser: String(originalConfig?.plex?.adminUser || ''),
+      });
+      form.append('libraries', '1');
+
+      const res = await client.request('/settings/plex', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form,
+      });
+      assert.equal(res.status, 302);
+
+      const removedEvent = readDbRow(
+        'SELECT id FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ?',
+        user,
+        removedRatingKey,
+      );
+      const keptEvent = readDbRow(
+        'SELECT id FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ?',
+        user,
+        keepRatingKey,
+      );
+      const removedSession = readDbRow('SELECT session_key FROM open_sessions WHERE session_key = ?', `open-${user}`);
+      const removedTrack = readDbRow(
+        'SELECT plex_rating_key FROM track_stats WHERE user_plex_id = ? AND plex_rating_key = ?',
+        user,
+        removedRatingKey,
+      );
+      const artistStats = readDbRow(
+        'SELECT play_count, ranking_score FROM artist_stats WHERE user_plex_id = ? AND artist_name = ?',
+        user,
+        artistName,
+      );
+      const removedMasterTrack = readDbRow(
+        'SELECT rating_key FROM master_tracks WHERE rating_key = ?',
+        removedRatingKey,
+      );
+      const keptMasterTrack = readDbRow(
+        'SELECT rating_key FROM master_tracks WHERE rating_key = ?',
+        keepRatingKey,
+      );
+
+      assert.equal(removedEvent, undefined);
+      assert.ok(keptEvent);
+      assert.equal(removedSession, undefined);
+      assert.equal(removedTrack, undefined);
+      assert.ok(artistStats);
+      assert.equal(Number(artistStats.play_count || 0), 1);
+      assert.ok(Number(artistStats.ranking_score || 0) <= 10);
+      assert.equal(removedMasterTrack, undefined);
+      assert.ok(keptMasterTrack);
+    } finally {
+      await writeConfig(originalConfig);
+    }
+  });
+
+  it('refreshes Plex libraries from settings without dropping valid selections', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      plex: {
+        ...originalConfig.plex,
+        url: 'http://plex.local:32400',
+        localUrl: 'http://plex.local:32400',
+        token: 'plex-refresh-token',
+        libraries: ['1'],
+        availableLibraries: [
+          { key: '1', title: 'Music' },
+        ],
+      },
+    });
+
+    try {
+      const { client, response } = await login('testadmin', 'TestPassword1!');
+      assert.equal(response.status, 302);
+
+      const originalFetch = global.fetch;
+      global.fetch = async (url, options) => {
+        if (String(url) === 'http://plex.local:32400/library/sections') {
+          return new Response(JSON.stringify({
+            MediaContainer: {
+              Directory: [
+                { key: '1', title: 'Music', type: 'artist' },
+                { key: '2', title: 'Audiobooks', type: 'artist' },
+                { key: '99', title: 'Films', type: 'movie' },
+              ],
+            },
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return originalFetch(url, options);
+      };
+
+      const refreshRes = await client.postForm('/settings/plex/refresh-libraries', {}, '/settings?tab=plex');
+      assert.equal(refreshRes.status, 302);
+
+      const nextConfig = await readConfig();
+      assert.deepEqual(nextConfig?.plex?.libraries || [], ['1']);
+      assert.deepEqual(nextConfig?.plex?.availableLibraries || [], [
+        { key: '1', title: 'Music', type: 'artist', agent: '' },
+        { key: '2', title: 'Audiobooks', type: 'artist', agent: '' },
+      ]);
+      global.fetch = originalFetch;
+    } finally {
+      await writeConfig(originalConfig);
+    }
   });
 
   it('records Plex multipart webhooks as play events', async () => {
@@ -1286,6 +1725,163 @@ describe('security guards', () => {
     } finally {
       global.fetch = originalFetch;
     }
+  });
+
+  it('syncs ListenBrainz generated playlists into Plex using artist and title matching', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `listenbrainz-user-${Date.now()}`;
+    const playlistUuid = '12345678-1234-1234-1234-1234567890ab';
+    const logs = [];
+    db.prepare(`
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'rk-1',
+      'Artist Match',
+      'Track Match',
+      'Matched Album',
+      '[]',
+      '1',
+      0,
+      0,
+      Date.now(),
+    );
+    saveUserPreferences(db, userId, {
+      ...getUserPreferences(db, userId),
+      listenbrainzUsername: 'lb-user',
+      listenbrainzToken: 'lb-token',
+      listenbrainzEnabledPlaylists: ['weekly-jams'],
+      userWizardCompleted: true,
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildAppApiUrl: (base, path = '') => new URL(path, `${String(base).replace(/\/?$/, '/')}`),
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      calls.push({ url: target, method: String(options.method || 'GET').toUpperCase(), headers: options.headers || {} });
+      if (target === 'https://api.listenbrainz.org/1/user/lb-user/playlists/createdfor') {
+        assert.equal(options.headers?.Authorization, 'Token lb-token');
+        return new Response(JSON.stringify({
+          playlists: [
+            {
+              playlist: {
+                identifier: `https://listenbrainz.org/playlist/${playlistUuid}`,
+                title: 'Weekly Jams',
+                extension: {
+                  'https://musicbrainz.org/doc/jspf#playlist': {
+                    additional_metadata: {
+                      algorithm_metadata: {
+                        source_patch: 'weekly-jams',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === `https://api.listenbrainz.org/1/playlist/${playlistUuid}`) {
+        assert.equal(options.headers?.Authorization, 'Token lb-token');
+        return new Response(JSON.stringify({
+          playlist: {
+            track: [
+              {
+                title: 'Track Match',
+                creator: 'Artist Match',
+                extension: {
+                  'https://musicbrainz.org/doc/jspf#track': {
+                    additional_metadata: {
+                      artists: [
+                        { artist_credit_name: 'Artist Match' },
+                      ],
+                    },
+                  },
+                },
+              },
+              {
+                title: 'Track Miss',
+                creator: 'Artist Miss',
+              },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-playlist-1' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-playlist-1/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-playlist-1/items?uri=')) {
+        assert.match(decodeURIComponent(target), /library\/metadata\/rk-1/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in ListenBrainz playlist test: ${target}`);
+    };
+
+    try {
+      await service.syncListenbrainzPlaylists(userId);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const playlists = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false });
+      const synced = playlists.find((entry) => entry.playlistKey === 'listenbrainz:weekly-jams');
+      assert.ok(synced);
+      assert.equal(synced.playlistType, 'listenbrainz-playlist');
+      assert.equal(synced.plexPlaylistId, 'plex-playlist-1');
+      assert.equal(synced.trackCount, 1);
+      assert.equal(synced.algorithmVersion, 'listenbrainz-playlist-v1');
+      assert.match(synced.playlistTitle, /ListenBrainz Weekly Jams/);
+    } finally {
+      dbVerify.close();
+    }
+
+    assert.ok(logs.some((entry) => String(entry?.message || '').includes('ListenBrainz Weekly Jams synced: 1/2 matched')));
+    assert.equal(calls.filter((entry) => entry.url.startsWith('https://api.listenbrainz.org/')).length, 2);
   });
 
   it('blocks co-admin access to admin-only wizard actions', async () => {

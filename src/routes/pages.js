@@ -792,7 +792,7 @@ async function buildLocalAdminPreviewData({
   };
 }
 
-async function buildBlendableUsers(
+export async function buildBlendableUsers(
   db,
   config,
   adminPreview,
@@ -803,6 +803,13 @@ async function buildBlendableUsers(
   parsePlexUsers,
 ) {
   try {
+    const normalizeBlendIdentity = (values = []) => {
+      if (typeof normalizeIdentityList === 'function') return normalizeIdentityList(values);
+      return values
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean);
+    };
+    const isHiddenBlendIdentity = (...values) => normalizeBlendIdentity(values).includes('local');
     const localIdentitySet = new Set(
       (resolveLocalUsers ? resolveLocalUsers(config) : [])
         .flatMap((user) => [user?.username, user?.email])
@@ -821,7 +828,12 @@ async function buildBlendableUsers(
       return adminOptions
         .filter((opt) => {
           const id = String(opt?.id || '').trim();
-          return id && !localIdentitySet.has(id.toLowerCase()) && statsIds.has(id.toLowerCase());
+          return (
+            id &&
+            !localIdentitySet.has(id.toLowerCase()) &&
+            !isHiddenBlendIdentity(id, opt?.name) &&
+            statsIds.has(id.toLowerCase())
+          );
         })
         .map((opt) => {
           const id = String(opt.id || '').trim();
@@ -840,7 +852,7 @@ async function buildBlendableUsers(
       'SELECT DISTINCT user_plex_id FROM artist_stats WHERE TRIM(COALESCE(user_plex_id, \'\')) != \'\' ORDER BY user_plex_id COLLATE NOCASE',
     ).all()
       .map((r) => String(r.user_plex_id || '').trim())
-      .filter((id) => id && !localIdentitySet.has(id.toLowerCase()));
+      .filter((id) => id && !localIdentitySet.has(id.toLowerCase()) && !isHiddenBlendIdentity(id));
 
     if (!userIds.length) return [];
 
@@ -871,6 +883,14 @@ async function buildBlendableUsers(
       const liveEntry = liveUserByObservedKey.get(key) || null;
       const homeEntry = homeUserByObservedKey.get(key) || null;
       const canonicalEntry = liveEntry || homeEntry || null;
+      if (
+        isHiddenBlendIdentity(
+          id,
+          canonicalEntry?.title,
+          canonicalEntry?.username,
+          canonicalEntry?.email,
+        )
+      ) return acc;
       const dedupeKey = canonicalEntry
         ? `${liveEntry ? 'plex' : 'home'}:${String(canonicalEntry.uuid || canonicalEntry.id || id).trim().toLowerCase()}`
         : `observed:${key}`;
@@ -1577,6 +1597,9 @@ export function registerPages(app, ctx) {
     const lastfmUsername = userPrefs?.lastfmUsername || '';
     const lastfmEnabledStations = userPrefs?.lastfmEnabledStations || [];
     const lastfmBackfillCursor = userPrefs?.lastfmBackfillCursor ?? 0;
+    const listenbrainzUsername = userPrefs?.listenbrainzUsername || '';
+    const listenbrainzToken = userPrefs?.listenbrainzToken || '';
+    const listenbrainzEnabledPlaylists = userPrefs?.listenbrainzEnabledPlaylists || [];
     res.render('user-settings', {
       title: 'My Settings — Curatorr',
       user: req.session.user,
@@ -1590,6 +1613,9 @@ export function registerPages(app, ctx) {
       lastfmUsername,
       lastfmEnabledStations,
       lastfmBackfillCursor,
+      listenbrainzUsername,
+      listenbrainzToken,
+      listenbrainzEnabledPlaylists,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

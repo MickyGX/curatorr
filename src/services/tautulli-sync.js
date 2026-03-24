@@ -17,6 +17,7 @@ import {
   rebuildArtistStatsFromEvents,
   resolveUserSmartConfig,
 } from '../db.js';
+import { isPlexLibrarySelected } from './library-selection.js';
 
 const DEDUP_WINDOW_MS = 90_000;    // ±90 seconds around started_at
 const RESUME_WINDOW_MS = 5 * 60_000; // a session is a "resume" if previous ended within 5 min
@@ -158,6 +159,12 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         const artistName = String(row.original_title || row.grandparent_title || '').trim();
         const albumName = String(row.parent_title || '').trim();
         const libraryKey = String(row.section_id || '').trim();
+        const libraryName = String(row.section_name || row.library_name || '').trim();
+
+        if (!isPlexLibrarySelected(config, { libraryKey, libraryName })) {
+          skipped++;
+          continue;
+        }
 
         const smartSettings = resolveUserSmartConfig(db, config, userPlexId);
         const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;

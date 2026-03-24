@@ -4,6 +4,8 @@ Curatorr is a self-hosted Plex and Plexamp companion for music discovery, smart 
 
 **Current release: v0.1.32**
 
+**Discord:** https://discord.gg/TvrxJWD4PK
+
 ---
 
 ## Contents

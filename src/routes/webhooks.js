@@ -3,6 +3,7 @@
 // readRawBody captures the raw body for multipart routes before normal parsing.
 
 import crypto from 'crypto';
+import { isPlexLibrarySelected } from '../services/library-selection.js';
 
 // Middleware: capture raw body buffer (only when body not already parsed)
 function readRawBody(req, res, next) {
@@ -566,6 +567,7 @@ export function registerWebhooks(app, ctx) {
       const artistName = String(body.original_title || body.grandparent_title || '').trim();
       const albumName = String(body.parent_title || '').trim();
       const libraryKey = String(body.section_id || '').trim();
+      const libraryName = String(body.library_name || '').trim();
 
       // Tautulli's duration field is coarse; progress_percent + view_offset gives a
       // better real-time estimate for near-complete tracks, so prefer the smaller
@@ -575,6 +577,16 @@ export function registerWebhooks(app, ctx) {
       const viewOffsetMs = Number(body.view_offset || 0);
 
       const config = loadConfig();
+      if (!isPlexLibrarySelected(config, { libraryKey, libraryName })) {
+        pushLog({
+          level: 'info',
+          app: 'webhook',
+          action: 'tautulli.library-ignored',
+          message: `Ignored Tautulli event for unselected library "${libraryName || libraryKey || 'unknown'}".`,
+          meta: { libraryKey, libraryName, plexRatingKey, userPlexId },
+        });
+        return res.json({ ok: true, ignored: 'library_not_selected' });
+      }
       const smartSettings = resolveUserSmartConfig(db, config, userPlexId);
       const now = Date.now();
       const effectiveSessionKey = sessionKey || `tautulli-${userPlexId}-${plexRatingKey}-${Math.floor(now / 60000)}`;

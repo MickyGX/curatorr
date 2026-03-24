@@ -85,6 +85,7 @@ const DEFAULT_THEME_SETTINGS = {
   sidebarInvert: false,
   squareCorners: false,
   bgMotion: true,
+  carouselFreeScroll: false,
   hideScrollbars: false,
 };
 
@@ -1120,14 +1121,24 @@ function normalizeThemeSettings(raw, fallback = DEFAULT_THEME_SETTINGS) {
   const source = (raw && typeof raw === 'object') ? raw : {};
   const fb = (fallback && typeof fallback === 'object') ? fallback : DEFAULT_THEME_SETTINGS;
   const brandTheme = String(source.brandTheme || fb.brandTheme || 'curatorr').trim().toLowerCase();
+  const resolveThemeBool = (value, fallbackValue) => {
+    if (value === undefined) return Boolean(fallbackValue);
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return false;
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return Boolean(value);
+  };
   return {
     mode: String(source.mode || fb.mode || '').trim().toLowerCase() || '',
     brandTheme: ALLOWED_BRAND_THEMES.has(brandTheme) ? brandTheme : (fb.brandTheme || 'curatorr'),
     customColor: String(source.customColor || fb.customColor || '#8b5cf6').trim(),
-    sidebarInvert: source.sidebarInvert !== undefined ? Boolean(source.sidebarInvert) : Boolean(fb.sidebarInvert),
-    squareCorners: source.squareCorners !== undefined ? Boolean(source.squareCorners) : Boolean(fb.squareCorners),
-    bgMotion: source.bgMotion !== undefined ? Boolean(source.bgMotion) : Boolean(fb.bgMotion !== false),
-    hideScrollbars: source.hideScrollbars !== undefined ? Boolean(source.hideScrollbars) : Boolean(fb.hideScrollbars),
+    sidebarInvert: resolveThemeBool(source.sidebarInvert, fb.sidebarInvert),
+    squareCorners: resolveThemeBool(source.squareCorners, fb.squareCorners),
+    bgMotion: resolveThemeBool(source.bgMotion, fb.bgMotion !== false),
+    carouselFreeScroll: resolveThemeBool(source.carouselFreeScroll, fb.carouselFreeScroll),
+    hideScrollbars: resolveThemeBool(source.hideScrollbars, fb.hideScrollbars),
   };
 }
 
@@ -1793,6 +1804,7 @@ export async function start() {
           await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
           await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
           await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
+          await _routeCtx.playlistService.syncListenbrainzPlaylists(userId).catch(() => {});
           const globalPlaylists = (loadConfig().globalPlaylists || []).filter((p) => p.enabled);
           for (const gp of globalPlaylists) {
             await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});

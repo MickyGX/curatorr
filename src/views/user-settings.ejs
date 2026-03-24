@@ -49,6 +49,7 @@
             'filters-updated': 'Artist filters updated.',
             'preset-updated': 'Curation style saved.',
             'lastfm-updated': 'Last.fm username saved.',
+            'listenbrainz-updated': 'ListenBrainz settings saved.',
             'backfill-reset': 'Backfill reset — trigger Last.fm History Backfill in Jobs to restart.',
           };
           const profileNote = error
@@ -140,26 +141,126 @@
             </div>
           <% } %>
 
-          <div class="settings-card">
+          <%
+            const themeResultMap = {
+              'theme-updated': 'Theme preference saved.',
+            };
+            const themeNote = success === 'theme-updated' ? themeResultMap[success] : '';
+          %>
+          <div class="settings-card settings-card--themes">
             <div class="settings-card-title">Theme</div>
             <div class="settings-card-sub">Customize your personal Curatorr appearance.</div>
-            <form method="post" action="/user-settings/theme" class="settings-form">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <label class="field">
-                <span>Color mode</span>
-                <div class="settings-radio-group">
-                  <label class="settings-radio">
-                    <input type="radio" name="mode" value="night" <%= (config.theme?.mode !== 'day') ? 'checked' : '' %> />
-                    <span>Night</span>
-                  </label>
-                  <label class="settings-radio">
-                    <input type="radio" name="mode" value="day" <%= (config.theme?.mode === 'day') ? 'checked' : '' %> />
-                    <span>Day</span>
-                  </label>
-                </div>
+            <div class="theme-presets" id="profileThemePresets">
+              <button class="theme-preset-card" type="button" data-brand-theme="curatorr">
+                <span class="theme-preset-chip" style="--theme-color:#8b5cf6;"></span>
+                <span class="theme-preset-name">Curatorr</span>
+                <span class="theme-preset-meta">Purple</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="launcharr">
+                <span class="theme-preset-chip" style="--theme-color:#6d7a86;"></span>
+                <span class="theme-preset-name">Launcharr</span>
+                <span class="theme-preset-meta">Gunmetal</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="rocketship">
+                <span class="theme-preset-chip" style="--theme-color:#b8c1ca;"></span>
+                <span class="theme-preset-name">Rocketship</span>
+                <span class="theme-preset-meta">Silver</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="pulsarr">
+                <span class="theme-preset-chip" style="--theme-color:#1cc6c2;"></span>
+                <span class="theme-preset-name">Pulsarr</span>
+                <span class="theme-preset-meta">Pulsarr teal</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="plex">
+                <span class="theme-preset-chip" style="--theme-color:#f9ad2f;"></span>
+                <span class="theme-preset-name">Plex</span>
+                <span class="theme-preset-meta">Plex orange</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="radarr">
+                <span class="theme-preset-chip" style="--theme-color:#f4c542;"></span>
+                <span class="theme-preset-name">Radarr</span>
+                <span class="theme-preset-meta">Radarr yellow</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="sonarr">
+                <span class="theme-preset-chip" style="--theme-color:#3d7bfd;"></span>
+                <span class="theme-preset-name">Sonarr</span>
+                <span class="theme-preset-meta">Sonarr blue</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="lidarr">
+                <span class="theme-preset-chip" style="--theme-color:#53b86a;"></span>
+                <span class="theme-preset-name">Lidarr</span>
+                <span class="theme-preset-meta">Lidarr green</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="readarr">
+                <span class="theme-preset-chip" style="--theme-color:#d84a4a;"></span>
+                <span class="theme-preset-name">Readarr</span>
+                <span class="theme-preset-meta">Readarr red</span>
+              </button>
+              <button class="theme-preset-card" type="button" data-brand-theme="custom">
+                <span class="theme-preset-chip theme-preset-chip--custom" data-profile-custom-chip style="--theme-color:#8b5cf6;">
+                  <input class="theme-chip-picker" id="profileCustomThemeColor" type="color" value="#8b5cf6" aria-label="Choose custom theme color" />
+                </span>
+                <span class="theme-preset-name">Custom</span>
+                <span class="theme-preset-meta">Colour wheel</span>
+              </button>
+            </div>
+            <div class="theme-options" id="profileThemeOptions">
+              <label class="settings-toggle theme-option">
+                <input id="profileThemeSidebarInvert" type="checkbox" />
+                <span class="settings-toggle-slider" aria-hidden="true"></span>
+                <span class="theme-option-copy">
+                  <strong>Invert sidebar colours</strong>
+                  <small>Swap sidebar dark/theme emphasis.</small>
+                </span>
               </label>
+              <label class="settings-toggle theme-option">
+                <input id="profileThemeSquareCorners" type="checkbox" />
+                <span class="settings-toggle-slider" aria-hidden="true"></span>
+                <span class="theme-option-copy">
+                  <strong>Square corners</strong>
+                  <small>Remove rounded corners across the UI.</small>
+                </span>
+              </label>
+              <label class="settings-toggle theme-option">
+                <input id="profileThemeBgMotion" type="checkbox" checked />
+                <span class="settings-toggle-slider" aria-hidden="true"></span>
+                <span class="theme-option-copy">
+                  <strong>Animated space background</strong>
+                  <small>Theme-linked moving star field.</small>
+                </span>
+              </label>
+              <label class="settings-toggle theme-option">
+                <input id="profileThemeCarouselFreeScroll" type="checkbox" />
+                <span class="settings-toggle-slider" aria-hidden="true"></span>
+                <span class="theme-option-copy">
+                  <strong>Free carousel scroll</strong>
+                  <small>Disable index snapping and allow fast horizontal swipe scrolling.</small>
+                </span>
+              </label>
+              <label class="settings-toggle theme-option">
+                <input id="profileThemeHideScrollbars" type="checkbox" />
+                <span class="settings-toggle-slider" aria-hidden="true"></span>
+                <span class="theme-option-copy">
+                  <strong>Hide scrollbars</strong>
+                  <small>Hide scrollbar rails while keeping scroll behaviour.</small>
+                </span>
+              </label>
+            </div>
+            <form method="post" action="/user-settings/theme" class="settings-card-actions settings-card-actions--full" id="profileThemeSaveForm">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="theme_mode" id="profileThemeMode" />
+              <input type="hidden" name="theme_brand_theme" id="profileThemeBrandTheme" />
+              <input type="hidden" name="theme_custom_color" id="profileThemeCustomColor" />
+              <input type="hidden" name="theme_sidebar_invert" id="profileThemeSidebarInvertValue" />
+              <input type="hidden" name="theme_square_corners" id="profileThemeSquareCornersValue" />
+              <input type="hidden" name="theme_bg_motion" id="profileThemeBgMotionValue" />
+              <input type="hidden" name="theme_carousel_free_scroll" id="profileThemeCarouselFreeScrollValue" />
+              <input type="hidden" name="theme_hide_scrollbars" id="profileThemeHideScrollbarsValue" />
               <button class="primary-button" type="submit">Save my theme</button>
             </form>
+            <% if (themeNote) { %>
+              <span class="settings-users-note"><%= themeNote %></span>
+            <% } %>
           </div>
 
           <div class="settings-card">
@@ -333,9 +434,14 @@
             </form>
           </div>
 
-          <div class="settings-card">
-            <div class="settings-card-title">Last.fm</div>
-            <div class="settings-card-sub">Connect your Last.fm account to sync your scrobble history into Curatorr. Requires Last.fm History Sync to be enabled in Jobs settings.</div>
+          <div class="settings-card settings-integration-card settings-integration-card--lastfm">
+            <div class="settings-integration-head">
+              <div>
+                <div class="settings-card-title">Last.fm</div>
+                <div class="settings-card-sub">Connect your Last.fm account to sync your scrobble history into Curatorr. Requires Last.fm History Sync to be enabled in Jobs settings.</div>
+              </div>
+              <span class="settings-integration-tag">History + Stations</span>
+            </div>
             <form method="post" action="/user-settings/lastfm" class="settings-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <label class="field">
@@ -343,6 +449,34 @@
                 <input type="text" name="lastfmUsername" value="<%= lastfmUsername || '' %>" placeholder="your-lastfm-username" autocomplete="off" />
               </label>
               <% if (lastfmUsername) { %>
+                <div class="settings-form" style="margin-top:0.75rem;">
+                  <div class="field-group-label">Last.fm Full History Backfill</div>
+                  <div class="settings-card-sub" style="margin-bottom:0.5rem;">
+                    <% if (lastfmBackfillCursor === -1) { %>
+                      Backfill is complete. Reset to re-run from the beginning, then run the backfill again.
+                    <% } else if (lastfmBackfillCursor > 0) { %>
+                      Backfill is in progress — run again to continue from where it left off.
+                    <% } else { %>
+                      Import your full scrobble history from Last.fm. Large histories require multiple runs.
+                    <% } %>
+                  </div>
+                  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                    <button class="ghost-button" type="button" id="lastfmRunBackfillBtn">
+                      <%= lastfmBackfillCursor > 0 ? 'Continue backfill' : 'Run backfill' %>
+                    </button>
+                    <% if (lastfmBackfillCursor === -1) { %>
+                      <button
+                        class="ghost-button"
+                        type="submit"
+                        formaction="/user-settings/lastfm/reset-backfill"
+                        formmethod="post"
+                      >
+                        Reset backfill
+                      </button>
+                    <% } %>
+                  </div>
+                  <div id="lastfmBackfillStatus" style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted);display:none;"></div>
+                </div>
                 <div class="field-group-label" style="margin-top:1rem;">Last.fm Station Playlists</div>
                 <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in your media server. Updated with each playlist sync.</div>
                 <% [['recommended','Recommended'],['mix','Mix'],['library','Library'],['neighbours','Neighbours'],['loved','Loved']].forEach(([key, label]) => { %>
@@ -362,7 +496,7 @@
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
                     <span class="settings-toggle-text">Last.fm Top Tracks</span>
                   </label>
-                  <select name="lastfmTopTracks" id="topTracksPeriodSelect" style="margin-left:0.5rem;" <%= topTracksPeriod ? '' : 'disabled' %>>
+                  <select class="settings-select" name="lastfmTopTracks" id="topTracksPeriodSelect" style="margin-left:0.5rem;" <%= topTracksPeriod ? '' : 'disabled' %>>
                     <option value="">Disabled</option>
                     <option value="overall" <%= topTracksPeriod === 'overall' ? 'selected' : '' %>>All Time</option>
                     <option value="7day" <%= topTracksPeriod === '7day' ? 'selected' : '' %>>Last 7 Days</option>
@@ -375,32 +509,37 @@
               <% } %>
               <button class="primary-button" type="submit">Save Last.fm settings</button>
             </form>
-            <% if (lastfmUsername) { %>
-              <div class="settings-form" style="margin-top:0.75rem;">
-                <div class="field-group-label">Last.fm Full History Backfill</div>
-                <div class="settings-card-sub" style="margin-bottom:0.5rem;">
-                  <% if (lastfmBackfillCursor === -1) { %>
-                    Backfill is complete. Reset to re-run from the beginning, then run the backfill again.
-                  <% } else if (lastfmBackfillCursor > 0) { %>
-                    Backfill is in progress — run again to continue from where it left off.
-                  <% } else { %>
-                    Import your full scrobble history from Last.fm. Large histories require multiple runs.
-                  <% } %>
-                </div>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                  <button class="secondary-button" type="button" id="lastfmRunBackfillBtn">
-                    <%= lastfmBackfillCursor > 0 ? 'Continue backfill' : 'Run backfill' %>
-                  </button>
-                  <% if (lastfmBackfillCursor === -1) { %>
-                    <form method="post" action="/user-settings/lastfm/reset-backfill" style="margin:0;">
-                      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                      <button class="secondary-button" type="submit">Reset backfill</button>
-                    </form>
-                  <% } %>
-                </div>
-                <div id="lastfmBackfillStatus" style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted);display:none;"></div>
+          </div>
+
+          <div class="settings-card settings-integration-card settings-integration-card--listenbrainz">
+            <div class="settings-integration-head">
+              <div>
+                <div class="settings-card-title">ListenBrainz</div>
+                <div class="settings-card-sub">Sync ListenBrainz generated playlists into Plex. This only imports playlist suggestions for now, not historical listens.</div>
               </div>
-            <% } %>
+              <span class="settings-integration-tag">Playlist Suggestions</span>
+            </div>
+            <form method="post" action="/user-settings/listenbrainz" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <label class="field">
+                <span>ListenBrainz username</span>
+                <input type="text" name="listenbrainzUsername" value="<%= listenbrainzUsername || '' %>" placeholder="your-listenbrainz-username" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>API token (optional)</span>
+                <input type="password" name="listenbrainzToken" value="<%= listenbrainzToken || '' %>" placeholder="listenbrainz-api-token" autocomplete="off" />
+              </label>
+              <% [['daily-jams','Daily Jams'],['weekly-jams','Weekly Jams'],['weekly-exploration','Weekly Exploration']].forEach(([key, label]) => { %>
+                <div class="settings-access-row">
+                  <label class="settings-toggle">
+                    <input type="checkbox" name="listenbrainzPlaylists" value="<%= key %>" <%= (listenbrainzEnabledPlaylists || []).includes(key) ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">ListenBrainz <%= label %></span>
+                  </label>
+                </div>
+              <% }) %>
+              <button class="primary-button" type="submit">Save ListenBrainz settings</button>
+            </form>
           </div>
 
         </div>
@@ -409,6 +548,227 @@
   </div>
 
   <script>
+    (function() {
+      var root = document.documentElement;
+      var profileThemePresetButtons = Array.from(document.querySelectorAll('#profileThemePresets .theme-preset-card'));
+      var profileCustomThemeColorInput = document.getElementById('profileCustomThemeColor');
+      var profileCustomThemeChip = document.querySelector('[data-profile-custom-chip]');
+      var profileThemeSidebarInvertToggle = document.getElementById('profileThemeSidebarInvert');
+      var profileThemeSquareCornersToggle = document.getElementById('profileThemeSquareCorners');
+      var profileThemeBgMotionToggle = document.getElementById('profileThemeBgMotion');
+      var profileThemeCarouselFreeScrollToggle = document.getElementById('profileThemeCarouselFreeScroll');
+      var profileThemeHideScrollbarsToggle = document.getElementById('profileThemeHideScrollbars');
+      var profileThemeSaveForm = document.getElementById('profileThemeSaveForm');
+      var profileThemeModeInput = document.getElementById('profileThemeMode');
+      var profileThemeBrandThemeInput = document.getElementById('profileThemeBrandTheme');
+      var profileThemeCustomColorInput = document.getElementById('profileThemeCustomColor');
+      var profileThemeSidebarInvertValueInput = document.getElementById('profileThemeSidebarInvertValue');
+      var profileThemeSquareCornersValueInput = document.getElementById('profileThemeSquareCornersValue');
+      var profileThemeBgMotionValueInput = document.getElementById('profileThemeBgMotionValue');
+      var profileThemeCarouselFreeScrollValueInput = document.getElementById('profileThemeCarouselFreeScrollValue');
+      var profileThemeHideScrollbarsValueInput = document.getElementById('profileThemeHideScrollbarsValue');
+      var allowedBrandThemes = new Set(['custom', 'curatorr', 'launcharr', 'rocketship', 'pulsarr', 'plex', 'radarr', 'sonarr', 'lidarr', 'readarr']);
+      var customColorStorageKey = 'curatorr-custom-color';
+      var serverThemeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
+      var themeOptionStorageKeys = {
+        sidebarInvert: 'curatorr-sidebar-invert',
+        squareCorners: 'curatorr-square-corners',
+        bgMotion: 'curatorr-bg-motion',
+        carouselFreeScroll: 'curatorr-carousel-free-scroll',
+        hideScrollbars: 'curatorr-hide-scrollbars',
+      };
+      var safeStorage = {
+        get: function(key) {
+          try { return localStorage.getItem(key); } catch (_err) { return null; }
+        },
+        set: function(key, value) {
+          try { localStorage.setItem(key, value); } catch (_err) {}
+        },
+      };
+      if (!profileThemePresetButtons.length || !profileThemeSaveForm) return;
+
+      var resolveBrandTheme = function(value) {
+        var raw = String(value || '').trim().toLowerCase();
+        return allowedBrandThemes.has(raw) ? raw : 'curatorr';
+      };
+      var parseStoredBool = function(key, defaultValue) {
+        var raw = safeStorage.get(key);
+        if (raw === null || raw === undefined) return Boolean(defaultValue);
+        return raw === '1' || raw === 'true';
+      };
+      var parseHexColor = function(value) {
+        var raw = String(value || '').trim();
+        var normalized = raw.startsWith('#') ? raw : ('#' + raw);
+        return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toLowerCase() : '#8b5cf6';
+      };
+      var hexToRgb = function(hex) {
+        return {
+          r: Number.parseInt(hex.slice(1, 3), 16),
+          g: Number.parseInt(hex.slice(3, 5), 16),
+          b: Number.parseInt(hex.slice(5, 7), 16),
+        };
+      };
+      var rgbToHex = function(r, g, b) {
+        return '#' + [r, g, b].map(function(value) {
+          return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+        }).join('');
+      };
+      var mixRgb = function(base, target, amount) {
+        return {
+          r: base.r + (target.r - base.r) * amount,
+          g: base.g + (target.g - base.g) * amount,
+          b: base.b + (target.b - base.b) * amount,
+        };
+      };
+      var clearCustomThemeVars = function() {
+        ['--teal', '--teal-dark', '--brand-rgb', '--brand-btn-start', '--brand-btn-mid', '--brand-btn-end', '--brand-btn-shadow', '--on-brand', '--on-brand-muted', '--on-brand-icon-filter'].forEach(function(name) {
+          root.style.removeProperty(name);
+        });
+      };
+      var applyCustomColor = function(inputHex) {
+        var hex = parseHexColor(inputHex);
+        var base = hexToRgb(hex);
+        var dark = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.4);
+        var start = mixRgb(base, { r: 255, g: 255, b: 255 }, 0.35);
+        var end = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.2);
+        var shadow = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.28);
+        var toLinear = function(channel) {
+          var value = channel / 255;
+          return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+        };
+        var luminance = 0.2126 * toLinear(base.r) + 0.7152 * toLinear(base.g) + 0.0722 * toLinear(base.b);
+        var contrastWhite = 1.05 / (luminance + 0.05);
+        var contrastBlack = (luminance + 0.05) / 0.05;
+        var onBrand = contrastWhite >= contrastBlack ? '#ffffff' : '#081013';
+        var onBrandMuted = contrastWhite >= contrastBlack ? 'rgba(255,255,255,.78)' : 'rgba(8,16,19,.72)';
+        var onBrandIconFilter = contrastWhite >= contrastBlack ? 'brightness(0) saturate(100%) invert(1)' : 'brightness(0) saturate(100%)';
+        root.style.setProperty('--teal', hex);
+        root.style.setProperty('--teal-dark', rgbToHex(dark.r, dark.g, dark.b));
+        root.style.setProperty('--brand-rgb', Math.round(base.r) + ',' + Math.round(base.g) + ',' + Math.round(base.b));
+        root.style.setProperty('--brand-btn-start', rgbToHex(start.r, start.g, start.b));
+        root.style.setProperty('--brand-btn-mid', hex);
+        root.style.setProperty('--brand-btn-end', rgbToHex(end.r, end.g, end.b));
+        root.style.setProperty('--brand-btn-shadow', Math.round(shadow.r) + ',' + Math.round(shadow.g) + ',' + Math.round(shadow.b));
+        root.style.setProperty('--on-brand', onBrand);
+        root.style.setProperty('--on-brand-muted', onBrandMuted);
+        root.style.setProperty('--on-brand-icon-filter', onBrandIconFilter);
+        if (profileCustomThemeChip) profileCustomThemeChip.style.setProperty('--theme-color', hex);
+        return hex;
+      };
+      var syncProfileThemeForm = function() {
+        if (profileThemeModeInput) {
+          profileThemeModeInput.value = root.dataset.theme === 'day' ? 'day' : (serverThemeDefaults.mode || 'night');
+        }
+        if (profileThemeBrandThemeInput) {
+          profileThemeBrandThemeInput.value = resolveBrandTheme(root.dataset.brandTheme || serverThemeDefaults.brandTheme);
+        }
+        if (profileThemeCustomColorInput) {
+          profileThemeCustomColorInput.value = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#8b5cf6');
+        }
+        if (profileThemeSidebarInvertValueInput) {
+          profileThemeSidebarInvertValueInput.value = profileThemeSidebarInvertToggle && profileThemeSidebarInvertToggle.checked ? '1' : '0';
+        }
+        if (profileThemeSquareCornersValueInput) {
+          profileThemeSquareCornersValueInput.value = profileThemeSquareCornersToggle && profileThemeSquareCornersToggle.checked ? '1' : '0';
+        }
+        if (profileThemeBgMotionValueInput) {
+          profileThemeBgMotionValueInput.value = profileThemeBgMotionToggle && profileThemeBgMotionToggle.checked ? '1' : '0';
+        }
+        if (profileThemeCarouselFreeScrollValueInput) {
+          profileThemeCarouselFreeScrollValueInput.value = profileThemeCarouselFreeScrollToggle && profileThemeCarouselFreeScrollToggle.checked ? '1' : '0';
+        }
+        if (profileThemeHideScrollbarsValueInput) {
+          profileThemeHideScrollbarsValueInput.value = profileThemeHideScrollbarsToggle && profileThemeHideScrollbarsToggle.checked ? '1' : '0';
+        }
+      };
+      var applyThemeOptions = function(options) {
+        var sidebarInvert = Boolean(options && options.sidebarInvert);
+        var squareCorners = Boolean(options && options.squareCorners);
+        var bgMotion = !options || options.bgMotion !== false;
+        var carouselFreeScroll = Boolean(options && options.carouselFreeScroll);
+        var hideScrollbars = Boolean(options && options.hideScrollbars);
+        root.dataset.sidebarInvert = sidebarInvert ? '1' : '0';
+        root.dataset.squareCorners = squareCorners ? '1' : '0';
+        root.dataset.bgMotion = bgMotion ? '1' : '0';
+        root.dataset.carouselFreeScroll = carouselFreeScroll ? '1' : '0';
+        root.dataset.hideScrollbars = hideScrollbars ? '1' : '0';
+        safeStorage.set(themeOptionStorageKeys.sidebarInvert, sidebarInvert ? '1' : '0');
+        safeStorage.set(themeOptionStorageKeys.squareCorners, squareCorners ? '1' : '0');
+        safeStorage.set(themeOptionStorageKeys.bgMotion, bgMotion ? '1' : '0');
+        safeStorage.set(themeOptionStorageKeys.carouselFreeScroll, carouselFreeScroll ? '1' : '0');
+        safeStorage.set(themeOptionStorageKeys.hideScrollbars, hideScrollbars ? '1' : '0');
+        if (profileThemeSidebarInvertToggle) profileThemeSidebarInvertToggle.checked = sidebarInvert;
+        if (profileThemeSquareCornersToggle) profileThemeSquareCornersToggle.checked = squareCorners;
+        if (profileThemeBgMotionToggle) profileThemeBgMotionToggle.checked = bgMotion;
+        if (profileThemeCarouselFreeScrollToggle) profileThemeCarouselFreeScrollToggle.checked = carouselFreeScroll;
+        if (profileThemeHideScrollbarsToggle) profileThemeHideScrollbarsToggle.checked = hideScrollbars;
+        syncProfileThemeForm();
+      };
+      var syncThemeOptionsFromInputs = function() {
+        applyThemeOptions({
+          sidebarInvert: Boolean(profileThemeSidebarInvertToggle && profileThemeSidebarInvertToggle.checked),
+          squareCorners: Boolean(profileThemeSquareCornersToggle && profileThemeSquareCornersToggle.checked),
+          bgMotion: Boolean(profileThemeBgMotionToggle && profileThemeBgMotionToggle.checked),
+          carouselFreeScroll: Boolean(profileThemeCarouselFreeScrollToggle && profileThemeCarouselFreeScrollToggle.checked),
+          hideScrollbars: Boolean(profileThemeHideScrollbarsToggle && profileThemeHideScrollbarsToggle.checked),
+        });
+      };
+      var applyBrandTheme = function(theme) {
+        var normalized = resolveBrandTheme(theme);
+        root.dataset.brandTheme = normalized;
+        safeStorage.set('curatorr-brand-theme', normalized);
+        if (normalized === 'custom') {
+          var savedCustomHex = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#8b5cf6');
+          var appliedHex = applyCustomColor(savedCustomHex);
+          if (profileCustomThemeColorInput) profileCustomThemeColorInput.value = appliedHex;
+        } else {
+          clearCustomThemeVars();
+        }
+        profileThemePresetButtons.forEach(function(btn) {
+          var isActive = btn.dataset.brandTheme === normalized;
+          btn.classList.toggle('is-active', isActive);
+          btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+        syncProfileThemeForm();
+      };
+      var initialThemeOptions = {
+        sidebarInvert: parseStoredBool(themeOptionStorageKeys.sidebarInvert, serverThemeDefaults.sidebarInvert === true),
+        squareCorners: parseStoredBool(themeOptionStorageKeys.squareCorners, serverThemeDefaults.squareCorners === true),
+        bgMotion: parseStoredBool(themeOptionStorageKeys.bgMotion, serverThemeDefaults.bgMotion === undefined ? true : serverThemeDefaults.bgMotion === true),
+        carouselFreeScroll: parseStoredBool(themeOptionStorageKeys.carouselFreeScroll, serverThemeDefaults.carouselFreeScroll === true),
+        hideScrollbars: parseStoredBool(themeOptionStorageKeys.hideScrollbars, serverThemeDefaults.hideScrollbars === true),
+      };
+      applyThemeOptions(initialThemeOptions);
+      var initialCustomHex = parseHexColor(safeStorage.get(customColorStorageKey) || serverThemeDefaults.customColor || '#8b5cf6');
+      if (profileCustomThemeColorInput) profileCustomThemeColorInput.value = initialCustomHex;
+      if (profileCustomThemeChip) profileCustomThemeChip.style.setProperty('--theme-color', initialCustomHex);
+      var storedBrandTheme = safeStorage.get('curatorr-brand-theme');
+      var fallbackBrandTheme = resolveBrandTheme(serverThemeDefaults.brandTheme);
+      applyBrandTheme(allowedBrandThemes.has(storedBrandTheme) ? storedBrandTheme : fallbackBrandTheme);
+      profileThemePresetButtons.forEach(function(btn) {
+        btn.addEventListener('click', function(event) {
+          if (btn.dataset.brandTheme === 'custom' && event.target === profileCustomThemeColorInput) return;
+          applyBrandTheme(btn.dataset.brandTheme);
+        });
+      });
+      if (profileCustomThemeColorInput) {
+        profileCustomThemeColorInput.addEventListener('input', function() {
+          var hex = parseHexColor(profileCustomThemeColorInput.value);
+          safeStorage.set(customColorStorageKey, hex);
+          applyBrandTheme('custom');
+        });
+      }
+      profileThemeSidebarInvertToggle && profileThemeSidebarInvertToggle.addEventListener('change', syncThemeOptionsFromInputs);
+      profileThemeSquareCornersToggle && profileThemeSquareCornersToggle.addEventListener('change', syncThemeOptionsFromInputs);
+      profileThemeBgMotionToggle && profileThemeBgMotionToggle.addEventListener('change', syncThemeOptionsFromInputs);
+      profileThemeCarouselFreeScrollToggle && profileThemeCarouselFreeScrollToggle.addEventListener('change', syncThemeOptionsFromInputs);
+      profileThemeHideScrollbarsToggle && profileThemeHideScrollbarsToggle.addEventListener('change', syncThemeOptionsFromInputs);
+      profileThemeSaveForm.addEventListener('submit', function() {
+        syncProfileThemeForm();
+      });
+      syncProfileThemeForm();
+    })();
+
     (function() {
       var toggle = document.getElementById('topTracksToggle');
       var select = document.getElementById('topTracksPeriodSelect');

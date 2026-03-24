@@ -1,56 +1,63 @@
 # Authentication and Roles
 
----
-
 ## Authentication Modes
 
-Curatorr supports two login methods that can be used side by side:
+Curatorr supports two login methods side by side:
 
-### Plex SSO
+### Plex sign-in
 
-Users sign in with their Plex account. Curatorr validates the token with Plex and maps the user to a role based on their relationship to the admin Plex account.
+Users authenticate with Plex.
 
-Role mapping happens automatically:
-- The account that owns the Plex server (matching `Plex Admin User` in settings) is assigned the **Admin** role
-- Home users and managed accounts on the same Plex account are assigned **User** by default
-- Roles can be manually adjusted in **Settings → Users**
+This supports:
 
-### Local Admin Account
+- normal Plex users
+- Plex Home users
+- managed home-user selection after sign-in
 
-Created during the setup wizard. This account bypasses Plex authentication and is intended as a fallback if Plex SSO is unavailable. It always has full admin access.
+The Plex server owner is treated as the main admin account when matched against the configured Plex admin user.
 
----
+### Local admin account
+
+Created during setup.
+
+This account exists as an always-available fallback and keeps full admin access even if Plex SSO is unavailable.
 
 ## Roles
 
 | Role | Description |
 |---|---|
-| **Admin** | Full access to all settings, jobs, users, and Lidarr automation. Weekly Lidarr quotas are unlimited. |
-| **Co-admin** | Access to Lidarr automation and most features. Subject to configurable weekly quotas (default: 3 artists / 6 albums per week). |
-| **Power user** | Can use Lidarr automation when the admin has enabled it for this scope. Subject to lower quotas (default: 1 artist / 2 albums per week). |
-| **User** | Standard access to their own play history, smart playlists, and artist/track views. Lidarr automation is off by default. |
-| **Guest** | Read-only access. Cannot interact with suggestions or automation. Guest access can be restricted entirely in General settings. |
-
----
+| `Admin` | Full access to settings, jobs, users, themes, logs, and automation. |
+| `Co-admin` | Broad access with admin-only actions still restricted. |
+| `Power user` | Standard user access plus optional Lidarr automation if enabled by role scope/quota. |
+| `User` | Standard per-user history, playlists, discover, and profile access. |
+| `Guest` | Read-only style access with restricted interaction. |
 
 ## Managing Users
 
-Go to **Settings → Users** to view all accounts, their current roles, and their linked Plex identities.
+Use `Settings -> Users` to:
 
-From this view you can:
-- Change a user's role
-- Remove a user account
+- review known users
+- change roles
+- remove users
+- inspect Plex-linked identities and activity context
 
-Role changes take effect on the user's next page load.
+## Local Admin Preview Mode
 
----
+The local Curatorr admin can preview the app as another Plex user.
 
-## Lidarr Automation Access
+This is useful for:
 
-Lidarr automation eligibility is determined by role:
+- checking a user's dashboard, playlists, history, and discover state
+- verifying role-based access
+- troubleshooting user-specific playback or automation issues
 
-- **Admin** and **Co-admin** — always eligible when Lidarr is configured and automation is enabled
-- **Power user** — eligible only when the admin has set automation scope to **Role based**
-- **User** and **Guest** — not eligible by default; quota can be set to allow limited access
+## Lidarr Access by Role
 
-Weekly quota limits are configured in **Settings → Lidarr → Automation**. Setting a quota to `-1` makes it unlimited for that role.
+Lidarr access is controlled by:
+
+- whether Lidarr is configured
+- whether automation is enabled
+- automation scope
+- per-role quotas
+
+Users can still be effectively blocked by quota even if the UI surface is visible.

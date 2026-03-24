@@ -1,79 +1,92 @@
 # Troubleshooting
 
----
-
 ## Plays are not being recorded
 
-**Check that the Tautulli webhook is configured correctly.**
+First check which live playback source is selected in `Settings -> General`.
 
-1. In Tautulli, go to **Settings → Notification Agents** and confirm the webhook URL is set to `http://your-curatorr-url:7676/webhook/tautulli`
-2. Confirm the triggers include Playback Start, Playback Stop, Playback Pause, Playback Resume, and Watched
-3. In Curatorr, go to **Settings → Logs** and look for `webhook.tautulli` entries — if none appear when you play a track, the webhook is not reaching Curatorr
-4. Check that `BASE_URL` in your compose file matches the URL Curatorr is actually served from — this affects how the webhook URL hint is displayed in settings, but the webhook itself just needs to be reachable at `/webhook/tautulli`
+### If playback source is `Plex`
 
-**If Curatorr is behind a reverse proxy**, ensure the proxy is forwarding requests correctly. Set `TRUST_PROXY=true` and `TRUST_PROXY_HOPS=1` in your compose environment.
+- confirm the Plex webhook is registered
+- confirm plays are arriving in Curatorr logs
+- confirm the track is in a selected Plex music library
 
----
+### If playback source is `Tautulli`
+
+- confirm the Tautulli webhook is registered
+- confirm the Tautulli URL and API key are valid
+- confirm the track is in a selected Plex music library
+
+If live playback source is `Plex`, Tautulli webhooks being absent is not the problem.
+
+## Tautulli gap-fill is not importing expected rows
+
+Check:
+
+- the Tautulli URL and API key
+- that the target rows are inside the gap-fill lookback window
+- that Tautulli is reporting the item as `media_type = track`
+- that the library is currently selected in `Settings -> Plex`
+
+Gap-fill does not require the Tautulli webhook.
+
+## Excluded Plex library plays are still visible
+
+Curatorr only cleans its own derived data when a Plex library is deselected. It does not modify Plex or Tautulli history.
+
+If old plays remain after deselecting a library, they may have been written before library-key tracking was complete or may need direct cleanup from Curatorr's `play_events` table.
 
 ## Smart playlist is not appearing in Plex
 
-1. Confirm the Plex token and machine ID are correctly set in **Settings → Plex**
-2. Check that the relevant music library is selected in **Settings → Plex → Music Libraries**
-3. In **Settings → Jobs**, check the last run status of the **Smart Playlist Sync** job — if it shows an error, the error message will indicate the cause
-4. Manually trigger the **Smart Playlist Sync** job and check the Logs tab for any errors
-5. Confirm the Plex token has write access to the Plex server (it needs to belong to the account that owns the server)
+Check:
 
----
+- Plex token and machine ID
+- selected music libraries
+- Smart Playlist Sync job status
+- whether the Plex account used has playlist write access
 
-## Artist suggestions are empty
+## New Plex music library is missing from settings
 
-Suggestions require enough play history to build a meaningful taste profile. If you have just set up Curatorr:
+Use `Settings -> Plex -> Refresh libraries`.
 
-- Play some tracks and let the Tautulli webhook record them
-- Wait for the next Smart Playlist Sync to run, which also rebuilds the suggestion cache
-- Check **Settings → Logs** for any errors from the recommendation engine
+The checklist is not automatically refreshed just because a new Plex library was added server-side.
 
-If you have significant history and suggestions are still empty, check that none of your artists are all excluded. Tracks marked Skip and artists manually excluded are filtered out.
+## ListenBrainz playlists are not appearing
 
----
+Check:
+
+- ListenBrainz username in User Profile
+- optional token if needed for the selected feed
+- selected playlist types
+- Smart Playlist / playlist sync job status
+- log entries under the `ListenBrainz` filter
 
 ## Lidarr automation is not available
 
-The **Add to Lidarr** button will not appear if:
+Check:
 
-- Lidarr is not connected — check **Settings → Lidarr** and confirm the connection is working
-- Lidarr automation is not enabled — go to **Settings → Lidarr → Automation** and enable it
-- Your role is not eligible — Users and Guests have no automation access by default; Power Users require the scope to be set to **Role based**; check with your admin
+- Lidarr connection details
+- automation enabled state
+- automation scope
+- current role quota
 
----
+## Session/login problems
 
-## Lidarr search is not running after adding an artist
+Check:
 
-If the status shows **Starter album added** but not **Search queued**:
-
-- Check that **Auto trigger manual search** is enabled in **Settings → Lidarr → Automation**
-- The **Lidarr: Process Queued Requests** job runs every 20 minutes; check its last run status in Settings → Jobs
-- Manually trigger the job and check the Logs tab for errors
-
----
-
-## Session expires immediately or login loop
-
-- Ensure `SESSION_SECRET` is set to a non-empty, consistent value in your compose file. If this variable changes, all existing sessions are invalidated.
-- If behind a reverse proxy, confirm `TRUST_PROXY=true` is set and the proxy is forwarding the correct headers (`X-Forwarded-For`, `X-Forwarded-Proto`)
-- If serving over HTTPS, set `COOKIE_SECURE=true` to prevent cookie issues
-
----
-
-## Plex SSO is not working
-
-- Confirm the **Local URL** in Settings → Plex is reachable from within your Docker network
-- Confirm the **Remote URL** in Settings → Plex matches your externally accessible Plex URL
-- Check that the Plex token is valid — use the **Get Plex Token** helper to retrieve a fresh one
-- Check Logs for any `auth.plex` errors
-
----
+- `SESSION_SECRET`
+- proxy headers and `TRUST_PROXY`
+- `COOKIE_SECURE` for HTTPS
+- local URL and base URL accuracy
 
 ## Logs
 
-The live log stream is available at **Settings → Logs**. Log entries include an `app` field indicating the component (e.g. `jobs`, `webhook.tautulli`, `lidarr`, `auth.plex`) and an `action` field for the specific event. Filter by these to narrow down issues.
+Use `Settings -> Logs` and filter by app/component:
+
+- `plex`
+- `webhook`
+- `tautulli-sync`
+- `lidarr`
+- `listenbrainz`
+- `settings`
+
+This is usually the fastest way to confirm whether Curatorr ignored, imported, or rejected an event.

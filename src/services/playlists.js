@@ -33,6 +33,12 @@ const LASTFM_STATION_LABELS = {
   loved: 'Loved',
 };
 
+const LISTENBRAINZ_PLAYLIST_LABELS = {
+  'daily-jams': 'Daily Jams',
+  'weekly-jams': 'Weekly Jams',
+  'weekly-exploration': 'Weekly Exploration',
+};
+
 const TOP_TRACKS_PERIOD_LABELS = {
   overall: 'All Time',
   '7day': 'Last 7 Days',
@@ -44,6 +50,67 @@ const TOP_TRACKS_PERIOD_LABELS = {
 
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizePlaylistMatchText(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function buildPlaylistTrackLookupKey(artistName, trackTitle) {
+  const artist = normalizePlaylistMatchText(artistName);
+  const title = normalizePlaylistMatchText(trackTitle);
+  return artist && title ? `${artist}|${title}` : '';
+}
+
+function buildPlaylistTrackLookup(masterTracks) {
+  const lookup = new Map();
+  for (const track of masterTracks || []) {
+    const key = buildPlaylistTrackLookupKey(track?.artistName, track?.trackTitle);
+    if (key && !lookup.has(key)) lookup.set(key, track.ratingKey);
+  }
+  return lookup;
+}
+
+function collectMatchedRatingKeys(trackLookup, tracks, getArtistName, getTrackTitle) {
+  const ratingKeys = [];
+  for (const track of tracks || []) {
+    const key = buildPlaylistTrackLookupKey(getArtistName(track), getTrackTitle(track));
+    const ratingKey = key ? trackLookup.get(key) : '';
+    if (ratingKey) ratingKeys.push(ratingKey);
+  }
+  return ratingKeys;
+}
+
+function buildListenbrainzHeaders(token = '') {
+  const headers = { Accept: 'application/json' };
+  if (token) headers.Authorization = `Token ${token}`;
+  return headers;
+}
+
+function extractListenbrainzPlaylistUuid(playlistEntry) {
+  const identifier = Array.isArray(playlistEntry?.playlist?.identifier)
+    ? playlistEntry.playlist.identifier[0]
+    : playlistEntry?.playlist?.identifier;
+  const match = String(identifier || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return match ? match[0] : '';
+}
+
+function getListenbrainzSourcePatch(playlistEntry) {
+  return String(
+    playlistEntry?.playlist?.extension?.['https://musicbrainz.org/doc/jspf#playlist']?.additional_metadata?.algorithm_metadata?.source_patch
+    || '',
+  ).trim();
+}
+
+function getListenbrainzTrackArtist(track) {
+  const artists = track?.extension?.['https://musicbrainz.org/doc/jspf#track']?.additional_metadata?.artists;
+  const firstArtist = Array.isArray(artists) ? artists[0] : null;
+  return String(
+    firstArtist?.artist_credit_name
+    || firstArtist?.artist_name
+    || track?.creator
+    || '',
+  ).trim();
 }
 
 function shouldAppendUsernameToPlaylistTitles(smartConfig = {}) {
@@ -73,6 +140,10 @@ function getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId
       return `Last.fm Top Tracks (${TOP_TRACKS_PERIOD_LABELS[period] || period})`;
     }
     return LASTFM_STATION_LABELS[stationKey] ? `Last.fm ${LASTFM_STATION_LABELS[stationKey]}` : cleanFallbackTitle;
+  }
+  if (playlistType === 'listenbrainz-playlist' || rawKey.startsWith('listenbrainz:')) {
+    const playlistKey = rawKey.slice('listenbrainz:'.length);
+    return LISTENBRAINZ_PLAYLIST_LABELS[playlistKey] ? `ListenBrainz ${LISTENBRAINZ_PLAYLIST_LABELS[playlistKey]}` : cleanFallbackTitle;
   }
   if (playlistType === 'global' || rawKey.startsWith('global:')) {
     const playlistId = rawKey.slice('global:'.length);
@@ -1192,6 +1263,7 @@ export function createPlaylistService(ctx) {
 
     const apiKey = String(config.discovery?.lastfmApiKey || '').trim();
     const machineId = await resolveMachineId(ctx, config);
+    const masterTrackLookup = buildPlaylistTrackLookup(getMasterTracks(db));
 
     for (const stationKey of prefs.lastfmEnabledStations) {
       // ── Official Last.fm API: Loved tracks and Top Tracks ─────────────────
@@ -1219,15 +1291,12 @@ export function createPlaylistService(ctx) {
             ? (data?.lovedtracks?.track || [])
             : (data?.toptracks?.track || []);
 
-          const master = getMasterTracks(db);
-          const lookup = new Map(master.map((t) => [`${t.artistName?.toLowerCase()}|${t.trackTitle?.toLowerCase()}`, t.ratingKey]));
-          const ratingKeys = [];
-          for (const t of rawTracks) {
-            const artist = (t.artist?.name || '').toLowerCase();
-            const title = (t.name || '').toLowerCase();
-            const key = lookup.get(`${artist}|${title}`);
-            if (key) ratingKeys.push(key);
-          }
+          const ratingKeys = collectMatchedRatingKeys(
+            masterTrackLookup,
+            rawTracks,
+            (track) => track?.artist?.name,
+            (track) => track?.name,
+          );
 
           const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
           await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
@@ -1258,16 +1327,12 @@ export function createPlaylistService(ctx) {
         const data = await res.json();
         const tracks = (data.playlist || []);
 
-        // Match against master tracks by artist + title (case-insensitive)
-        const master = getMasterTracks(db);
-        const lookup = new Map(master.map((t) => [`${t.artistName?.toLowerCase()}|${t.trackTitle?.toLowerCase()}`, t.ratingKey]));
-        const ratingKeys = [];
-        for (const t of tracks) {
-          const artist = (t.artists?.[0]?._name || '').toLowerCase();
-          const title = (t._name || '').toLowerCase();
-          const key = lookup.get(`${artist}|${title}`);
-          if (key) ratingKeys.push(key);
-        }
+        const ratingKeys = collectMatchedRatingKeys(
+          masterTrackLookup,
+          tracks,
+          (track) => track?.artists?.[0]?._name,
+          (track) => track?._name,
+        );
 
         const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
         await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
@@ -1283,6 +1348,135 @@ export function createPlaylistService(ctx) {
         ctx.pushLog({ level: 'info', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} synced: ${ratingKeys.length}/${tracks.length} matched for ${userId}` });
       } catch (err) {
         ctx.pushLog({ level: 'warn', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} sync failed for ${userId}: ${err.message}` });
+      }
+    }
+  }
+
+  async function syncListenbrainzPlaylists(userId) {
+    const prefs = getUserPreferences(db, userId);
+    if (!prefs.listenbrainzUsername) return;
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') return;
+    if (!ctx.userHasOwnPlexToken(config, userId)) return;
+
+    const enabledSet = new Set(prefs.listenbrainzEnabledPlaylists || []);
+    const existingListenbrainz = listGenerated(userId, { activeOnly: false })
+      .filter((playlist) => playlist.playlistKey.startsWith('listenbrainz:') && playlist.active);
+    for (const existing of existingListenbrainz) {
+      const playlistKey = existing.playlistKey.slice('listenbrainz:'.length);
+      if (!enabledSet.has(playlistKey)) {
+        try {
+          const { url } = config.plex || {};
+          const token = ctx.resolveUserPlexServerToken(config, userId);
+          const base = String(url || '').replace(/\/$/, '');
+          if (base && token && existing.plexPlaylistId) {
+            await fetch(`${base}/playlists/${existing.plexPlaylistId}`, {
+              method: 'DELETE',
+              headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            });
+          }
+        } catch (_err) {}
+        saveUserGeneratedPlaylist(db, userId, { ...existing, active: false, plexPlaylistId: '', updatedAt: Date.now() });
+        ctx.pushLog({ level: 'info', app: 'listenbrainz', action: 'playlist.removed', message: `ListenBrainz ${playlistKey} playlist removed for ${userId}` });
+      }
+    }
+
+    if (!enabledSet.size) return;
+
+    const machineId = await resolveMachineId(ctx, config);
+    const listenbrainzToken = String(prefs.listenbrainzToken || '').trim();
+    ctx.pushLog({
+      level: 'info',
+      app: 'listenbrainz',
+      action: 'sync.start',
+      message: `ListenBrainz playlist sync started for ${userId}.`,
+      meta: {
+        username: prefs.listenbrainzUsername,
+        enabledPlaylists: [...enabledSet],
+      },
+    });
+    const createdForRes = await fetch(
+      `https://api.listenbrainz.org/1/user/${encodeURIComponent(prefs.listenbrainzUsername)}/playlists/createdfor`,
+      { headers: buildListenbrainzHeaders(listenbrainzToken) },
+    );
+    if (!createdForRes.ok) throw new Error(`ListenBrainz created-for HTTP ${createdForRes.status}`);
+    const createdForJson = await createdForRes.json();
+    const createdForPlaylists = Array.isArray(createdForJson?.playlists) ? createdForJson.playlists : [];
+    const playlistsByType = new Map();
+    for (const entry of createdForPlaylists) {
+      const sourcePatch = getListenbrainzSourcePatch(entry);
+      if (!enabledSet.has(sourcePatch) || playlistsByType.has(sourcePatch)) continue;
+      const playlistUuid = extractListenbrainzPlaylistUuid(entry);
+      if (!playlistUuid) continue;
+      playlistsByType.set(sourcePatch, {
+        uuid: playlistUuid,
+        title: String(entry?.playlist?.title || '').trim(),
+      });
+    }
+
+    const masterTrackLookup = buildPlaylistTrackLookup(getMasterTracks(db));
+    for (const playlistType of prefs.listenbrainzEnabledPlaylists || []) {
+      const label = LISTENBRAINZ_PLAYLIST_LABELS[playlistType];
+      if (!label) continue;
+      const playlistMeta = playlistsByType.get(playlistType);
+      if (!playlistMeta?.uuid) {
+        ctx.pushLog({ level: 'info', app: 'listenbrainz', action: 'playlist.unavailable', message: `ListenBrainz ${playlistType} not available for ${userId}` });
+        continue;
+      }
+      const playlistKey = `listenbrainz:${playlistType}`;
+      const playlistTitle = buildGeneratedPlaylistTitle(
+        config,
+        'listenbrainz-playlist',
+        playlistKey,
+        userId,
+        playlistMeta.title || `ListenBrainz ${label}`,
+      );
+
+      try {
+        const res = await fetch(
+          `https://api.listenbrainz.org/1/playlist/${encodeURIComponent(playlistMeta.uuid)}`,
+          { headers: buildListenbrainzHeaders(listenbrainzToken) },
+        );
+        if (!res.ok) throw new Error(`ListenBrainz playlist HTTP ${res.status}`);
+        const payload = await res.json();
+        const tracks = Array.isArray(payload?.playlist?.track) ? payload.playlist.track : [];
+        const ratingKeys = collectMatchedRatingKeys(
+          masterTrackLookup,
+          tracks,
+          (track) => getListenbrainzTrackArtist(track),
+          (track) => track?.title,
+        );
+
+        const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'listenbrainz-playlist', playlistKey, playlistTitle, machineId);
+        await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+
+        const now = Date.now();
+        saveUserGeneratedPlaylist(db, userId, {
+          playlistType: 'listenbrainz-playlist',
+          playlistKey,
+          plexPlaylistId: playlistRow.plexPlaylistId,
+          playlistTitle,
+          algorithmVersion: 'listenbrainz-playlist-v1',
+          lastBuiltAt: now,
+          lastSyncedAt: now,
+          trackCount: ratingKeys.length,
+          active: true,
+          updatedAt: now,
+        });
+        ctx.pushLog({
+          level: 'info',
+          app: 'listenbrainz',
+          action: 'playlist.synced',
+          message: `ListenBrainz ${label} synced: ${ratingKeys.length}/${tracks.length} matched for ${userId}`,
+          meta: {
+            playlistType,
+            matched: ratingKeys.length,
+            sourceTracks: tracks.length,
+          },
+        });
+      } catch (err) {
+        ctx.pushLog({ level: 'warn', app: 'listenbrainz', action: 'playlist.error', message: `ListenBrainz ${label} sync failed for ${userId}: ${err.message}` });
       }
     }
   }
@@ -1375,6 +1569,7 @@ export function createPlaylistService(ctx) {
     syncGlobalPlaylist,
     syncPersonalPlaylist,
     syncLastfmStations,
+    syncListenbrainzPlaylists,
     syncCrescive,
     syncCurative,
     syncBothForUser,

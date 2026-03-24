@@ -149,7 +149,9 @@
                   <span class="settings-toggle-text">Restrict guest users</span>
                 </label>
               </div>
-              <button class="primary-button" type="submit">Save general settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save general settings</button>
+              </div>
             </form>
           </div>
         </div>
@@ -215,8 +217,13 @@
               </div>
               <% if (config.plex?.availableLibraries?.length) { %>
               <div class="settings-card">
-                <div class="settings-card-title">Music Libraries</div>
-                <div class="settings-card-sub">Select which Plex music libraries Curatorr should monitor.</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                  <div>
+                    <div class="settings-card-title">Music Libraries</div>
+                    <div class="settings-card-sub">Select which Plex music libraries Curatorr should monitor.</div>
+                  </div>
+                  <button class="ghost-button" type="submit" formaction="/settings/plex/refresh-libraries">Refresh libraries</button>
+                </div>
                 <div class="settings-checklist" style="display:flex;flex-direction:column;gap:8px">
                   <% config.plex.availableLibraries.forEach(function(lib) { %>
                     <label class="settings-toggle">
@@ -227,8 +234,20 @@
                   <% }) %>
                 </div>
               </div>
+              <% } else { %>
+              <div class="settings-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                  <div>
+                    <div class="settings-card-title">Music Libraries</div>
+                    <div class="settings-card-sub">Pull the current Plex music library list into Curatorr.</div>
+                  </div>
+                  <button class="ghost-button" type="submit" formaction="/settings/plex/refresh-libraries">Refresh libraries</button>
+                </div>
+              </div>
               <% } %>
-              <button class="primary-button" type="submit">Save Plex settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save Plex settings</button>
+              </div>
               </fieldset>
             </form>
           </div>
@@ -280,7 +299,9 @@
                   <span id="tautulli-webhook-status" style="font-size:12px;opacity:0.7"></span>
                 </div>
               </div>
-              <button class="primary-button" type="submit">Save Tautulli settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save Tautulli settings</button>
+              </div>
               </fieldset>
             </form>
           </div>
@@ -336,7 +357,9 @@
                 <% }) %>
               </div>
               <% } %>
-              <button class="primary-button" type="submit">Save Jellyfin settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save Jellyfin settings</button>
+              </div>
               </fieldset>
             </form>
           </div>
@@ -392,7 +415,9 @@
                 <% }) %>
               </div>
               <% } %>
-              <button class="primary-button" type="submit">Save Emby settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save Emby settings</button>
+              </div>
               </fieldset>
             </form>
           </div>
@@ -528,7 +553,9 @@
                   </div>
                   <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">Use <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">-1</code> for unlimited quotas.</small>
                 </div>
-                <button class="primary-button" type="submit">Save Lidarr settings</button>
+                <div class="settings-card-actions settings-card-actions--full">
+                  <button class="primary-button" type="submit">Save Lidarr settings</button>
+                </div>
               </form>
             </div>
           </div>
@@ -579,8 +606,8 @@
                   </label>
                 </div>
                 <small class="settings-smart-helper">Applies globally. Changing this immediately renames existing generated playlists in your media server and in Curatorr.</small>
-                <div class="cur-tier-table-wrap">
-                  <table class="cur-tier-table">
+                <div class="cur-tier-table-wrap cur-tier-table-wrap--rules">
+                  <table class="cur-tier-table cur-tier-table--rules">
                     <colgroup>
                       <col class="cur-tier-col cur-tier-col--label" />
                       <col class="cur-tier-col" />
@@ -631,13 +658,13 @@
                           </div>
                         </td>
                         <td>
-                          <div class="cur-tier-static">
-                            <span>&gt; 50%</span>
+                          <div class="cur-tier-cell cur-tier-cell--static">
+                            <span class="cur-tier-lock settings-smart-tier-lock">&gt; 50%</span>
                           </div>
                         </td>
                         <td>
-                          <div class="cur-tier-static">
-                            <span>&lt; 50%</span>
+                          <div class="cur-tier-cell cur-tier-cell--static">
+                            <span class="cur-tier-lock settings-smart-tier-lock">&lt; 50%</span>
                           </div>
                         </td>
                         <td>
@@ -666,8 +693,8 @@
                           </div>
                         </th>
                         <td><div class="cur-tier-cell"><input type="number" name="artistSkipRank" value="<%= _artistSkipRank %>" min="0" max="5" step="1" class="cur-tier-input" /></div></td>
-                        <td><div class="cur-tier-static"><span>&gt; 5</span></div></td>
-                        <td><div class="cur-tier-static"><span>&lt; 5</span></div></td>
+                        <td><div class="cur-tier-cell cur-tier-cell--static"><span class="cur-tier-lock settings-smart-tier-lock">&gt; 5</span></div></td>
+                        <td><div class="cur-tier-cell cur-tier-cell--static"><span class="cur-tier-lock settings-smart-tier-lock">&lt; 5</span></div></td>
                         <td><div class="cur-tier-cell"><input type="number" name="artistBelterRank" value="<%= _artistBelterRank %>" min="5" max="10" step="1" class="cur-tier-input" /></div></td>
                       </tr>
                     </tbody>
@@ -721,7 +748,9 @@
                 });
               })();
               </script>
-              <button class="primary-button" type="submit">Save Curatorr rules</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save Curatorr rules</button>
+              </div>
             </form>
 
             <%# ── Crescive / Curative playlist settings ──────────────────── %>
@@ -766,40 +795,95 @@
               <div class="settings-card">
                 <div class="settings-card-title">Addition Rules</div>
                 <div class="settings-card-sub">When an artist's tier threshold is reached, the next highest-rated unplayed tracks are added to both playlists.</div>
-                <table class="cur-tier-table" style="width:100%">
-                  <thead><tr><th>Artist tier</th><th>% of their tracks played</th><th>Tracks to add</th></tr></thead>
+                <div class="cur-tier-table-wrap cur-tier-table-wrap--playlist-rules">
+                <table class="cur-tier-table cur-tier-table--playlist-rules">
+                  <colgroup>
+                    <col class="cur-tier-col cur-tier-col--playlist-tier" />
+                    <col class="cur-tier-col cur-tier-col--playlist-value" />
+                    <col class="cur-tier-col cur-tier-col--playlist-value" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th><div class="cur-tier-head-label">Artist tier</div></th>
+                      <th><div class="cur-tier-head-label">% of their tracks played</div></th>
+                      <th><div class="cur-tier-head-label">Tracks to add</div></th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <% [['belter','Belter',0.50,15],['decent','Decent',0.80,10],['halfDecent','Half Decent',1.00,5]].forEach(function(row) { %>
                     <% const _arRow = _ar[row[0]] || {}; %>
                     <tr>
-                      <td><span class="cur-badge cur-badge--<%= row[0] === 'halfDecent' ? 'half-decent' : row[0] %>"><%= row[1] %></span></td>
-                      <td><div class="settings-pct-row"><input type="number" name="ar_<%= row[0] %>_pct" value="<%= Math.round((_arRow.playedPct ?? row[2]) * 100) %>" min="1" max="100" style="width:70px" /><span class="settings-pct-sym">%</span></div></td>
-                      <td><input type="number" name="ar_<%= row[0] %>_count" value="<%= _arRow.addCount ?? row[3] %>" min="1" max="50" style="width:70px" /></td>
+                      <td>
+                        <div class="cur-tier-static">
+                          <span class="cur-badge cur-badge--<%= row[0] === 'halfDecent' ? 'half-decent' : row[0] %>"><%= row[1] %></span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="cur-tier-cell cur-tier-cell--compound">
+                          <input type="number" name="ar_<%= row[0] %>_pct" value="<%= Math.round((_arRow.playedPct ?? row[2]) * 100) %>" min="1" max="100" class="cur-tier-input" />
+                          <span class="cur-tier-input-suffix">%</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="cur-tier-cell">
+                          <input type="number" name="ar_<%= row[0] %>_count" value="<%= _arRow.addCount ?? row[3] %>" min="1" max="50" class="cur-tier-input" />
+                        </div>
+                      </td>
                     </tr>
                     <% }); %>
                   </tbody>
                 </table>
+                </div>
               </div>
 
               <%# Subtraction rules %>
               <div class="settings-card">
                 <div class="settings-card-title">Subtraction Rules</div>
                 <div class="settings-card-sub">When an artist's tracks are predominantly skipped, the lowest-rated unplayed or previously skipped tracks are removed from both playlists.</div>
-                <table class="cur-tier-table" style="width:100%">
-                  <thead><tr><th>% of their tracks exposed</th><th>Tracks to remove</th></tr></thead>
+                <div class="cur-tier-table-wrap cur-tier-table-wrap--playlist-rules">
+                <table class="cur-tier-table cur-tier-table--playlist-rules cur-tier-table--playlist-rules-subtraction">
+                  <colgroup>
+                    <col class="cur-tier-col cur-tier-col--playlist-tier" />
+                    <col class="cur-tier-col cur-tier-col--playlist-value" />
+                    <col class="cur-tier-col cur-tier-col--playlist-value" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th><div class="cur-tier-head-label">Artist tier</div></th>
+                      <th><div class="cur-tier-head-label">% of their tracks exposed</div></th>
+                      <th><div class="cur-tier-head-label">Tracks to remove</div></th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <% [[0.20,15],[0.50,10],[0.80,5]].forEach(function(def, i) { %>
                     <% const _srRow = _sr[i] || {}; %>
                     <tr>
-                      <td><div class="settings-pct-row"><input type="number" name="sr_skip_<%= i %>_pct" value="<%= Math.round((_srRow.playedPct ?? def[0]) * 100) %>" min="1" max="100" style="width:70px" /><span class="settings-pct-sym">%</span></div></td>
-                      <td><input type="number" name="sr_skip_<%= i %>_count" value="<%= _srRow.removeCount ?? def[1] %>" min="1" max="50" style="width:70px" /></td>
+                      <td>
+                        <div class="cur-tier-static">
+                          <span class="cur-badge cur-badge--skip">Skip</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="cur-tier-cell cur-tier-cell--compound">
+                          <input type="number" name="sr_skip_<%= i %>_pct" value="<%= Math.round((_srRow.playedPct ?? def[0]) * 100) %>" min="1" max="100" class="cur-tier-input" />
+                          <span class="cur-tier-input-suffix">%</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="cur-tier-cell">
+                          <input type="number" name="sr_skip_<%= i %>_count" value="<%= _srRow.removeCount ?? def[1] %>" min="1" max="50" class="cur-tier-input" />
+                        </div>
+                      </td>
                     </tr>
                     <% }); %>
                   </tbody>
                 </table>
+                </div>
               </div>
 
-              <button class="primary-button" type="submit">Save playlist type settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save playlist type settings</button>
+              </div>
             </form>
 
             <%# ── Global Playlists ────────────────────────────────────────── %>
@@ -1065,7 +1149,7 @@
 
               // Blend picker initialisation (if blend section exists)
               (function() {
-                var GP_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatar || '' }; })) %>;
+                var GP_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatarUrl || u.avatar || '' }; })) %>;
                 var slotsEl = document.getElementById('gp-blend-picker-rows');
                 var addBtn = document.getElementById('gp-blend-add-btn');
                 if (!slotsEl || !addBtn) return;
@@ -1331,7 +1415,9 @@
                   <span class="settings-toggle-text">Because You Like… (similar artists)</span>
                 </label>
               </div>
-              <button class="primary-button" type="submit">Save discovery settings</button>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save discovery settings</button>
+              </div>
             </form>
           </div>
         </div>
@@ -1538,7 +1624,7 @@
           <div class="dash-panel">
             <div class="settings-card">
               <div class="settings-card-title">Activity</div>
-              <div class="settings-card-sub">Use this to trace playlist syncs, wizard events, and Lidarr automation decisions.</div>
+              <div class="settings-card-sub">Use this to trace playlist syncs, ListenBrainz imports, wizard events, and Lidarr automation decisions.</div>
               <div class="log-toolbar">
                 <div class="log-filter">
                   <span class="log-filter-label">App</span>
@@ -1552,6 +1638,7 @@
                     <option value="webhook">Webhook</option>
                     <option value="music">Music</option>
                     <option value="playlist">Playlist</option>
+                    <option value="listenbrainz">ListenBrainz</option>
                     <option value="recommendations">Recommendations</option>
                     <option value="lastfm">Last.fm Tags</option>
                     <option value="lastfm-sync">Last.fm Sync</option>
@@ -1627,7 +1714,7 @@
                 </div>
                 <div class="settings-about-link-row">
                   <span>Discord</span>
-                  <a href="https://discord.gg/TuR7uMajEj" target="_blank" rel="noreferrer noopener">https://discord.gg/TuR7uMajEj</a>
+                  <a href="https://discord.gg/TvrxJWD4PK" target="_blank" rel="noreferrer noopener">https://discord.gg/TvrxJWD4PK</a>
                 </div>
               </div>
             </div>
@@ -1860,7 +1947,7 @@
                   </div>
                   <div class="settings-job-card-actions">
                     <span class="settings-job-status-badge settings-job-status-badge--<%= _jStatus %>" data-job-status="<%= _jid %>"><%= _jStatus %></span>
-                    <button type="button" class="settings-btn settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
+                    <button type="button" class="ghost-button settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
                   </div>
                 </div>
                 <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
@@ -1888,8 +1975,8 @@
                 <% } %>
               </div>
               <% } %>
-              <div style="margin-top:4px">
-                <button type="submit" class="settings-btn settings-btn--primary">Save Job Settings</button>
+              <div class="settings-card-actions settings-card-actions--full" style="margin-top:4px">
+                <button type="submit" class="primary-button">Save Job Settings</button>
               </div>
             </form>
 
@@ -1903,7 +1990,7 @@
                 each playlist under the correct user's account.
               </div>
               <div style="margin-top:14px; display:flex; align-items:center; gap:12px">
-                <button type="button" class="settings-btn settings-btn--primary" id="reassignPlaylistsBtn" onclick="reassignPlaylists()">Reassign All Playlists</button>
+                <button type="button" class="ghost-button" id="reassignPlaylistsBtn" onclick="reassignPlaylists()">Reassign All Playlists</button>
                 <span id="reassignPlaylistsStatus" class="settings-sub-label"></span>
               </div>
             </div>
@@ -2045,6 +2132,7 @@
       webhook: 'Webhook',
       music: 'Music',
       playlist: 'Playlist',
+      listenbrainz: 'ListenBrainz',
       recommendations: 'Recommendations',
       lastfm: 'Last.fm Tags',
       'lastfm-sync': 'Last.fm Sync',
