@@ -24,6 +24,24 @@ function authHeaders(apiKey) {
   };
 }
 
+function extractMusicbrainzUuid(value) {
+  const match = String(value || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function extractProviderRecordingMbid(item = {}) {
+  const providerIds = item?.ProviderIds && typeof item.ProviderIds === 'object' ? item.ProviderIds : {};
+  const candidates = [
+    providerIds.MusicBrainzTrack,
+    providerIds.MusicBrainzRecording,
+  ];
+  for (const candidate of candidates) {
+    const mbid = extractMusicbrainzUuid(candidate);
+    if (mbid) return mbid;
+  }
+  return '';
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 // Exchange username + password for an API key. Returns the API key string.
 
@@ -116,7 +134,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
       u.searchParams.set('ParentId', key);
       u.searchParams.set('IncludeItemTypes', 'Audio');
       u.searchParams.set('Recursive', 'true');
-      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks');
+      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds');
       u.searchParams.set('StartIndex', String(startIndex));
       u.searchParams.set('Limit', String(PAGE_SIZE));
 
@@ -134,6 +152,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
           artistName:  String(item.AlbumArtist || item.Artists?.[0] || ''),
           trackTitle:  String(item.Name || ''),
           albumName:   String(item.Album || ''),
+          recordingMbid: extractProviderRecordingMbid(item),
           genres:      (item.Genres || []).map(String),
           moods:       [], // no native mood field in Jellyfin; Tags could map here later
           libraryKey:  String(key),

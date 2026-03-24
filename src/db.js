@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   artist_name   TEXT NOT NULL DEFAULT '',
   track_title   TEXT NOT NULL DEFAULT '',
   album_name    TEXT NOT NULL DEFAULT '',
+  recording_mbid TEXT NOT NULL DEFAULT '',
   genres        TEXT NOT NULL DEFAULT '[]',
   library_key   TEXT NOT NULL DEFAULT '',
   rating_count  INTEGER NOT NULL DEFAULT 0,
@@ -413,6 +414,8 @@ export function initDb(dbPath) {
     db.exec('ALTER TABLE master_tracks ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
   if (!masterCols.includes('moods'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
+  if (!masterCols.includes('recording_mbid'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
 
   const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
   if (!openSessionCols.includes('player_scope'))
@@ -1444,17 +1447,30 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, genres, moods, library_key, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, library_key, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
-      album_name = excluded.album_name, genres = excluded.genres, moods = excluded.moods,
+      album_name = excluded.album_name, recording_mbid = excluded.recording_mbid,
+      genres = excluded.genres, moods = excluded.moods,
       library_key = excluded.library_key, rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
   `);
   const run = db.transaction((rows) => {
     for (const r of rows)
-      upsert.run(r.ratingKey, r.artistName, r.trackTitle, r.albumName, JSON.stringify(r.genres || []), JSON.stringify(r.moods || []), r.libraryKey, r.ratingCount ?? 0, r.viewCount ?? 0, Date.now());
+      upsert.run(
+        r.ratingKey,
+        r.artistName,
+        r.trackTitle,
+        r.albumName,
+        String(r.recordingMbid || '').trim(),
+        JSON.stringify(r.genres || []),
+        JSON.stringify(r.moods || []),
+        r.libraryKey,
+        r.ratingCount ?? 0,
+        r.viewCount ?? 0,
+        Date.now(),
+      );
   });
   run(tracks);
 }
@@ -1463,7 +1479,8 @@ export function getMasterTracks(db) {
   return db.prepare('SELECT * FROM master_tracks').all().map((r) => ({
     ratingKey: r.rating_key, artistName: r.artist_name, trackTitle: r.track_title,
     albumName: r.album_name, genres: JSON.parse(r.genres || '[]'), moods: JSON.parse(r.moods || '[]'),
-    libraryKey: r.library_key, ratingCount: r.rating_count, viewCount: r.view_count,
+    libraryKey: r.library_key, recordingMbid: String(r.recording_mbid || '').trim(),
+    ratingCount: r.rating_count, viewCount: r.view_count,
   }));
 }
 

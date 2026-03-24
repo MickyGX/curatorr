@@ -17,6 +17,22 @@ function plexHeaders(token, extraHeaders = {}) {
   };
 }
 
+function extractMusicbrainzUuid(value) {
+  const match = String(value || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return match ? match[0].toLowerCase() : '';
+}
+
+function extractPlexRecordingMbid(metadata = {}) {
+  const guidEntries = Array.isArray(metadata?.Guid) ? metadata.Guid : (metadata?.Guid ? [metadata.Guid] : []);
+  for (const entry of guidEntries) {
+    const raw = String(entry?.id || entry || '').trim();
+    if (!/musicbrainz|mbid/i.test(raw)) continue;
+    const mbid = extractMusicbrainzUuid(raw);
+    if (mbid) return mbid;
+  }
+  return '';
+}
+
 // ── Connection verification ───────────────────────────────────────────────────
 
 export async function verifyConnection(url, token) {
@@ -80,6 +96,7 @@ export async function getLibraryTracks(url, token, libraryKeys) {
           artistName:  String(t.originalTitle || t.grandparentTitle || ''),
           trackTitle:  String(t.title || ''),
           albumName:   String(t.parentTitle || ''),
+          recordingMbid: extractPlexRecordingMbid(t),
           genres:      (t.Genre || []).map((g) => g.tag),
           moods:       [],
           libraryKey:  String(key),

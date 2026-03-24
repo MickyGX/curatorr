@@ -16,7 +16,7 @@ process.env.PORT = String(37000 + (process.pid % 1000));
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
 const { start, stop, canUserAccessLidarrAutomation, completePlexLogin } = await import('../index.js');
-const { initDb, listLidarrRequests, getUserPreferences, saveUserPreferences, listUserGeneratedPlaylists } = await import('../db.js');
+const { initDb, listLidarrRequests, getUserPreferences, saveUserPreferences, listUserGeneratedPlaylists, saveUserGeneratedPlaylist } = await import('../db.js');
 const { createLidarrService } = await import('../services/lidarr.js');
 const { createPlaylistService } = await import('../services/playlists.js');
 const { runTautulliDailySync } = await import('../services/tautulli-sync.js');
@@ -1734,13 +1734,14 @@ describe('security guards', () => {
     const playlistUuid = '12345678-1234-1234-1234-1234567890ab';
     const logs = [];
     db.prepare(`
-      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, genres, library_key, rating_count, view_count, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       'rk-1',
       'Artist Match',
       'Track Match',
       'Matched Album',
+      '',
       '[]',
       '1',
       0,
@@ -1874,14 +1875,361 @@ describe('security guards', () => {
       assert.equal(synced.playlistType, 'listenbrainz-playlist');
       assert.equal(synced.plexPlaylistId, 'plex-playlist-1');
       assert.equal(synced.trackCount, 1);
-      assert.equal(synced.algorithmVersion, 'listenbrainz-playlist-v1');
+      assert.equal(synced.algorithmVersion, 'listenbrainz-playlist-v2');
       assert.match(synced.playlistTitle, /ListenBrainz Weekly Jams/);
     } finally {
       dbVerify.close();
     }
 
+    assert.ok(logs.some((entry) => entry?.action === 'sync.discovered' && String(entry?.message || '').includes('matched enabled types')));
+    assert.ok(logs.some((entry) => entry?.action === 'playlist.fetched' && String(entry?.message || '').includes('fetched 2 source tracks')));
     assert.ok(logs.some((entry) => String(entry?.message || '').includes('ListenBrainz Weekly Jams synced: 1/2 matched')));
     assert.equal(calls.filter((entry) => entry.url.startsWith('https://api.listenbrainz.org/')).length, 2);
+  });
+
+  it('prefers ListenBrainz recording MBIDs over artist and title text matching', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `listenbrainz-mbid-${Date.now()}`;
+    const playlistUuid = '22345678-1234-1234-1234-1234567890ab';
+    const logs = [];
+    db.prepare(`
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'lb-seed-batwam-1',
+      'Eminem',
+      'The Real Slim Shady',
+      'Seed Album',
+      '684ca01c-9775-42fe-9cdb-28fa37c27851',
+      '[]',
+      'listenbrainz-seed',
+      0,
+      0,
+      Date.now(),
+    );
+    db.prepare(`
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'rk-mbid-1',
+      'Completely Different Artist Name',
+      'Local Library Title Variation',
+      'Matched Album',
+      '684ca01c-9775-42fe-9cdb-28fa37c27851',
+      '[]',
+      '1',
+      0,
+      0,
+      Date.now(),
+    );
+    saveUserPreferences(db, userId, {
+      ...getUserPreferences(db, userId),
+      listenbrainzUsername: 'lb-user',
+      listenbrainzToken: 'lb-token',
+      listenbrainzEnabledPlaylists: ['weekly-jams'],
+      userWizardCompleted: true,
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildAppApiUrl: (base, path = '') => new URL(path, `${String(base).replace(/\/?$/, '/')}`),
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target === 'https://api.listenbrainz.org/1/user/lb-user/playlists/createdfor') {
+        return new Response(JSON.stringify({
+          playlists: [
+            {
+              playlist: {
+                identifier: `https://listenbrainz.org/playlist/${playlistUuid}`,
+                title: 'Weekly Jams',
+                extension: {
+                  'https://musicbrainz.org/doc/jspf#playlist': {
+                    additional_metadata: {
+                      algorithm_metadata: {
+                        source_patch: 'weekly-jams',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === `https://api.listenbrainz.org/1/playlist/${playlistUuid}`) {
+        return new Response(JSON.stringify({
+          playlist: {
+            track: [
+              {
+                title: 'The Real Slim Shady',
+                creator: 'Eminem',
+                identifier: ['https://musicbrainz.org/recording/684ca01c-9775-42fe-9cdb-28fa37c27851'],
+              },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-playlist-mbid' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-playlist-mbid/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-playlist-mbid/items?uri=')) {
+        assert.doesNotMatch(decodeURIComponent(target), /lb-seed-batwam-1/);
+        assert.match(decodeURIComponent(target), /library\/metadata\/rk-mbid-1/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in ListenBrainz MBID test: ${target}`);
+    };
+
+    try {
+      await service.syncListenbrainzPlaylists(userId);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const playlists = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false });
+      const synced = playlists.find((entry) => entry.playlistKey === 'listenbrainz:weekly-jams');
+      assert.ok(synced);
+      assert.equal(synced.trackCount, 1);
+      assert.equal(synced.algorithmVersion, 'listenbrainz-playlist-v2');
+    } finally {
+      dbVerify.close();
+    }
+
+    const syncLog = logs.find((entry) => entry?.action === 'playlist.synced');
+    assert.equal(syncLog?.meta?.mbidMatched, 1);
+    assert.equal(syncLog?.meta?.textMatched, 0);
+  });
+
+  it('recreates a ListenBrainz playlist when the stored Plex playlist id is stale', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `listenbrainz-stale-${Date.now()}`;
+    const stalePlaylistId = 'stale-plex-playlist';
+    const replacementPlaylistId = 'plex-playlist-new';
+    const playlistUuid = '32345678-1234-1234-1234-1234567890ab';
+    const logs = [];
+
+    db.prepare(`
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'rk-stale-1',
+      'Artist Match',
+      'Track Match',
+      'Matched Album',
+      '',
+      '[]',
+      '1',
+      0,
+      0,
+      Date.now(),
+    );
+    saveUserPreferences(db, userId, {
+      ...getUserPreferences(db, userId),
+      listenbrainzUsername: 'lb-user',
+      listenbrainzToken: 'lb-token',
+      listenbrainzEnabledPlaylists: ['weekly-jams'],
+      userWizardCompleted: true,
+    });
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'listenbrainz-playlist',
+      playlistKey: 'listenbrainz:weekly-jams',
+      plexPlaylistId: stalePlaylistId,
+      playlistTitle: 'ListenBrainz Weekly Jams (MickyGX)',
+      algorithmVersion: 'listenbrainz-playlist-v1',
+      active: true,
+      updatedAt: Date.now(),
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildAppApiUrl: (base, path = '') => new URL(path, `${String(base).replace(/\/?$/, '/')}`),
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target === 'https://api.listenbrainz.org/1/user/lb-user/playlists/createdfor') {
+        return new Response(JSON.stringify({
+          playlists: [
+            {
+              playlist: {
+                identifier: `https://listenbrainz.org/playlist/${playlistUuid}`,
+                title: 'Weekly Jams',
+                extension: {
+                  'https://musicbrainz.org/doc/jspf#playlist': {
+                    additional_metadata: {
+                      algorithm_metadata: {
+                        source_patch: 'weekly-jams',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === `https://api.listenbrainz.org/1/playlist/${playlistUuid}`) {
+        return new Response(JSON.stringify({
+          playlist: {
+            track: [
+              {
+                title: 'Track Match',
+                creator: 'Artist Match',
+              },
+            ],
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === `http://plex.local/playlists/${stalePlaylistId}?X-Plex-Container-Start=0&X-Plex-Container-Size=1`) {
+        return new Response('', { status: 404 });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [] },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: replacementPlaylistId }] },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === `http://plex.local/playlists/${replacementPlaylistId}/items` && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith(`http://plex.local/playlists/${replacementPlaylistId}/items?uri=`)) {
+        assert.match(decodeURIComponent(target), /library\/metadata\/rk-stale-1/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in stale ListenBrainz playlist test: ${target}`);
+    };
+
+    try {
+      await service.syncListenbrainzPlaylists(userId);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const playlists = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false });
+      const synced = playlists.find((entry) => entry.playlistKey === 'listenbrainz:weekly-jams');
+      assert.ok(synced);
+      assert.equal(synced.plexPlaylistId, replacementPlaylistId);
+    } finally {
+      dbVerify.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'generated.stale' && String(entry?.message || '').includes('stale Plex id')));
+  });
+
+  it('logs when ListenBrainz sync is skipped because the user has no personal Plex token', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `listenbrainz-tokenless-${Date.now()}`;
+    const logs = [];
+
+    saveUserPreferences(db, userId, {
+      ...getUserPreferences(db, userId),
+      listenbrainzUsername: 'batwam',
+      listenbrainzEnabledPlaylists: ['weekly-jams'],
+      userWizardCompleted: true,
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildAppApiUrl: (base, path = '') => new URL(path, `${String(base).replace(/\/?$/, '/')}`),
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => '',
+      userHasOwnPlexToken: () => false,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => {
+      throw new Error('ListenBrainz fetch should not run without a personal Plex token');
+    };
+
+    try {
+      await service.syncListenbrainzPlaylists(userId);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    assert.ok(logs.some((entry) =>
+      entry?.action === 'sync.skip'
+      && String(entry?.message || '').includes('no personal Plex server token is configured'),
+    ));
   });
 
   it('blocks co-admin access to admin-only wizard actions', async () => {
