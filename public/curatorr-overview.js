@@ -26,6 +26,23 @@
     if (kind === 'track') {
       return '/api/music/overview/track/' + encodeURIComponent(trigger.dataset.curOverviewKey || '') + (user ? ('?user=' + encodeURIComponent(user)) : '');
     }
+    if (kind === 'manual-album') {
+      var params = new URLSearchParams();
+      params.set('artist', trigger.dataset.curOverviewArtist || '');
+      params.set('album', trigger.dataset.curOverviewAlbum || '');
+      if (trigger.dataset.curOverviewAlbumId) params.set('albumId', trigger.dataset.curOverviewAlbumId);
+      if (trigger.dataset.curOverviewForeignAlbumId) params.set('foreignAlbumId', trigger.dataset.curOverviewForeignAlbumId);
+      if (trigger.dataset.curOverviewSource) params.set('source', trigger.dataset.curOverviewSource);
+      if (trigger.dataset.curOverviewAlbumType) params.set('albumType', trigger.dataset.curOverviewAlbumType);
+      if (trigger.dataset.curOverviewReleaseDate) params.set('releaseDate', trigger.dataset.curOverviewReleaseDate);
+      return '/api/music/lidarr/manual/album-overview?' + params.toString();
+    }
+    if (kind === 'manual-curatorr-pick') {
+      var pickParams = new URLSearchParams();
+      pickParams.set('artist', trigger.dataset.curOverviewArtist || '');
+      if (trigger.dataset.curOverviewForeignArtistId) pickParams.set('foreignArtistId', trigger.dataset.curOverviewForeignArtistId);
+      return '/api/music/lidarr/manual/curatorr-pick-overview?' + pickParams.toString();
+    }
     return '';
   }
 
@@ -54,9 +71,14 @@
               '</div>' +
             '</div>' +
           '</div>' +
+          '<div class="plex-section plex-section--tracks plex-hidden">' +
+            '<h4>Tracks</h4>' +
+            '<div class="cur-overview-track-list"></div>' +
+          '</div>' +
         '</div>' +
         '<div class="plex-modal-footer">' +
           '<div class="plex-pills plex-pills--stats"></div>' +
+          '<div class="plex-modal-actions"></div>' +
         '</div>' +
       '</div>';
     document.body.appendChild(backdrop);
@@ -64,6 +86,19 @@
       if (event.target === backdrop) closeModal();
     });
     backdrop.querySelector('.plex-modal-close').addEventListener('click', closeModal);
+    backdrop.addEventListener('click', function(event) {
+      var actionBtn = event.target.closest('[data-cur-overview-action-kind]');
+      if (!actionBtn || actionBtn.disabled) return;
+      var handler = window.curatorrOverviewHandleAction;
+      if (typeof handler !== 'function') return;
+      var payload = {};
+      try {
+        payload = JSON.parse(actionBtn.dataset.curOverviewActionPayload || '{}');
+      } catch (_err) {
+        payload = {};
+      }
+      handler(actionBtn.dataset.curOverviewActionKind || '', payload, actionBtn, modalState.lastTrigger);
+    });
     modalState.backdrop = backdrop;
     return backdrop;
   }
@@ -114,6 +149,63 @@
     }).join('');
   }
 
+  function renderTrackList(container, tracks) {
+    var items = Array.isArray(tracks) ? tracks.filter(function(track) {
+      return track && track.title;
+    }) : [];
+    var section = container.closest('.plex-section--tracks');
+    if (!items.length) {
+      container.innerHTML = '';
+      if (section) section.classList.add('plex-hidden');
+      return;
+    }
+    var mediaNumbers = items
+      .map(function(track) { return Number(track.mediumNumber || 0) || 0; })
+      .filter(function(value) { return value > 0; });
+    var hasDiscHeaders = (new Set(mediaNumbers)).size > 1;
+    var currentMedium = null;
+    container.innerHTML = items.map(function(track) {
+      var mediumNumber = Number(track.mediumNumber || 0) || 0;
+      var html = '';
+      if (hasDiscHeaders && mediumNumber > 0 && mediumNumber !== currentMedium) {
+        currentMedium = mediumNumber;
+        html += '<div class="cur-overview-track-group">CD ' + escHtml(mediumNumber) + '</div>';
+      }
+      html += '<div class="cur-overview-track-row' + (track.thumb ? ' has-thumb' : '') + '">' +
+        '<span class="cur-overview-track-index">' + escHtml(track.index || '') + '</span>' +
+        (track.thumb
+          ? '<span class="cur-overview-track-thumb"><img src="' + escHtml(track.thumb) + '" alt="" loading="lazy" /></span>'
+          : '') +
+        '<span class="cur-overview-track-body">' +
+          '<span class="cur-overview-track-title">' + escHtml(track.title || '') + '</span>' +
+          (track.meta ? '<span class="cur-overview-track-meta">' + escHtml(track.meta || '') + '</span>' : '') +
+        '</span>' +
+      '</div>';
+      return html;
+    }).join('');
+    if (section) section.classList.remove('plex-hidden');
+  }
+
+  function renderActions(container, actions) {
+    var items = Array.isArray(actions) ? actions.filter(Boolean) : [];
+    if (!items.length) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = items.map(function(action) {
+      var payload = '{}';
+      try {
+        payload = JSON.stringify(action.payload || {});
+      } catch (_err) {
+        payload = '{}';
+      }
+      return '<button type="button" class="plex-modal-link plex-modal-link--action' + (action.disabled ? ' is-disabled' : '') + '"' +
+        ' data-cur-overview-action-kind="' + escHtml(action.kind || '') + '"' +
+        ' data-cur-overview-action-payload="' + escHtml(payload) + '"' +
+        (action.disabled ? ' disabled' : '') + '>' + escHtml(action.label || 'Action') + '</button>';
+    }).join('');
+  }
+
   function renderItem(item) {
     var backdrop = ensureModal();
     var modal = backdrop.querySelector('.plex-modal');
@@ -123,16 +215,24 @@
     var subtitle = modal.querySelector('.plex-modal-subtitle');
     var pills = modal.querySelector('.plex-pills');
     var statsPills = modal.querySelector('.plex-pills--stats');
+    var actions = modal.querySelector('.plex-modal-actions');
     var overview = modal.querySelector('.plex-overview-text');
+    var trackList = modal.querySelector('.cur-overview-track-list');
+    var trackHeading = modal.querySelector('.plex-section--tracks h4');
     var kindPills = pills;
 
     bg.style.backgroundImage = item.art ? 'url("' + String(item.art).replace(/"/g, '&quot;') + '")' : '';
+    poster.classList.toggle('is-square', item.posterRatio === 'square');
+    poster.classList.toggle('is-contain', item.posterFit === 'contain');
     renderPoster(poster, item);
     title.textContent = item.title || 'Untitled';
     subtitle.textContent = item.subtitle || '';
     renderPills(kindPills, item.pills);
     overview.textContent = item.overview || 'No overview available for this item yet.';
     renderStats(statsPills, item.stats);
+    if (trackHeading) trackHeading.textContent = item.trackSectionTitle || 'Tracks';
+    renderTrackList(trackList, item.trackList);
+    renderActions(actions, item.actions);
 
     backdrop.classList.remove('plex-hidden');
     document.body.classList.add('cur-modal-open');

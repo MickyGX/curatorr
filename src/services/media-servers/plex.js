@@ -80,6 +80,7 @@ export async function getLibraryTracks(url, token, libraryKeys) {
     while (totalSize === null || start < totalSize) {
       const u = buildUrl(url, `library/sections/${key}/all`);
       u.searchParams.set('type', '10');
+      u.searchParams.set('includeGuids', '1');
       u.searchParams.set('X-Plex-Container-Start', String(start));
       u.searchParams.set('X-Plex-Container-Size', String(PAGE_SIZE));
       const res = await fetch(u.toString(), {
@@ -166,6 +167,24 @@ export async function getLibraryTracks(url, token, libraryKeys) {
 // Registers the Curatorr /webhook/plex URL with plex.tv and enables server-side
 // webhooks. Returns { ok, created, webhookUrl } or { ok: false, reason }.
 
+function normalizeWebhookPathname(url) {
+  try {
+    const pathname = String(new URL(String(url || '')).pathname || '').trim();
+    if (!pathname) return '';
+    return pathname.replace(/\/+$/, '') || '/';
+  } catch (_err) {
+    return '';
+  }
+}
+
+function isManagedCuratorrPlexWebhookUrl(candidateUrl, targetUrl) {
+  const candidatePath = normalizeWebhookPathname(candidateUrl);
+  const targetPath = normalizeWebhookPathname(targetUrl);
+  if (!candidatePath || !targetPath) return false;
+  return candidatePath === targetPath
+    || (candidatePath.endsWith('/webhook/plex') && targetPath.endsWith('/webhook/plex'));
+}
+
 export async function registerWebhook(plexUrl, token, webhookUrl, ctx) {
   const { plexHeaders: ctxPlexHeaders, buildPlexAuthHeaders } = ctx;
 
@@ -188,12 +207,15 @@ export async function registerWebhook(plexUrl, token, webhookUrl, ctx) {
   const existingRaw = await listRes.json();
   const existingUrls = normalizePlexWebhookUrls(existingRaw);
   const hasWebhook = existingUrls.includes(webhookUrl);
+  const staleUrls = existingUrls.filter((url) => url !== webhookUrl && isManagedCuratorrPlexWebhookUrl(url, webhookUrl));
+  const nextUrls = existingUrls.filter((url) => !staleUrls.includes(url));
+  if (!nextUrls.includes(webhookUrl)) nextUrls.push(webhookUrl);
 
-  if (!hasWebhook) {
+  if (staleUrls.length || !hasWebhook) {
     const saveRes = await fetch(accountUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ urls: [...existingUrls, webhookUrl] }),
+      body: JSON.stringify({ urls: nextUrls }),
     });
     if (!saveRes.ok) throw new Error(`Plex account API returned HTTP ${saveRes.status}`);
     await saveRes.json();
@@ -208,7 +230,7 @@ export async function registerWebhook(plexUrl, token, webhookUrl, ctx) {
   });
   if (!prefsRes.ok) throw new Error(`Plex returned HTTP ${prefsRes.status} while enabling webhooks`);
 
-  return { ok: true, created: !hasWebhook, webhookUrl, manual: false };
+  return { ok: true, created: !hasWebhook, pruned: staleUrls.length, webhookUrl, manual: false };
 }
 
 function normalizePlexWebhookUrls(payload) {

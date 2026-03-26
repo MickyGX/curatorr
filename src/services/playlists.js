@@ -1516,7 +1516,15 @@ export function createPlaylistService(ctx) {
       }
     }
 
-    if (!enabledSet.size) return;
+    if (!enabledSet.size) {
+      ctx.pushLog({
+        level: 'info',
+        app: 'listenbrainz',
+        action: 'sync.skip',
+        message: `ListenBrainz sync skipped for ${userId}: no playlist types are enabled.`,
+      });
+      return;
+    }
 
     const machineId = await resolveMachineId(ctx, config);
     const listenbrainzToken = String(prefs.listenbrainzToken || '').trim();
@@ -1658,8 +1666,9 @@ export function createPlaylistService(ctx) {
   }
 
   async function syncBothForUser(userId) {
-    await syncCrescive(userId);
-    await syncCurative(userId);
+    const smartConfig = ctx.loadConfig().smartPlaylist || {};
+    if (smartConfig.enableCrescive !== false) await syncCrescive(userId);
+    if (smartConfig.enableCurative !== false) await syncCurative(userId);
   }
 
   async function renameGeneratedPlaylistTitle(userPlexId, playlistKey, configOverride = null) {

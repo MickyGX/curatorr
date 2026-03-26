@@ -620,9 +620,7 @@ export function registerSettings(app, ctx) {
     const manualSearchFallbackHours = Math.max(1, Math.min(168, Number(req.body?.manualSearchFallbackHours) || 24));
     const minimumReleasePeers = Math.max(0, Math.min(999, Number(req.body?.minimumReleasePeers) || 2));
     const preferApprovedReleases = Boolean(req.body?.preferApprovedReleases);
-    const automationScope = automationEnabled
-      ? normalizeLidarrAutomationScope(req.body?.automationScope)
-      : 'off';
+    const automationScope = automationEnabled ? 'global' : 'off';
     const normalizeQuota = (value, fallback) => {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return fallback;
@@ -762,7 +760,9 @@ export function registerSettings(app, ctx) {
         removeCount: int(`sr_skip_${i}_count`, [15, 10,  5][i]),
       })),
     };
-    saveConfig({ ...config, smartPlaylist: { ...config.smartPlaylist, crescive, curative, additionRules, subtractionRules } });
+    const enableCrescive = req.body?.enableCrescive === 'on';
+    const enableCurative = req.body?.enableCurative === 'on';
+    saveConfig({ ...config, smartPlaylist: { ...config.smartPlaylist, enableCrescive, enableCurative, crescive, curative, additionRules, subtractionRules } });
     return res.redirect('/settings?tab=smart-playlist&success=1');
   });
 
@@ -1421,6 +1421,18 @@ export function registerSettings(app, ctx) {
     newList[idx] = updated;
     saveConfig({ ...config, globalPlaylists: newList });
     res.json({ ok: true, playlist: updated });
+    // Re-sync in background when rule/name fields are changed (not just enable toggle)
+    const isFullEdit = req.body?.name !== undefined || req.body?.artistTiers !== undefined;
+    if (isFullEdit && updated.enabled) {
+      setImmediate(async () => {
+        const syncIds = updBlendUsers.length
+          ? updBlendUsers
+          : getAllUserIds(db).filter((uid) => getUserPreferences(db, uid).userWizardCompleted);
+        for (const userId of syncIds) {
+          await playlistService?.syncGlobalPlaylist(userId, updated).catch(() => {});
+        }
+      });
+    }
   });
 
   // DELETE /api/playlists/global/:id

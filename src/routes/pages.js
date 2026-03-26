@@ -1225,9 +1225,15 @@ export function registerPages(app, ctx) {
       track_title: stripArtistSuffix(track.track_title, track.artist_name),
       curatorrTier: deriveTrackTier(track),
     }));
-    const recentHistory = getRecentHistory(db, userPlexId, 10).map((event) => ({
+    const { history: recentHistory } = paginateRolledHistory(
+      (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
+        ...event,
+        track_title: stripArtistSuffix(event.track_title, event.artist_name),
+      })),
+      { limit: 10, offset: 0 },
+    );
+    const decoratedRecentHistory = recentHistory.map((event) => ({
       ...event,
-      track_title: stripArtistSuffix(event.track_title, event.artist_name),
       curatorrTier: deriveHistoryTier(event, config),
     }));
     const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: true }) || [];
@@ -1291,7 +1297,7 @@ export function registerPages(app, ctx) {
       byDay,
       topArtists,
       topTracks,
-      recentHistory,
+      recentHistory: decoratedRecentHistory,
       dashboardPlaylists,
       lidarrStatus,
       lidarrQuota,
@@ -1319,10 +1325,13 @@ export function registerPages(app, ctx) {
       (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
         ...event,
         track_title: stripArtistSuffix(event.track_title, event.artist_name),
-        curatorrTier: deriveHistoryTier(event, config),
       })),
       { limit, offset },
     );
+    const decoratedHistory = history.map((event) => ({
+      ...event,
+      curatorrTier: deriveHistoryTier(event, config),
+    }));
 
     res.render('history', {
       title: 'Play History — Curatorr',
@@ -1331,7 +1340,7 @@ export function registerPages(app, ctx) {
       actualRole: getActualRole(req),
       adminPreview,
       config: safeConfig(config),
-      history,
+      history: decoratedHistory,
       hasMore,
       offset,
       limit,

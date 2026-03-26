@@ -730,6 +730,176 @@ export function createLidarrService(ctx) {
     return fallback ? { ...fallback, selectionReason: `fallback_${fallback.selectionReason}` } : null;
   }
 
+  function buildCuratorrPickPlan(albums = [], limit = Infinity) {
+    const working = (Array.isArray(albums) ? albums : [])
+      .filter((album) => album && String(album.title || '').trim())
+      .map((album) => ({ ...album, monitored: Boolean(album?.monitored) }));
+    if (!working.length) return [];
+
+    const preview = [];
+    const seen = new Set();
+    const numericLimit = Number(limit);
+    const previewLimit = Number.isFinite(numericLimit) && numericLimit > 0
+      ? Math.max(1, Math.floor(numericLimit))
+      : Number.POSITIVE_INFINITY;
+    const pushAlbum = (album, selectionReason = '') => {
+      if (!album) return false;
+      const key = String(album?.id || album?.albumId || '').trim()
+        || `${normalizeAlbumMatchTitle(album?.title)}|${normalizeTitle(album?.albumType)}`;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      preview.push({
+        ...album,
+        selectionReason: String(selectionReason || '').trim(),
+      });
+      return true;
+    };
+    const starterPick = pickStarterAlbum(working);
+    if (starterPick?.album) {
+      pushAlbum(starterPick.album, starterPick.selectionReason);
+    }
+
+    const futureCutoffMs = Date.now() + (45 * DAY_MS);
+    const rankPreviewType = (album) => {
+      const type = normalizeTitle(album?.albumType);
+      if (isExplicitGreatestHitsTitle(album)) return 4;
+      if (type === 'album') return 3;
+      if (type === 'compilation') return 2;
+      if (type === 'ep') return 1;
+      return 0;
+    };
+    const ranked = [...working].sort((a, b) => {
+      const aReleaseMs = parseDateMs(a?.releaseDate);
+      const bReleaseMs = parseDateMs(b?.releaseDate);
+      const aFuture = aReleaseMs > futureCutoffMs ? 1 : 0;
+      const bFuture = bReleaseMs > futureCutoffMs ? 1 : 0;
+      if (aFuture !== bFuture) return aFuture - bFuture;
+
+      const typeDelta = rankPreviewType(b) - rankPreviewType(a);
+      if (typeDelta) return typeDelta;
+
+      const qualityDelta = scoreAlbumQuality(b) - scoreAlbumQuality(a);
+      if (qualityDelta) return qualityDelta;
+
+      return bReleaseMs - aReleaseMs || String(a?.title || '').localeCompare(String(b?.title || ''));
+    });
+    for (const album of ranked) {
+      if (preview.length >= previewLimit) break;
+      pushAlbum(album, 'preview_ranked');
+    }
+    return preview;
+  }
+
+  function buildCuratorrPickPreview(albums = [], limit = 4) {
+    return buildCuratorrPickPlan(albums, limit);
+  }
+
+  function pickAlbumImagePath(album) {
+    if (!Array.isArray(album?.images)) {
+      return String(album?.imagePath || '').trim() || '';
+    }
+    const images = album.images;
+    return String(
+      images.find((img) => normalizeTitle(img?.coverType) === 'cover')?.url
+      || images.find((img) => /cover/i.test(String(img?.coverType || '')))?.url
+      || images.find((img) => /poster/i.test(String(img?.coverType || '')))?.url
+      || images[0]?.url
+      || ''
+    ).trim();
+  }
+
+  function mapPreviewAlbum(album, source = '') {
+    const normalizedSource = String(album?.source || source || '').trim().toLowerCase();
+    const numericAlbumId = Number(album?.id || album?.albumId || 0) || null;
+    const foreignAlbumId = String(album?.foreignAlbumId || album?.albumId || '').trim();
+    const trackCount = Number(album?.statistics?.trackCount || album?.trackCount || 0) || 0;
+    const trackFileCount = Number(album?.statistics?.trackFileCount || album?.trackFileCount || 0) || 0;
+    const inLidarr = normalizedSource === 'lidarr' || numericAlbumId > 0;
+    const statusKey = trackFileCount > 0 ? 'available' : (inLidarr ? 'pending' : 'missing');
+    return {
+      albumId: numericAlbumId,
+      foreignAlbumId,
+      title: String(album?.title || '').trim(),
+      albumType: String(album?.albumType || ''),
+      releaseDate: String(album?.releaseDate || ''),
+      monitored: Boolean(album?.monitored),
+      inLidarr,
+      trackCount,
+      trackFileCount,
+      statusKey,
+      requestable: statusKey === 'missing',
+      imagePath: pickAlbumImagePath(album),
+      imageUrl: String(album?.imageUrl || '').trim(),
+      source: normalizedSource,
+      selectionReason: String(album?.selectionReason || '').trim(),
+    };
+  }
+
+  async function listAlbumTracks(albumId, options = {}) {
+    const id = Number(albumId || 0);
+    if (!id) return [];
+    const timeoutMs = Number(options.timeoutMs || 10000);
+    const tracks = await request(`/track?albumId=${encodeURIComponent(id)}`, {
+      method: 'GET',
+      timeoutMs,
+    });
+    return (Array.isArray(tracks) ? tracks : [])
+      .map((track, index) => ({
+        title: String(track?.title || '').trim(),
+        trackNumber: Number(track?.trackNumber || 0) || 0,
+        mediumNumber: Number(track?.mediumNumber || 0) || 0,
+        duration: Number(track?.duration || 0) || 0,
+        absoluteNumber: index + 1,
+      }))
+      .filter((track) => track.title)
+      .sort((left, right) => {
+        return (left.mediumNumber - right.mediumNumber)
+          || (left.trackNumber - right.trackNumber)
+          || left.title.localeCompare(right.title);
+      });
+  }
+
+  async function listMusicBrainzReleaseGroupTracks(releaseGroupId, options = {}) {
+    const id = String(releaseGroupId || '').trim();
+    if (!id) return [];
+    const timeoutMs = Number(options.timeoutMs || 20000);
+    const releaseGroupUrl = new URL(`https://musicbrainz.org/ws/2/release-group/${encodeURIComponent(id)}`);
+    releaseGroupUrl.searchParams.set('inc', 'releases');
+    releaseGroupUrl.searchParams.set('fmt', 'json');
+    const releaseGroup = await requestExternalJson(releaseGroupUrl.toString(), { timeoutMs });
+    const releases = Array.isArray(releaseGroup?.releases) ? releaseGroup.releases : [];
+    const release = [...releases].sort((left, right) => {
+      const leftOfficial = String(left?.status || '').trim().toLowerCase() === 'official' ? 0 : 1;
+      const rightOfficial = String(right?.status || '').trim().toLowerCase() === 'official' ? 0 : 1;
+      return leftOfficial - rightOfficial
+        || parseDateMs(String(left?.date || '')) - parseDateMs(String(right?.date || ''))
+        || String(left?.title || '').localeCompare(String(right?.title || ''));
+    })[0];
+    const releaseId = String(release?.id || '').trim();
+    if (!releaseId) return [];
+    const releaseUrl = new URL(`https://musicbrainz.org/ws/2/release/${encodeURIComponent(releaseId)}`);
+    releaseUrl.searchParams.set('inc', 'recordings');
+    releaseUrl.searchParams.set('fmt', 'json');
+    const releaseDetail = await requestExternalJson(releaseUrl.toString(), { timeoutMs });
+    const media = Array.isArray(releaseDetail?.media) ? releaseDetail.media : [];
+    const tracks = [];
+    media.forEach((medium, mediumIndex) => {
+      const mediumNumber = Number(medium?.position || mediumIndex + 1) || (mediumIndex + 1);
+      (Array.isArray(medium?.tracks) ? medium.tracks : []).forEach((track, trackIndex) => {
+        const title = String(track?.title || track?.recording?.title || '').trim();
+        if (!title) return;
+        tracks.push({
+          title,
+          trackNumber: Number(track?.position || trackIndex + 1) || (trackIndex + 1),
+          mediumNumber,
+          duration: Number(track?.length || 0) || 0,
+          absoluteNumber: tracks.length + 1,
+        });
+      });
+    });
+    return tracks;
+  }
+
   async function listMusicBrainzReleaseGroups(foreignArtistId, options = {}) {
     const mbid = String(foreignArtistId || '').trim();
     if (!mbid) return [];
@@ -784,27 +954,91 @@ export function createLidarrService(ctx) {
     }
     if (match.added && Number(match.id || 0) > 0) {
       const albums = await listArtistAlbums(match.id, { timeoutMs: 15000, pageSize: 200 });
+      const curatorrPickPlan = buildCuratorrPickPlan(albums);
+      const curatorrPickPreview = buildCuratorrPickPreview(albums, 4);
       return {
         artist: match,
-        albums: albums.map((album) => ({
-          albumId: Number(album?.id || 0) || null,
-          title: String(album?.title || '').trim(),
-          albumType: String(album?.albumType || ''),
-          releaseDate: String(album?.releaseDate || ''),
-          monitored: Boolean(album?.monitored),
-          imagePath: Array.isArray(album?.images)
-            ? (album.images.find((img) => /cover|poster/i.test(String(img?.coverType || '')))?.url || '')
-            : '',
-          source: 'lidarr',
-        })).filter((album) => album.title),
+        albums: albums.map((album) => mapPreviewAlbum(album, 'lidarr')).filter((album) => album.title),
+        curatorrPickPlan: curatorrPickPlan.map((album) => mapPreviewAlbum(album, 'lidarr')).filter((album) => album.title),
+        curatorrPickPreview: curatorrPickPreview.map((album) => mapPreviewAlbum(album, 'lidarr')).filter((album) => album.title),
         source: 'lidarr',
       };
     }
     const albums = await listMusicBrainzReleaseGroups(match.foreignArtistId || foreignArtistId, { limit: 100, timeoutMs: 20000 });
+    const curatorrPickPlan = buildCuratorrPickPlan(albums);
+    const curatorrPickPreview = buildCuratorrPickPreview(albums, 4);
     return {
       artist: match,
-      albums,
+      albums: albums.map((album) => mapPreviewAlbum(album, 'musicbrainz')).filter((album) => album.title),
+      curatorrPickPlan: curatorrPickPlan.map((album) => mapPreviewAlbum(album, 'musicbrainz')).filter((album) => album.title),
+      curatorrPickPreview: curatorrPickPreview.map((album) => mapPreviewAlbum(album, 'musicbrainz')).filter((album) => album.title),
       source: 'musicbrainz',
+    };
+  }
+
+  async function previewManualAlbumOverview(options = {}) {
+    const artistName = String(options.artistName || '').trim();
+    const albumTitle = String(options.albumTitle || '').trim();
+    const source = String(options.source || '').trim().toLowerCase();
+    const albumId = Number(options.albumId || 0) || null;
+    const foreignAlbumId = String(options.foreignAlbumId || '').trim();
+    if (!artistName || !albumTitle) throw new Error('artistName and albumTitle are required');
+
+    if (source === 'lidarr' && albumId) {
+      const album = await getAlbum(albumId, { timeoutMs: Number(options.timeoutMs || 12000) });
+      if (!album) throw new Error('Album not found in Lidarr.');
+      const preview = mapPreviewAlbum(album, 'lidarr');
+      let tracks = [];
+      try {
+        tracks = await listAlbumTracks(albumId, { timeoutMs: Number(options.timeoutMs || 12000) });
+      } catch (_err) {
+        tracks = [];
+      }
+      const image = preview.imageUrl
+        ? String(preview.imageUrl)
+        : (preview.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(preview.imagePath))}` : '');
+      return {
+        artistName,
+        albumTitle: preview.title || albumTitle,
+        albumType: preview.albumType,
+        releaseDate: preview.releaseDate,
+        statusKey: preview.statusKey,
+        source: 'lidarr',
+        trackCount: preview.trackCount || tracks.length,
+        trackFileCount: preview.trackFileCount,
+        thumb: image,
+        art: image,
+        trackList: tracks,
+        overview: preview.trackFileCount > 0
+          ? `${preview.title || albumTitle} is already available in your Lidarr library.`
+          : `${preview.title || albumTitle} is already in Lidarr but files are not available in your library yet.`,
+      };
+    }
+
+    let tracks = [];
+    if (foreignAlbumId) {
+      try {
+        tracks = await listMusicBrainzReleaseGroupTracks(foreignAlbumId, { timeoutMs: Number(options.timeoutMs || 20000) });
+      } catch (_err) {
+        tracks = [];
+      }
+    }
+    const cover = foreignAlbumId
+      ? `/api/music/cover/release-group/${encodeURIComponent(foreignAlbumId)}`
+      : '';
+    return {
+      artistName,
+      albumTitle,
+      albumType: String(options.albumType || ''),
+      releaseDate: String(options.releaseDate || ''),
+      statusKey: 'missing',
+      source: source || 'musicbrainz',
+      trackCount: tracks.length,
+      trackFileCount: 0,
+      thumb: cover,
+      art: cover,
+      trackList: tracks,
+      overview: `${albumTitle} is not in your library yet. You can add it directly from this view.`,
     };
   }
 
@@ -2237,9 +2471,11 @@ export function createLidarrService(ctx) {
     listArtists,
     pickLookupArtist,
     listArtistAlbums,
+    listAlbumTracks,
     pickStarterAlbum,
     pickPreferredAlbum,
     previewManualArtistAlbums,
+    previewManualAlbumOverview,
     setAlbumMonitored,
     triggerAlbumSearch,
     getCommand,

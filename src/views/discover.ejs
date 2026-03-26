@@ -185,7 +185,7 @@
 
         <% } %>
 
-        <div class="cur-panel">
+        <div class="cur-panel cur-panel--manual-discovery">
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Manual Discovery</h3>
             <div class="cur-panel-actions">
@@ -238,6 +238,11 @@
               <div class="cur-discover-preview" id="manualAlbumPanel" style="display:none">
                 <div class="cur-panel-header cur-panel-header--discover">
                   <h3 class="cur-panel-subtitle"><img src="/icons/vinyl-record.svg" alt="Album Choice" title="Album Choice" style="width:16px;height:16px;opacity:.7;vertical-align:middle" /></h3>
+                  <div id="manualAlbumSelectionBar" class="pl-selection-bar" style="display:none">
+                    <span id="manualAlbumSelectionCount" class="pl-selection-count"></span>
+                    <button class="btn btn-sm btn-ghost pl-selection-clear" type="button" onclick="clearManualAlbumSelection()">Clear</button>
+                    <button class="btn btn-sm btn-primary" type="button" id="manualAlbumAddSelectedBtn" onclick="addSelectedManualAlbums()">Add Selected</button>
+                  </div>
                   <div class="cur-panel-actions">
                     <div id="manualAlbumStatus" class="cur-panel-meta"></div>
                     <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="manualAlbumPrev" aria-label="Previous albums">
@@ -458,6 +463,7 @@
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script src="/starfield-3d.js"></script>
   <script>
     function queueSuggestedArtist(encodedName, btn) {
@@ -720,71 +726,219 @@
       }
     }
 
-    function renderAlbumPreview(data) {
-      var preview = document.getElementById('manualAlbumResults');
-      var viewport = document.getElementById('manualAlbumViewport');
-      var albums = Array.isArray(data.albums) ? data.albums : [];
-      if (viewport) viewport.style.display = '';
-      var items = [{
-        kind: 'fallback',
-        title: 'Let Curatorr choose for you',
-        meta: 'Prefers greatest hits first, then highest-ranked fallback albums if needed.'
-      }].concat(albums.map(function(album) {
-        return {
-          kind: 'album',
-          title: album.title || '',
-          meta: [album.albumType || '', album.releaseDate || '', album.source || ''].filter(Boolean).join(' · ') || 'Album option',
-          image: album.image || '',
-          inLidarr: album.source === 'lidarr'
-        };
-      }));
+    function normalizeManualAlbumTitle(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
 
-      renderDiscoveryCarousel('manualAlbumResults', 'manualAlbumStatus', 'manualAlbumViewport', items, function(item) {
-        if (item.kind === 'fallback') {
-          return '' +
-            '<div class="plex-card cur-discover-result-card cur-discover-album-card cur-discover-fallback-card">' +
-              '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
-                '<span class="plex-poster-well cur-discover-result-art cur-discover-album-art cur-discover-album-art--fallback">' +
-                  '<img class="cur-discover-fallback-icon" src="/icons/curatorr-icon.svg" alt="" loading="lazy" />' +
-                '</span>' +
-              '</span>' +
-              '<span class="plex-footer cur-discover-result-main cur-discover-album-main">' +
-                '<span class="plex-name cur-discover-result-name cur-discover-album-title">Let <img class="cur-discover-title-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="lazy" /> choose for you</span>' +
-                '<span class="plex-meta cur-discover-result-meta cur-discover-album-meta">' + escHtml(item.meta) + '</span>' +
-                '<button class="btn btn-sm btn-primary cur-discover-album-action" type="button" onclick="submitManualRequest(true)">Use Curatorr pick</button>' +
-              '</span>' +
-            '</div>';
-        }
-        var art = item.image
-          ? '<img src="' + escHtml(item.image) + '" alt="" loading="lazy" />'
-          : '';
-        return '' +
-          '<div class="plex-card cur-discover-result-card cur-discover-album-card' + (item.inLidarr ? ' is-in-lidarr' : '') + '">' +
-            '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
-              '<span class="plex-poster-well cur-discover-result-art cur-discover-album-art' + (item.image ? '' : ' is-empty') + '">' + art + '</span>' +
-            '</span>' +
-            '<span class="plex-footer cur-discover-result-main cur-discover-album-main">' +
-              '<span class="plex-name cur-discover-result-name cur-discover-album-title">' + escHtml(item.title) + '</span>' +
-              '<span class="plex-meta cur-discover-result-meta cur-discover-album-meta">' + escHtml(item.meta) + '</span>' +
-              '<button class="btn btn-sm btn-ghost cur-discover-album-action" type="button" data-album-title="' + escHtml(item.title) + '" onclick="submitManualAlbum(this)">Request this album</button>' +
-            '</span>' +
-          '</div>';
+    function getManualAlbumStatusMeta(statusKey) {
+      if (statusKey === 'available') {
+        return { key: 'available', label: 'In library', icon: '', selectable: false };
+      }
+      if (statusKey === 'pending') {
+        return { key: 'pending', label: 'Added to Lidarr', icon: '', selectable: false };
+      }
+      return { key: 'missing', label: 'Not in library', icon: '', selectable: true };
+    }
+
+    function getManualAlbumCards(albumTitle) {
+      var key = normalizeManualAlbumTitle(albumTitle);
+      return Array.from(document.querySelectorAll('#manualAlbumResults .cur-discover-album-card')).filter(function(card) {
+        return card.dataset.albumKey === key;
       });
+    }
 
-      if (!albums.length) {
-        setStatus('manualAlbumStatus', 'No albums were returned. You can still use Curatorr pick.');
+    function closeAllManualAlbumMenus() {
+      document.querySelectorAll('#manualAlbumResults .pl-card-menu').forEach(function(menu) {
+        menu.style.display = 'none';
+      });
+    }
+
+    function setManualAlbumExcludedState(card, excluded) {
+      if (!card) return;
+      card.dataset.albumExcluded = excluded ? '1' : '0';
+      card.classList.toggle('is-excluded', !!excluded);
+      var toggleBtn = card.querySelector('.cur-discover-album-toggle-exclude');
+      if (toggleBtn) {
+        toggleBtn.classList.toggle('is-active', !!excluded);
+        toggleBtn.title = excluded ? 'Include album' : 'Exclude album';
+        toggleBtn.setAttribute('aria-pressed', excluded ? 'true' : 'false');
+      }
+      var menuExcludeBtn = card.querySelector('.cur-discover-card-menu-exclude');
+      if (menuExcludeBtn) menuExcludeBtn.textContent = excluded ? 'Include album' : 'Exclude album';
+    }
+
+    function toggleManualAlbumCardMenu(btn) {
+      if (!btn) return;
+      var menu = btn.parentElement.querySelector('.pl-card-menu');
+      if (!menu) return;
+      var isOpen = menu.style.display !== 'none';
+      closeAllManualAlbumMenus();
+      if (!isOpen) menu.style.display = '';
+    }
+
+    function updateManualAlbumSelectionBar() {
+      var checked = Array.from(document.querySelectorAll('#manualAlbumResults .pl-card-checkbox:checked'));
+      var count = document.getElementById('manualAlbumSelectionCount');
+      var bar = document.getElementById('manualAlbumSelectionBar');
+      var addBtn = document.getElementById('manualAlbumAddSelectedBtn');
+      if (!count || !bar || !addBtn) return;
+      if (!checked.length) {
+        bar.style.display = 'none';
+        addBtn.disabled = false;
         return;
+      }
+      count.textContent = checked.length + ' selected';
+      bar.style.display = '';
+      addBtn.disabled = false;
+    }
+
+    function clearManualAlbumSelection() {
+      document.querySelectorAll('#manualAlbumResults .pl-card-checkbox:checked').forEach(function(cb) {
+        cb.checked = false;
+        var card = cb.closest('.cur-discover-album-card');
+        if (card) card.classList.remove('is-selected');
+      });
+      updateManualAlbumSelectionBar();
+    }
+
+    function onManualAlbumCheckChange(cb) {
+      var card = cb ? cb.closest('.cur-discover-album-card') : null;
+      if (!cb || !card) return;
+      if (cb.checked) card.classList.add('is-selected');
+      else card.classList.remove('is-selected');
+      updateManualAlbumSelectionBar();
+    }
+
+    function setManualAlbumCardBusy(card, busy) {
+      if (!card) return;
+      card.classList.toggle('is-busy', !!busy);
+      var controls = card.querySelectorAll('.pl-card-btn, .pl-card-checkbox, .cur-discover-card-menu-add');
+      controls.forEach(function(control) {
+        if (busy) {
+          control.dataset.wasDisabled = control.disabled ? '1' : '0';
+          control.disabled = true;
+        } else if (control.dataset.wasDisabled === '0') {
+          control.disabled = false;
+        }
+      });
+    }
+
+    function applyManualAlbumCardState(card, statusKey) {
+      if (!card) return;
+      var meta = getManualAlbumStatusMeta(statusKey);
+      var isExcluded = String(card.dataset.albumExcluded || '0') === '1';
+      card.dataset.albumStatusKey = meta.key;
+      card.dataset.albumRequestable = meta.selectable && !isExcluded ? '1' : '0';
+      card.classList.remove('is-status-missing', 'is-status-pending', 'is-status-available', 'is-in-lidarr');
+      card.classList.add('is-status-' + meta.key);
+      if (meta.key !== 'missing') card.classList.add('is-in-lidarr');
+
+      var statusBadge = card.querySelector('.cur-discover-card-status');
+      if (statusBadge) {
+        statusBadge.className = 'cur-discover-card-status cur-discover-card-status--' + meta.key;
+        statusBadge.title = meta.label;
+        statusBadge.setAttribute('aria-label', meta.label);
+        statusBadge.style.display = meta.key === 'missing' ? 'none' : '';
+        var icon = statusBadge.querySelector('.cur-discover-card-status-icon');
+        if (icon) icon.textContent = meta.icon;
+      }
+
+      var excludeBtn = card.querySelector('.cur-discover-album-toggle-exclude');
+      if (excludeBtn) {
+        excludeBtn.classList.toggle('is-hidden', !meta.selectable);
+        excludeBtn.disabled = !meta.selectable;
+      }
+
+      var menuExcludeBtn = card.querySelector('.cur-discover-card-menu-exclude');
+      if (menuExcludeBtn) menuExcludeBtn.hidden = !meta.selectable;
+
+      var statusText = card.querySelector('.cur-discover-album-status-text');
+      if (statusText) statusText.textContent = meta.label;
+
+      var addMenuBtn = card.querySelector('.cur-discover-card-menu-add');
+      if (addMenuBtn) {
+        addMenuBtn.disabled = !meta.selectable || isExcluded;
+        addMenuBtn.textContent = meta.selectable ? 'Add album' : meta.label;
+      }
+
+      var checkbox = card.querySelector('.pl-card-checkbox');
+      var checkboxWrap = card.querySelector('.pl-card-checkbox-wrap');
+      if (checkbox) {
+        if (!meta.selectable || isExcluded) {
+          checkbox.checked = false;
+          checkbox.disabled = true;
+          card.classList.remove('is-selected');
+        } else if (!card.classList.contains('is-busy')) {
+          checkbox.disabled = false;
+        }
+      }
+      if (checkboxWrap) checkboxWrap.classList.toggle('is-hidden', !meta.selectable || isExcluded);
+      updateManualAlbumSelectionBar();
+    }
+
+    async function toggleManualAlbumExcluded(button, nextExcluded) {
+      if (!button) return;
+      var card = button.closest('.cur-discover-album-card');
+      if (!card) return;
+      var parsedNextExcluded = nextExcluded;
+      if (typeof parsedNextExcluded === 'string') {
+        if (parsedNextExcluded === 'true') parsedNextExcluded = true;
+        else if (parsedNextExcluded === 'false') parsedNextExcluded = false;
+      }
+      var excluded = typeof parsedNextExcluded === 'boolean'
+        ? parsedNextExcluded
+        : String(card.dataset.albumExcluded || '0') !== '1';
+      var payload = {
+        artistName: currentArtistSelection?.artistName || '',
+        albumTitle: card.dataset.albumTitle || '',
+        albumType: card.dataset.albumType || '',
+        releaseDate: card.dataset.albumReleaseDate || '',
+        lidarrAlbumId: card.dataset.albumId || '',
+        excluded: excluded,
+      };
+      button.disabled = true;
+      try {
+        var res = await fetch('/api/music/lidarr/manual/album-exclusion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+          body: JSON.stringify(payload)
+        });
+        var data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to update exclusion.');
+        setManualAlbumExcludedState(card, excluded);
+        applyManualAlbumCardState(card, card.dataset.albumStatusKey || 'missing');
+        setStatus('manualAlbumStatus', excluded ? 'Album excluded.' : 'Album included.');
+      } catch (err) {
+        setStatus('manualAlbumStatus', err.message || 'Failed to update exclusion.');
+      } finally {
+        button.disabled = false;
       }
     }
 
-    function submitManualAlbum(button) {
-      if (!button) return;
-      submitManualRequest(false, button.getAttribute('data-album-title') || '');
+    function markRequestedAlbum(albumTitle, queued) {
+      getManualAlbumCards(albumTitle).forEach(function(card) {
+        setManualAlbumCardBusy(card, false);
+        applyManualAlbumCardState(card, queued ? 'pending' : 'pending');
+      });
     }
 
-    async function submitManualRequest(useCuratorrPick, albumTitle) {
-      if (!currentArtistSelection || !currentArtistSelection.artistName) return;
-      setStatus('manualAlbumStatus', useCuratorrPick ? 'Submitting Curatorr pick…' : 'Submitting album request…');
+    async function requestSingleManualAlbum(albumTitle, options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      var title = String(albumTitle || '').trim();
+      if (!currentArtistSelection || !currentArtistSelection.artistName || !title) return { ok: false };
+      var cards = getManualAlbumCards(title);
+      if (cards.some(function(card) { return String(card.dataset.albumExcluded || '0') === '1'; })) {
+        if (!opts.silent) setStatus('manualAlbumStatus', 'Album is excluded from adds.');
+        return { ok: false, excluded: true };
+      }
+      cards.forEach(function(card) { setManualAlbumCardBusy(card, true); });
+      if (!opts.silent) setStatus('manualAlbumStatus', 'Submitting album request…');
       try {
         var res = await fetch('/api/music/lidarr/manual/request', {
           method: 'POST',
@@ -792,34 +946,34 @@
           body: JSON.stringify({
             artistName: currentArtistSelection.artistName,
             foreignArtistId: currentArtistSelection.foreignArtistId,
-            preferredAlbumTitle: useCuratorrPick ? '' : String(albumTitle || ''),
-            useCuratorrPick: !!useCuratorrPick
+            preferredAlbumTitle: title,
+            useCuratorrPick: false
           })
         });
         var data = await res.json();
         if (!res.ok && res.status !== 202) throw new Error(data.error || 'Request failed.');
-        setStatus('manualAlbumStatus', data.queued ? (data.message || 'Queued.') : 'Added.');
         if (data.queued && data.request) {
           discoverQueueItems = [data.request].concat(discoverQueueItems.filter(function(item) {
             return Number(item.id || 0) !== Number(data.request.id || 0);
           }));
           renderQueueList();
-          markRequestedAlbum(useCuratorrPick ? '' : String(albumTitle || ''), true);
-          return;
+          markRequestedAlbum(title, true);
+          if (!opts.silent) setStatus('manualAlbumStatus', data.message || 'Queued.');
+          return { ok: true, queued: true, data: data };
         }
 
         if (data.request) {
-          var resultAlbumTitle = String(data.result?.album?.albumTitle || data.request?.detail?.selectedAlbumTitle || albumTitle || '');
+          var resultAlbumTitle = String(data.result?.album?.albumTitle || data.request?.detail?.selectedAlbumTitle || title || '');
           var historyItem = {
             id: data.request.id,
             artistName: data.request.artistName || currentArtistSelection.artistName,
-            albumTitle: resultAlbumTitle || (useCuratorrPick ? 'Let Curatorr choose for you' : String(albumTitle || '')),
+            albumTitle: resultAlbumTitle || title,
             sourceKind: data.request.sourceKind || 'manual',
             status: data.request.status || 'completed',
             detail: Object.assign({}, data.request.detail || {}, {
-              preferredAlbumTitle: useCuratorrPick ? '' : String(albumTitle || ''),
+              preferredAlbumTitle: title,
               selectedAlbumTitle: resultAlbumTitle || String(data.request?.detail?.selectedAlbumTitle || ''),
-              useCuratorrPick: !!useCuratorrPick,
+              useCuratorrPick: false,
             }),
             processedAt: data.request.processedAt || Date.now(),
             updatedAt: data.request.updatedAt || Date.now(),
@@ -829,10 +983,326 @@
             return Number(item.id || 0) !== Number(historyItem.id || 0);
           }));
           renderHistoryList();
-          markRequestedAlbum(resultAlbumTitle || (useCuratorrPick ? '' : String(albumTitle || '')), false);
+          markRequestedAlbum(title, false);
+          if (resultAlbumTitle && normalizeManualAlbumTitle(resultAlbumTitle) !== normalizeManualAlbumTitle(title)) {
+            markRequestedAlbum(resultAlbumTitle, false);
+          }
         }
+        if (!opts.silent) setStatus('manualAlbumStatus', 'Added.');
+        return { ok: true, queued: false, data: data };
       } catch (err) {
-        setStatus('manualAlbumStatus', err.message || 'Request failed.');
+        cards.forEach(function(card) { setManualAlbumCardBusy(card, false); });
+        if (!opts.silent) setStatus('manualAlbumStatus', err.message || 'Request failed.');
+        throw err;
+      }
+    }
+
+    async function addSelectedManualAlbums() {
+      var selected = Array.from(document.querySelectorAll('#manualAlbumResults .pl-card-checkbox:checked'))
+        .map(function(cb) { return cb.closest('.cur-discover-album-card'); })
+        .filter(Boolean)
+        .map(function(card) {
+          return {
+            kind: String(card.dataset.manualKind || 'album'),
+            albumTitle: String(card.dataset.albumTitle || '').trim(),
+          };
+        })
+        .filter(function(item) {
+          return item.kind === 'curatorr-pick' || item.albumTitle;
+        });
+      var selections = [];
+      var seen = new Set();
+      selected.forEach(function(item) {
+        var key = item.kind + '|' + item.albumTitle;
+        if (seen.has(key)) return;
+        seen.add(key);
+        selections.push(item);
+      });
+      if (!selections.length) return;
+      var addBtn = document.getElementById('manualAlbumAddSelectedBtn');
+      if (addBtn) addBtn.disabled = true;
+      var added = 0;
+      var failed = 0;
+      for (var i = 0; i < selections.length; i += 1) {
+        try {
+          if (selections[i].kind === 'curatorr-pick') {
+            await submitManualRequest(true, '', { silent: true });
+          } else {
+            await requestSingleManualAlbum(selections[i].albumTitle, { silent: true });
+          }
+          added += 1;
+        } catch (_err) {
+          failed += 1;
+        }
+      }
+      clearManualAlbumSelection();
+      if (addBtn) addBtn.disabled = false;
+      if (failed) setStatus('manualAlbumStatus', added ? ('Added ' + added + ', failed ' + failed + '.') : ('Failed to add ' + failed + ' selection' + (failed === 1 ? '' : 's') + '.'));
+      else setStatus('manualAlbumStatus', 'Added ' + added + ' selection' + (added === 1 ? '' : 's') + '.');
+    }
+
+    function addManualAlbumFromMenu(btn) {
+      if (!btn || btn.disabled) return;
+      var card = btn.closest('.cur-discover-album-card');
+      if (!card) return;
+      closeAllManualAlbumMenus();
+      if (String(card.dataset.manualKind || 'album') === 'curatorr-pick') {
+        submitManualRequest(true);
+        return;
+      }
+      requestSingleManualAlbum(card.dataset.albumTitle || '');
+    }
+
+    window.curatorrOverviewHandleAction = function(kind, payload, button) {
+      if (kind === 'manual-discovery-add-curatorr-pick') {
+        if (button && button.disabled) return;
+        if (button) button.disabled = true;
+        submitManualRequest(true, '', { silent: false })
+          .then(function() {
+            if (button) {
+              button.textContent = 'Already added';
+              button.classList.add('is-disabled');
+            }
+          })
+          .catch(function() {
+            if (button) button.disabled = false;
+          });
+        return;
+      }
+      if (kind !== 'manual-discovery-add-album') return;
+      if (!payload || !payload.albumTitle || (button && button.disabled)) return;
+      if (button) button.disabled = true;
+      requestSingleManualAlbum(payload.albumTitle || '', { silent: false })
+        .then(function() {
+          if (button) {
+            button.textContent = 'Already added';
+            button.classList.add('is-disabled');
+          }
+        })
+        .catch(function() {
+          if (button) button.disabled = false;
+        });
+    };
+
+    function renderAlbumPreview(data) {
+      var preview = document.getElementById('manualAlbumResults');
+      var viewport = document.getElementById('manualAlbumViewport');
+      var albums = Array.isArray(data.albums) ? data.albums : [];
+      var albumImageByTitle = new Map();
+      albums.forEach(function(album) {
+        var key = normalizeManualAlbumTitle(album && album.title);
+        var image = String(album && album.image || '').trim();
+        if (key && image && !albumImageByTitle.has(key)) albumImageByTitle.set(key, image);
+      });
+      var curatorrPickPreview = (Array.isArray(data.curatorrPickPreview) ? data.curatorrPickPreview : [])
+        .slice(0, 4)
+        .map(function(album) {
+          var key = normalizeManualAlbumTitle(album && album.title);
+          var fallbackImage = key ? albumImageByTitle.get(key) : '';
+          if (!fallbackImage && key) {
+            for (var entry of albumImageByTitle.entries()) {
+              if (entry[0] === key || entry[0].includes(key) || key.includes(entry[0])) {
+                fallbackImage = entry[1];
+                break;
+              }
+            }
+          }
+          return Object.assign({}, album, {
+            image: String(fallbackImage || '').trim() || String(album && album.image || '').trim(),
+          });
+        });
+      if (viewport) viewport.style.display = '';
+      var items = [{
+        kind: 'fallback',
+        title: 'Let Curatorr choose for you',
+        meta: 'Prefers greatest hits first, then highest-ranked fallback albums if needed.',
+        previewAlbums: curatorrPickPreview
+      }].concat(albums.map(function(album) {
+        var meta = getManualAlbumStatusMeta(String(album.statusKey || 'missing').trim().toLowerCase());
+        return {
+          kind: 'album',
+          title: album.title || '',
+          albumId: album.albumId || '',
+          foreignAlbumId: album.foreignAlbumId || '',
+          albumType: album.albumType || '',
+          releaseDate: album.releaseDate || '',
+          source: album.source || '',
+          image: album.image || '',
+          excluded: album.excluded === true,
+          statusKey: meta.key,
+          statusLabel: album.statusLabel || meta.label,
+          requestable: album.requestable === true || album.requestable === 'true',
+          meta: [album.albumType || '', album.releaseDate || '', album.source || ''].filter(Boolean).join(' · ') || 'Album option',
+        };
+      }));
+
+      function renderCuratorrPickPreview(albumsForPreview) {
+        var slots = Array.isArray(albumsForPreview) ? albumsForPreview.slice(0, 4) : [];
+        while (slots.length < 4) slots.push(null);
+        return '<span class="cur-discover-fallback-grid">' + slots.map(function(album, index) {
+          if (!album || !album.image) {
+            return ''
+              + '<span class="cur-discover-fallback-slot is-empty" data-slot="' + (index + 1) + '">'
+              + '</span>';
+          }
+          return ''
+            + '<span class="cur-discover-fallback-slot" data-slot="' + (index + 1) + '" title="' + escHtml(album.title || ('Pick ' + (index + 1))) + '">'
+            +   '<img src="' + escHtml(album.image) + '" alt="" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />'
+            + '</span>';
+        }).join('') + '</span>';
+      }
+
+      renderDiscoveryCarousel('manualAlbumResults', 'manualAlbumStatus', 'manualAlbumViewport', items, function(item) {
+        if (item.kind === 'fallback') {
+          return '' +
+            '<div class="plex-card cur-discover-result-card cur-discover-album-card cur-discover-fallback-card" data-manual-kind="curatorr-pick">' +
+              '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+                '<span class="plex-poster-well cur-discover-result-art cur-discover-album-art cur-discover-album-art--fallback">' +
+                  renderCuratorrPickPreview(item.previewAlbums) +
+                  '<label class="pl-card-checkbox-wrap" title="Select Curatorr pick" onclick="event.stopPropagation()">' +
+                    '<input type="checkbox" class="pl-card-checkbox" onchange="onManualAlbumCheckChange(this)" />' +
+                    '<span class="pl-card-checkbox-ui"></span>' +
+                  '</label>' +
+                  '<button class="pl-card-btn pl-card-btn--view" type="button" title="View album order" data-cur-overview-kind="manual-curatorr-pick" data-cur-overview-artist="' + escHtml(currentArtistSelection?.artistName || '') + '" data-cur-overview-foreign-artist-id="' + escHtml(currentArtistSelection?.foreignArtistId || '') + '">' +
+                    '<img src="/icons/view.svg" alt="View" />' +
+                  '</button>' +
+                  '<div class="pl-card-dots-wrap">' +
+                    '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleManualAlbumCardMenu(this)">⋯</button>' +
+                    '<div class="pl-card-menu" style="display:none">' +
+                      '<button type="button" class="cur-discover-card-menu-add" onclick="event.stopPropagation(); addManualAlbumFromMenu(this)">Use Curatorr pick</button>' +
+                    '</div>' +
+                  '</div>' +
+                '</span>' +
+              '</span>' +
+              '<span class="plex-footer cur-discover-result-main cur-discover-album-main">' +
+                '<span class="plex-name cur-discover-result-name cur-discover-album-title">Let <img class="cur-discover-title-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="lazy" /> choose for you</span>' +
+                '<span class="plex-meta cur-discover-result-meta cur-discover-album-meta">' + escHtml(item.meta) + '</span>' +
+              '</span>' +
+            '</div>';
+        }
+        var statusMeta = getManualAlbumStatusMeta(item.statusKey);
+        var art = item.image
+          ? '<img src="' + escHtml(item.image) + '" alt="" loading="lazy" />'
+          : '';
+        return '' +
+          '<div class="plex-card cur-discover-result-card cur-discover-album-card is-status-' + statusMeta.key + (statusMeta.key !== 'missing' ? ' is-in-lidarr' : '') + '"' +
+            ' data-album-title="' + escHtml(item.title) + '"' +
+            ' data-album-key="' + escHtml(normalizeManualAlbumTitle(item.title)) + '"' +
+            ' data-album-id="' + escHtml(item.albumId || '') + '"' +
+            ' data-album-type="' + escHtml(item.albumType || '') + '"' +
+            ' data-album-release-date="' + escHtml(item.releaseDate || '') + '"' +
+            ' data-album-status-key="' + escHtml(statusMeta.key) + '"' +
+            ' data-album-requestable="' + (item.requestable ? '1' : '0') + '"' +
+            ' data-album-excluded="' + (item.excluded ? '1' : '0') + '">' +
+            '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+              '<span class="plex-poster-well cur-discover-result-art cur-discover-album-art' + (item.image ? '' : ' is-empty') + '">' +
+                art +
+                (statusMeta.selectable
+                  ? '<label class="pl-card-checkbox-wrap" title="Select album" onclick="event.stopPropagation()">' +
+                      '<input type="checkbox" class="pl-card-checkbox" onchange="onManualAlbumCheckChange(this)" />' +
+                      '<span class="pl-card-checkbox-ui"></span>' +
+                    '</label>'
+                  : '') +
+                (statusMeta.key === 'missing' ? '' :
+                  '<span class="cur-discover-card-status cur-discover-card-status--' + statusMeta.key + '" title="' + escHtml(item.statusLabel) + '" aria-label="' + escHtml(item.statusLabel) + '">' +
+                    '<span class="cur-discover-card-status-icon"></span>' +
+                  '</span>') +
+                '<button class="pl-card-btn pl-card-btn--view" type="button" title="View album" data-cur-overview-kind="manual-album" data-cur-overview-artist="' + escHtml(currentArtistSelection?.artistName || '') + '" data-cur-overview-album="' + escHtml(item.title) + '" data-cur-overview-album-id="' + escHtml(item.albumId || '') + '" data-cur-overview-foreign-album-id="' + escHtml(item.foreignAlbumId || '') + '" data-cur-overview-source="' + escHtml(item.source || '') + '" data-cur-overview-album-type="' + escHtml(item.albumType || '') + '" data-cur-overview-release-date="' + escHtml(item.releaseDate || '') + '">' +
+                  '<img src="/icons/view.svg" alt="View" />' +
+                '</button>' +
+                '<button class="pl-card-btn pl-card-btn--exclude cur-discover-album-toggle-exclude' + (item.excluded ? ' is-active' : '') + (statusMeta.selectable ? '' : ' is-hidden') + '" type="button" title="' + escHtml(item.excluded ? 'Include album' : 'Exclude album') + '" aria-pressed="' + (item.excluded ? 'true' : 'false') + '" onclick="event.stopPropagation(); toggleManualAlbumExcluded(this)">' +
+                  '<img src="/icons/view-off.svg" alt="Exclude" />' +
+                '</button>' +
+                '<div class="pl-card-dots-wrap">' +
+                  '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleManualAlbumCardMenu(this)">⋯</button>' +
+                  '<div class="pl-card-menu" style="display:none">' +
+                    '<button type="button" class="cur-discover-card-menu-add" onclick="event.stopPropagation(); addManualAlbumFromMenu(this)"' + (item.requestable ? '' : ' disabled') + '>' + (item.requestable ? 'Add album' : escHtml(item.statusLabel)) + '</button>' +
+                    '<button type="button" class="cur-discover-card-menu-exclude"' + (statusMeta.selectable ? '' : ' hidden') + ' onclick="event.stopPropagation(); toggleManualAlbumExcluded(this, ' + (item.excluded ? 'false' : 'true') + ')">' + (item.excluded ? 'Include album' : 'Exclude album') + '</button>' +
+                  '</div>' +
+                '</div>' +
+              '</span>' +
+            '</span>' +
+            '<span class="plex-footer cur-discover-result-main cur-discover-album-main">' +
+              '<span class="plex-name cur-discover-result-name cur-discover-album-title">' + escHtml(item.title) + '</span>' +
+              '<span class="plex-meta cur-discover-result-meta cur-discover-album-meta">' + escHtml(item.meta) + '</span>' +
+            '</span>' +
+          '</div>';
+      });
+
+      clearManualAlbumSelection();
+      Array.from(document.querySelectorAll('#manualAlbumResults .cur-discover-album-card')).forEach(function(card) {
+        if (String(card.dataset.manualKind || 'album') === 'curatorr-pick') return;
+        setManualAlbumExcludedState(card, card.dataset.albumExcluded === '1');
+        applyManualAlbumCardState(card, card.dataset.albumStatusKey || 'missing');
+      });
+
+      if (!albums.length) {
+        setStatus('manualAlbumStatus', 'No albums were returned. You can still use Curatorr pick.');
+        return;
+      }
+    }
+
+    async function submitManualRequest(useCuratorrPick, albumTitle, options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      if (!currentArtistSelection || !currentArtistSelection.artistName) return;
+      if (!useCuratorrPick) {
+        return requestSingleManualAlbum(albumTitle || '', { silent: !!opts.silent });
+      }
+      var fallbackCards = Array.from(document.querySelectorAll('#manualAlbumResults .cur-discover-fallback-card'));
+      fallbackCards.forEach(function(card) { setManualAlbumCardBusy(card, true); });
+      if (!opts.silent) setStatus('manualAlbumStatus', 'Submitting Curatorr pick…');
+      try {
+        var res = await fetch('/api/music/lidarr/manual/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+          body: JSON.stringify({
+            artistName: currentArtistSelection.artistName,
+            foreignArtistId: currentArtistSelection.foreignArtistId,
+            preferredAlbumTitle: '',
+            useCuratorrPick: true
+          })
+        });
+        var data = await res.json();
+        if (!res.ok && res.status !== 202) throw new Error(data.error || 'Request failed.');
+        if (!opts.silent) setStatus('manualAlbumStatus', data.queued ? (data.message || 'Queued.') : 'Added.');
+        if (data.queued && data.request) {
+          discoverQueueItems = [data.request].concat(discoverQueueItems.filter(function(item) {
+            return Number(item.id || 0) !== Number(data.request.id || 0);
+          }));
+          renderQueueList();
+          clearManualAlbumSelection();
+          return { ok: true, queued: true, data: data };
+        }
+        if (data.request) {
+          var resultAlbumTitle = String(data.result?.album?.albumTitle || data.request?.detail?.selectedAlbumTitle || '');
+          var historyItem = {
+            id: data.request.id,
+            artistName: data.request.artistName || currentArtistSelection.artistName,
+            albumTitle: resultAlbumTitle || 'Let Curatorr choose for you',
+            sourceKind: data.request.sourceKind || 'manual',
+            status: data.request.status || 'completed',
+            detail: Object.assign({}, data.request.detail || {}, {
+              preferredAlbumTitle: '',
+              selectedAlbumTitle: resultAlbumTitle || String(data.request?.detail?.selectedAlbumTitle || ''),
+              useCuratorrPick: true,
+            }),
+            processedAt: data.request.processedAt || Date.now(),
+            updatedAt: data.request.updatedAt || Date.now(),
+            createdAt: data.request.createdAt || Date.now(),
+          };
+          discoverHistoryItems = [historyItem].concat(discoverHistoryItems.filter(function(item) {
+            return Number(item.id || 0) !== Number(historyItem.id || 0);
+          }));
+          renderHistoryList();
+          if (resultAlbumTitle) markRequestedAlbum(resultAlbumTitle, false);
+        }
+        clearManualAlbumSelection();
+        return { ok: true, queued: false, data: data };
+      } catch (err) {
+        if (!opts.silent) setStatus('manualAlbumStatus', err.message || 'Request failed.');
+        throw err;
+      } finally {
+        fallbackCards.forEach(function(card) { setManualAlbumCardBusy(card, false); });
       }
     }
 
@@ -922,6 +1392,10 @@
         }
       });
     }
+    document.addEventListener('click', function(event) {
+      if (event.target.closest('#manualAlbumResults .pl-card-dots-wrap')) return;
+      closeAllManualAlbumMenus();
+    });
     bindQueueDrag();
 
     // ── Discovery carousels ────────────────────────────────────────────────
@@ -998,6 +1472,8 @@
     function bindDiscoveryDrag(viewportId) {
       var vp = document.getElementById(viewportId);
       if (!vp) return;
+      if (vp.getAttribute('data-discovery-drag-bound') === '1') return;
+      vp.setAttribute('data-discovery-drag-bound', '1');
       var down = false, startX = 0, startScroll = 0, moved = false;
       vp.addEventListener('pointerdown', function(e) {
         if (e.pointerType === 'mouse') return;

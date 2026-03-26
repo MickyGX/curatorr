@@ -45,6 +45,44 @@ describe('history roll-up', () => {
     assert.equal(aRows.length, 2);
   });
 
+  it('merges recent repeats when rating keys differ but title and artist match', () => {
+    const rolled = rollupHistoryEntries([
+      buildEvent('first-key', 3000, 4000, {
+        track_title: 'If I Had A Gun...',
+        artist_name: 'Noel Gallagher’s High Flying Birds',
+        album_name: 'Album One',
+      }),
+      buildEvent('second-key', 1000, 3000, {
+        track_title: 'If I Had A Gun...',
+        artist_name: 'Noel Gallagher’s High Flying Birds',
+        album_name: 'Album Two',
+      }),
+    ]);
+
+    assert.equal(rolled.length, 1);
+    assert.equal(rolled[0].rollup_count, 2);
+    assert.equal(rolled[0].duration_ms, 7000);
+  });
+
+  it('merges recent repeats when title and artist only differ by punctuation variants', () => {
+    const rolled = rollupHistoryEntries([
+      buildEvent('first-key', 3000, 4000, {
+        track_title: 'If I Had A Gun...',
+        artist_name: "Noel Gallagher's High Flying Birds",
+        album_name: 'Album One',
+      }),
+      buildEvent('second-key', 1000, 3000, {
+        track_title: 'If I Had A Gun…',
+        artist_name: 'Noel Gallagher’s High Flying Birds',
+        album_name: 'Album Two',
+      }),
+    ]);
+
+    assert.equal(rolled.length, 1);
+    assert.equal(rolled[0].rollup_count, 2);
+    assert.equal(rolled[0].duration_ms, 7000);
+  });
+
   it('paginates by rolled rows rather than raw play events', () => {
     const events = [
       buildEvent('a', 5000, 1000),

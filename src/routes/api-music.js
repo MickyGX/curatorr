@@ -57,7 +57,7 @@ import { paginateRolledHistory } from '../history-rollup.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_MAX = 300;
-const DISCOVERY_ART_URL_VERSION = 'discover-art-v4';
+const DISCOVERY_ART_URL_VERSION = 'discover-art-v6';
 const discoveryArtCache = new Map();
 const THUMB_CACHE_TTL_MS = 30 * 60 * 1000;
 const THUMB_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -211,6 +211,46 @@ function buildDiscoveryArtistArtUrl(name) {
   return `/api/discovery/artist-art/${encodeURIComponent(String(name || '').trim())}?v=${DISCOVERY_ART_URL_VERSION}`;
 }
 
+function normalizeArtistMatchText(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const ARTIST_NAME_ALIASES = new Map([
+  ['kanye west', ['Ye']],
+  ['ye', ['Kanye West']],
+]);
+
+function getArtistLookupTerms(value) {
+  const queue = [String(value || '').trim()];
+  const terms = [];
+  const seen = new Set();
+  while (queue.length) {
+    const term = String(queue.shift() || '').trim();
+    const key = normalizeArtistMatchText(term);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    terms.push(term);
+    const aliases = ARTIST_NAME_ALIASES.get(key) || [];
+    for (const alias of aliases) queue.push(alias);
+  }
+  return terms;
+}
+
+function artistNamesMatch(left, right) {
+  const leftKeys = new Set(getArtistLookupTerms(left).map((item) => normalizeArtistMatchText(item)).filter(Boolean));
+  if (!leftKeys.size) return false;
+  return getArtistLookupTerms(right)
+    .map((item) => normalizeArtistMatchText(item))
+    .filter(Boolean)
+    .some((item) => leftKeys.has(item));
+}
+
 function isKnownPlaceholderImageUrl(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return true;
@@ -262,6 +302,7 @@ async function lookupLastfmArtistArtUrl(artistName, apiKey) {
     || '';
   return isKnownPlaceholderImageUrl(remoteThumb) ? '' : String(remoteThumb || '').trim();
 }
+
 
 function enrichDiscoverRequests(db, userPlexId, requests = []) {
   const libraryArtistSet = new Set(
@@ -324,6 +365,114 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       inLibrary,
     };
   });
+}
+
+function normalizeManualAlbumTitle(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getResolvedRequestAlbumTitle(request) {
+  const detail = request?.detail && typeof request.detail === 'object' ? request.detail : {};
+  return String(
+    request?.albumTitle
+    || detail.selectedAlbumTitle
+    || detail.starterAlbumTitle
+    || detail.latestAlbumTitle
+    || detail.preferredAlbumTitle
+    || ''
+  ).trim();
+}
+
+function getManualAlbumStatusMeta(statusKey) {
+  if (statusKey === 'available') {
+    return { key: 'available', label: 'In library', selectable: false };
+  }
+  if (statusKey === 'pending') {
+    return { key: 'pending', label: 'Added to Lidarr', selectable: false };
+  }
+  return { key: 'missing', label: 'Not in library', selectable: true };
+}
+
+function buildManualAlbumStateMap(db, userPlexId, artistName) {
+  const map = new Map();
+  const artistKey = String(artistName || '').trim().toLowerCase();
+  if (!artistKey) return map;
+  const libraryAlbumSet = new Set(
+    db.prepare('SELECT DISTINCT album_name FROM master_tracks WHERE LOWER(artist_name) = LOWER(?)')
+      .all(String(artistName || '').trim())
+      .map((row) => normalizeManualAlbumTitle(row?.album_name))
+      .filter(Boolean),
+  );
+  const requests = enrichDiscoverRequests(
+    db,
+    userPlexId,
+    listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed'], limit: 500 }),
+  );
+  const suggestedAlbums = listSuggestedAlbums(db, userPlexId, { limit: 1000 })
+    .filter((album) => String(album?.artistName || '').trim().toLowerCase() === artistKey);
+  suggestedAlbums.forEach((album) => {
+    const albumKey = normalizeManualAlbumTitle(album?.albumTitle);
+    if (!albumKey) return;
+    const current = map.get(albumKey) || { excluded: false, status: 'missing' };
+    map.set(albumKey, {
+      excluded: String(album?.status || '').trim().toLowerCase() === 'dismissed',
+      status: current.status,
+      suggestion: album,
+    });
+  });
+  requests.forEach((request) => {
+    if (String(request?.artistName || '').trim().toLowerCase() !== artistKey) return;
+    const albumKey = normalizeManualAlbumTitle(getResolvedRequestAlbumTitle(request));
+    if (!albumKey) return;
+    const nextStatus = libraryAlbumSet.has(albumKey) ? 'available' : 'pending';
+    const current = map.get(albumKey) || { excluded: false, status: 'missing' };
+    if (current.status === 'available') return;
+    if (nextStatus === 'available' || current.status === 'missing') {
+      map.set(albumKey, { ...current, status: nextStatus });
+    }
+  });
+  libraryAlbumSet.forEach((albumKey) => {
+    const current = map.get(albumKey) || { excluded: false, status: 'missing' };
+    map.set(albumKey, { ...current, status: 'available' });
+  });
+  return map;
+}
+
+function applyManualPreviewStatuses(albums = [], stateMap = new Map()) {
+  return (Array.isArray(albums) ? albums : []).map((album) => {
+    const previewStatus = String(album?.statusKey || '').trim().toLowerCase();
+    const state = stateMap.get(normalizeManualAlbumTitle(album?.title)) || { excluded: false, status: 'missing' };
+    const requestedStatus = state.status;
+    const status = requestedStatus === 'available'
+      ? 'available'
+      : (previewStatus === 'available'
+        ? 'available'
+        : ((requestedStatus === 'pending' || previewStatus === 'pending') ? 'pending' : 'missing'));
+    const meta = getManualAlbumStatusMeta(status);
+    return {
+      ...album,
+      excluded: state.excluded === true,
+      statusKey: meta.key,
+      statusLabel: meta.label,
+      requestable: meta.selectable && state.excluded !== true,
+    };
+  });
+}
+
+function findSuggestedAlbumRecord(db, userPlexId, artistName, albumTitle) {
+  const artistKey = String(artistName || '').trim().toLowerCase();
+  const albumKey = normalizeManualAlbumTitle(albumTitle);
+  if (!artistKey || !albumKey) return null;
+  return listSuggestedAlbums(db, userPlexId, { limit: 1000 }).find((album) => {
+    return String(album?.artistName || '').trim().toLowerCase() === artistKey
+      && normalizeManualAlbumTitle(album?.albumTitle) === albumKey;
+  }) || null;
 }
 
 // ── Smart playlist rebuild ────────────────────────────────────────────────────
@@ -504,16 +653,6 @@ export function registerApiMusic(app, ctx) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
-  function normalizeArtistMatchText(value) {
-    return String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/&/g, ' and ')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
   function normalizeAlbumMatchText(value) {
     return String(value || '')
       .trim()
@@ -521,36 +660,6 @@ export function registerApiMusic(app, ctx) {
       .replace(/[^a-z0-9]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-  }
-
-  const ARTIST_NAME_ALIASES = new Map([
-    ['kanye west', ['Ye']],
-    ['ye', ['Kanye West']],
-  ]);
-
-  function getArtistLookupTerms(value) {
-    const queue = [String(value || '').trim()];
-    const terms = [];
-    const seen = new Set();
-    while (queue.length) {
-      const term = String(queue.shift() || '').trim();
-      const key = normalizeArtistMatchText(term);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      terms.push(term);
-      const aliases = ARTIST_NAME_ALIASES.get(key) || [];
-      for (const alias of aliases) queue.push(alias);
-    }
-    return terms;
-  }
-
-  function artistNamesMatch(left, right) {
-    const leftKeys = new Set(getArtistLookupTerms(left).map((item) => normalizeArtistMatchText(item)).filter(Boolean));
-    if (!leftKeys.size) return false;
-    return getArtistLookupTerms(right)
-      .map((item) => normalizeArtistMatchText(item))
-      .filter(Boolean)
-      .some((item) => leftKeys.has(item));
   }
 
   function scoreLookupArtistResult(item, term) {
@@ -679,11 +788,14 @@ export function registerApiMusic(app, ctx) {
       (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
         ...event,
         track_title: stripArtistSuffix(event.track_title, event.artist_name),
-        curatorrTier: deriveHistoryTier(event, config),
       })),
       { limit, offset },
     );
-    return res.json({ ok: true, history, hasMore });
+    const decoratedHistory = history.map((event) => ({
+      ...event,
+      curatorrTier: deriveHistoryTier(event, config),
+    }));
+    return res.json({ ok: true, history: decoratedHistory, hasMore });
   });
 
   // ── Artists ───────────────────────────────────────────────────────────────
@@ -785,9 +897,11 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Lidarr is not configured.' });
     }
     try {
+      const userPlexId = resolveQueryUserId(req);
       const artistName = String(req.body?.artistName || '').trim();
       const foreignArtistId = String(req.body?.foreignArtistId || '').trim();
       const preview = await lidarrService.previewManualArtistAlbums({ artistName, foreignArtistId });
+      const stateMap = buildManualAlbumStateMap(db, userPlexId, String(preview?.artist?.artistName || artistName || ''));
       return res.json({
         ok: true,
         artist: {
@@ -797,13 +911,206 @@ export function registerApiMusic(app, ctx) {
           added: Boolean(preview?.artist?.added),
         },
         source: String(preview?.source || ''),
-        albums: (Array.isArray(preview?.albums) ? preview.albums : []).map((album) => ({
+        albums: applyManualPreviewStatuses((Array.isArray(preview?.albums) ? preview.albums : []).map((album) => ({
+          ...album,
+          image: album?.imageUrl
+            ? String(album.imageUrl)
+            : (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : ''),
+        })), stateMap),
+        curatorrPickPreview: (Array.isArray(preview?.curatorrPickPreview) ? preview.curatorrPickPreview : []).map((album) => ({
           ...album,
           image: album?.imageUrl
             ? String(album.imageUrl)
             : (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : ''),
         })),
       });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/lidarr/manual/album-overview', requireUser, async (req, res) => {
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+    try {
+      const userPlexId = resolveQueryUserId(req);
+      const artistName = String(req.query?.artist || '').trim();
+      const albumTitle = String(req.query?.album || '').trim();
+      const albumId = Number(req.query?.albumId || 0) || null;
+      const foreignAlbumId = String(req.query?.foreignAlbumId || '').trim();
+      const source = String(req.query?.source || '').trim().toLowerCase();
+      if (!artistName || !albumTitle) return res.status(400).json({ error: 'artist and album are required.' });
+
+      const overview = await lidarrService.previewManualAlbumOverview({
+        artistName,
+        albumTitle,
+        albumId,
+        foreignAlbumId,
+        source,
+        albumType: String(req.query?.albumType || ''),
+        releaseDate: String(req.query?.releaseDate || ''),
+      });
+      const stateMap = buildManualAlbumStateMap(db, userPlexId, artistName);
+      const existingState = stateMap.get(normalizeManualAlbumTitle(albumTitle)) || { excluded: false, status: 'missing' };
+      const requestedStatus = existingState.status;
+      const resolvedStatus = requestedStatus === 'available'
+        ? 'available'
+        : (String(overview?.statusKey || '') === 'available'
+          ? 'available'
+          : ((requestedStatus === 'pending' || String(overview?.statusKey || '') === 'pending') ? 'pending' : 'missing'));
+      const statusMeta = getManualAlbumStatusMeta(resolvedStatus);
+      const tracks = (Array.isArray(overview?.trackList) ? overview.trackList : [])
+        .map((track, index) => ({
+          title: String(track?.title || '').trim(),
+          mediumNumber: Number(track?.mediumNumber || 0) || 0,
+          trackNumber: Number(track?.trackNumber || 0) || 0,
+          absoluteNumber: Number(track?.absoluteNumber || index + 1) || (index + 1),
+        }))
+        .filter((track) => track.title)
+        .sort((left, right) => {
+          return (left.mediumNumber - right.mediumNumber)
+            || (left.trackNumber - right.trackNumber)
+            || (left.absoluteNumber - right.absoluteNumber)
+            || left.title.localeCompare(right.title);
+        });
+      return res.json({
+        ok: true,
+        item: {
+          kind: 'album',
+          title: String(overview?.albumTitle || albumTitle || '').trim(),
+          subtitle: artistName,
+          overview: String(overview?.overview || `${albumTitle} by ${artistName}`),
+          thumb: String(overview?.thumb || '').trim(),
+          art: String(overview?.art || '').trim(),
+          posterRatio: 'square',
+          pills: [
+            'Album',
+            statusMeta.label,
+            String(overview?.albumType || '').trim() || '',
+            String(overview?.source || source || '').trim() || '',
+          ].filter(Boolean),
+          stats: [
+            { label: 'Tracks', value: Number(overview?.trackCount || tracks.length || 0) },
+            { label: 'Available', value: Number(overview?.trackFileCount || 0) > 0 ? 'Yes' : 'No' },
+            overview?.releaseDate ? { label: 'Released', value: String(overview.releaseDate) } : null,
+          ].filter(Boolean),
+          trackList: tracks.map((track, index) => ({
+            mediumNumber: Number(track?.mediumNumber || 0) || 0,
+            index: Number(track?.trackNumber || track?.absoluteNumber || index + 1) || (index + 1),
+            title: String(track?.title || '').trim(),
+          })).filter((track) => track.title),
+          actions: [{
+            kind: 'manual-discovery-add-album',
+            label: existingState.excluded
+              ? 'Excluded from adds'
+              : (statusMeta.key === 'available' ? 'Already in library' : (statusMeta.key === 'pending' ? 'Already added' : 'Add album')),
+            disabled: !statusMeta.selectable || existingState.excluded,
+            payload: {
+              artistName,
+              albumTitle: String(overview?.albumTitle || albumTitle || '').trim(),
+            },
+          }],
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/lidarr/manual/curatorr-pick-overview', requireUser, async (req, res) => {
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+    try {
+      const userPlexId = resolveQueryUserId(req);
+      const artistName = String(req.query?.artist || '').trim();
+      const foreignArtistId = String(req.query?.foreignArtistId || '').trim();
+      if (!artistName) return res.status(400).json({ error: 'artist is required.' });
+
+      const preview = await lidarrService.previewManualArtistAlbums({ artistName, foreignArtistId });
+      const resolvedArtistName = String(preview?.artist?.artistName || artistName || '').trim();
+      const stateMap = buildManualAlbumStateMap(db, userPlexId, resolvedArtistName);
+      const plan = applyManualPreviewStatuses((Array.isArray(preview?.curatorrPickPlan) ? preview.curatorrPickPlan : []).map((album) => ({
+        ...album,
+        image: album?.imageUrl
+          ? String(album.imageUrl)
+          : (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : ''),
+      })), stateMap);
+      const firstImage = String(plan.find((album) => String(album?.image || '').trim())?.image || '').trim();
+      return res.json({
+        ok: true,
+        item: {
+          kind: 'album',
+          title: 'Let Curatorr choose for you',
+          subtitle: resolvedArtistName,
+          overview: 'Curatorr will try these albums in priority order. Greatest hits are preferred first, then the highest-ranked fallback albums.',
+          thumb: firstImage,
+          art: firstImage,
+          posterRatio: 'square',
+          pills: [
+            'Curatorr pick',
+            String(preview?.source || '').trim() || '',
+          ].filter(Boolean),
+          stats: [
+            { label: 'Albums', value: plan.length },
+          ],
+          trackSectionTitle: 'Albums',
+          trackList: plan.map((album, index) => ({
+            index: index + 1,
+            title: String(album?.title || '').trim(),
+            thumb: String(album?.image || '').trim(),
+            meta: [
+              album?.statusLabel ? String(album.statusLabel).trim() : '',
+              String(album?.albumType || '').trim() || '',
+              String(album?.releaseDate || '').trim() || '',
+            ].filter(Boolean).join(' · '),
+          })).filter((album) => album.title),
+          actions: [{
+            kind: 'manual-discovery-add-curatorr-pick',
+            label: 'Use Curatorr pick',
+            disabled: !resolvedArtistName || !plan.length,
+            payload: {
+              artistName: resolvedArtistName,
+              foreignArtistId: String(preview?.artist?.foreignArtistId || foreignArtistId || '').trim(),
+            },
+          }],
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/lidarr/manual/album-exclusion', requireUser, (req, res) => {
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    try {
+      const userPlexId = resolveQueryUserId(req);
+      const artistName = String(req.body?.artistName || '').trim();
+      const albumTitle = String(req.body?.albumTitle || '').trim();
+      const excluded = req.body?.excluded === true || req.body?.excluded === 'true';
+      if (!artistName || !albumTitle) return res.status(400).json({ error: 'artistName and albumTitle are required.' });
+      const existing = findSuggestedAlbumRecord(db, userPlexId, artistName, albumTitle);
+      upsertSuggestedAlbum(db, userPlexId, {
+        artistName,
+        albumTitle,
+        albumType: String(req.body?.albumType || existing?.albumType || ''),
+        releaseDate: String(req.body?.releaseDate || existing?.releaseDate || ''),
+        selectionReason: String(req.body?.selectionReason || existing?.selectionReason || ''),
+        rankScore: Number(req.body?.rankScore ?? existing?.rankScore ?? 0),
+        lidarrAlbumId: req.body?.lidarrAlbumId ?? existing?.lidarrAlbumId ?? null,
+        status: excluded ? 'dismissed' : (existing?.status === 'added_to_lidarr' || existing?.status === 'already_monitored' ? existing.status : 'candidate'),
+        updatedAt: Date.now(),
+      });
+      return res.json({ ok: true, excluded });
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
     }
@@ -2532,7 +2839,8 @@ export function registerApiMusic(app, ctx) {
     const disc = config.discovery || {};
     const artistName = decodeURIComponent(req.params.name || '').trim();
     if (!artistName) return res.status(404).end();
-    const cacheKey = artistName.toLowerCase();
+    const cacheVersion = String(req.query?.v || DISCOVERY_ART_URL_VERSION).trim() || DISCOVERY_ART_URL_VERSION;
+    const cacheKey = `${cacheVersion}:${artistName.toLowerCase()}`;
     const cached = getDiscoveryArtCache(cacheKey);
     if (cached) {
       if (cached.kind === 'image') {
@@ -2579,7 +2887,7 @@ export function registerApiMusic(app, ctx) {
     setDiscoveryArtCache(cacheKey, {
       kind: 'redirect',
       location: fallbackLocation,
-      expiresAt: Date.now() + DISCOVERY_ART_CACHE_TTL_MS,
+      expiresAt: Date.now() + THUMB_NEGATIVE_CACHE_TTL_MS,
     });
     return res.redirect(302, fallbackLocation);
   });

@@ -349,15 +349,35 @@ export function registerWebhooks(app, ctx) {
     };
   }
 
-  function buildPlayEventMatchKey(event) {
+  function normalizeHistoryText(value) {
+    return String(value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035`´]/g, "'")
+      .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+      .replace(/\u2026/g, '...')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function buildPlayEventStrictKey(event) {
     const userPlexId = String(event?.user_plex_id || '').trim();
     const plexRatingKey = String(event?.plex_rating_key || '').trim();
     if (plexRatingKey) return `${userPlexId}::${plexRatingKey}`;
+    return '';
+  }
+
+  function buildPlayEventLooseKey(event) {
+    const userPlexId = String(event?.user_plex_id || '').trim();
+    const trackTitle = normalizeHistoryText(event?.track_title);
+    const artistName = normalizeHistoryText(event?.artist_name);
+    if (trackTitle && artistName) return `${userPlexId}::${trackTitle}::${artistName}`;
     return [
       userPlexId,
-      String(event?.track_title || '').trim().toLowerCase(),
-      String(event?.artist_name || '').trim().toLowerCase(),
-      String(event?.album_name || '').trim().toLowerCase(),
+      trackTitle,
+      artistName,
+      normalizeHistoryText(event?.album_name),
     ].join('::');
   }
 
@@ -370,8 +390,15 @@ export function registerWebhooks(app, ctx) {
       ORDER BY started_at DESC, id DESC
       LIMIT ?
     `).all(session.user_plex_id, RECENT_PLAY_CONSOLIDATION_WINDOW);
-    const targetKey = buildPlayEventMatchKey(session);
-    return recentEvents.find((event) => buildPlayEventMatchKey(event) === targetKey) || null;
+    const targetStrictKey = buildPlayEventStrictKey(session);
+    const targetLooseKey = buildPlayEventLooseKey(session);
+    const strictMatch = targetStrictKey
+      ? recentEvents.find((event) => buildPlayEventStrictKey(event) === targetStrictKey)
+      : null;
+    if (strictMatch) return strictMatch;
+    return targetLooseKey
+      ? recentEvents.find((event) => buildPlayEventLooseKey(event) === targetLooseKey)
+      : null;
   }
 
   function rebuildAffectedPlayStats({ userPlexId, plexRatingKey, artistName, smartSettings }) {
@@ -394,8 +421,8 @@ export function registerWebhooks(app, ctx) {
     playbackPositionMs = 0,
     smartSettings,
     eventSource = 'plex_webhook',
-
     allowRecentPlayReuse = true,
+    mergeIncremental = false,
   }) {
     if (!session) return { duplicate: true, listenedMs: 0, isSkip: false };
     const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 20) * 1000;
@@ -418,14 +445,19 @@ export function registerWebhooks(app, ctx) {
 
     const recentCutoff = Date.now() - 10 * 60 * 1000;
 
-    const existing = allowRecentPlayReuse ? db.prepare(`SELECT id, duration_ms FROM play_events WHERE session_key = ? AND plex_rating_key = ? AND ended_at > ? AND started_at >= ? ORDER BY ended_at DESC, id DESC LIMIT 1`).get(session.session_key, session.plex_rating_key, recentCutoff, Number(session.started_at || endedAt) - 60 * 1000) : null;
+    const existing = allowRecentPlayReuse ? db.prepare(`SELECT id, duration_ms, started_at, ended_at FROM play_events WHERE session_key = ? AND plex_rating_key = ? AND ended_at > ? AND started_at >= ? ORDER BY ended_at DESC, id DESC LIMIT 1`).get(session.session_key, session.plex_rating_key, recentCutoff, Number(session.started_at || endedAt) - 60 * 1000) : null;
 
     let finalizedListenedMs = listenedMs;
     let finalizedTrackDurationMs = resolvedTrackDuration;
     let effectiveIsSkip = isSkip;
     let usedRebuildPath = false;
+    let rebuildRatingKey = session.plex_rating_key;
 
-    if (existing) {
+    const isExistingRowContinuation = existing
+      ? Number(session.started_at || 0) <= Number(existing.ended_at || 0)
+      : false;
+
+    if (existing && isExistingRowContinuation) {
       if (listenedMs <= Number(existing.duration_ms || 0)) {
         closeSession(db, session.session_key);
         return { duplicate: true, listenedMs, isSkip };
@@ -437,11 +469,14 @@ export function registerWebhooks(app, ctx) {
 
       const mergeCandidate = allowRecentPlayReuse ? findRecentPlayMergeCandidate(session) : null;
       if (mergeCandidate) {
+        const mergeIncrementMs = mergeIncremental
+          ? Math.max(0, Number(settled.accumulatedMs || 0))
+          : listenedMs;
         finalizedTrackDurationMs = Math.max(
           Number(mergeCandidate.track_duration_ms || 0),
           resolvedTrackDuration,
         );
-        finalizedListenedMs = Math.max(0, Number(mergeCandidate.duration_ms || 0)) + listenedMs;
+        finalizedListenedMs = Math.max(0, Number(mergeCandidate.duration_ms || 0)) + mergeIncrementMs;
         if (finalizedTrackDurationMs > 0) {
           finalizedListenedMs = Math.min(finalizedListenedMs, finalizedTrackDurationMs);
         }
@@ -467,6 +502,7 @@ export function registerWebhooks(app, ctx) {
           mergeCandidate.id,
         );
         usedRebuildPath = true;
+        rebuildRatingKey = mergeCandidate.plex_rating_key || session.plex_rating_key;
       } else {
         recordPlayEvent(db, {
           userPlexId: session.user_plex_id,
@@ -489,7 +525,7 @@ export function registerWebhooks(app, ctx) {
       if (usedRebuildPath) {
         const { trackSnapshot } = rebuildAffectedPlayStats({
           userPlexId: session.user_plex_id,
-          plexRatingKey: session.plex_rating_key,
+          plexRatingKey: rebuildRatingKey,
           artistName: session.artist_name || '',
           smartSettings,
         });
@@ -773,8 +809,8 @@ export function registerWebhooks(app, ctx) {
           playbackPositionMs: viewOffsetMs,
           smartSettings,
           eventSource: 'tautulli',
-
-          allowRecentPlayReuse: !session,
+          allowRecentPlayReuse: true,
+          mergeIncremental: Boolean(session),
         });
         if (result.duplicate) return res.json({ ok: true, ignored: 'duplicate' });
       }
@@ -1067,8 +1103,8 @@ export function registerWebhooks(app, ctx) {
           playbackPositionMs: observedPositionMs,
           smartSettings,
           eventSource: 'plex_webhook',
-
-          allowRecentPlayReuse: !session,
+          allowRecentPlayReuse: true,
+          mergeIncremental: Boolean(session),
         });
         if (result.duplicate) return res.json({ ok: true, ignored: 'duplicate' });
       }

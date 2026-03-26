@@ -1279,7 +1279,7 @@ describe('security guards', () => {
     assert.match(String(eventRow.session_key || ''), new RegExp(playerUuid));
   });
 
-  it('keeps separate Plex plays of the same track as separate rows', async () => {
+  it('consolidates recent Plex plays of the same track into one row', async () => {
     const client = createClient();
     const user = `plex-repeat-${Date.now()}`;
     const ratingKey = `plex-repeat-track-${Date.now()}`;
@@ -1347,11 +1347,9 @@ describe('security guards', () => {
       }
     })();
 
-    assert.equal(rows.length, 2);
-    assert.equal(Number(rows[0].is_skip || 0), 1);
-    assert.equal(Number(rows[0].duration_ms || 0), 3000);
-    assert.equal(Number(rows[1].is_skip || 0), 0);
-    assert.equal(Number(rows[1].duration_ms || 0), 235000);
+    assert.equal(rows.length, 1);
+    assert.equal(Number(rows[0].is_skip || 0), 0);
+    assert.equal(Number(rows[0].duration_ms || 0), 238000);
   });
 
   it('waits until the next Plex play before finalizing a scrobbled track and hydrates missing duration', async () => {
@@ -1552,6 +1550,210 @@ describe('security guards', () => {
     assert.equal(Number(eventRow.duration_ms || 0), 220000);
     assert.equal(Number(eventRow.track_duration_ms || 0), 240000);
     assert.equal(Number(eventRow.is_skip || 0), 0);
+  });
+
+  it('consolidates a resumed Plex play using only the additional listened time', async () => {
+    const client = createClient();
+    const user = `plex-resume-merge-${Date.now()}`;
+    const ratingKey = `plex-resume-merge-track-${Date.now()}`;
+    const playerUuid = `resume-merge-player-${Date.now()}`;
+
+    const firstPass = [
+      {
+        event: 'media.play',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Resume Merge Song',
+          grandparentTitle: 'Resume Merge Artist',
+          parentTitle: 'Resume Merge Album',
+          duration: 240000,
+          viewOffset: 0,
+        },
+      },
+      {
+        event: 'media.stop',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Resume Merge Song',
+          grandparentTitle: 'Resume Merge Artist',
+          parentTitle: 'Resume Merge Album',
+          duration: 240000,
+          viewOffset: 120000,
+        },
+      },
+    ];
+
+    const resumedPass = [
+      {
+        event: 'media.play',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Resume Merge Song',
+          grandparentTitle: 'Resume Merge Artist',
+          parentTitle: 'Resume Merge Album',
+          duration: 240000,
+          viewOffset: 120000,
+        },
+      },
+      {
+        event: 'media.pause',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Resume Merge Song',
+          grandparentTitle: 'Resume Merge Artist',
+          parentTitle: 'Resume Merge Album',
+          duration: 240000,
+          viewOffset: 180000,
+        },
+      },
+      {
+        event: 'media.resume',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Resume Merge Song',
+          grandparentTitle: 'Resume Merge Artist',
+          parentTitle: 'Resume Merge Album',
+          duration: 240000,
+          viewOffset: 180000,
+        },
+      },
+      {
+        event: 'media.stop',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Resume Merge Song',
+          grandparentTitle: 'Resume Merge Artist',
+          parentTitle: 'Resume Merge Album',
+          duration: 240000,
+          viewOffset: 220000,
+        },
+      },
+    ];
+
+    for (const payload of [...firstPass, ...resumedPass]) {
+      const res = await client.request(`/webhook/plex?key=${encodeURIComponent(webhookKey)}`, {
+        method: 'POST',
+        body: buildPlexWebhookForm(payload),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+    }
+
+    const rows = (() => {
+      const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+      const db = initDb(dbPath);
+      try {
+        return db.prepare(
+          'SELECT duration_ms, is_skip FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ? ORDER BY id ASC',
+        ).all(user, ratingKey);
+      } finally {
+        db.close();
+      }
+    })();
+
+    assert.equal(rows.length, 1);
+    assert.equal(Number(rows[0].is_skip || 0), 0);
+    assert.equal(Number(rows[0].duration_ms || 0), 220000);
+  });
+
+  it('consolidates recent Plex plays when rating keys differ but track and artist match', async () => {
+    const client = createClient();
+    const user = `plex-loose-merge-${Date.now()}`;
+    const firstRatingKey = `plex-loose-merge-a-${Date.now()}`;
+    const secondRatingKey = `plex-loose-merge-b-${Date.now()}`;
+    const playerUuid = `loose-merge-player-${Date.now()}`;
+
+    const firstPlay = {
+      event: 'media.play',
+      Account: { title: user },
+      Player: { uuid: playerUuid },
+      Metadata: {
+        type: 'track',
+        ratingKey: firstRatingKey,
+        title: 'If I Had A Gun...',
+        grandparentTitle: 'Noel Gallagher’s High Flying Birds',
+        parentTitle: 'Album One',
+        duration: 240000,
+        viewOffset: 0,
+      },
+    };
+
+    const firstStop = {
+      ...firstPlay,
+      event: 'media.stop',
+      Metadata: {
+        ...firstPlay.Metadata,
+        viewOffset: 0,
+      },
+    };
+
+    const secondPlay = {
+      event: 'media.play',
+      Account: { title: user },
+      Player: { uuid: playerUuid },
+      Metadata: {
+        type: 'track',
+        ratingKey: secondRatingKey,
+        title: 'If I Had A Gun...',
+        grandparentTitle: 'Noel Gallagher’s High Flying Birds',
+        parentTitle: 'Album Two',
+        duration: 240000,
+        viewOffset: 0,
+      },
+    };
+
+    const secondStop = {
+      ...secondPlay,
+      event: 'media.stop',
+      Metadata: {
+        ...secondPlay.Metadata,
+        viewOffset: 233000,
+      },
+    };
+
+    for (const payload of [firstPlay, firstStop, secondPlay, secondStop]) {
+      const res = await client.request(`/webhook/plex?key=${encodeURIComponent(webhookKey)}`, {
+        method: 'POST',
+        body: buildPlexWebhookForm(payload),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+    }
+
+    const rows = (() => {
+      const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+      const db = initDb(dbPath);
+      try {
+        return db.prepare(
+          'SELECT plex_rating_key, duration_ms, is_skip FROM play_events WHERE user_plex_id = ? ORDER BY id ASC',
+        ).all(user);
+      } finally {
+        db.close();
+      }
+    })();
+
+    assert.equal(rows.length, 1);
+    assert.equal(Number(rows[0].is_skip || 0), 0);
+    assert.ok(Number(rows[0].duration_ms || 0) >= 233000);
+    assert.ok(Number(rows[0].duration_ms || 0) <= 233250);
   });
 
   it('lists queued Lidarr requests across all users when no user filter is supplied', async () => {
@@ -2254,6 +2456,63 @@ describe('security guards', () => {
     assert.ok(!settingsRes.text.includes('plex-secret-token'));
     assert.ok(!settingsRes.text.includes('tautulli-secret-key'));
     assert.ok(!settingsRes.text.includes(webhookKey));
+  });
+
+  it('prunes stale Curatorr Plex webhook URLs when configuring the Plex webhook', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      general: {
+        ...(originalConfig.general || {}),
+        remoteUrl: 'https://curatorr.example',
+      },
+      plex: {
+        ...(originalConfig.plex || {}),
+        url: 'http://plex.local',
+        token: 'plex-secret-token',
+      },
+    });
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const originalFetch = global.fetch;
+    const staleUrl = 'https://old-curatorr.example/webhook/plex?key=stale-secret';
+    const unrelatedUrl = 'https://example.com/unrelated-webhook';
+    const expectedUrl = `https://curatorr.example/webhook/plex?key=${encodeURIComponent(webhookKey)}`;
+    const savedBodies = [];
+
+    global.fetch = async (url, options = {}) => {
+      if (String(url) === 'https://plex.tv/api/v2/user/webhooks' && (!options.method || options.method === 'GET')) {
+        return new Response(JSON.stringify([staleUrl, unrelatedUrl]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (String(url) === 'https://plex.tv/api/v2/user/webhooks' && options.method === 'POST') {
+        savedBodies.push(JSON.parse(String(options.body || '{}')));
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (String(url).startsWith('http://plex.local') && String(url).includes(':/prefs')) {
+        return new Response('', { status: 200 });
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const webhookRes = await client.postJson('/api/wizard/configure-plex-webhook', {}, '/settings');
+      assert.equal(webhookRes.status, 200);
+      assert.equal(webhookRes.json?.ok, true);
+      assert.equal(Number(webhookRes.json?.pruned || 0), 1);
+      assert.equal(savedBodies.length, 1);
+      assert.deepEqual(savedBodies[0]?.urls || [], [unrelatedUrl, expectedUrl]);
+    } finally {
+      global.fetch = originalFetch;
+      await writeConfig(originalConfig);
+    }
   });
 
   it('redirects the server wizard token fetch action into Plex auth', async () => {

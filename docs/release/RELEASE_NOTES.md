@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.34 (2026-03-26)
+
+- Added playlist-style select, view, and add controls to manual discovery album cards and Curatorr picks, with richer album overview modals including track lists and ordered fallback albums.
+- Added direct edit actions for global playlists from Settings and the Playlists page, and added independent enable toggles for Crescive and Curative generated playlists.
+- Fixed recent play consolidation so repeated listens merge more reliably across pause/resume and metadata variation, and the dashboard recent-plays panel now reflects the rolled history view.
+- Fixed Plex webhook re-registration so stale Curatorr `/webhook/plex` URLs are pruned automatically instead of accumulating in Plex.
+
 ## v0.1.32 (2026-03-23)
 
 - Restored the Blend page header status area so the current version badge and the light/dark theme toggle appear again.

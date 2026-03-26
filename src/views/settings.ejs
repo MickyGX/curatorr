@@ -465,13 +465,6 @@
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
                     <span class="settings-toggle-text">Enable Lidarr automation</span>
                   </label>
-                  <label class="field">
-                    <span>Automation scope</span>
-                    <select name="automationScope">
-                      <option value="off" <%= (lidarrAutomation?.automationScope || 'off') === 'off' ? 'selected' : '' %>>Off</option>
-                      <option value="global" <%= lidarrAutomation?.automationScope === 'global' ? 'selected' : '' %>>Role based</option>
-                    </select>
-                  </label>
                   <label class="settings-toggle" style="margin-top:4px">
                     <input type="checkbox" name="autoTriggerManualSearch" value="1" <%= lidarrAutomation?.autoTriggerManualSearch ? 'checked' : '' %> />
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
@@ -767,7 +760,14 @@
 
               <%# Crescive %>
               <div class="settings-card settings-playlist-types-card">
-                <div class="settings-card-title">Crescive Playlist — Starting Position</div>
+                <div class="settings-card-title" style="display:flex;align-items:center;gap:12px">
+                  Crescive Playlist — Starting Position
+                  <label class="settings-toggle" style="margin-left:auto;font-weight:normal">
+                    <input type="checkbox" name="enableCrescive" value="on" <%= (config.smartPlaylist?.enableCrescive !== false) ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Enabled</span>
+                  </label>
+                </div>
                 <div class="settings-card-sub">Starts refined and grows over time. Percentages control how much of each artist tier is included on first build.</div>
                 <div class="settings-type-grid">
                   <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cr_favArtistTrackPct" value="<%= _pct(_cr.favouriteArtistTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
@@ -780,7 +780,14 @@
 
               <%# Curative %>
               <div class="settings-card">
-                <div class="settings-card-title">Curative Playlist — Starting Position</div>
+                <div class="settings-card-title" style="display:flex;align-items:center;gap:12px">
+                  Curative Playlist — Starting Position
+                  <label class="settings-toggle" style="margin-left:auto;font-weight:normal">
+                    <input type="checkbox" name="enableCurative" value="on" <%= (config.smartPlaylist?.enableCurative !== false) ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Enabled</span>
+                  </label>
+                </div>
                 <div class="settings-card-sub">Starts large and is pruned over time. Replaces your existing Curatorr playlist.</div>
                 <div class="settings-type-grid">
                   <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cu_favArtistTrackPct" value="<%= _pct(_cu.favouriteArtistTrackPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
@@ -1061,6 +1068,7 @@
 
               <div class="gp-builder-actions">
                 <button class="primary-button" id="gp-create-btn" type="button">Create Playlist</button>
+                <button class="btn btn-sm btn-ghost" id="gp-cancel-edit-btn" type="button" style="display:none">Cancel</button>
                 <span class="gp-create-msg" id="gp-create-msg"></span>
               </div>
             </div>
@@ -1076,6 +1084,7 @@
                       <input type="checkbox" class="gp-toggle" data-gp-id="<%= gp.id %>" <%= gp.enabled ? 'checked' : '' %> />
                       <span class="gp-toggle-label"><%= gp.enabled ? 'Enabled' : 'Disabled' %></span>
                     </label>
+                    <button class="btn btn-sm btn-ghost gp-edit-btn" data-gp-id="<%= gp.id %>">Edit</button>
                     <button class="btn btn-sm btn-ghost-danger gp-delete-btn" data-gp-id="<%= gp.id %>">Delete</button>
                   </div>
                 </div>
@@ -1103,6 +1112,73 @@
             (function() {
               var _csrf = '<%= csrfToken %>';
               var previewTimer = null;
+              var _editingGpId = null;
+              var GP_DATA = <%- JSON.stringify(globalPlaylists || []) %>;
+
+              function gpLoadIntoBuilder(gp) {
+                var rules = gp.rules || {};
+                document.getElementById('gp-name').value = gp.name || '';
+                var artistTiers = rules.artistTiers || [];
+                if (artistTiers.length) {
+                  document.querySelector('.gp-artist-tier-all').checked = false;
+                  document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = artistTiers.indexOf(c.value) !== -1; });
+                } else {
+                  document.querySelector('.gp-artist-tier-all').checked = true;
+                  document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = false; });
+                }
+                var trackTiers = rules.trackTiers || [];
+                if (trackTiers.length) {
+                  document.querySelector('.gp-track-tier-all').checked = false;
+                  document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = trackTiers.indexOf(c.value) !== -1; });
+                } else {
+                  document.querySelector('.gp-track-tier-all').checked = true;
+                  document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = false; });
+                }
+                var genres = rules.genres || [];
+                document.querySelectorAll('.gp-genre-cb').forEach(function(c) { c.checked = genres.indexOf(c.value) !== -1; });
+                var moods = rules.moods || [];
+                document.querySelectorAll('.gp-mood-cb').forEach(function(c) { c.checked = moods.indexOf(c.value) !== -1; });
+                var tags = rules.tags || [];
+                document.querySelectorAll('.gp-tag-cb').forEach(function(c) { c.checked = tags.indexOf(c.value) !== -1; });
+                document.getElementById('gp-top-n').value = rules.topNPerArtist || '';
+                document.getElementById('gp-max-tracks').value = rules.maxTracks || '';
+                document.getElementById('gp-sort-by').value = rules.sortBy || 'ratingCount';
+                if (window.gpSetBlendUsers) window.gpSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
+                updateBlendModeVisibility();
+                schedulePreview();
+              }
+
+              function gpCancelEdit() {
+                _editingGpId = null;
+                document.getElementById('gp-create-btn').textContent = 'Create Playlist';
+                document.getElementById('gp-cancel-edit-btn').style.display = 'none';
+                document.getElementById('gp-name').value = '';
+                document.querySelector('.gp-artist-tier-all').checked = true;
+                document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = false; });
+                document.querySelector('.gp-track-tier-all').checked = true;
+                document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = false; });
+                document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb').forEach(function(c) { c.checked = false; });
+                document.getElementById('gp-top-n').value = '';
+                document.getElementById('gp-max-tracks').value = '';
+                document.getElementById('gp-sort-by').value = 'ratingCount';
+                if (window.gpSetBlendUsers) window.gpSetBlendUsers([], 'average');
+                updateBlendModeVisibility();
+                schedulePreview();
+              }
+
+              function gpCardRulesHtml(r) {
+                var at = r.artistTiers || [], tt = r.trackTiers || [];
+                var gr = r.genres || [], mo = r.moods || [], tg = r.tags || [];
+                var bu = r.blendUsers || [], bm = r.blendMode || 'average';
+                return '<span class="gp-rule-chip">Artists: ' + (at.length ? at.join(', ') : 'all') + '</span>'
+                  + '<span class="gp-rule-chip">Tracks: ' + (tt.length ? tt.join(', ') : 'all') + '</span>'
+                  + (gr.length ? '<span class="gp-rule-chip">Genres: ' + gr.join(', ') + '</span>' : '')
+                  + (mo.length ? '<span class="gp-rule-chip">Moods: ' + mo.join(', ') + '</span>' : '')
+                  + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
+                  + (r.topNPerArtist ? '<span class="gp-rule-chip">Top ' + r.topNPerArtist + '/artist</span>' : '')
+                  + (r.maxTracks ? '<span class="gp-rule-chip">Max ' + r.maxTracks + ' tracks</span>' : '')
+                  + (bu.length ? '<span class="gp-rule-chip gp-rule-chip--blend">Blend (' + bm + '): ' + bu.join(', ') + '</span>' : '');
+              }
 
               function getBuilderRules() {
                 var artistTiers = [];
@@ -1287,79 +1363,102 @@
                 });
               });
 
-              document.querySelectorAll('.gp-delete-btn').forEach(function(btn) {
-                btn.addEventListener('click', function() {
-                  var id = btn.dataset.gpId;
-                  if (!confirm('Delete this global playlist? It will no longer be synced to Plex.')) return;
-                  fetch('/api/playlists/global/' + id, {
-                    method: 'DELETE',
-                    headers: { 'X-CSRF-Token': _csrf },
-                  }).then(function(r) { return r.json(); }).then(function(d) {
-                    if (d.ok) btn.closest('.gp-card').remove();
-                  });
-                });
+              document.querySelectorAll('.gp-card').forEach(function(card) {
+                attachCardListeners(card, card.dataset.gpId);
               });
 
-              document.querySelectorAll('.gp-toggle').forEach(function(tog) {
-                tog.addEventListener('change', function() {
-                  var id = tog.dataset.gpId;
-                  var label = tog.closest('.gp-toggle-wrap').querySelector('.gp-toggle-label');
-                  fetch('/api/playlists/global/' + id, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                    body: JSON.stringify({ enabled: tog.checked }),
-                  }).then(function(r) { return r.json(); }).then(function(d) {
-                    if (d.ok && label) label.textContent = tog.checked ? 'Enabled' : 'Disabled';
-                  });
+              document.getElementById('gp-cancel-edit-btn').addEventListener('click', gpCancelEdit);
+
+              function attachCardListeners(card, id) {
+                card.querySelector('.gp-edit-btn').addEventListener('click', function() {
+                  var gp = GP_DATA.find(function(p) { return p.id === id; });
+                  if (!gp) return;
+                  _editingGpId = id;
+                  gpLoadIntoBuilder(gp);
+                  document.getElementById('gp-create-btn').textContent = 'Update Playlist';
+                  document.getElementById('gp-cancel-edit-btn').style.display = '';
+                  document.getElementById('gp-create-msg').textContent = '';
+                  document.getElementById('gp-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  document.getElementById('gp-name').focus();
                 });
-              });
+                card.querySelector('.gp-delete-btn').addEventListener('click', function() {
+                  if (!confirm('Delete this global playlist? It will no longer be synced to Plex.')) return;
+                  fetch('/api/playlists/global/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': _csrf } })
+                    .then(function(r) { return r.json(); }).then(function(d) { if (d.ok) card.remove(); });
+                });
+                card.querySelector('.gp-toggle').addEventListener('change', function() {
+                  var t = card.querySelector('.gp-toggle'); var lbl = card.querySelector('.gp-toggle-label');
+                  fetch('/api/playlists/global/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf }, body: JSON.stringify({ enabled: t.checked }) })
+                    .then(function(r) { return r.json(); }).then(function(r2) { if (r2.ok && lbl) lbl.textContent = t.checked ? 'Enabled' : 'Disabled'; });
+                });
+              }
 
               document.getElementById('gp-create-btn').addEventListener('click', function() {
                 var name = document.getElementById('gp-name').value.trim();
                 var msg = document.getElementById('gp-create-msg');
                 if (!name) { msg.textContent = 'Please enter a name.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                 var rules = getBuilderRules();
+                if (_editingGpId) {
+                  var editId = _editingGpId;
+                  fetch('/api/playlists/global/' + editId, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode }),
+                  }).then(function(r) { return r.json(); }).then(function(d) {
+                    if (!d.ok) { msg.textContent = d.error || 'Error updating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
+                    var card = document.querySelector('.gp-card[data-gp-id="' + editId + '"]');
+                    if (card) {
+                      card.querySelector('.gp-card-name').textContent = d.playlist.name;
+                      card.querySelector('.gp-card-rules').innerHTML = gpCardRulesHtml(d.playlist.rules || {});
+                    }
+                    var gpIdx = GP_DATA.findIndex(function(p) { return p.id === editId; });
+                    if (gpIdx !== -1) GP_DATA[gpIdx] = d.playlist;
+                    msg.textContent = 'Updated!';
+                    msg.className = 'gp-create-msg gp-msg--success';
+                    gpCancelEdit();
+                  });
+                  return;
+                }
                 fetch('/api/playlists/global', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                  body: JSON.stringify({ name: name, ...rules }),
+                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode }),
                 }).then(function(r) { return r.json(); }).then(function(d) {
                   if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                   msg.textContent = 'Created! It will sync on the next job run.';
                   msg.className = 'gp-create-msg gp-msg--success';
                   var empty = document.getElementById('gp-empty');
                   if (empty) empty.remove();
-                  var at = (d.playlist.rules?.artistTiers || []); var tt = (d.playlist.rules?.trackTiers || []);
-                  var gr = (d.playlist.rules?.genres || []); var mo = (d.playlist.rules?.moods || []); var tg = (d.playlist.rules?.tags || []);
-                  var bu = (d.playlist.rules?.blendUsers || []); var bm = d.playlist.rules?.blendMode || 'average';
                   var card = document.createElement('div');
                   card.className = 'settings-card gp-card'; card.dataset.gpId = d.playlist.id;
                   card.innerHTML = '<div class="gp-card-header"><span class="settings-card-title gp-card-name">' + d.playlist.name + '</span>'
                     + '<div class="gp-card-actions"><label class="gp-toggle-wrap"><input type="checkbox" class="gp-toggle" data-gp-id="' + d.playlist.id + '" checked /><span class="gp-toggle-label">Enabled</span></label>'
+                    + '<button class="btn btn-sm btn-ghost gp-edit-btn" data-gp-id="' + d.playlist.id + '">Edit</button>'
                     + '<button class="btn btn-sm btn-ghost-danger gp-delete-btn" data-gp-id="' + d.playlist.id + '">Delete</button></div></div>'
-                    + '<div class="gp-card-rules"><span class="gp-rule-chip">Artists: ' + (at.length ? at.join(', ') : 'all') + '</span>'
-                    + '<span class="gp-rule-chip">Tracks: ' + (tt.length ? tt.join(', ') : 'all') + '</span>'
-                    + (gr.length ? '<span class="gp-rule-chip">Genres: ' + gr.join(', ') + '</span>' : '')
-                    + (mo.length ? '<span class="gp-rule-chip">Moods: ' + mo.join(', ') + '</span>' : '')
-                    + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
-                    + (d.playlist.rules?.topNPerArtist ? '<span class="gp-rule-chip">Top ' + d.playlist.rules.topNPerArtist + '/artist</span>' : '')
-                    + (d.playlist.rules?.maxTracks ? '<span class="gp-rule-chip">Max ' + d.playlist.rules.maxTracks + ' tracks</span>' : '')
-                    + (bu.length ? '<span class="gp-rule-chip gp-rule-chip--blend">Blend (' + bm + '): ' + bu.join(', ') + '</span>' : '')
-                    + '</div>';
+                    + '<div class="gp-card-rules">' + gpCardRulesHtml(d.playlist.rules || {}) + '</div>';
                   document.getElementById('gp-list').appendChild(card);
-                  card.querySelector('.gp-delete-btn').addEventListener('click', function() {
-                    if (!confirm('Delete this global playlist?')) return;
-                    fetch('/api/playlists/global/' + d.playlist.id, { method: 'DELETE', headers: { 'X-CSRF-Token': _csrf } })
-                      .then(function(r) { return r.json(); }).then(function(r2) { if (r2.ok) card.remove(); });
-                  });
-                  card.querySelector('.gp-toggle').addEventListener('change', function() {
-                    var t = card.querySelector('.gp-toggle'); var lbl = card.querySelector('.gp-toggle-label');
-                    fetch('/api/playlists/global/' + d.playlist.id, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf }, body: JSON.stringify({ enabled: t.checked }) })
-                      .then(function(r) { return r.json(); }).then(function(r2) { if (r2.ok && lbl) lbl.textContent = t.checked ? 'Enabled' : 'Disabled'; });
-                  });
+                  GP_DATA.push(d.playlist);
+                  attachCardListeners(card, d.playlist.id);
                   document.getElementById('gp-name').value = '';
                 });
               });
+
+              // Auto-trigger edit if ?edit=<id> is in the URL
+              (function() {
+                var params = new URLSearchParams(window.location.search);
+                var editId = params.get('edit');
+                if (!editId) return;
+                var gp = GP_DATA.find(function(p) { return p.id === editId; });
+                if (!gp) return;
+                _editingGpId = editId;
+                gpLoadIntoBuilder(gp);
+                document.getElementById('gp-create-btn').textContent = 'Update Playlist';
+                document.getElementById('gp-cancel-edit-btn').style.display = '';
+                setTimeout(function() {
+                  document.getElementById('gp-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  document.getElementById('gp-name').focus();
+                }, 300);
+              })();
 
               runPreview();
             })();

@@ -100,12 +100,18 @@
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
+                          <% } else if (p.playlistType === 'global') { %>
+                          <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card'))">
+                            <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
+                          </button>
                           <% } %>
                           <div class="pl-card-dots-wrap">
                             <button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleCardMenu(this)">⋯</button>
                             <div class="pl-card-menu" style="display:none">
                               <% if (p.playlistType === 'personal') { %>
                               <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
+                              <% } else if (p.playlistType === 'global') { %>
+                              <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                               <% } %>
                               <button type="button" onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rebuild</button>
                               <% if (['personal', 'global', 'custom'].includes(p.playlistType)) { %>
@@ -660,18 +666,23 @@
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
       var isPersonal = data.playlistType === 'personal';
+      var isGlobal = data.playlistType === 'global';
       var isDeletable = ['personal', 'global', 'custom'].indexOf(data.playlistType || '') !== -1;
+      var editBtnHtml = isPersonal
+        ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
+        : (isGlobal ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-global" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '');
       card.innerHTML =
         '<div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">' +
           '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artPath ? '' : ' is-empty') + '">' +
             (data.artPath ? '<img src="' + ((_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(data.artPath) + (data.artTag ? '&tag=' + encodeURIComponent(data.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(data.artPath)) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
             (isDeletable ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
             '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
-            (isPersonal ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '') +
+            editBtnHtml +
             '<div class="pl-card-dots-wrap">' +
               '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options">⋯</button>' +
               '<div class="pl-card-menu" style="display:none">' +
                 (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
+                (isGlobal ? '<button type="button" class="pl-card-menu-edit-global">Edit</button>' : '') +
                 '<button type="button" class="pl-card-menu-rebuild">Rebuild</button>' +
                 (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
               '</div>' +
@@ -687,14 +698,18 @@
       card.addEventListener('keydown', function(event) {
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPlaylist(card); }
       });
-      var editBtn = card.querySelector('.pl-card-btn--edit');
+      var editBtn = card.querySelector('.pl-card-btn--edit:not(.pl-card-btn--edit-global)');
       if (editBtn) editBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditPlaylistModal(card); });
+      var editGlobalBtn = card.querySelector('.pl-card-btn--edit-global');
+      if (editGlobalBtn) editGlobalBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditGlobalPlaylist(card); });
       var viewBtn2 = card.querySelector('.pl-card-btn--view');
       if (viewBtn2) viewBtn2.addEventListener('click', function(e) { e.stopPropagation(); selectPlaylist(card); });
       var dotsBtn = card.querySelector('.pl-card-btn--dots');
       if (dotsBtn) dotsBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleCardMenu(dotsBtn); });
       var editMenuBtn = card.querySelector('.pl-card-menu-edit');
       if (editMenuBtn) editMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditPlaylistModal(card); });
+      var editGlobalMenuBtn = card.querySelector('.pl-card-menu-edit-global');
+      if (editGlobalMenuBtn) editGlobalMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditGlobalPlaylist(card); });
       var rebuildMenuBtn = card.querySelector('.pl-card-menu-rebuild');
       if (rebuildMenuBtn) rebuildMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); rebuildCardPlaylist(card); });
       var deleteMenuBtn = card.querySelector('.pl-card-menu-delete');
@@ -920,7 +935,13 @@
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          if (data.ok) { status.textContent = 'Rebuilt.'; window.location.reload(); }
+          if (data.ok) {
+            status.textContent = 'Rebuilt.';
+            var reloadUrl = new URL(window.location.href);
+            reloadUrl.searchParams.delete('blend');
+            reloadUrl.searchParams.delete('name');
+            window.location.href = reloadUrl.toString();
+          }
           else { status.textContent = 'Error: ' + (data.error || 'Unknown'); }
         })
         .catch(function() { status.textContent = 'Network error.'; });
@@ -1116,6 +1137,14 @@
           spmRunPreview();
         })
         .catch(function() { alert('Network error loading playlist.'); });
+    }
+
+    function openEditGlobalPlaylist(card) {
+      if (!card) return;
+      var plKey = card.dataset.plKey || '';
+      var gpId = plKey.replace(/^global:/, '');
+      if (!gpId) return;
+      window.location.href = '/settings?tab=smart-playlist&edit=' + encodeURIComponent(gpId);
     }
 
     function spmResetFilters() {

@@ -68,7 +68,7 @@ const USER_AVATAR_BASE = '/icons/custom/avatars';
 const MAX_USER_AVATAR_BYTES = 2 * 1024 * 1024;
 const USER_AVATAR_ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const HTTP_ACCESS_LOGS = parseEnvFlag(process.env.HTTP_ACCESS_LOGS, true);
-const HTTP_ACCESS_LOGS_SKIP_STATIC = parseEnvFlag(process.env.HTTP_ACCESS_LOGS_SKIP_STATIC, false);
+const HTTP_ACCESS_LOGS_SKIP_STATIC = parseEnvFlag(process.env.HTTP_ACCESS_LOGS_SKIP_STATIC, true);
 const WEBHOOK_SECRET_ENV = String(process.env.WEBHOOK_SECRET || '').trim();
 const LOG_BUFFER = [];
 const LOG_PATH = process.env.LOG_PATH || path.join(DATA_DIR, 'logs.json');
@@ -1801,13 +1801,21 @@ export async function start() {
           const prefs = getUserPreferences(db, userId);
           if (!prefs.userWizardCompleted) continue;
           await rebuildSmartPlaylist(_routeCtx, userId);
-          await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
-          await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
+          const _sp = loadConfig().smartPlaylist || {};
+          if (_sp.enableCrescive !== false) await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
+          if (_sp.enableCurative !== false) await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
           await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
           await _routeCtx.playlistService.syncListenbrainzPlaylists(userId).catch(() => {});
-          const globalPlaylists = (loadConfig().globalPlaylists || []).filter((p) => p.enabled);
-          for (const gp of globalPlaylists) {
+          const regularGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && !p.rules?.blendUsers?.length);
+          for (const gp of regularGlobal) {
             await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+          }
+        }
+        // Blend playlists: sync only for the users they were built from, not the whole server
+        const blendGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && p.rules?.blendUsers?.length);
+        for (const gp of blendGlobal) {
+          for (const blendUserId of gp.rules.blendUsers) {
+            await _routeCtx.playlistService.syncGlobalPlaylist(blendUserId, gp).catch(() => {});
           }
         }
       },

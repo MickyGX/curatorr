@@ -500,6 +500,24 @@ function normalizePlexWebhookUrls(payload) {
   }).filter(Boolean))];
 }
 
+function normalizeWebhookPathname(url) {
+  try {
+    const pathname = String(new URL(String(url || '')).pathname || '').trim();
+    if (!pathname) return '';
+    return pathname.replace(/\/+$/, '') || '/';
+  } catch (_err) {
+    return '';
+  }
+}
+
+function isManagedCuratorrPlexWebhookUrl(candidateUrl, targetUrl) {
+  const candidatePath = normalizeWebhookPathname(candidateUrl);
+  const targetPath = normalizeWebhookPathname(targetUrl);
+  if (!candidatePath || !targetPath) return false;
+  return candidatePath === targetPath
+    || (candidatePath.endsWith('/webhook/plex') && targetPath.endsWith('/webhook/plex'));
+}
+
 async function enablePlexServerWebhooks(plexUrl, plexToken, ctx) {
   const { buildAppApiUrl, buildPlexAuthHeaders } = ctx;
   const prefsUrl = buildAppApiUrl(plexUrl, ':/prefs');
@@ -531,9 +549,11 @@ async function configurePlexWebhook(plexUrl, plexToken, ctx, req) {
   if (!listResponse.ok) throw new Error(`Plex account API returned HTTP ${listResponse.status}`);
   const existingUrls = normalizePlexWebhookUrls(await listResponse.json());
   const hasWebhook = existingUrls.includes(resolved.url);
+  const staleUrls = existingUrls.filter((url) => url !== resolved.url && isManagedCuratorrPlexWebhookUrl(url, resolved.url));
+  const nextUrls = existingUrls.filter((url) => !staleUrls.includes(url));
+  if (!nextUrls.includes(resolved.url)) nextUrls.push(resolved.url);
 
-  if (!hasWebhook) {
-    const nextUrls = [...existingUrls, resolved.url];
+  if (staleUrls.length || !hasWebhook) {
     const saveResponse = await fetch(accountUrl, {
       method: 'POST',
       headers,
@@ -548,10 +568,14 @@ async function configurePlexWebhook(plexUrl, plexToken, ctx, req) {
   pushLog({
     level: 'info',
     app: 'wizard',
-    action: hasWebhook ? 'plex.webhook.exists' : 'plex.webhook.created',
-    message: `Plex webhook ${hasWebhook ? 'already configured' : 'registered'} → ${resolved.url}`,
+    action: staleUrls.length
+      ? 'plex.webhook.pruned'
+      : (hasWebhook ? 'plex.webhook.exists' : 'plex.webhook.created'),
+    message: staleUrls.length
+      ? `Plex webhook updated → ${resolved.url} (removed ${staleUrls.length} stale Curatorr webhook URL${staleUrls.length === 1 ? '' : 's'})`
+      : `Plex webhook ${hasWebhook ? 'already configured' : 'registered'} → ${resolved.url}`,
   });
-  return { ok: true, created: !hasWebhook, webhookUrl: resolved.url };
+  return { ok: true, created: !hasWebhook, pruned: staleUrls.length, webhookUrl: resolved.url };
 }
 
 export function registerWizard(app, ctx) {

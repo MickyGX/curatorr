@@ -1,19 +1,34 @@
 export const HISTORY_ROLLUP_WINDOW = 10;
 
+function normalizeHistoryText(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035`´]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/\u2026/g, '...')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 function buildFallbackHistoryKey(event) {
+  const trackTitle = normalizeHistoryText(event?.track_title);
+  const artistName = normalizeHistoryText(event?.artist_name);
+  if (trackTitle && artistName) return `${trackTitle}::${artistName}`;
   return [
-    String(event?.track_title || '').trim().toLowerCase(),
-    String(event?.artist_name || '').trim().toLowerCase(),
-    String(event?.album_name || '').trim().toLowerCase(),
+    trackTitle,
+    artistName,
+    normalizeHistoryText(event?.album_name),
   ].join('::');
 }
 
 function buildHistoryEntryKey(event) {
   const userPlexId = String(event?.user_plex_id || '').trim();
-  const plexRatingKey = String(event?.plex_rating_key || '').trim();
-  if (plexRatingKey) return `${userPlexId}::${plexRatingKey}`;
   const fallback = buildFallbackHistoryKey(event);
-  return fallback ? `${userPlexId}::${fallback}` : '';
+  if (fallback) return `${userPlexId}::${fallback}`;
+  const plexRatingKey = String(event?.plex_rating_key || '').trim();
+  return plexRatingKey ? `${userPlexId}::${plexRatingKey}` : '';
 }
 
 function toHistoryRollupEntry(event) {
