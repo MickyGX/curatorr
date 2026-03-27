@@ -16,13 +16,14 @@ services:
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
       - SESSION_SECRET=replace-this-with-a-random-secret
+      - WEBHOOK_SECRET=replace-this-with-a-random-secret
     volumes:
       - ./config:/app/config
       - ./data:/app/data
     restart: unless-stopped
 ```
 
-Generate `SESSION_SECRET` with:
+Generate `SESSION_SECRET` and `WEBHOOK_SECRET` with:
 
 ```bash
 openssl rand -hex 32

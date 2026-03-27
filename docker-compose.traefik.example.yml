@@ -12,6 +12,8 @@ services:
       # - EMBED_ALLOWED_ORIGINS=https://launcharr.example.com
       # Generate once: openssl rand -hex 32
       - SESSION_SECRET=replace-this-with-a-random-secret
+      # Optional override. If omitted, Curatorr generates and stores a webhook key in config.
+      - WEBHOOK_SECRET=replace-this-with-a-random-secret
       # Optional if only served over HTTPS:
       # - COOKIE_SECURE=true
     labels:

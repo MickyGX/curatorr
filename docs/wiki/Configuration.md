@@ -7,6 +7,7 @@ Curatorr is configured through container environment variables and the Settings 
 | Variable | Required | Description |
 |---|---|---|
 | `SESSION_SECRET` | Yes | Session encryption secret. Generate with `openssl rand -hex 32`. |
+| `WEBHOOK_SECRET` | No | Shared secret used to protect Curatorr webhook endpoints. If omitted, Curatorr generates and stores one in config. |
 | `BASE_URL` | Yes | Public or local URL Curatorr is served from. Used in redirects and webhook registration. |
 | `CONFIG_PATH` | No | Config file path inside the container. Default: `/app/config/config.json` |
 | `DATA_DIR` | No | Runtime data directory. Default: `/app/data` |
