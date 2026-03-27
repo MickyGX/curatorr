@@ -2,6 +2,8 @@
 
 This folder contains the in-repo source for the Curatorr GitHub wiki.
 
+These source pages use normal repo-relative `.md` links so they work when browsed directly on GitHub. The publish script rewrites those links to GitHub wiki-style page links during sync.
+
 You can:
 
 - Keep these pages in-repo as product documentation.
@@ -18,8 +20,12 @@ Recommended publish order:
 6. `Artist-Suggestions-and-Lidarr-Activity.md`
 7. `Discover.md`
 8. `Smart-Playlists.md`
-9. `Troubleshooting.md`
-10. `FAQ.md`
+9. `History.md`
+10. `Tracks.md`
+11. `Blend.md`
+12. `User-Profile.md`
+13. `Troubleshooting.md`
+14. `FAQ.md`
 
 ## Publish To GitHub Wiki
 

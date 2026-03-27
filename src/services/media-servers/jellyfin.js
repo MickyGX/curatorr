@@ -134,7 +134,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
       u.searchParams.set('ParentId', key);
       u.searchParams.set('IncludeItemTypes', 'Audio');
       u.searchParams.set('Recursive', 'true');
-      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds');
+      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds,Path');
       u.searchParams.set('StartIndex', String(startIndex));
       u.searchParams.set('Limit', String(PAGE_SIZE));
 
@@ -156,6 +156,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
           genres:      (item.Genres || []).map(String),
           moods:       [], // no native mood field in Jellyfin; Tags could map here later
           libraryKey:  String(key),
+          filePath:    String(item.Path || ''),
           ratingCount: 0,
           viewCount:   Number(item.UserData?.PlayCount ?? 0),
         });

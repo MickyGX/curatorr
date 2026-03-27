@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   recording_mbid TEXT NOT NULL DEFAULT '',
   genres        TEXT NOT NULL DEFAULT '[]',
   library_key   TEXT NOT NULL DEFAULT '',
+  file_path     TEXT NOT NULL DEFAULT '',
   rating_count  INTEGER NOT NULL DEFAULT 0,
   view_count    INTEGER NOT NULL DEFAULT 0,
   updated_at    INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
@@ -416,6 +417,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
   if (!masterCols.includes('recording_mbid'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
+  if (!masterCols.includes('file_path'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''")
 
   const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
   if (!openSessionCols.includes('player_scope'))
@@ -1447,13 +1450,14 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, library_key, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, library_key, file_path, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
       album_name = excluded.album_name, recording_mbid = excluded.recording_mbid,
       genres = excluded.genres, moods = excluded.moods,
-      library_key = excluded.library_key, rating_count = excluded.rating_count,
+      library_key = excluded.library_key, file_path = excluded.file_path,
+      rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
   `);
   const run = db.transaction((rows) => {
@@ -1467,6 +1471,7 @@ export function refreshMasterTracks(db, tracks) {
         JSON.stringify(r.genres || []),
         JSON.stringify(r.moods || []),
         r.libraryKey,
+        String(r.filePath || ''),
         r.ratingCount ?? 0,
         r.viewCount ?? 0,
         Date.now(),
@@ -1479,13 +1484,52 @@ export function getMasterTracks(db) {
   return db.prepare('SELECT * FROM master_tracks').all().map((r) => ({
     ratingKey: r.rating_key, artistName: r.artist_name, trackTitle: r.track_title,
     albumName: r.album_name, genres: JSON.parse(r.genres || '[]'), moods: JSON.parse(r.moods || '[]'),
-    libraryKey: r.library_key, recordingMbid: String(r.recording_mbid || '').trim(),
+    libraryKey: r.library_key, filePath: String(r.file_path || ''), recordingMbid: String(r.recording_mbid || '').trim(),
     ratingCount: r.rating_count, viewCount: r.view_count,
   }));
 }
 
+export function getDistinctPathSegments(db) {
+  const rows = db.prepare(`SELECT DISTINCT file_path FROM master_tracks WHERE file_path != ''`).all();
+  if (!rows.length) return [];
+
+  // Normalise all paths and split into directory parts (strip filename)
+  const allDirParts = rows.map(({ file_path }) =>
+    file_path.replace(/\\/g, '/').split('/').filter(Boolean).slice(0, -1),
+  );
+
+  // Find the common root prefix depth shared by all paths
+  let commonDepth = allDirParts[0].length;
+  for (const parts of allDirParts) {
+    let d = 0;
+    while (d < commonDepth && d < parts.length && parts[d] === allDirParts[0][d]) d++;
+    commonDepth = d;
+  }
+
+  // Collect all distinct sub-paths below the common root
+  const subpaths = new Set();
+  for (const parts of allDirParts) {
+    const meaningful = parts.slice(commonDepth);
+    for (let len = 1; len <= meaningful.length; len++) {
+      subpaths.add(meaningful.slice(0, len).join('/'));
+    }
+  }
+
+  return [...subpaths].sort((a, b) => a.localeCompare(b));
+}
+
+export function getDistinctLibraryKeys(db) {
+  return db.prepare(`SELECT DISTINCT library_key FROM master_tracks WHERE library_key != '' ORDER BY library_key`).all().map((r) => ({ key: r.library_key }));
+}
+
 export function getMasterTrackCount(db) {
   return db.prepare('SELECT COUNT(*) as n FROM master_tracks').get().n;
+}
+
+export function getArtistMasterTrackCount(db, artistName) {
+  const name = String(artistName || '').trim();
+  if (!name) return 0;
+  return db.prepare('SELECT COUNT(*) AS n FROM master_tracks WHERE LOWER(artist_name) = LOWER(?)').get(name)?.n ?? 0;
 }
 
 export function getMasterArtistCount(db) {
@@ -2428,8 +2472,8 @@ export function reorderQueuedLidarrRequests(db, userPlexId, requestIds = []) {
 // Returns { forUser: {artistCount, trackCount} | null, average: {artistCount, trackCount} }
 // rules: { artistTiers: string[], trackTiers: string[], topNPerArtist: number|null, maxTracks: number|null }
 // smartSettings: { artistSkipRank, artistBelterRank }
-export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings) {
-  const masterTracks = getMasterTracks(db);
+export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, filteredMasterTracks) {
+  const masterTracks = filteredMasterTracks ?? getMasterTracks(db);
   const artistTagMap = getArtistTagMap(db);
   const skipRank = Number(smartSettings?.artistSkipRank ?? 2);
   const belterRank = Number(smartSettings?.artistBelterRank ?? 8);

@@ -94,7 +94,10 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 
 ## Next steps
 
-- [Configuration](Configuration)
-- [Integrations](Integrations)
-- [Authentication and Roles](Authentication-and-Roles)
-- [Smart Playlists](Smart-Playlists)
+- [Configuration](Configuration.md)
+- [Integrations](Integrations.md)
+- [Authentication and Roles](Authentication-and-Roles.md)
+- [Smart Playlists](Smart-Playlists.md)
+- [History](History.md)
+- [Tracks](Tracks.md)
+- [User Profile](User-Profile.md)

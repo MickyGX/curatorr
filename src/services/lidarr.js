@@ -1,4 +1,5 @@
 import {
+  getArtistMasterTrackCount,
   getArtistRankSnapshot,
   getCurrentLidarrUsage,
   getLidarrArtistProgress,
@@ -1462,7 +1463,9 @@ export function createLidarrService(ctx) {
     const commandId = Number(trackedAlbum?.commandId || acquisition.lastCommandId || 0);
     let liveCommand = null;
 
-    if (liveTrackFileCount > 0) {
+    const mediaServerTrackCount = getArtistMasterTrackCount(db, artistName);
+    if (liveTrackFileCount > 0 || mediaServerTrackCount > 0) {
+      const resolvedStatus = liveTrackFileCount > 0 ? 'downloaded' : 'downloaded_media_server';
       const nextProgress = {
         artistName,
         lidarrArtistId: lidarrArtistId || null,
@@ -1482,7 +1485,7 @@ export function createLidarrService(ctx) {
             ...baseReason,
             acquisition: {
               ...acquisition,
-              lastRecoveryStatus: 'downloaded',
+              lastRecoveryStatus: resolvedStatus,
               searchAttempts,
               monitorRepairCount,
               lastCheckedAt: now,
@@ -1491,7 +1494,7 @@ export function createLidarrService(ctx) {
           lidarrArtistId: existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || null,
         });
       }
-      return { ok: true, status: 'downloaded', album, progress: nextProgress };
+      return { ok: true, status: resolvedStatus, album, progress: nextProgress };
     }
 
     if (commandId > 0) {
@@ -1503,13 +1506,27 @@ export function createLidarrService(ctx) {
     }
     const liveCommandStatus = String(liveCommand?.status || '').trim().toLowerCase();
     if (liveCommandStatus === 'queued' || liveCommandStatus === 'started') {
-      return {
-        ok: true,
-        status: liveCommandStatus === 'started' ? 'search_running' : 'search_queued',
-        album,
-        command: liveCommand,
-        progress: existingProgress,
-      };
+      // If the search was initiated long ago and the command is still in-flight, treat it as stale
+      // so the next review cycle can retry rather than spinning forever.
+      const COMMAND_STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
+      const lastSearchAt = Number(existingProgress?.lastManualSearchAt || 0);
+      const isCommandStale = lastSearchAt > 0 && (now - lastSearchAt) > COMMAND_STALE_MS;
+      if (!isCommandStale) {
+        // Command is genuinely in-progress — update nextReviewAt so we don't re-check every 30 min
+        const inProgressProgress = {
+          ...existingProgress,
+          nextReviewAt: now + (60 * 60 * 1000), // re-check in 1 hour
+        };
+        saveLidarrArtistProgress(db, userPlexId, inProgressProgress);
+        return {
+          ok: true,
+          status: liveCommandStatus === 'started' ? 'search_running' : 'search_queued',
+          album,
+          command: liveCommand,
+          progress: inProgressProgress,
+        };
+      }
+      // Stale command — fall through to retry/fallback logic below
     }
 
     let repairedMonitoring = false;

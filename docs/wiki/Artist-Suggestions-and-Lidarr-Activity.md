@@ -6,7 +6,7 @@ The Artists page contains two panels that work together to surface under-explore
 
 ## Suggested Artists
 
-This panel shows artists **already in your Plex library** that you have not given much attention to, ranked by how well they match your current taste profile.
+This panel shows artists **already in your media-server library** that you have not given much attention to, ranked by how well they match your current taste profile.
 
 Only artists that are **not yet in Lidarr** appear here. If an artist is already in your Lidarr library, they move to the Lidarr Activity panel instead.
 

@@ -2245,6 +2245,119 @@ describe('security guards', () => {
     assert.equal(syncLog?.meta?.textMatched, 0);
   });
 
+  it('falls back when ListenBrainz fetch fails with container network errors', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `listenbrainz-fallback-${Date.now()}`;
+    const playlistUuid = '22345678-1234-1234-1234-1234567890ab';
+    const logs = [];
+
+    db.prepare(`
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'rk-fallback-1',
+      'Artist Match',
+      'Track Match',
+      'Matched Album',
+      '',
+      '[]',
+      '1',
+      0,
+      0,
+      Date.now(),
+    );
+    saveUserPreferences(db, userId, {
+      ...getUserPreferences(db, userId),
+      listenbrainzUsername: 'lb-user',
+      listenbrainzEnabledPlaylists: ['weekly-jams'],
+      userWizardCompleted: true,
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildAppApiUrl: (base, path = '') => new URL(path, `${String(base).replace(/\/?$/, '/')}`),
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      listenbrainzFetchJsonFallback: async (url) => {
+        const target = String(url || '');
+        if (target === 'https://api.listenbrainz.org/1/user/lb-user/playlists/createdfor') {
+          return {
+            playlists: [
+              {
+                playlist: {
+                  identifier: `https://listenbrainz.org/playlist/${playlistUuid}`,
+                  title: 'Weekly Jams',
+                  extension: {
+                    'https://musicbrainz.org/doc/jspf#playlist': {
+                      additional_metadata: {
+                        algorithm_metadata: {
+                          source_patch: 'weekly-jams',
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          };
+        }
+        if (target === `https://api.listenbrainz.org/1/playlist/${playlistUuid}`) {
+          return {
+            playlist: {
+              track: [
+                {
+                  title: 'Track Match',
+                  creator: 'Artist Match',
+                },
+              ],
+            },
+          };
+        }
+        throw new Error(`Unexpected fallback request: ${target}`);
+      },
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async () => {
+      const err = new TypeError('fetch failed');
+      err.cause = { code: 'ETIMEDOUT' };
+      throw err;
+    };
+
+    try {
+      await service.syncListenbrainzPlaylists(userId);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const playlists = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false });
+      const synced = playlists.find((entry) => entry.playlistKey === 'listenbrainz:weekly-jams');
+      assert.ok(synced);
+      assert.equal(synced.trackCount, 1);
+    } finally {
+      dbVerify.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'fetch.fallback' && String(entry?.message || '').includes('created-for fetch')));
+    assert.ok(logs.some((entry) => entry?.action === 'playlist.synced'));
+  });
+
   it('recreates a ListenBrainz playlist when the stored Plex playlist id is stale', async () => {
     const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
     const db = initDb(dbPath);

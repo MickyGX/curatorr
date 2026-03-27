@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import {
   getUserPlaylist,
   listSuggestedTracks,
@@ -7,16 +8,25 @@ import {
   saveUserGeneratedPlaylist,
   getUserPreferences,
   getMasterTracks,
-  getPlaylistTracks,
   setPlaylistTracks,
-  addPlaylistTracks,
-  removePlaylistTracks,
-  getPlaylistArtistState,
-  setPlaylistArtistState,
-  clearPlaylistState,
   getArtistTagMap,
-  getUserPersonalPlaylist,
 } from '../db.js';
+
+const execFileAsync = (file, args, options = {}) => new Promise((resolve, reject) => {
+  execFile(file, args, {
+    ...options,
+    encoding: 'utf8',
+    maxBuffer: options.maxBuffer || 5 * 1024 * 1024,
+  }, (err, stdout, stderr) => {
+    if (err) {
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+      return;
+    }
+    resolve({ stdout, stderr });
+  });
+});
 
 const DAILY_MIX_PLAYLIST_KEY = 'daily-mix';
 const DAILY_MIX_PLAYLIST_TYPE = 'daily-mix';
@@ -25,6 +35,7 @@ const CRESCIVE_PLAYLIST_TYPE = 'crescive';
 const CURATIVE_PLAYLIST_KEY  = 'curative';
 const CURATIVE_PLAYLIST_TYPE = 'curative';
 const ALGORITHM_VERSION = 'crescive-curative-v1';
+const LISTENBRAINZ_REQUEST_TIMEOUT_MS = 20_000;
 const LASTFM_STATION_LABELS = {
   recommended: 'Recommended',
   mix: 'Mix',
@@ -104,6 +115,91 @@ function buildListenbrainzHeaders(token = '') {
   const headers = { Accept: 'application/json' };
   if (token) headers.Authorization = `Token ${token}`;
   return headers;
+}
+
+function collectListenbrainzErrorCodes(err, codes = new Set()) {
+  if (!err || typeof err !== 'object') return codes;
+  const code = String(err.code || '').trim();
+  if (code) codes.add(code);
+  if (Array.isArray(err.errors)) {
+    for (const nested of err.errors) collectListenbrainzErrorCodes(nested, codes);
+  }
+  if (err.cause && err.cause !== err) collectListenbrainzErrorCodes(err.cause, codes);
+  return codes;
+}
+
+function summarizeListenbrainzError(err) {
+  const parts = [];
+  const message = String(err?.message || '').trim();
+  const codes = [...collectListenbrainzErrorCodes(err)];
+  if (message) parts.push(message);
+  if (codes.length) parts.push(`codes=${codes.join(',')}`);
+  return parts.join(' | ') || 'Unknown error';
+}
+
+function isListenbrainzNetworkError(err) {
+  const message = String(err?.message || '').toLowerCase();
+  if (message.includes('fetch failed')) return true;
+  const codes = collectListenbrainzErrorCodes(err);
+  return ['ETIMEDOUT', 'ENETUNREACH', 'ECONNRESET', 'ECONNREFUSED', 'EHOSTUNREACH', 'EAI_AGAIN'].some((code) => codes.has(code));
+}
+
+async function fetchListenbrainzJsonViaWget(url, headers = {}) {
+  const args = [
+    '-qO-',
+    '-T',
+    String(Math.max(5, Math.ceil(LISTENBRAINZ_REQUEST_TIMEOUT_MS / 1000))),
+    '-t',
+    '1',
+  ];
+  for (const [name, value] of Object.entries(headers || {})) {
+    if (!value) continue;
+    args.push(`--header=${name}: ${value}`);
+  }
+  args.push(String(url || ''));
+  const { stdout } = await execFileAsync('wget', args, { timeout: LISTENBRAINZ_REQUEST_TIMEOUT_MS });
+  return JSON.parse(stdout);
+}
+
+async function requestListenbrainzJson(ctx, url, headers = {}, meta = {}) {
+  if (typeof ctx.listenbrainzFetchJson === 'function') {
+    return ctx.listenbrainzFetchJson(url, { headers, meta });
+  }
+  try {
+    const response = await fetch(String(url || ''), {
+      headers,
+      signal: AbortSignal.timeout(LISTENBRAINZ_REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`ListenBrainz HTTP ${response.status}`);
+    return await response.json();
+  } catch (fetchErr) {
+    if (!isListenbrainzNetworkError(fetchErr)) throw fetchErr;
+
+    try {
+      const payload = typeof ctx.listenbrainzFetchJsonFallback === 'function'
+        ? await ctx.listenbrainzFetchJsonFallback(url, { headers, meta, error: fetchErr })
+        : await fetchListenbrainzJsonViaWget(url, headers);
+
+      if (typeof ctx.pushLog === 'function' && meta.userId) {
+        ctx.pushLog({
+          level: 'warn',
+          app: 'listenbrainz',
+          action: 'fetch.fallback',
+          message: `ListenBrainz ${meta.requestLabel || 'request'} fell back to wget for ${meta.userId}.`,
+          meta: {
+            playlistType: meta.playlistType || '',
+            uuid: meta.uuid || '',
+            error: summarizeListenbrainzError(fetchErr),
+          },
+        });
+      }
+      return payload;
+    } catch (fallbackErr) {
+      throw new Error(
+        `ListenBrainz ${meta.requestLabel || 'request'} failed via fetch (${summarizeListenbrainzError(fetchErr)}) and wget (${summarizeListenbrainzError(fallbackErr)})`,
+      );
+    }
+  }
 }
 
 function extractListenbrainzPlaylistUuid(playlistEntry) {
@@ -482,192 +578,196 @@ function collectListenbrainzUnmatchedSamples(trackLookups, tracks, limit = 5) {
   return samples;
 }
 
+// ─── Track exclusion filters ──────────────────────────────────────────────────
+
+function trackMatchesRule(track, rule) {
+  const { field, operator, value, caseSensitive } = rule || {};
+  if (!field || !operator || value == null || value === '') return false;
+  const fieldMap = {
+    albumName:  track.albumName,
+    trackTitle: track.trackTitle,
+    artistName: track.artistName,
+  };
+  const raw = String(fieldMap[field] || '');
+  const cs = Boolean(caseSensitive);
+  const haystack = cs ? raw : raw.toLowerCase();
+  const needle    = cs ? String(value) : String(value).toLowerCase();
+  switch (operator) {
+    case 'contains':         return haystack.includes(needle);
+    case 'not_contains':     return !haystack.includes(needle);
+    case 'starts_with':      return haystack.startsWith(needle);
+    case 'not_starts_with':  return !haystack.startsWith(needle);
+    case 'ends_with':        return haystack.endsWith(needle);
+    case 'not_ends_with':    return !haystack.endsWith(needle);
+    case 'equals':           return haystack === needle;
+    case 'not_equals':       return haystack !== needle;
+    case 'regex':            try { return new RegExp(value, cs ? '' : 'i').test(raw); } catch { return false; }
+    case 'not_regex':        try { return !new RegExp(value, cs ? '' : 'i').test(raw); } catch { return false; }
+    default:                 return false;
+  }
+}
+
+export function applyTrackFilters(tracks, filterConfig) {
+  if (!filterConfig) return tracks;
+  const { rules = [], excludeLibraryKeys = [], deduplicateByMbid = false, includeFolders = [], excludeFolders = [] } = filterConfig;
+
+  let result = tracks;
+
+  if (excludeLibraryKeys.length) {
+    const excludeSet = new Set(excludeLibraryKeys.map(String));
+    result = result.filter((t) => !excludeSet.has(String(t.libraryKey || '')));
+  }
+
+  if (rules.length) {
+    result = result.filter((t) => !rules.some((rule) => trackMatchesRule(t, rule)));
+  }
+
+  // Folder whitelist — keep only tracks whose file path contains one of the included sub-paths
+  // Uses path-segment boundary matching: "/folder/" so "1" won't match "2021" or "Vol.1"
+  if (includeFolders.length) {
+    const folderNorms = includeFolders.map((f) => f.replace(/\\/g, '/').toLowerCase());
+    result = result.filter((t) => {
+      const norm = '/' + t.filePath.replace(/\\/g, '/').split('/').filter(Boolean).join('/') + '/';
+      const lc = norm.toLowerCase();
+      return folderNorms.some((f) => lc.includes('/' + f + '/'));
+    });
+  }
+
+  // Folder blacklist — remove tracks whose file path contains any excluded sub-path
+  if (excludeFolders.length) {
+    const folderNorms = excludeFolders.map((f) => f.replace(/\\/g, '/').toLowerCase());
+    result = result.filter((t) => {
+      const norm = '/' + t.filePath.replace(/\\/g, '/').split('/').filter(Boolean).join('/') + '/';
+      const lc = norm.toLowerCase();
+      return !folderNorms.some((f) => lc.includes('/' + f + '/'));
+    });
+  }
+
+  if (deduplicateByMbid) {
+    // For tracks sharing the same recording MBID, keep the one with the highest Plex ratingCount.
+    const mbidBest = new Map();
+    for (const t of result) {
+      if (!t.recordingMbid) continue;
+      const existing = mbidBest.get(t.recordingMbid);
+      if (!existing || (t.ratingCount || 0) > (existing.ratingCount || 0)) {
+        mbidBest.set(t.recordingMbid, t);
+      }
+    }
+    result = result.filter((t) => !t.recordingMbid || mbidBest.get(t.recordingMbid)?.ratingKey === t.ratingKey);
+  }
+
+  return result;
+}
+
 // ─── Smart playlist build pipeline ───────────────────────────────────────────
 
 function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
-  const prefs = getUserPreferences(db, userId);
-  const likedArtistSet   = new Set((prefs.likedArtists   || []).map((a) => a.toLowerCase()));
-  const ignoredArtistSet = new Set((prefs.ignoredArtists || []).map((a) => a.toLowerCase()));
-  const likedGenreSet    = new Set(prefs.likedGenres   || []);
-  const ignoredGenreSet  = new Set(prefs.ignoredGenres || []);
+  const capMultiplier   = Math.max(0, Math.min(1, playlistCfg.capMultiplier ?? 1.0));
+  const favArtistCap    = Math.max(0, Math.min(1, playlistCfg.favouriteArtistTrackPct  ?? 1.0));
+  const favGenreArtPct  = Math.max(0, Math.min(1, playlistCfg.favouriteGenreArtistPct  ?? 1.0));
+  const favGenreTrackCap= Math.max(0, Math.min(1, playlistCfg.favouriteGenreTrackPct   ?? 1.0));
+  const otherArtPct     = Math.max(0, Math.min(1, playlistCfg.otherGenreArtistPct      ?? 1.0));
+  const otherTrackCap   = Math.max(0, Math.min(1, playlistCfg.otherGenreTrackPct       ?? 1.0));
 
-  // Artist similarity scores (best-effort — missing artists get 0)
-  const scoreRows = db.prepare('SELECT artist_name, total_score FROM suggested_artists WHERE user_plex_id = ?').all(userId);
-  const scoreMap  = new Map(scoreRows.map((r) => [r.artist_name.toLowerCase(), r.total_score]));
+  // User preferences: liked artists (fav artist bucket) and liked genres (fav genre bucket)
+  const prefs = getUserPreferences(db, userId) || {};
+  const likedArtistsSet = new Set((prefs.likedArtists || []).map((a) => a.toLowerCase()));
+  const likedGenresSet  = new Set((prefs.likedGenres  || []).map((g) => g.toLowerCase()));
 
-  // Per-user track play stats for ordering
-  const statRows = db.prepare('SELECT plex_rating_key, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(userId);
-  const statMap  = new Map(statRows.map((r) => [r.plex_rating_key, { tierWeight: r.tier_weight || 0, playCount: r.play_count || 0 }]));
+  // Artist scores (0–10). Defaults to 5 for artists with no play history.
+  const artistScoreRows = db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId);
+  const artistScoreMap  = new Map(artistScoreRows.map((r) => [r.artist_name.toLowerCase(), r.ranking_score]));
 
-  // Group tracks by artist
-  const artistMap = new Map(); // lowerName → { name, genres: Set, tracks[] }
+  // Per-track stats: Curatorr tier weight (belter > decent > half-decent), exclusion flags
+  const statRows = db.prepare('SELECT plex_rating_key, tier_weight, excluded_from_smart, manually_included FROM track_stats WHERE user_plex_id = ?').all(userId);
+  const statMap  = new Map(statRows.map((r) => [r.plex_rating_key, r]));
+
+  // Group master tracks by artist and determine each artist's genres
+  const artistMap = new Map();
   for (const t of masterTracks) {
     const lower = t.artistName.toLowerCase();
-    if (!artistMap.has(lower)) artistMap.set(lower, { name: t.artistName, genres: new Set(), tracks: [] });
+    if (!artistMap.has(lower)) artistMap.set(lower, { name: t.artistName, tracks: [], genres: new Set() });
     const entry = artistMap.get(lower);
-    for (const g of (t.genres || [])) entry.genres.add(g);
     entry.tracks.push(t);
+    for (const g of (t.genres || [])) entry.genres.add(g.toLowerCase());
   }
 
-  // Categorise artists
-  const favourite = [], favouriteGenre = [], other = [];
-  for (const [lower, { name, genres, tracks }] of artistMap) {
-    if (ignoredArtistSet.has(lower)) continue;
-    if (genres.size > 0 && [...genres].every((g) => ignoredGenreSet.has(g))) continue;
-    const score = scoreMap.get(lower) || 0;
-    if (likedArtistSet.has(lower)) {
-      favourite.push({ name, lower, tracks, score, trackPct: playlistCfg.favouriteArtistTrackPct });
-    } else if (likedGenreSet.size > 0 && [...genres].some((g) => likedGenreSet.has(g))) {
-      favouriteGenre.push({ name, lower, tracks, score, trackPct: playlistCfg.favouriteGenreTrackPct });
-    } else {
-      other.push({ name, lower, tracks, score, trackPct: playlistCfg.otherGenreTrackPct });
-    }
+  // Categorise each artist: favArtist > favGenre > other
+  // For genre bucket we apply an artist-count filter using ranking_score rank
+  const favGenreArtists = [], otherArtists = [];
+  for (const [lower, { genres }] of artistMap) {
+    if (likedArtistsSet.has(lower)) continue; // handled separately
+    const inFavGenre = likedGenresSet.size > 0 && [...genres].some((g) => likedGenresSet.has(g));
+    if (inFavGenre) favGenreArtists.push(lower);
+    else otherArtists.push(lower);
   }
+  // Sort each bucket by score descending and apply the artist-count cap
+  // Unplayed artists (no score) sit at the bottom of each bucket's ranking
+  const byScore = (a, b) => (artistScoreMap.get(b) ?? 0) - (artistScoreMap.get(a) ?? 0);
+  const favGenreIncluded = new Set(favGenreArtists.sort(byScore).slice(0, Math.ceil(favGenreArtists.length * favGenreArtPct)));
+  const otherIncluded    = new Set(otherArtists.sort(byScore).slice(0, Math.ceil(otherArtists.length * otherArtPct)));
 
-  // Sort non-favourite buckets by similarity score DESC (closest match to user's taste first)
-  favouriteGenre.sort((a, b) => b.score - a.score);
-  other.sort((a, b) => b.score - a.score);
-
-  // Apply artist count limits
-  const fgLimit    = Math.ceil(favouriteGenre.length * (playlistCfg.favouriteGenreArtistPct ?? 1));
-  const otherLimit = Math.ceil(other.length         * (playlistCfg.otherGenreArtistPct    ?? 0));
-  const selected   = [...favourite, ...favouriteGenre.slice(0, fgLimit), ...other.slice(0, otherLimit)];
-
-  // Per-artist: select top N% of tracks ordered by highest-rated
   const seen = new Set();
   const ratingKeys = [], trackList = [];
-  for (const artist of selected) {
-    const sorted = artist.tracks.slice().sort((a, b) => {
-      const sa = statMap.get(a.ratingKey) || { tierWeight: 0, playCount: 0 };
-      const sb = statMap.get(b.ratingKey) || { tierWeight: 0, playCount: 0 };
-      if (sb.tierWeight !== sa.tierWeight) return sb.tierWeight - sa.tierWeight;
-      if ((b.ratingCount || 0) !== (a.ratingCount || 0)) return (b.ratingCount || 0) - (a.ratingCount || 0);
-      return sb.playCount - sa.playCount;
+
+  const addArtistTracks = (lower, name, tracks, trackCap) => {
+    const rawScore = artistScoreMap.get(lower);
+    // Unplayed artists (no history) use the category pct directly as the starting position.
+    // Artists with play history are scaled by their score so inclusions rise/fall over time.
+    const scoreFactor = rawScore != null ? Math.max(0, rawScore / 10) : 1.0;
+    if (scoreFactor <= 0) return;
+    const pct   = scoreFactor * trackCap * capMultiplier;
+    const count = Math.max(1, Math.ceil(tracks.length * pct));
+    const sorted = tracks.slice().sort((a, b) => {
+      const twa = statMap.get(a.ratingKey)?.tier_weight ?? 0;
+      const twb = statMap.get(b.ratingKey)?.tier_weight ?? 0;
+      if (twb !== twa) return twb - twa;
+      return (b.ratingCount || 0) - (a.ratingCount || 0);
     });
-    const count = Math.max(1, Math.ceil(sorted.length * (artist.trackPct ?? 1)));
-    for (const t of sorted.slice(0, count)) {
+    let added = 0;
+    for (const t of sorted) {
+      if (added >= count) break;
       if (seen.has(t.ratingKey)) continue;
+      const stat = statMap.get(t.ratingKey);
+      if (stat?.excluded_from_smart === 1 && stat?.manually_included !== 1) continue;
       seen.add(t.ratingKey);
       ratingKeys.push(t.ratingKey);
-      trackList.push({ ratingKey: t.ratingKey, artistName: artist.name });
+      trackList.push({ ratingKey: t.ratingKey, artistName: name });
+      added++;
     }
+  };
+
+  for (const [lower, { name, tracks }] of artistMap) {
+    if (likedArtistsSet.has(lower)) {
+      addArtistTracks(lower, name, tracks, favArtistCap);
+    } else if (favGenreIncluded.has(lower)) {
+      addArtistTracks(lower, name, tracks, favGenreTrackCap);
+    } else if (otherIncluded.has(lower)) {
+      addArtistTracks(lower, name, tracks, otherTrackCap);
+    }
+    // If no preferences at all, fall through to the fallback below
+  }
+
+  // Fallback: if user has no liked artists/genres, treat every artist as "other" at full cap
+  if (!likedArtistsSet.size && !likedGenresSet.size) {
+    for (const [lower, { name, tracks }] of artistMap) {
+      addArtistTracks(lower, name, tracks, otherTrackCap);
+    }
+  }
+
+  // Always include manually pinned tracks regardless of artist score or bucket
+  for (const [ratingKey, stat] of statMap) {
+    if (stat.manually_included !== 1 || seen.has(ratingKey)) continue;
+    const master = masterTracks.find((t) => t.ratingKey === ratingKey);
+    if (!master) continue;
+    seen.add(ratingKey);
+    ratingKeys.push(ratingKey);
+    trackList.push({ ratingKey, artistName: master.artistName });
   }
 
   return { ratingKeys, trackList };
 }
 
-// ─── Playlist evolution (additions + subtractions during sync) ────────────────
-
-function applyPlaylistEvolution(db, userId, playlistKey, smartConfig, masterTracks) {
-  const addRules       = smartConfig.additionRules  || {};
-  const subRules       = (smartConfig.subtractionRules?.skip) || [];
-  const skipRankThresh = smartConfig.artistSkipRank ?? 2;
-
-  const currentTracks = getPlaylistTracks(db, userId, playlistKey);
-  if (!currentTracks.length) return { toAdd: [], toRemove: [] };
-
-  const masterMap = new Map(masterTracks.map((t) => [t.ratingKey, t]));
-
-  // Track play stats
-  const statRows = db.prepare(`
-    SELECT plex_rating_key, tier, tier_weight, play_count, excluded_from_smart, manually_included
-    FROM track_stats WHERE user_plex_id = ?
-  `).all(userId);
-  const statMap = new Map(statRows.map((r) => [r.plex_rating_key, r]));
-
-  // Artist ranking scores — used to determine skip status
-  const artistStatRows = db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userId);
-  const artistScoreMap = new Map(artistStatRows.map((r) => [r.artist_name.toLowerCase(), r.ranking_score]));
-
-  // Group current playlist tracks by artist
-  const artistGroups = new Map(); // lower → { name, ratingKeys[] }
-  for (const { ratingKey, artistName } of currentTracks) {
-    const lower = artistName.toLowerCase();
-    if (!artistGroups.has(lower)) artistGroups.set(lower, { name: artistName, ratingKeys: [] });
-    artistGroups.get(lower).ratingKeys.push(ratingKey);
-  }
-
-  const toAdd    = []; // { ratingKey, artistName }
-  const toRemove = new Set();
-
-  // 1. Individual track consecutive-skip removal (applies to both playlist types)
-  for (const { ratingKey } of currentTracks) {
-    const stat = statMap.get(ratingKey);
-    if (stat && stat.excluded_from_smart === 1 && stat.manually_included !== 1) toRemove.add(ratingKey);
-  }
-
-  // 2. Per-artist evolution rules
-  for (const [lower, { name: artistName, ratingKeys }] of artistGroups) {
-    const active = ratingKeys.filter((k) => !toRemove.has(k));
-    if (!active.length) continue;
-
-    // Artist skip status is determined by ranking_score (same threshold as smart playlist)
-    const rankingScore  = artistScoreMap.get(lower) ?? 5;
-    const isSkipArtist  = rankingScore <= skipRankThresh;
-
-    const played    = active.filter((k) => { const s = statMap.get(k); return s && s.tier && s.tier !== 'curatorr'; });
-    const playedPct = played.length / active.length;
-
-    // Dominant tier of played tracks (used for addition rules only)
-    const tierCounts = { belter: 0, decent: 0, 'half-decent': 0, skip: 0 };
-    for (const k of played) { const t = statMap.get(k)?.tier; if (t && tierCounts[t] !== undefined) tierCounts[t]++; }
-    const dominantTier = played.length === 0 ? 'curatorr' : Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
-
-    const firedList = getPlaylistArtistState(db, userId, playlistKey, artistName);
-    const fired     = new Set(firedList);
-    let changed     = false;
-
-    // Addition rules — only for non-skip-status artists
-    if (!isSkipArtist && dominantTier !== 'curatorr') {
-      const ruleKey  = dominantTier === 'half-decent' ? 'halfDecent' : dominantTier === 'skip' ? null : dominantTier;
-      const rule     = ruleKey ? addRules[ruleKey] : null;
-      if (rule) {
-        const tKey = `${ruleKey}_${Math.round(rule.playedPct * 100)}`;
-        if (!fired.has(tKey) && playedPct >= rule.playedPct) {
-          const inSet = new Set(ratingKeys);
-          const candidates = masterTracks
-            .filter((t) => t.artistName.toLowerCase() === lower && !inSet.has(t.ratingKey))
-            .sort((a, b) => {
-              const sa = statMap.get(a.ratingKey) || { tier_weight: 0, play_count: 0 };
-              const sb = statMap.get(b.ratingKey) || { tier_weight: 0, play_count: 0 };
-              if ((sb.tier_weight || 0) !== (sa.tier_weight || 0)) return (sb.tier_weight || 0) - (sa.tier_weight || 0);
-              if ((b.ratingCount || 0) !== (a.ratingCount || 0)) return (b.ratingCount || 0) - (a.ratingCount || 0);
-              return (sb.play_count || 0) - (sa.play_count || 0);
-            });
-          for (const t of candidates.slice(0, rule.addCount)) toAdd.push({ ratingKey: t.ratingKey, artistName: t.artistName });
-          fired.add(tKey);
-          changed = true;
-        }
-      }
-    }
-
-    // Subtraction rules — only for artists that have reached skip STATUS (ranking_score <= threshold)
-    if (isSkipArtist) {
-      for (const rule of subRules) {
-        const tKey = `skip_${Math.round(rule.playedPct * 100)}`;
-        if (!fired.has(tKey) && playedPct >= rule.playedPct) {
-          const candidates = active
-            .filter((k) => { const s = statMap.get(k); return !s || s.tier === 'curatorr' || s.tier === 'skip'; })
-            .sort((a, b) => {
-              const sa = statMap.get(a) || { tier_weight: 0 };
-              const sb = statMap.get(b) || { tier_weight: 0 };
-              const ma = masterMap.get(a) || { ratingCount: 0 };
-              const mb = masterMap.get(b) || { ratingCount: 0 };
-              if ((sa.tier_weight || 0) !== (sb.tier_weight || 0)) return (sa.tier_weight || 0) - (sb.tier_weight || 0);
-              return (ma.ratingCount || 0) - (mb.ratingCount || 0);
-            });
-          for (const k of candidates.slice(0, rule.removeCount)) toRemove.add(k);
-          fired.add(tKey);
-          changed = true;
-        }
-      }
-    }
-
-    if (changed) setPlaylistArtistState(db, userId, playlistKey, artistName, [...fired]);
-  }
-
-  return { toAdd, toRemove: [...toRemove] };
-}
 
 // ─── Plex playlist helper (generic, reusable) ─────────────────────────────────
 
@@ -892,7 +992,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
 }
 
 function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
-  const masterTracks = getMasterTracks(db);
+  const masterTracks = applyTrackFilters(getMasterTracks(db), playlistDef.trackFilters);
   if (!masterTracks.length) return [];
 
   const rules      = playlistDef.rules || {};
@@ -938,7 +1038,6 @@ function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
 async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options = {}) {
   const { db, loadConfig, pushLog } = ctx;
   const config = loadConfig();
-  const forceFullRebuild = Boolean(options?.forceFullRebuild);
   const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
 
   if (msType === 'jellyfin' || msType === 'emby') {
@@ -953,7 +1052,7 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   const token = ctx.resolveUserPlexServerToken(config, userId);
   if (!url || !token) return;
 
-  const masterTracks = getMasterTracks(db);
+  const masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
   if (!masterTracks.length) return;
 
   // Resolve machine ID (use admin token since this is a server property)
@@ -972,27 +1071,11 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   const title = buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId);
   const playlistRow = await ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, title, machineId);
 
-  if (forceFullRebuild) clearPlaylistState(db, userId, playlistKey);
+  // Rebuild from current artist scores on every sync
+  const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
+  setPlaylistTracks(db, userId, playlistKey, trackList);
+  pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `${playlistType} rebuilt: ${ratingKeys.length} tracks for ${userId}` });
 
-  const existing = getPlaylistTracks(db, userId, playlistKey);
-  let finalTrackList;
-
-  if (!existing.length) {
-    const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
-    setPlaylistTracks(db, userId, playlistKey, trackList);
-    finalTrackList = trackList;
-    pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `Initial ${playlistType} build: ${ratingKeys.length} tracks for ${userId}` });
-  } else {
-    const { toAdd, toRemove } = applyPlaylistEvolution(db, userId, playlistKey, smartConfig, masterTracks);
-    if (toAdd.length) addPlaylistTracks(db, userId, playlistKey, toAdd);
-    if (toRemove.length) removePlaylistTracks(db, userId, playlistKey, toRemove);
-    finalTrackList = getPlaylistTracks(db, userId, playlistKey);
-    if (toAdd.length || toRemove.length) {
-      pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.evolve`, message: `${playlistType} evolved: +${toAdd.length} / -${toRemove.length} for ${userId}` });
-    }
-  }
-
-  const ratingKeys = finalTrackList.map((t) => t.ratingKey);
   await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
 
   const now = Date.now();
@@ -1012,17 +1095,16 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   });
 }
 
-async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options = {}) {
+async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, _smartConfig, _options = {}) {
   const { db, loadConfig, pushLog } = ctx;
   const config = loadConfig();
   const msType = String(config?.mediaServer?.type || 'jellyfin').toLowerCase();
-  const forceFullRebuild = Boolean(options?.forceFullRebuild);
 
   const serverCfg = config[msType] || {};
   const { url, apiKey } = serverCfg;
   if (!url || !apiKey) return;
 
-  const masterTracks = getMasterTracks(db);
+  const masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
   if (!masterTracks.length) return;
 
   // Resolve the Jellyfin user ID for this Curatorr user
@@ -1037,27 +1119,10 @@ async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playl
     return;
   }
 
-  if (forceFullRebuild) clearPlaylistState(db, userId, playlistKey);
-
-  const existing = getPlaylistTracks(db, userId, playlistKey);
-  let finalTrackList;
-
-  if (!existing.length) {
-    const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
-    setPlaylistTracks(db, userId, playlistKey, trackList);
-    finalTrackList = trackList;
-    pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `Initial ${playlistType} build: ${ratingKeys.length} tracks for ${userId}` });
-  } else {
-    const { toAdd, toRemove } = applyPlaylistEvolution(db, userId, playlistKey, smartConfig, masterTracks);
-    if (toAdd.length) addPlaylistTracks(db, userId, playlistKey, toAdd);
-    if (toRemove.length) removePlaylistTracks(db, userId, playlistKey, toRemove);
-    finalTrackList = getPlaylistTracks(db, userId, playlistKey);
-    if (toAdd.length || toRemove.length) {
-      pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.evolve`, message: `${playlistType} evolved: +${toAdd.length} / -${toRemove.length} for ${userId}` });
-    }
-  }
-
-  const ratingKeys = finalTrackList.map((t) => t.ratingKey);
+  // Rebuild from current artist scores on every sync
+  const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
+  setPlaylistTracks(db, userId, playlistKey, trackList);
+  pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `${playlistType} rebuilt: ${ratingKeys.length} tracks for ${userId}` });
   const title = buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId);
 
   // Always resolve the playlist via ensurePlaylist (searches by name first, creates if missing).
@@ -1538,12 +1603,26 @@ export function createPlaylistService(ctx) {
         enabledPlaylists: [...enabledSet],
       },
     });
-    const createdForRes = await fetch(
-      `https://api.listenbrainz.org/1/user/${encodeURIComponent(prefs.listenbrainzUsername)}/playlists/createdfor`,
-      { headers: buildListenbrainzHeaders(listenbrainzToken) },
-    );
-    if (!createdForRes.ok) throw new Error(`ListenBrainz created-for HTTP ${createdForRes.status}`);
-    const createdForJson = await createdForRes.json();
+    let createdForJson;
+    try {
+      createdForJson = await requestListenbrainzJson(
+        ctx,
+        `https://api.listenbrainz.org/1/user/${encodeURIComponent(prefs.listenbrainzUsername)}/playlists/createdfor`,
+        buildListenbrainzHeaders(listenbrainzToken),
+        {
+          userId,
+          requestLabel: 'created-for fetch',
+        },
+      );
+    } catch (err) {
+      ctx.pushLog({
+        level: 'warn',
+        app: 'listenbrainz',
+        action: 'sync.error',
+        message: `ListenBrainz created-for fetch failed for ${userId}: ${err.message}`,
+      });
+      return;
+    }
     const createdForPlaylists = Array.isArray(createdForJson?.playlists) ? createdForJson.playlists : [];
     const playlistsByType = new Map();
     for (const entry of createdForPlaylists) {
@@ -1586,12 +1665,17 @@ export function createPlaylistService(ctx) {
       );
 
       try {
-        const res = await fetch(
+        const payload = await requestListenbrainzJson(
+          ctx,
           `https://api.listenbrainz.org/1/playlist/${encodeURIComponent(playlistMeta.uuid)}`,
-          { headers: buildListenbrainzHeaders(listenbrainzToken) },
+          buildListenbrainzHeaders(listenbrainzToken),
+          {
+            userId,
+            playlistType,
+            uuid: playlistMeta.uuid,
+            requestLabel: `${label} playlist fetch`,
+          },
         );
-        if (!res.ok) throw new Error(`ListenBrainz playlist HTTP ${res.status}`);
-        const payload = await res.json();
         const tracks = Array.isArray(payload?.playlist?.track) ? payload.playlist.track : [];
         ctx.pushLog({
           level: 'info',
@@ -1655,13 +1739,29 @@ export function createPlaylistService(ctx) {
 
   async function syncCrescive(userId, options = {}) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
-    const playlistCfg = { ...{ favouriteArtistTrackPct: 0.80, favouriteGenreArtistPct: 0.80, favouriteGenreTrackPct: 0.20, otherGenreArtistPct: 0.20, otherGenreTrackPct: 0.20 }, ...(smartConfig.crescive || {}) };
+    const playlistCfg = {
+      capMultiplier:           smartConfig.crescive?.capMultiplier           ?? 1.0,
+      favouriteArtistTrackPct: smartConfig.crescive?.favouriteArtistTrackPct ?? 0.80,
+      favouriteGenreArtistPct: smartConfig.crescive?.favouriteGenreArtistPct ?? 0.80,
+      favouriteGenreTrackPct:  smartConfig.crescive?.favouriteGenreTrackPct  ?? 0.20,
+      otherGenreArtistPct:     smartConfig.crescive?.otherGenreArtistPct     ?? 0.20,
+      otherGenreTrackPct:      smartConfig.crescive?.otherGenreTrackPct      ?? 0.20,
+      trackFilters:            smartConfig.crescive?.trackFilters,
+    };
     return syncSmartPlaylistForUser(ctx, userId, CRESCIVE_PLAYLIST_TYPE, CRESCIVE_PLAYLIST_KEY, playlistCfg, smartConfig, options);
   }
 
   async function syncCurative(userId, options = {}) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
-    const playlistCfg = { ...{ favouriteArtistTrackPct: 1.00, favouriteGenreArtistPct: 1.00, favouriteGenreTrackPct: 0.80, otherGenreArtistPct: 0.50, otherGenreTrackPct: 0.50 }, ...(smartConfig.curative || {}) };
+    const playlistCfg = {
+      capMultiplier:           smartConfig.curative?.capMultiplier           ?? 1.0,
+      favouriteArtistTrackPct: smartConfig.curative?.favouriteArtistTrackPct ?? 1.00,
+      favouriteGenreArtistPct: smartConfig.curative?.favouriteGenreArtistPct ?? 1.00,
+      favouriteGenreTrackPct:  smartConfig.curative?.favouriteGenreTrackPct  ?? 0.80,
+      otherGenreArtistPct:     smartConfig.curative?.otherGenreArtistPct     ?? 0.50,
+      otherGenreTrackPct:      smartConfig.curative?.otherGenreTrackPct      ?? 0.50,
+      trackFilters:            smartConfig.curative?.trackFilters,
+    };
     return syncSmartPlaylistForUser(ctx, userId, CURATIVE_PLAYLIST_TYPE, CURATIVE_PLAYLIST_KEY, playlistCfg, smartConfig, options);
   }
 
@@ -1669,6 +1769,48 @@ export function createPlaylistService(ctx) {
     const smartConfig = ctx.loadConfig().smartPlaylist || {};
     if (smartConfig.enableCrescive !== false) await syncCrescive(userId);
     if (smartConfig.enableCurative !== false) await syncCurative(userId);
+  }
+
+  // Remove all playlists of a given type (crescive/curative) from Plex/Jellyfin and the DB for every user.
+  // Called when the admin disables the playlist type toggle in settings.
+  async function removeSmartPlaylistType(playlistType) {
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    const rows = db.prepare(
+      `SELECT user_plex_id, playlist_key, plex_playlist_id FROM user_generated_playlists WHERE playlist_type = ? AND plex_playlist_id IS NOT NULL AND plex_playlist_id != ''`
+    ).all(playlistType);
+
+    for (const row of rows) {
+      try {
+        if (msType === 'jellyfin' || msType === 'emby') {
+          const { getAdapter } = await import('./media-servers/index.js');
+          const adapter = getAdapter(msType);
+          const { url, apiKey } = config[msType] || {};
+          if (url && apiKey) {
+            const jellyfinUserId = await adapter.getUserIdByName(url, apiKey, row.user_plex_id).catch(() => null);
+            if (jellyfinUserId) await adapter.deletePlaylist(url, apiKey, row.plex_playlist_id, jellyfinUserId).catch(() => {});
+          }
+        } else {
+          const { url } = config.plex || {};
+          const token = ctx.resolveUserPlexServerToken(config, row.user_plex_id);
+          if (url && token) {
+            await fetch(`${String(url).replace(/\/$/, '')}/playlists/${row.plex_playlist_id}`, {
+              method: 'DELETE',
+              headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            }).catch(() => {});
+          }
+        }
+      } catch (_err) { /* best-effort — DB cleanup always runs */ }
+
+      saveUserGeneratedPlaylist(db, row.user_plex_id, {
+        playlistType,
+        playlistKey: row.playlist_key,
+        plexPlaylistId: '',
+        active: false,
+        updatedAt: Date.now(),
+      });
+      ctx.pushLog({ level: 'info', app: 'playlist', action: `${playlistType}.remove`, message: `${playlistType} playlist removed for ${row.user_plex_id}` });
+    }
   }
 
   async function renameGeneratedPlaylistTitle(userPlexId, playlistKey, configOverride = null) {
@@ -1746,6 +1888,7 @@ export function createPlaylistService(ctx) {
     syncCrescive,
     syncCurative,
     syncBothForUser,
+    removeSmartPlaylistType,
     renameGeneratedPlaylistTitle,
     renameAllGeneratedPlaylistTitles,
     CRESCIVE_PLAYLIST_KEY,

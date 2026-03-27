@@ -831,6 +831,9 @@
           var selectedCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card.is-active');
           if (selectedCard) {
             selectedCard.setAttribute('data-playlist-track-count', String(_total));
+            // Sync the visible track count on the carousel card to match the actual Plex count
+            var metaEl = selectedCard.querySelector('.cur-playlist-carousel-meta');
+            if (metaEl) metaEl.textContent = Number(_total).toLocaleString() + ' tracks';
             updateSelectionSummary(selectedCard);
           }
 

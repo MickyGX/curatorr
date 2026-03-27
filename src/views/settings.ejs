@@ -753,10 +753,91 @@
               <%
                 const _cr = config.smartPlaylist?.crescive || {};
                 const _cu = config.smartPlaylist?.curative || {};
-                const _ar = config.smartPlaylist?.additionRules || {};
-                const _sr = config.smartPlaylist?.subtractionRules?.skip || [];
-                function _pct(val, def) { return Math.round(((val ?? def) * 100)); }
+                function _capPct(val, def) { return Math.round(((val ?? def ?? 1.0) * 100)); }
+
+                const _TF_FIELDS = [
+                  { value: 'albumName',  label: 'Album name' },
+                  { value: 'trackTitle', label: 'Track title' },
+                  { value: 'artistName', label: 'Artist name' },
+                ];
+                const _TF_FIELDS_GP = [
+                  ..._TF_FIELDS,
+                  { value: 'filePath', label: 'File path (folder)' },
+                ];
+                const _TF_OPS = [
+                  { value: 'contains',        label: 'contains' },
+                  { value: 'not_contains',     label: 'does not contain' },
+                  { value: 'equals',           label: 'is' },
+                  { value: 'not_equals',       label: 'is not' },
+                  { value: 'starts_with',      label: 'starts with' },
+                  { value: 'not_starts_with',  label: 'does not start with' },
+                  { value: 'ends_with',        label: 'ends with' },
+                  { value: 'not_ends_with',    label: 'does not end with' },
+                  { value: 'regex',            label: 'matches regex' },
+                  { value: 'not_regex',        label: 'does not match regex' },
+                ];
+
+                function _tfFieldOpts(current, fields) {
+                  return (fields || _TF_FIELDS).map(f => `<option value="${f.value}"${current === f.value ? ' selected' : ''}>${f.label}</option>`).join('');
+                }
+                function _tfOpOpts(current) {
+                  return _TF_OPS.map(o => `<option value="${o.value}"${current === o.value ? ' selected' : ''}>${o.label}</option>`).join('');
+                }
+                function _tfValInput(rule, prefix, segments) {
+                  if (rule.field === 'filePath' && segments && segments.length) {
+                    const opts = segments.map(s => `<option value="${s}"${rule.value === s ? ' selected' : ''}>${s}</option>`).join('');
+                    return `<select name="${prefix}_rule_val" class="tf-select tf-val-select"><option value="">— select folder —</option>${opts}</select>`;
+                  }
+                  return `<input type="text" name="${prefix}_rule_val" value="${(rule.value||'').replace(/"/g,'&quot;')}" class="tf-val" placeholder="value" />`;
+                }
+                function _renderTrackFilters(prefix, filterCfg, libs, segments) {
+                  const rules = Array.isArray(filterCfg?.rules) ? filterCfg.rules : [];
+                  const exclude = Array.isArray(filterCfg?.excludeLibraryKeys) ? filterCfg.excludeLibraryKeys : [];
+                  const dedupe = Boolean(filterCfg?.deduplicateByMbid);
+                  const hasRules = rules.length > 0 || exclude.some(k => k);
+                  let html = `<details class="tf-details"${hasRules ? ' open' : ''}><summary class="tf-summary">Exclusion Filters<span class="tf-rule-count">${rules.length ? ` (${rules.length} rule${rules.length > 1 ? 's' : ''})` : ''}</span></summary><div class="tf-body">`;
+                  // Rule rows
+                  html += `<div class="tf-rules-list" id="tf-list-${prefix}">`;
+                  for (const rule of rules) {
+                    html += `<div class="tf-rule-row">`;
+                    html += `<select name="${prefix}_rule_field" class="tf-select" onchange="tfUpdateVal(this,'${prefix}',${JSON.stringify(segments||[])})">` + _tfFieldOpts(rule.field) + `</select>`;
+                    html += `<select name="${prefix}_rule_op" class="tf-select">` + _tfOpOpts(rule.operator) + `</select>`;
+                    html += _tfValInput(rule, prefix, rule.field === 'filePath' ? segments : []);
+                    html += `<label class="tf-cs-label"><input type="checkbox" name="${prefix}_rule_cs" value="on"${rule.caseSensitive ? ' checked' : ''} /><span>Aa</span></label>`;
+                    html += `<button type="button" class="tf-remove-btn" onclick="this.closest('.tf-rule-row').remove()">×</button>`;
+                    html += `</div>`;
+                  }
+                  html += `</div>`;
+                  html += `<button type="button" class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="tfAddRule('${prefix}',${JSON.stringify(segments||[])})">+ Add Rule</button>`;
+                  // Library exclusions
+                  if (libs && libs.length) {
+                    html += `<div style="margin-top:12px"><div class="settings-field-label" style="margin-bottom:6px">Exclude Libraries</div><div class="settings-checklist" style="display:flex;flex-direction:column;gap:6px">`;
+                    for (const lib of libs) {
+                      const chk = exclude.includes(lib.key) ? ' checked' : '';
+                      html += `<label class="settings-toggle"><input type="checkbox" name="${prefix}_excludeLibraryKeys" value="${lib.key}"${chk} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">${lib.title}</span></label>`;
+                    }
+                    html += `</div></div>`;
+                  }
+                  // MBID dedup
+                  html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByMbid" value="on"${dedupe ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Deduplicate by MusicBrainz recording ID</span></label></div>`;
+                  html += `</div></details>`;
+                  return html;
+                }
               %>
+
+              <%# How it works %>
+              <div class="settings-card">
+                <div class="settings-card-title">How Smart Playlists Work</div>
+                <div class="settings-card-sub">
+                  Each artist has a <strong>score out of 10</strong> that rises when you complete a track and falls on skips.
+                  That score is used directly as the percentage of their tracks included — a score of 9.5 means 95% of their songs appear in your playlist.
+                  The <strong>size cap</strong> below scales this further: 50% halves every artist's share across the board.
+                  Within each artist, tracks are ordered by Curatorr tier (Belter &gt; Decent &gt; Half-Decent) then by Plex play count,
+                  so your most-loved songs are always favoured.
+                  Tracks marked <em>Excluded from Smart</em> are always skipped; tracks marked <em>Manual Include</em> are always added regardless of score.
+                  Additions and subtractions happen automatically on every sync as scores change — no manual rules needed.
+                </div>
+              </div>
 
               <%# Crescive %>
               <div class="settings-card settings-playlist-types-card">
@@ -768,14 +849,26 @@
                     <span class="settings-toggle-text">Enabled</span>
                   </label>
                 </div>
-                <div class="settings-card-sub">Starts refined and grows over time. Percentages control how much of each artist tier is included on first build.</div>
+                <div class="settings-card-sub">Starts refined and grows over time. Percentages control how much of each artist category is included on first build.</div>
                 <div class="settings-type-grid">
-                  <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cr_favArtistTrackPct" value="<%= _pct(_cr.favouriteArtistTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Fav genre artists</span><div class="settings-pct-row"><input type="number" name="cr_favGenreArtistPct" value="<%= _pct(_cr.favouriteGenreArtistPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Fav genre tracks</span><div class="settings-pct-row"><input type="number" name="cr_favGenreTrackPct" value="<%= _pct(_cr.favouriteGenreTrackPct, 0.20) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Other artists</span><div class="settings-pct-row"><input type="number" name="cr_otherArtistPct" value="<%= _pct(_cr.otherGenreArtistPct, 0.20) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Other tracks</span><div class="settings-pct-row"><input type="number" name="cr_otherTrackPct" value="<%= _pct(_cr.otherGenreTrackPct, 0.20) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cr_favArtistTrackPct" value="<%= _capPct(_cr.favouriteArtistTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre artists</span><div class="settings-pct-row"><input type="number" name="cr_favGenreArtistPct" value="<%= _capPct(_cr.favouriteGenreArtistPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre tracks</span><div class="settings-pct-row"><input type="number" name="cr_favGenreTrackPct" value="<%= _capPct(_cr.favouriteGenreTrackPct, 0.20) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other artists</span><div class="settings-pct-row"><input type="number" name="cr_otherArtistPct" value="<%= _capPct(_cr.otherGenreArtistPct, 0.20) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other tracks</span><div class="settings-pct-row"><input type="number" name="cr_otherTrackPct" value="<%= _capPct(_cr.otherGenreTrackPct, 0.20) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
                 </div>
+                <div class="spt-cap-row" style="margin-top:16px">
+                  <label class="spt-cap-label" for="cr_capRange">Overall size cap</label>
+                  <input type="range" id="cr_capRange" min="0" max="100" step="1" value="<%= _capPct(_cr.capMultiplier) %>" class="spt-cap-slider" />
+                  <input type="number" id="cr_capNum" name="cr_capMultiplier" min="0" max="100" value="<%= _capPct(_cr.capMultiplier) %>" class="spt-cap-num" />
+                  <span class="spt-cap-sym">%</span>
+                  <span class="spt-cap-preview">
+                    <span class="gp-preview-num" id="cr-prev-artists">—</span> <span class="gp-preview-unit">artists</span>
+                    <span class="gp-preview-sep">·</span>
+                    <span class="gp-preview-num" id="cr-prev-tracks">—</span> <span class="gp-preview-unit">tracks</span>
+                  </span>
+                </div>
+                <%- _renderTrackFilters('cr', config.smartPlaylist?.crescive?.trackFilters, allLibraryKeys, null) %>
               </div>
 
               <%# Curative %>
@@ -790,108 +883,142 @@
                 </div>
                 <div class="settings-card-sub">Starts large and is pruned over time. Replaces your existing Curatorr playlist.</div>
                 <div class="settings-type-grid">
-                  <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cu_favArtistTrackPct" value="<%= _pct(_cu.favouriteArtistTrackPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Fav genre artists</span><div class="settings-pct-row"><input type="number" name="cu_favGenreArtistPct" value="<%= _pct(_cu.favouriteGenreArtistPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Fav genre tracks</span><div class="settings-pct-row"><input type="number" name="cu_favGenreTrackPct" value="<%= _pct(_cu.favouriteGenreTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Other artists</span><div class="settings-pct-row"><input type="number" name="cu_otherArtistPct" value="<%= _pct(_cu.otherGenreArtistPct, 0.50) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
-                  <label class="field"><span>Other tracks</span><div class="settings-pct-row"><input type="number" name="cu_otherTrackPct" value="<%= _pct(_cu.otherGenreTrackPct, 0.50) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav artist tracks</span><div class="settings-pct-row"><input type="number" name="cu_favArtistTrackPct" value="<%= _capPct(_cu.favouriteArtistTrackPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre artists</span><div class="settings-pct-row"><input type="number" name="cu_favGenreArtistPct" value="<%= _capPct(_cu.favouriteGenreArtistPct, 1.00) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Fav genre tracks</span><div class="settings-pct-row"><input type="number" name="cu_favGenreTrackPct" value="<%= _capPct(_cu.favouriteGenreTrackPct, 0.80) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other artists</span><div class="settings-pct-row"><input type="number" name="cu_otherArtistPct" value="<%= _capPct(_cu.otherGenreArtistPct, 0.50) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Other tracks</span><div class="settings-pct-row"><input type="number" name="cu_otherTrackPct" value="<%= _capPct(_cu.otherGenreTrackPct, 0.50) %>" min="1" max="100" /><span class="settings-pct-sym">%</span></div></label>
                 </div>
-              </div>
-
-              <%# Addition rules %>
-              <div class="settings-card">
-                <div class="settings-card-title">Addition Rules</div>
-                <div class="settings-card-sub">When an artist's tier threshold is reached, the next highest-rated unplayed tracks are added to both playlists.</div>
-                <div class="cur-tier-table-wrap cur-tier-table-wrap--playlist-rules">
-                <table class="cur-tier-table cur-tier-table--playlist-rules">
-                  <colgroup>
-                    <col class="cur-tier-col cur-tier-col--playlist-tier" />
-                    <col class="cur-tier-col cur-tier-col--playlist-value" />
-                    <col class="cur-tier-col cur-tier-col--playlist-value" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th><div class="cur-tier-head-label">Artist tier</div></th>
-                      <th><div class="cur-tier-head-label">% of their tracks played</div></th>
-                      <th><div class="cur-tier-head-label">Tracks to add</div></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% [['belter','Belter',0.50,15],['decent','Decent',0.80,10],['halfDecent','Half Decent',1.00,5]].forEach(function(row) { %>
-                    <% const _arRow = _ar[row[0]] || {}; %>
-                    <tr>
-                      <td>
-                        <div class="cur-tier-static">
-                          <span class="cur-badge cur-badge--<%= row[0] === 'halfDecent' ? 'half-decent' : row[0] %>"><%= row[1] %></span>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="cur-tier-cell cur-tier-cell--compound">
-                          <input type="number" name="ar_<%= row[0] %>_pct" value="<%= Math.round((_arRow.playedPct ?? row[2]) * 100) %>" min="1" max="100" class="cur-tier-input" />
-                          <span class="cur-tier-input-suffix">%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="cur-tier-cell">
-                          <input type="number" name="ar_<%= row[0] %>_count" value="<%= _arRow.addCount ?? row[3] %>" min="1" max="50" class="cur-tier-input" />
-                        </div>
-                      </td>
-                    </tr>
-                    <% }); %>
-                  </tbody>
-                </table>
+                <div class="spt-cap-row" style="margin-top:16px">
+                  <label class="spt-cap-label" for="cu_capRange">Overall size cap</label>
+                  <input type="range" id="cu_capRange" min="0" max="100" step="1" value="<%= _capPct(_cu.capMultiplier) %>" class="spt-cap-slider" />
+                  <input type="number" id="cu_capNum" name="cu_capMultiplier" min="0" max="100" value="<%= _capPct(_cu.capMultiplier) %>" class="spt-cap-num" />
+                  <span class="spt-cap-sym">%</span>
+                  <span class="spt-cap-preview">
+                    <span class="gp-preview-num" id="cu-prev-artists">—</span> <span class="gp-preview-unit">artists</span>
+                    <span class="gp-preview-sep">·</span>
+                    <span class="gp-preview-num" id="cu-prev-tracks">—</span> <span class="gp-preview-unit">tracks</span>
+                  </span>
                 </div>
-              </div>
-
-              <%# Subtraction rules %>
-              <div class="settings-card">
-                <div class="settings-card-title">Subtraction Rules</div>
-                <div class="settings-card-sub">When an artist's tracks are predominantly skipped, the lowest-rated unplayed or previously skipped tracks are removed from both playlists.</div>
-                <div class="cur-tier-table-wrap cur-tier-table-wrap--playlist-rules">
-                <table class="cur-tier-table cur-tier-table--playlist-rules cur-tier-table--playlist-rules-subtraction">
-                  <colgroup>
-                    <col class="cur-tier-col cur-tier-col--playlist-tier" />
-                    <col class="cur-tier-col cur-tier-col--playlist-value" />
-                    <col class="cur-tier-col cur-tier-col--playlist-value" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th><div class="cur-tier-head-label">Artist tier</div></th>
-                      <th><div class="cur-tier-head-label">% of their tracks exposed</div></th>
-                      <th><div class="cur-tier-head-label">Tracks to remove</div></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% [[0.20,15],[0.50,10],[0.80,5]].forEach(function(def, i) { %>
-                    <% const _srRow = _sr[i] || {}; %>
-                    <tr>
-                      <td>
-                        <div class="cur-tier-static">
-                          <span class="cur-badge cur-badge--skip">Skip</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="cur-tier-cell cur-tier-cell--compound">
-                          <input type="number" name="sr_skip_<%= i %>_pct" value="<%= Math.round((_srRow.playedPct ?? def[0]) * 100) %>" min="1" max="100" class="cur-tier-input" />
-                          <span class="cur-tier-input-suffix">%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="cur-tier-cell">
-                          <input type="number" name="sr_skip_<%= i %>_count" value="<%= _srRow.removeCount ?? def[1] %>" min="1" max="50" class="cur-tier-input" />
-                        </div>
-                      </td>
-                    </tr>
-                    <% }); %>
-                  </tbody>
-                </table>
-                </div>
+                <%- _renderTrackFilters('cu', config.smartPlaylist?.curative?.trackFilters, allLibraryKeys, null) %>
               </div>
 
               <div class="settings-card-actions settings-card-actions--full">
                 <button class="primary-button" type="submit">Save playlist type settings</button>
               </div>
             </form>
+
+            <script>
+            (function() {
+              var INPUT_MAP = {
+                cr: { cap: 'cr_capMultiplier', favArtist: 'cr_favArtistTrackPct', favGenreArt: 'cr_favGenreArtistPct', favGenreTrack: 'cr_favGenreTrackPct', otherArt: 'cr_otherArtistPct', otherTrack: 'cr_otherTrackPct' },
+                cu: { cap: 'cu_capMultiplier', favArtist: 'cu_favArtistTrackPct', favGenreArt: 'cu_favGenreArtistPct', favGenreTrack: 'cu_favGenreTrackPct', otherArt: 'cu_otherArtistPct', otherTrack: 'cu_otherTrackPct' },
+              };
+              function getVal(name) { var el = document.querySelector('[name="' + name + '"]'); return el ? (parseFloat(el.value) || 0) / 100 : 1; }
+              function fetchPreview(prefix) {
+                var m = INPUT_MAP[prefix];
+                var params = new URLSearchParams({
+                  capMultiplier:    getVal(m.cap),
+                  favArtistTrackPct: getVal(m.favArtist),
+                  favGenreArtistPct: getVal(m.favGenreArt),
+                  favGenreTrackPct:  getVal(m.favGenreTrack),
+                  otherArtistPct:    getVal(m.otherArt),
+                  otherTrackPct:     getVal(m.otherTrack),
+                });
+                fetch('/api/playlists/smart/preview?' + params)
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                    if (!data.ok) return;
+                    document.getElementById(prefix + '-prev-artists').textContent = data.artistCount;
+                    document.getElementById(prefix + '-prev-tracks').textContent = data.trackCount;
+                  }).catch(function() {});
+              }
+              ['cr', 'cu'].forEach(function(prefix) {
+                var slider = document.getElementById(prefix + '_capRange');
+                var num    = document.getElementById(prefix + '_capNum');
+                var timer  = null;
+                function schedule() { clearTimeout(timer); timer = setTimeout(function() { fetchPreview(prefix); }, 400); }
+                slider.addEventListener('input', function() { num.value = slider.value; schedule(); });
+                num.addEventListener('input', function() {
+                  var v = Math.max(0, Math.min(100, parseInt(num.value, 10) || 0));
+                  slider.value = v; schedule();
+                });
+                // Also trigger when any of the 5 category inputs change
+                var m = INPUT_MAP[prefix];
+                [m.favArtist, m.favGenreArt, m.favGenreTrack, m.otherArt, m.otherTrack].forEach(function(name) {
+                  var el = document.querySelector('[name="' + name + '"]');
+                  if (el) el.addEventListener('input', schedule);
+                });
+                fetchPreview(prefix);
+              });
+            })();
+            </script>
+
+            <script>
+            // ── Track filter helpers (crescive / curative) ────────────────────
+            var _TF_FIELDS_CR_CU = [
+              { value: 'albumName',  label: 'Album name' },
+              { value: 'trackTitle', label: 'Track title' },
+              { value: 'artistName', label: 'Artist name' },
+            ];
+            var _TF_OPS = [
+              { value: 'contains',       label: 'contains' },
+              { value: 'not_contains',   label: 'does not contain' },
+              { value: 'equals',         label: 'is' },
+              { value: 'not_equals',     label: 'is not' },
+              { value: 'starts_with',    label: 'starts with' },
+              { value: 'not_starts_with',label: 'does not start with' },
+              { value: 'ends_with',      label: 'ends with' },
+              { value: 'not_ends_with',  label: 'does not end with' },
+              { value: 'regex',          label: 'matches regex' },
+              { value: 'not_regex',      label: 'does not match regex' },
+            ];
+            var _TF_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
+
+            function tfMakeFieldOpts(fields, current) {
+              return fields.map(function(f) {
+                return '<option value="' + f.value + '"' + (f.value === current ? ' selected' : '') + '>' + f.label + '</option>';
+              }).join('');
+            }
+            function tfMakeOpOpts(current) {
+              return _TF_OPS.map(function(o) {
+                return '<option value="' + o.value + '"' + (o.value === current ? ' selected' : '') + '>' + o.label + '</option>';
+              }).join('');
+            }
+            function tfMakeValInput(prefix, field, value, segments) {
+              if (field === 'filePath' && segments && segments.length) {
+                var opts = '<option value="">— select folder —</option>' + segments.map(function(s) {
+                  return '<option value="' + s + '"' + (s === value ? ' selected' : '') + '>' + s + '</option>';
+                }).join('');
+                return '<select name="' + prefix + '_rule_val" class="tf-select tf-val-select">' + opts + '</select>';
+              }
+              return '<input type="text" name="' + prefix + '_rule_val" value="' + (value || '').replace(/"/g, '&quot;') + '" class="tf-val" placeholder="value" />';
+            }
+            function tfAddRule(prefix, segments) {
+              var fields = _TF_FIELDS_CR_CU;
+              var row = document.createElement('div');
+              row.className = 'tf-rule-row';
+              var defaultField = fields[0].value;
+              row.innerHTML =
+                '<select name="' + prefix + '_rule_field" class="tf-select" onchange="tfUpdateVal(this,\'' + prefix + '\')">' + tfMakeFieldOpts(fields, defaultField) + '</select>' +
+                '<select name="' + prefix + '_rule_op" class="tf-select">' + tfMakeOpOpts('contains') + '</select>' +
+                tfMakeValInput(prefix, defaultField, '', segments) +
+                '<label class="tf-cs-label"><input type="checkbox" name="' + prefix + '_rule_cs" value="on" /><span>Aa</span></label>' +
+                '<button type="button" class="tf-remove-btn" onclick="this.closest(\'.tf-rule-row\').remove()">×</button>';
+              document.getElementById('tf-list-' + prefix).appendChild(row);
+            }
+            function tfUpdateVal(select, prefix) {
+              var row = select.closest('.tf-rule-row');
+              var field = select.value;
+              var segments = [];
+              var old = row.querySelector('[name="' + prefix + '_rule_val"]');
+              if (old) {
+                var newEl = document.createElement('div');
+                newEl.innerHTML = tfMakeValInput(prefix, field, '', segments);
+                old.replaceWith(newEl.firstChild);
+              }
+            }
+            </script>
 
             <%# ── Global Playlists ────────────────────────────────────────── %>
             <%# Builder card %>
@@ -1045,6 +1172,51 @@
               </div>
               <% } %>
 
+              <%# Track filters %>
+              <div class="tf-details" style="margin-top:12px">
+                <div class="tf-summary" style="cursor:default">
+                  Filters
+                  <span class="tf-rule-count" id="gp-filter-count"></span>
+                </div>
+                <div class="tf-body">
+                  <%# Pattern rules %>
+                  <div class="settings-field-label" style="margin-bottom:4px">Pattern rules (album / title / artist)</div>
+                  <div class="tf-rules-list" id="tf-list-gp"></div>
+                  <button type="button" class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="tfAddRule('gp')">+ Add Rule</button>
+
+                  <%# Include folders %>
+                  <div class="settings-field-label" style="margin-top:14px;margin-bottom:4px">Include folders — if any selected, only tracks from these folders are kept</div>
+                  <div class="gp-folder-browser" id="gp-include-browser">
+                    <div class="gp-browser-header">
+                      <span class="gp-browser-path" id="gp-include-path">/</span>
+                      <button type="button" class="btn btn-sm btn-ghost gp-browser-add-current" id="gp-include-add-current" style="display:none">+ Add this folder</button>
+                    </div>
+                    <div class="gp-browser-list" id="gp-include-list"></div>
+                  </div>
+                  <div class="gp-folder-chips" id="gp-include-chips"></div>
+
+                  <%# Exclude folders %>
+                  <div class="settings-field-label" style="margin-top:14px;margin-bottom:4px">Exclude folders — tracks from these folders are removed</div>
+                  <div class="gp-folder-browser" id="gp-exclude-browser">
+                    <div class="gp-browser-header">
+                      <span class="gp-browser-path" id="gp-exclude-path">/</span>
+                      <button type="button" class="btn btn-sm btn-ghost gp-browser-add-current" id="gp-exclude-add-current" style="display:none">+ Add this folder</button>
+                    </div>
+                    <div class="gp-browser-list" id="gp-exclude-list"></div>
+                  </div>
+                  <div class="gp-folder-chips" id="gp-exclude-chips"></div>
+
+                  <%# MBID dedup %>
+                  <div style="margin-top:12px">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="gp-dedup-mbid" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Deduplicate by MusicBrainz recording ID</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <%# Preview %>
               <div class="gp-preview-bar">
                 <div class="gp-preview-left">
@@ -1144,6 +1316,27 @@
                 document.getElementById('gp-max-tracks').value = rules.maxTracks || '';
                 document.getElementById('gp-sort-by').value = rules.sortBy || 'ratingCount';
                 if (window.gpSetBlendUsers) window.gpSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
+                // Populate track filters
+                var tfList = document.getElementById('tf-list-gp');
+                tfList.innerHTML = '';
+                var tf = gp.trackFilters || {};
+                (tf.rules || []).forEach(function(rule) {
+                  var row = document.createElement('div');
+                  row.className = 'tf-rule-row';
+                  row.innerHTML =
+                    '<select name="gp_rule_field" class="tf-select" onchange="tfUpdateVal(this,\'gp\')">' + tfMakeFieldOpts(_TF_FIELDS_CR_CU, rule.field) + '</select>' +
+                    '<select name="gp_rule_op" class="tf-select">' + tfMakeOpOpts(rule.operator) + '</select>' +
+                    tfMakeValInput('gp', rule.field, rule.value, []) +
+                    '<label class="tf-cs-label"><input type="checkbox" name="gp_rule_cs" value="on"' + (rule.caseSensitive ? ' checked' : '') + ' /><span>Aa</span></label>' +
+                    '<button type="button" class="tf-remove-btn" onclick="this.closest(\'.tf-rule-row\').remove()">×</button>';
+                  tfList.appendChild(row);
+                });
+                document.getElementById('gp-dedup-mbid').checked = !!(tf.deduplicateByMbid);
+                // Populate folder filters
+                var incChips = document.getElementById('gp-include-chips');
+                var excChips = document.getElementById('gp-exclude-chips');
+                if (incChips) { incChips.innerHTML = ''; (tf.includeFolders || []).forEach(function(f) { gpAddFolderChip('include', f); }); }
+                if (excChips) { excChips.innerHTML = ''; (tf.excludeFolders || []).forEach(function(f) { gpAddFolderChip('exclude', f); }); }
                 updateBlendModeVisibility();
                 schedulePreview();
               }
@@ -1162,6 +1355,13 @@
                 document.getElementById('gp-max-tracks').value = '';
                 document.getElementById('gp-sort-by').value = 'ratingCount';
                 if (window.gpSetBlendUsers) window.gpSetBlendUsers([], 'average');
+                document.getElementById('tf-list-gp').innerHTML = '';
+                var _ic = document.getElementById('gp-include-chips'); if (_ic) _ic.innerHTML = '';
+                var _ec = document.getElementById('gp-exclude-chips'); if (_ec) _ec.innerHTML = '';
+                _gpFolderNav = { include: [], exclude: [] };
+                gpRenderFolderBrowser('include');
+                gpRenderFolderBrowser('exclude');
+                document.getElementById('gp-dedup-mbid').checked = false;
                 updateBlendModeVisibility();
                 schedulePreview();
               }
@@ -1208,6 +1408,150 @@
                   blendUsers: window.gpGetBlendUsers ? window.gpGetBlendUsers() : [],
                   blendMode: blendModeEl ? blendModeEl.value : 'average',
                 };
+              }
+
+              function gpAddFolderChip(type, val, triggerPreview) {
+                var chips = document.getElementById('gp-' + type + '-chips');
+                if (!chips || !val) return;
+                if (Array.from(chips.querySelectorAll('[data-folder]')).some(function(c) { return c.dataset.folder === val; })) return;
+                var chip = document.createElement('span');
+                chip.className = 'gp-folder-chip';
+                chip.dataset.folder = val;
+                chip.textContent = val;
+                var rm = document.createElement('button');
+                rm.type = 'button'; rm.className = 'gp-folder-chip-remove'; rm.textContent = '×';
+                rm.addEventListener('click', function() { chip.remove(); schedulePreview(); });
+                chip.appendChild(rm);
+                chips.appendChild(chip);
+                if (triggerPreview) schedulePreview();
+              }
+
+              // ── Folder browser ──────────────────────────────────────────
+              var _GP_FOLDER_TREE = (function() {
+                var tree = {};
+                for (var i = 0; i < _TF_PATH_SEGMENTS.length; i++) {
+                  var parts = _TF_PATH_SEGMENTS[i].split('/');
+                  var node = tree;
+                  for (var j = 0; j < parts.length; j++) {
+                    if (!node[parts[j]]) node[parts[j]] = {};
+                    node = node[parts[j]];
+                  }
+                }
+                return tree;
+              })();
+
+              var _gpFolderNav = { include: [], exclude: [] };
+
+              function gpRenderFolderBrowser(type) {
+                var path = _gpFolderNav[type];
+                var node = _GP_FOLDER_TREE;
+                for (var i = 0; i < path.length; i++) node = node[path[i]] || {};
+                var children = Object.keys(node).sort(function(a, b) { return a.localeCompare(b); });
+
+                var pathEl = document.getElementById('gp-' + type + '-path');
+                if (pathEl) pathEl.textContent = path.length ? path.join('/') : '/';
+
+                var addCurBtn = document.getElementById('gp-' + type + '-add-current');
+                if (addCurBtn) addCurBtn.style.display = path.length ? '' : 'none';
+
+                var listEl = document.getElementById('gp-' + type + '-list');
+                if (!listEl) return;
+                listEl.innerHTML = '';
+
+                if (!_TF_PATH_SEGMENTS.length) {
+                  listEl.innerHTML = '<div class="tf-empty-hint">Refresh your library cache to see folders.</div>';
+                  return;
+                }
+
+                if (path.length) {
+                  var upRow = document.createElement('div');
+                  upRow.className = 'gp-browser-row gp-browser-up';
+                  upRow.innerHTML = '<span class="gp-browser-up-icon">↩</span><span class="gp-browser-up-label">..</span>';
+                  upRow.addEventListener('click', function() {
+                    _gpFolderNav[type] = path.slice(0, -1);
+                    gpRenderFolderBrowser(type);
+                  });
+                  listEl.appendChild(upRow);
+                }
+
+                if (!children.length) {
+                  var noSub = document.createElement('div');
+                  noSub.className = 'tf-empty-hint'; noSub.style.padding = '6px 10px';
+                  noSub.textContent = 'No subfolders.';
+                  listEl.appendChild(noSub);
+                  return;
+                }
+
+                children.forEach(function(child) {
+                  var childNode = node[child];
+                  var drillable = Object.keys(childNode).length > 0;
+                  var row = document.createElement('div');
+                  row.className = 'gp-browser-row';
+
+                  var nameSpan = document.createElement('span');
+                  nameSpan.className = 'gp-browser-row-name' + (drillable ? ' gp-browser-drillable' : '');
+                  nameSpan.textContent = child;
+                  if (drillable) {
+                    nameSpan.addEventListener('click', function() {
+                      _gpFolderNav[type] = path.concat([child]);
+                      gpRenderFolderBrowser(type);
+                    });
+                  }
+                  row.appendChild(nameSpan);
+
+                  if (drillable) {
+                    var arrow = document.createElement('span');
+                    arrow.className = 'gp-browser-arrow';
+                    arrow.textContent = '›';
+                    arrow.addEventListener('click', function() {
+                      _gpFolderNav[type] = path.concat([child]);
+                      gpRenderFolderBrowser(type);
+                    });
+                    row.appendChild(arrow);
+                  }
+
+                  var addBtn = document.createElement('button');
+                  addBtn.type = 'button';
+                  addBtn.className = 'btn btn-sm btn-ghost gp-browser-add-btn';
+                  addBtn.textContent = '+ Add';
+                  (function(c) {
+                    addBtn.addEventListener('click', function() {
+                      gpAddFolderChip(type, path.concat([c]).join('/'), true);
+                    });
+                  })(child);
+                  row.appendChild(addBtn);
+
+                  listEl.appendChild(row);
+                });
+              }
+
+              document.getElementById('gp-include-add-current').addEventListener('click', function() {
+                var p = _gpFolderNav['include'];
+                if (p.length) gpAddFolderChip('include', p.join('/'), true);
+              });
+              document.getElementById('gp-exclude-add-current').addEventListener('click', function() {
+                var p = _gpFolderNav['exclude'];
+                if (p.length) gpAddFolderChip('exclude', p.join('/'), true);
+              });
+
+              gpRenderFolderBrowser('include');
+              gpRenderFolderBrowser('exclude');
+
+              function getGpFilters() {
+                var rules = [];
+                document.querySelectorAll('#tf-list-gp .tf-rule-row').forEach(function(row) {
+                  var field = (row.querySelector('[name="gp_rule_field"]') || {}).value || '';
+                  var op    = (row.querySelector('[name="gp_rule_op"]')    || {}).value || '';
+                  var val   = (row.querySelector('[name="gp_rule_val"]')   || {}).value || '';
+                  var cs    = !!(row.querySelector('[name="gp_rule_cs"]')  || {}).checked;
+                  if (field && op && val) rules.push({ field: field, operator: op, value: val, caseSensitive: cs });
+                });
+                var includeFolders = [];
+                document.querySelectorAll('#gp-include-chips [data-folder]').forEach(function(c) { includeFolders.push(c.dataset.folder); });
+                var excludeFolders = [];
+                document.querySelectorAll('#gp-exclude-chips [data-folder]').forEach(function(c) { excludeFolders.push(c.dataset.folder); });
+                var dedupe = !!(document.getElementById('gp-dedup-mbid') || {}).checked;
+                return { rules: rules, includeFolders: includeFolders, excludeFolders: excludeFolders, deduplicateByMbid: dedupe };
               }
 
               // Show/hide blend mode selector and preview user dropdown based on blend slots
@@ -1303,7 +1647,9 @@
               function runPreview() {
                 var rules = getBuilderRules();
                 var userId = document.getElementById('gp-preview-user').value;
-                var url = '/api/playlists/global/preview?rules=' + encodeURIComponent(JSON.stringify(rules));
+                var tf = getGpFilters();
+                var url = '/api/playlists/global/preview?rules=' + encodeURIComponent(JSON.stringify(rules))
+                  + '&trackFilters=' + encodeURIComponent(JSON.stringify(tf));
                 if (userId) url += '&userId=' + encodeURIComponent(userId);
                 fetch(url).then(function(r) { return r.json(); }).then(function(data) {
                   if (!data.ok) return;
@@ -1352,6 +1698,8 @@
               document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb').forEach(function(c) {
                 c.addEventListener('change', schedulePreview);
               });
+              var _dedupEl = document.getElementById('gp-dedup-mbid');
+              if (_dedupEl) _dedupEl.addEventListener('change', schedulePreview);
               document.querySelectorAll('.gp-checklist-search').forEach(function(input) {
                 input.addEventListener('input', function() {
                   var q = input.value.toLowerCase();
@@ -1403,7 +1751,7 @@
                   fetch('/api/playlists/global/' + editId, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode }),
+                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, trackFilters: getGpFilters() }),
                   }).then(function(r) { return r.json(); }).then(function(d) {
                     if (!d.ok) { msg.textContent = d.error || 'Error updating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                     var card = document.querySelector('.gp-card[data-gp-id="' + editId + '"]');
@@ -1422,7 +1770,7 @@
                 fetch('/api/playlists/global', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode }),
+                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, trackFilters: getGpFilters() }),
                 }).then(function(r) { return r.json(); }).then(function(d) {
                   if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                   msg.textContent = 'Created! It will sync on the next job run.';

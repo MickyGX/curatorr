@@ -1,6 +1,6 @@
 # Smart Playlists
 
-Curatorr builds and maintains personalized Plex playlists from real listening behavior.
+Curatorr builds and maintains personalized playlists in the connected media server from real listening behavior.
 
 ![Curatorr playlists page](../media/curatorr-playlists.png)
 
@@ -79,7 +79,11 @@ Curatorr also supports:
 - personal rule-based playlists
 - blended playlists across users
 
-These use the same underlying play history, track tiers, and master track cache.
+Smart playlists, personal playlists, and blended playlists sync on Plex, Jellyfin, and Emby. Daily Mix is currently Plex-only.
+
+Last.fm station playlists and ListenBrainz playlist suggestions are also currently Plex-only exports.
+
+These features use the same underlying play history, track tiers, and master track cache.
 
 ## Background Jobs
 

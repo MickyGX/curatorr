@@ -24,15 +24,22 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 
 ## Start Here
 
-1. [Quick Start](Quick-Start)
-2. [Configuration](Configuration)
-3. [Authentication and Roles](Authentication-and-Roles)
-4. [Integrations](Integrations)
-5. [Artist Suggestions and Lidarr Activity](Artist-Suggestions-and-Lidarr-Activity)
-6. [Discover](Discover)
-7. [Smart Playlists](Smart-Playlists)
-8. [Troubleshooting](Troubleshooting)
-9. [FAQ](FAQ)
+1. [Quick Start](Quick-Start.md)
+2. [Configuration](Configuration.md)
+3. [Authentication and Roles](Authentication-and-Roles.md)
+4. [Integrations](Integrations.md)
+5. [Artist Suggestions and Lidarr Activity](Artist-Suggestions-and-Lidarr-Activity.md)
+6. [Discover](Discover.md)
+7. [Smart Playlists](Smart-Playlists.md)
+8. [Troubleshooting](Troubleshooting.md)
+9. [FAQ](FAQ.md)
+
+## Page Guides
+
+- [History](History.md)
+- [Tracks](Tracks.md)
+- [Blend](Blend.md)
+- [User Profile](User-Profile.md)
 
 ## What Curatorr Solves
 
@@ -55,5 +62,5 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 ## Operational Endpoints
 
 - `GET /healthz`
-- `GET /api/version`
+- `GET /api/version` (authenticated)
 - `GET /api/logs` (authenticated)

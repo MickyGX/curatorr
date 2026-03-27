@@ -6315,6 +6315,276 @@ html[data-square-corners="1"] .widget-card-customize-panel {
   flex-shrink: 0;
 }
 
+/* ── Smart playlist cap row ──────────────────────────────────────────────── */
+.spt-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.spt-cap-label {
+  font-size: 13px;
+  color: var(--muted, #888);
+  white-space: nowrap;
+}
+.spt-cap-slider {
+  flex: 1 1 120px;
+  min-width: 80px;
+  max-width: 220px;
+  accent-color: var(--accent, #7b61ff);
+  cursor: pointer;
+}
+.spt-cap-num {
+  width: 56px;
+  text-align: center;
+}
+.spt-cap-sym {
+  font-size: 13px;
+  color: var(--muted, #888);
+  flex-shrink: 0;
+}
+.spt-cap-preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted, #888);
+  margin-left: 6px;
+}
+
+/* ── Track Exclusion Filters ─────────────────────────────────────────────── */
+.tf-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.tf-select {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #333);
+  background: var(--input-bg, #1a1a1a);
+  color: var(--text, #ddd);
+  font-size: 13px;
+}
+
+.tf-val {
+  flex: 1;
+  min-width: 140px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #333);
+  background: var(--input-bg, #1a1a1a);
+  color: var(--text, #ddd);
+  font-size: 13px;
+}
+
+.tf-remove-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--danger, #c0392b);
+  background: transparent;
+  color: var(--danger, #c0392b);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tf-remove-btn:hover {
+  background: var(--danger, #c0392b);
+  color: #fff;
+}
+
+.settings-field-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+
+/* ── Track Exclusion Filters (per playlist) ──────────────────────────────── */
+.tf-details {
+  margin-top: 16px;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tf-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--card-bg-2, #1a1a1a);
+  user-select: none;
+  list-style: none;
+}
+
+.tf-summary::-webkit-details-marker { display: none; }
+
+.tf-rule-count {
+  font-weight: normal;
+  opacity: 0.6;
+  font-size: 0.8rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.tf-body {
+  padding: 12px 14px;
+}
+
+.tf-cs-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #333);
+}
+
+.tf-cs-label input { margin: 0; }
+
+.tf-val-select {
+  flex: 1;
+  min-width: 140px;
+}
+
+.tf-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.gp-folder-browser {
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+}
+
+.gp-browser-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-subtle, rgba(255,255,255,0.04));
+  border-bottom: 1px solid var(--border, #333);
+  flex-shrink: 0;
+}
+
+.gp-browser-path {
+  flex: 1;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-muted, #999);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gp-browser-add-current {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.gp-browser-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.gp-browser-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.05));
+}
+
+.gp-browser-row:last-child { border-bottom: none; }
+
+.gp-browser-up {
+  cursor: pointer;
+  color: var(--text-muted, #999);
+  font-size: 12px;
+  gap: 4px;
+}
+
+.gp-browser-up-icon { font-size: 13px; }
+.gp-browser-up-label { flex: 1; }
+
+.gp-browser-row-name {
+  flex: 1;
+}
+
+.gp-browser-drillable {
+  cursor: pointer;
+  color: var(--accent, #7c6fff);
+}
+
+.gp-browser-drillable:hover { text-decoration: underline; }
+
+.gp-browser-arrow {
+  cursor: pointer;
+  color: var(--text-muted, #999);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.gp-browser-add-btn {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.gp-folder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.gp-folder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 10px;
+  background: var(--chip-bg, rgba(255,255,255,0.08));
+  border: 1px solid var(--border, #333);
+  border-radius: 12px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.gp-folder-chip-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.6;
+}
+.gp-folder-chip-remove:hover { opacity: 1; }
+
 /* ── Global Playlist Creator ─────────────────────────────────────────────── */
 #gp-list {
   display: grid;

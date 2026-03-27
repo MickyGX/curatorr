@@ -1,3 +1,6 @@
+import { setDefaultResultOrder } from 'dns';
+setDefaultResultOrder('ipv4first');
+
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';

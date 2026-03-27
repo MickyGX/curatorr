@@ -31,7 +31,7 @@ Core features like playback history, smart playlists, personal playlists, blende
 
 ---
 
-**Does Curatorr only use my Plex library?**
+**Does Curatorr only use my media-server library?**
 
 For scoring and smart playlists, yes.
 
@@ -43,9 +43,9 @@ External discovery is separate:
 
 ---
 
-**Can I exclude a Plex library?**
+**Can I exclude a library?**
 
-Yes. Select only the music libraries Curatorr should monitor in `Settings -> Plex`.
+Yes. Select only the music libraries Curatorr should monitor in `Settings -> Plex`, `Settings -> Jellyfin`, or `Settings -> Emby`.
 
 If you later remove a library and save, Curatorr cleans its own derived data for that library.
 
@@ -55,15 +55,15 @@ If you later remove a library and save, Curatorr cleans its own derived data for
 
 Yes, for future playback and for whatever history is still inside the active backfill window.
 
-That is not the same as a full historical re-import of everything ever seen by Tautulli.
+That is not the same as a full historical re-import of everything ever seen by Tautulli on Plex installs.
 
 ---
 
 **Does ListenBrainz use MBID matching?**
 
-Not yet.
+Yes, when ListenBrainz provides recording MBIDs.
 
-Current playlist syncing uses artist + track-title matching, consistent with the existing Last.fm station approach.
+Curatorr prefers recording MBID matches first and falls back to artist + track-title matching when MBIDs are unavailable.
 
 ---
 

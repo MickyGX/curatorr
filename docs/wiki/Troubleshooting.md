@@ -18,6 +18,13 @@ First check which live playback source is selected in `Settings -> General`.
 
 If live playback source is `Plex`, Tautulli webhooks being absent is not the problem.
 
+### If your media server is `Jellyfin` or `Emby`
+
+- confirm the server URL and API key are valid
+- confirm Curatorr can reach the media server from the container
+- confirm the track is in a selected music library
+- confirm recent playback/session activity is showing up in Curatorr logs
+
 ## Tautulli gap-fill is not importing expected rows
 
 Check:
@@ -29,26 +36,28 @@ Check:
 
 Gap-fill does not require the Tautulli webhook.
 
-## Excluded Plex library plays are still visible
+## Excluded library plays are still visible
 
-Curatorr only cleans its own derived data when a Plex library is deselected. It does not modify Plex or Tautulli history.
+Curatorr only cleans its own derived data when a library is deselected. It does not modify Plex, Jellyfin, Emby, or Tautulli history.
 
 If old plays remain after deselecting a library, they may have been written before library-key tracking was complete or may need direct cleanup from Curatorr's `play_events` table.
 
-## Smart playlist is not appearing in Plex
+## Playlist changes are not appearing in the media server
 
 Check:
 
-- Plex token and machine ID
+- media-server connection settings
 - selected music libraries
 - Smart Playlist Sync job status
-- whether the Plex account used has playlist write access
+- whether the target account has playlist write access
 
-## New Plex music library is missing from settings
+For Plex-specific playlist problems, also verify the Plex token and machine ID.
 
-Use `Settings -> Plex -> Refresh libraries`.
+## New music library is missing from settings
 
-The checklist is not automatically refreshed just because a new Plex library was added server-side.
+Use the relevant refresh/save flow in the media-server settings after the library exists server-side.
+
+On Plex, this is `Settings -> Plex -> Refresh libraries`.
 
 ## ListenBrainz playlists are not appearing
 

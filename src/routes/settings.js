@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags } from '../db.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
+import { applyTrackFilters } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
 import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
@@ -403,7 +404,16 @@ export function registerSettings(app, ctx) {
       blendableUsers,
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
-      allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
+      allLastfmTags:    (() => { try { return getAllLastfmTags(db);         } catch { return []; } })(),
+      allLibraryKeys:   (() => {
+        try {
+          const keys = getDistinctLibraryKeys(db);
+          const available = Array.isArray(config?.plex?.availableLibraries) ? config.plex.availableLibraries : [];
+          const nameMap = new Map(available.map((l) => [String(l.key || ''), String(l.title || '')]));
+          return keys.map((k) => ({ key: k.key, title: nameMap.get(k.key) || k.key }));
+        } catch { return []; }
+      })(),
+      allPathSegments:  (() => { try { return getDistinctPathSegments(db); } catch { return []; } })(),
       localAuthMinPassword: LOCAL_AUTH_MIN_PASSWORD,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
@@ -733,36 +743,54 @@ export function registerSettings(app, ctx) {
   app.post('/settings/smart-playlist-types', requireAdmin, (req, res) => {
     const config = loadConfig();
     const pct = (name, def) => Math.max(0, Math.min(100, Number(req.body?.[name]) || def)) / 100;
-    const int = (name, def) => Math.max(1, Math.min(50, Math.floor(Number(req.body?.[name]) || def)));
-
+    const parseFilters = (prefix) => {
+      const fields = [].concat(req.body?.[`${prefix}_rule_field`] || []);
+      const ops    = [].concat(req.body?.[`${prefix}_rule_op`]    || []);
+      const vals   = [].concat(req.body?.[`${prefix}_rule_val`]   || []);
+      const css    = [].concat(req.body?.[`${prefix}_rule_cs`]    || []);
+      const rules = [];
+      for (let i = 0; i < fields.length; i++) {
+        const field = String(fields[i] || '').trim();
+        const operator = String(ops[i] || '').trim();
+        const value = String(vals[i] || '').trim();
+        if (field && operator && value) rules.push({ field, operator, value, caseSensitive: css[i] === 'on' });
+      }
+      const excludeLibraryKeys = [].concat(req.body?.[`${prefix}_excludeLibraryKeys`] || []).map(String).filter(Boolean);
+      const deduplicateByMbid = req.body?.[`${prefix}_deduplicateByMbid`] === 'on';
+      return { rules, excludeLibraryKeys, deduplicateByMbid };
+    };
     const crescive = {
-      favouriteArtistTrackPct: pct('cr_favArtistTrackPct', 80),
-      favouriteGenreArtistPct: pct('cr_favGenreArtistPct', 80),
-      favouriteGenreTrackPct:  pct('cr_favGenreTrackPct',  20),
-      otherGenreArtistPct:     pct('cr_otherArtistPct',    20),
-      otherGenreTrackPct:      pct('cr_otherTrackPct',     20),
+      capMultiplier:           pct('cr_capMultiplier',        100),
+      favouriteArtistTrackPct: pct('cr_favArtistTrackPct',    80),
+      favouriteGenreArtistPct: pct('cr_favGenreArtistPct',    80),
+      favouriteGenreTrackPct:  pct('cr_favGenreTrackPct',     20),
+      otherGenreArtistPct:     pct('cr_otherArtistPct',       20),
+      otherGenreTrackPct:      pct('cr_otherTrackPct',        20),
+      trackFilters:            parseFilters('cr'),
     };
     const curative = {
-      favouriteArtistTrackPct: pct('cu_favArtistTrackPct', 100),
-      favouriteGenreArtistPct: pct('cu_favGenreArtistPct', 100),
-      favouriteGenreTrackPct:  pct('cu_favGenreTrackPct',   80),
-      otherGenreArtistPct:     pct('cu_otherArtistPct',     50),
-      otherGenreTrackPct:      pct('cu_otherTrackPct',      50),
-    };
-    const additionRules = {
-      belter:     { playedPct: pct('ar_belter_pct',     50), addCount: int('ar_belter_count',     15) },
-      decent:     { playedPct: pct('ar_decent_pct',     80), addCount: int('ar_decent_count',     10) },
-      halfDecent: { playedPct: pct('ar_halfDecent_pct', 100), addCount: int('ar_halfDecent_count',  5) },
-    };
-    const subtractionRules = {
-      skip: [0, 1, 2].map((i) => ({
-        playedPct:   pct(`sr_skip_${i}_pct`,   [20, 50, 80][i]),
-        removeCount: int(`sr_skip_${i}_count`, [15, 10,  5][i]),
-      })),
+      capMultiplier:           pct('cu_capMultiplier',        100),
+      favouriteArtistTrackPct: pct('cu_favArtistTrackPct',   100),
+      favouriteGenreArtistPct: pct('cu_favGenreArtistPct',   100),
+      favouriteGenreTrackPct:  pct('cu_favGenreTrackPct',     80),
+      otherGenreArtistPct:     pct('cu_otherArtistPct',       50),
+      otherGenreTrackPct:      pct('cu_otherTrackPct',        50),
+      trackFilters:            parseFilters('cu'),
     };
     const enableCrescive = req.body?.enableCrescive === 'on';
     const enableCurative = req.body?.enableCurative === 'on';
-    saveConfig({ ...config, smartPlaylist: { ...config.smartPlaylist, enableCrescive, enableCurative, crescive, curative, additionRules, subtractionRules } });
+    const wasCrescive = config.smartPlaylist?.enableCrescive !== false;
+    const wasCurative = config.smartPlaylist?.enableCurative !== false;
+    saveConfig({ ...config, smartPlaylist: { ...config.smartPlaylist, enableCrescive, enableCurative, crescive, curative } });
+
+    // Remove playlists for any type that was just disabled
+    if (wasCrescive && !enableCrescive) {
+      playlistService.removeSmartPlaylistType('crescive').catch((err) => pushLog({ level: 'warn', app: 'playlist', action: 'crescive.remove', message: `Error removing crescive playlists: ${err.message}` }));
+    }
+    if (wasCurative && !enableCurative) {
+      playlistService.removeSmartPlaylistType('curative').catch((err) => pushLog({ level: 'warn', app: 'playlist', action: 'curative.remove', message: `Error removing curative playlists: ${err.message}` }));
+    }
+
     return res.redirect('/settings?tab=smart-playlist&success=1');
   });
 
@@ -1368,7 +1396,16 @@ export function registerSettings(app, ctx) {
       blendUsers,
       blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
     };
-    const entry = { id: makeGlobalPlaylistId(), name, rules, enabled: true, createdAt: Date.now() };
+    const gpFilters = req.body?.trackFilters !== undefined ? (() => {
+      const tf = req.body.trackFilters || {};
+      const tfRules = (Array.isArray(tf.rules) ? tf.rules : [])
+        .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
+        .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
+      const includeFolders = Array.isArray(tf.includeFolders) ? tf.includeFolders.map(String).filter(Boolean) : [];
+      const excludeFolders = Array.isArray(tf.excludeFolders) ? tf.excludeFolders.map(String).filter(Boolean) : [];
+      return { rules: tfRules, includeFolders, excludeFolders, deduplicateByMbid: Boolean(tf.deduplicateByMbid) };
+    })() : undefined;
+    const entry = { id: makeGlobalPlaylistId(), name, rules, trackFilters: gpFilters, enabled: true, createdAt: Date.now() };
     const config = loadConfig();
     const playlists = [...(config.globalPlaylists || []), entry];
     saveConfig({ ...config, globalPlaylists: playlists });
@@ -1415,6 +1452,15 @@ export function registerSettings(app, ctx) {
           ? (BLEND_MODES.includes(req.body.blendMode) ? req.body.blendMode : 'average')
           : (existing.rules?.blendMode || 'average'),
       },
+      trackFilters: req.body?.trackFilters !== undefined ? (() => {
+        const tf = req.body.trackFilters || {};
+        const tfRules = (Array.isArray(tf.rules) ? tf.rules : [])
+          .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
+          .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
+        const includeFolders = Array.isArray(tf.includeFolders) ? tf.includeFolders.map(String).filter(Boolean) : [];
+        const excludeFolders = Array.isArray(tf.excludeFolders) ? tf.excludeFolders.map(String).filter(Boolean) : [];
+        return { rules: tfRules, includeFolders, excludeFolders, deduplicateByMbid: Boolean(tf.deduplicateByMbid) };
+      })() : existing.trackFilters,
       updatedAt: Date.now(),
     };
     const newList = [...playlists];
@@ -1449,10 +1495,90 @@ export function registerSettings(app, ctx) {
   app.get('/api/playlists/global/preview', requireAdmin, (req, res) => {
     let rules;
     try { rules = JSON.parse(String(req.query?.rules || '{}')); } catch { return res.status(400).json({ error: 'Invalid rules JSON' }); }
+    let trackFilters;
+    try { trackFilters = req.query?.trackFilters ? JSON.parse(String(req.query.trackFilters)) : undefined; } catch { trackFilters = undefined; }
     const userId = String(req.query?.userId || '').trim() || null;
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || DEFAULT_SMART_PLAYLIST_SETTINGS;
-    const result = previewGlobalPlaylist(db, rules, userId, smartSettings);
+    const allTracks = getMasterTracks(db);
+    const filteredTracks = trackFilters ? applyTrackFilters(allTracks, trackFilters) : allTracks;
+    const result = previewGlobalPlaylist(db, rules, userId, smartSettings, filteredTracks);
     res.json({ ok: true, ...result });
+  });
+
+  // GET /api/playlists/smart/preview — live artist/track count estimate using all category pcts
+  app.get('/api/playlists/smart/preview', requireAdmin, (req, res) => {
+    const qp = (name, def) => Math.max(0, Math.min(1, parseFloat(req.query?.[name]) || def));
+    const capMultiplier    = qp('capMultiplier',    1.0);
+    const favArtistCap     = qp('favArtistTrackPct', 1.0);
+    const favGenreArtPct   = qp('favGenreArtistPct', 1.0);
+    const favGenreTrackCap = qp('favGenreTrackPct',  1.0);
+    const otherArtPct      = qp('otherArtistPct',    1.0);
+    const otherTrackCap    = qp('otherTrackPct',     1.0);
+
+    const userId = String(req.query?.userId || req.session?.user?.username || '').trim() || null;
+    const masterTracks = getMasterTracks(db);
+    if (!masterTracks.length) return res.json({ ok: true, artistCount: 0, trackCount: 0 });
+
+    // Build artist map with genres
+    const artistMap = new Map();
+    for (const t of masterTracks) {
+      const lower = t.artistName.toLowerCase();
+      if (!artistMap.has(lower)) artistMap.set(lower, { count: 0, genres: new Set() });
+      const entry = artistMap.get(lower);
+      entry.count++;
+      for (const g of (t.genres || [])) entry.genres.add(g.toLowerCase());
+    }
+
+    const computeForUser = (uid) => {
+      const scoreRows = db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(uid);
+      const scoreMap  = new Map(scoreRows.map((r) => [r.artist_name.toLowerCase(), r.ranking_score]));
+      const prefs = getUserPreferences(db, uid) || {};
+      const likedArtists = new Set((prefs.likedArtists || []).map((a) => a.toLowerCase()));
+      const likedGenres  = new Set((prefs.likedGenres  || []).map((g) => g.toLowerCase()));
+      const noPrefs = !likedArtists.size && !likedGenres.size;
+
+      // Bucket artists for artist-count filter
+      const favGenreList = [], otherList = [];
+      for (const [lower, { genres }] of artistMap) {
+        if (likedArtists.has(lower)) continue;
+        const inFavGenre = likedGenres.size > 0 && [...genres].some((g) => likedGenres.has(g));
+        if (inFavGenre) favGenreList.push(lower); else otherList.push(lower);
+      }
+      const byScore = (a, b) => (scoreMap.get(b) ?? 0) - (scoreMap.get(a) ?? 0);
+      const favGenreIncluded = new Set(favGenreList.sort(byScore).slice(0, Math.ceil(favGenreList.length * favGenreArtPct)));
+      const otherIncluded    = new Set(otherList.sort(byScore).slice(0, Math.ceil(otherList.length * otherArtPct)));
+
+      let artistCount = 0, trackCount = 0;
+      for (const [lower, { count }] of artistMap) {
+        let trackCap;
+        if (likedArtists.has(lower))        trackCap = favArtistCap;
+        else if (favGenreIncluded.has(lower)) trackCap = favGenreTrackCap;
+        else if (otherIncluded.has(lower))    trackCap = otherTrackCap;
+        else if (noPrefs)                     trackCap = otherTrackCap;
+        else continue;
+
+        const rawScore = scoreMap.get(lower);
+        const scoreFactor = rawScore != null ? Math.max(0, rawScore / 10) : 1.0;
+        if (scoreFactor <= 0) continue;
+        const pct = scoreFactor * trackCap * capMultiplier;
+        artistCount++;
+        trackCount += Math.max(1, Math.ceil(count * pct));
+      }
+      return { artistCount, trackCount };
+    };
+
+    if (userId) {
+      return res.json({ ok: true, ...computeForUser(userId) });
+    }
+    const userIds = getAllUserIds(db);
+    if (!userIds.length) return res.json({ ok: true, artistCount: artistMap.size, trackCount: masterTracks.length });
+    let totalArtists = 0, totalTracks = 0;
+    for (const uid of userIds) {
+      const r = computeForUser(uid);
+      totalArtists += r.artistCount;
+      totalTracks  += r.trackCount;
+    }
+    res.json({ ok: true, artistCount: Math.round(totalArtists / userIds.length), trackCount: Math.round(totalTracks / userIds.length) });
   });
 }

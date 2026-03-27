@@ -34,8 +34,9 @@ Current Plex-only features:
 
 ## Documentation
 
-For installation, setup, configuration, and troubleshooting, use the wiki docs:
+For installation, setup, configuration, and troubleshooting:
 
+- [GitHub Wiki](https://github.com/MickyGX/curatorr/wiki)
 - [Wiki Home](docs/wiki/Home.md)
 - [Quick Start](docs/wiki/Quick-Start.md)
 - [Configuration](docs/wiki/Configuration.md)
@@ -44,6 +45,10 @@ For installation, setup, configuration, and troubleshooting, use the wiki docs:
 - [Artist Suggestions and Lidarr Activity](docs/wiki/Artist-Suggestions-and-Lidarr-Activity.md)
 - [Discover](docs/wiki/Discover.md)
 - [Smart Playlists](docs/wiki/Smart-Playlists.md)
+- [History](docs/wiki/History.md)
+- [Tracks](docs/wiki/Tracks.md)
+- [Blend](docs/wiki/Blend.md)
+- [User Profile](docs/wiki/User-Profile.md)
 - [Troubleshooting](docs/wiki/Troubleshooting.md)
 - [FAQ](docs/wiki/FAQ.md)
 

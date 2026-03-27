@@ -1,6 +1,6 @@
 # Discover
 
-The Discover page lets you find and add artists that do not yet exist in your Plex library. It is separate from the [Artist Suggestions](Artist-Suggestions-and-Lidarr-Activity) panel, which only surfaces artists already in your library.
+The Discover page lets you find and add artists that do not yet exist in your connected media-server library. It is separate from the [Artist Suggestions](Artist-Suggestions-and-Lidarr-Activity.md) panel, which only surfaces artists already in your library cache.
 
 ![Curatorr discover page](../media/curatorr-discover.png)
 
@@ -41,7 +41,7 @@ All adds from the Discover page are manual — you choose the artist and initiat
 3. Triggers a Lidarr search if auto-trigger is enabled in Lidarr settings
 4. Tracks progress in the **Lidarr Activity** panel on the Artists page
 
-Weekly role quotas apply (see [Roles and Permissions](Authentication-and-Roles#roles)). If your quota is full when you try to add, the request moves into your **Queue** automatically and is processed once quota resets.
+Weekly role quotas apply (see [Roles and Permissions](Authentication-and-Roles.md#roles)). If your quota is full when you try to add, the request moves into your **Queue** automatically and is processed once quota resets.
 
 ---
 
@@ -76,6 +76,6 @@ If no Last.fm key is configured, only the Manual Discovery panel is shown.
 ## What Discover Does Not Do
 
 - **Automatic external adds** — Curatorr does not automatically add artists from Last.fm or any external source without you clicking. All Discover adds require a manual action.
-- **Suggestions from external data** — the [Suggested Artists](Artist-Suggestions-and-Lidarr-Activity) panel on the Artists page is entirely separate and uses only your Plex library. External discovery lives here on the Discover page.
+- **Suggestions from external data** — the [Suggested Artists](Artist-Suggestions-and-Lidarr-Activity.md) panel on the Artists page is entirely separate and uses only your media-server library. External discovery lives here on the Discover page.
 
-> **Note:** Automatic adding of library-based suggestions *is* available via **Settings → Lidarr → Automatically add top suggested artists to Lidarr**. This only applies to artists already in your Plex library that score highly enough — not to external Last.fm artists.
+> **Note:** Automatic adding of library-based suggestions *is* available via **Settings → Lidarr → Automatically add top suggested artists to Lidarr**. This only applies to artists already in your media-server library that score highly enough, not to external Last.fm artists.

@@ -41,7 +41,7 @@ Curatorr uses Jellyfin for:
 - music library indexing
 - live playback tracking through the Curatorr Jellyfin webhook and native session polling
 - smart playlist creation and updates
-- personal playlists and blended playlists
+- personal, blended, and rule-based playlist sync
 
 ### Jellyfin setup
 
@@ -64,7 +64,7 @@ Curatorr uses Emby for:
 - music library indexing
 - live playback tracking through the Curatorr Emby webhook and native session polling
 - smart playlist creation and updates
-- personal playlists and blended playlists
+- personal, blended, and rule-based playlist sync
 
 ### Emby setup
 
@@ -150,7 +150,7 @@ Current support is for playlist suggestions synced into Plex:
 - Weekly Jams
 - Weekly Exploration
 
-Current matching is artist + track-title based, matching the existing Last.fm station infrastructure. This does not currently import ListenBrainz listening history.
+Matching prefers MusicBrainz recording MBIDs when ListenBrainz provides them, and falls back to artist + track-title matching when it does not. This does not currently import ListenBrainz listening history.
 
 Logging is available under the `ListenBrainz` filter in the Curatorr log view.
 
