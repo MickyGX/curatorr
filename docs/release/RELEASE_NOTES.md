@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.41 (2026-03-28)
+
+- Added an optional analyzer sidecar and built-in analysis pipeline for automatic BPM, musical key, Camelot key, energy, and danceability enrichment, with chunked processing, progress updates, and Docker-friendly defaults.
+- Added track enrichment workflows around MusicBrainz release dates, feature manifest import/export, and Plex loudness sync so Curatorr can combine external metadata, local analysis, and Plex loudness data in one shared enrichment store.
+- Added feature-driven playlist presets for both global and personal playlists, including visual preset cards, Camelot focus/spread controls, coverage-aware preset gating, and live feature-match counts while editing.
+- Extended Camelot matching to support multiple focus keys plus exact, adjacent, relative major/minor, and full harmonic-set modes, with inline help explaining the DJ wheel notation.
+- Fixed feature filters and preset previews so tracks without BPM/energy/danceability data are excluded instead of being treated like zero-valued matches, preventing massively inflated preset counts.
+
 ## v0.1.40 (2026-03-28)
 
 - Added a new generated rotating playlist type called `Curatorr`, blending familiar favourites with discovery tracks using configurable target size, discovery ratio, artist caps, cooldowns, and track filters.

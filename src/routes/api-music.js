@@ -53,6 +53,7 @@ import {
   getArtistTagMap,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
+import { applyFeaturePresetFilters } from '../services/playlists.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -63,9 +64,32 @@ const THUMB_CACHE_TTL_MS = 30 * 60 * 1000;
 const THUMB_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 const THUMB_CACHE_MAX = 600;
 const thumbCache = new Map();
+const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
+const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
 // Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
 const msUserIdCache = new Map();
 const MS_USERID_CACHE_TTL_MS = 60 * 60 * 1000;
+
+function parseNullablePlaylistNumber(value) {
+  if (value === '' || value == null) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function buildPlaylistFeatureRules(payload = {}) {
+  const rawPreset = String(payload.featurePreset || '').trim().toLowerCase();
+  return {
+    featurePreset: PLAYLIST_FEATURE_PRESETS.includes(rawPreset) ? rawPreset : 'none',
+    bpmMin: parseNullablePlaylistNumber(payload.bpmMin),
+    bpmMax: parseNullablePlaylistNumber(payload.bpmMax),
+    energyMin: parseNullablePlaylistNumber(payload.energyMin),
+    energyMax: parseNullablePlaylistNumber(payload.energyMax),
+    danceabilityMin: parseNullablePlaylistNumber(payload.danceabilityMin),
+    danceabilityMax: parseNullablePlaylistNumber(payload.danceabilityMax),
+    camelotFocus: String(payload.camelotFocus || '').trim().toUpperCase(),
+    camelotMode: CAMELOT_MODES.includes(String(payload.camelotMode || '').trim()) ? String(payload.camelotMode).trim() : 'exact',
+  };
+}
 
 function stripArtistSuffix(title, artist) {
   if (!title || !artist) return title || '';
@@ -3008,9 +3032,10 @@ export function registerApiMusic(app, ctx) {
     try { rules = JSON.parse(String(req.query?.rules || '{}')); } catch { return res.status(400).json({ error: 'Invalid rules JSON' }); }
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
-    const result = previewGlobalPlaylist(db, rules, userPlexId, smartSettings);
+    const filteredTracks = applyFeaturePresetFilters(getMasterTracks(db), rules || {});
+    const result = previewGlobalPlaylist(db, rules, userPlexId, smartSettings, filteredTracks);
     const counts = result.forUser || { artistCount: 0, trackCount: 0 };
-    res.json({ ok: true, artistCount: counts.artistCount, trackCount: counts.trackCount });
+    res.json({ ok: true, artistCount: counts.artistCount, trackCount: counts.trackCount, featureTrackCount: filteredTracks.length });
   });
 
   // GET /api/music/playlists/personal/:id — must be after /preview to avoid route shadowing
@@ -3040,6 +3065,7 @@ export function registerApiMusic(app, ctx) {
       sortBy: String(req.body?.sortBy || 'ratingCount'),
       blendUsers,
       blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      ...buildPlaylistFeatureRules(req.body || {}),
     };
     const playlistDef = { id: makePersonalPlaylistId(), name, rules };
     createUserPersonalPlaylist(db, userPlexId, playlistDef);
@@ -3075,6 +3101,7 @@ export function registerApiMusic(app, ctx) {
       sortBy: String(req.body?.sortBy || 'ratingCount'),
       blendUsers,
       blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      ...buildPlaylistFeatureRules(req.body || {}),
     };
     const updated = { ...existing, name, rules };
     updateUserPersonalPlaylist(db, userPlexId, updated);
@@ -3119,11 +3146,32 @@ export function registerApiMusic(app, ctx) {
   });
 
   // DELETE /api/music/playlists/personal/:id
-  app.delete('/api/music/playlists/personal/:id', requireUser, (req, res) => {
+  app.delete('/api/music/playlists/personal/:id', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     const id = String(req.params.id || '');
     const existing = getUserPersonalPlaylist(db, id, userPlexId);
     if (!existing) return res.status(404).json({ error: 'Not found' });
+
+    const playlistKey = `personal:${id}`;
+    const generatedEntry = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((p) => p.playlistKey === playlistKey);
+
+    if (generatedEntry) {
+      const config = loadConfig();
+      const { url } = config.plex || {};
+      const token = resolveUserPlexServerToken(config, userPlexId);
+      const base = String(url || '').replace(/\/$/, '');
+      if (base && token && generatedEntry.plexPlaylistId) {
+        try {
+          await fetch(`${base}/playlists/${generatedEntry.plexPlaylistId}`, {
+            method: 'DELETE',
+            headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          });
+        } catch (_err) { /* best-effort */ }
+      }
+      saveUserGeneratedPlaylist(db, userPlexId, { ...generatedEntry, active: false, plexPlaylistId: '', updatedAt: Date.now() });
+    }
+
     deleteUserPersonalPlaylist(db, id, userPlexId);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.delete', message: `Personal playlist deleted: ${id} for ${userPlexId}` });
     res.json({ ok: true });

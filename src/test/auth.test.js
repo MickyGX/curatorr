@@ -1,5 +1,6 @@
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -16,9 +17,23 @@ process.env.PORT = String(37000 + (process.pid % 1000));
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
 const { start, stop, canUserAccessLidarrAutomation, completePlexLogin } = await import('../index.js');
-const { initDb, listLidarrRequests, getUserPreferences, saveUserPreferences, listUserGeneratedPlaylists, saveUserGeneratedPlaylist } = await import('../db.js');
+const {
+  countTracksMissingEnrichment,
+  countTracksMissingPlexLoudness,
+  getMasterTracks,
+  getTrackEnrichmentByRatingKeys,
+  initDb,
+  listLidarrRequests,
+  listTracksMissingPlexLoudness,
+  getUserPreferences,
+  saveUserPreferences,
+  listUserGeneratedPlaylists,
+  saveUserGeneratedPlaylist,
+} = await import('../db.js');
+const { createJobService } = await import('../services/jobs.js');
 const { createLidarrService } = await import('../services/lidarr.js');
-const { createPlaylistService } = await import('../services/playlists.js');
+const { applyFeaturePresetFilters, applyTrackFilters, createPlaylistService } = await import('../services/playlists.js');
+const { createTrackEnrichmentService } = await import('../services/track-enrichment.js');
 const { runTautulliDailySync } = await import('../services/tautulli-sync.js');
 const {
   resetLoginAttempts,
@@ -2772,6 +2787,1181 @@ describe('security guards', () => {
       assert.equal(synced.plexPlaylistId, 'plex-curatorr-1');
     } finally {
       dbVerify.close();
+    }
+  });
+
+  it('applies Plex sonic ordering to Daily Mix during sync when enabled', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `daily-mix-sonic-${Date.now()}`;
+    const logs = [];
+
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-s1', userId, 'Track 1', 'Artist A', 'Album A', 12, 'belter', 1.5, 0, Date.now());
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-s2', userId, 'Track 2', 'Artist A', 'Album A', 10, 'decent', 0.5, 0, Date.now());
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-s3', userId, 'Track 3', 'Artist B', 'Album B', 8, 'decent', 0.5, 0, Date.now());
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {
+          dailyMix: {
+            favoriteLimit: 3,
+            suggestedLimit: 0,
+            freshLimit: 0,
+            maxTracks: 3,
+            maxTracksPerArtist: 2,
+            repeatCooldownDays: 0,
+            useSonicOrdering: true,
+            sonicSeedCount: 2,
+            sonicExpansionLimit: 4,
+            sonicMaxDistance: 0.35,
+            sonicStrategy: 'favor-favorites',
+          },
+        },
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.includes('/library/metadata/dm-s1/nearest?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'dm-s3' }, { ratingKey: 'dm-s2' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.includes('/library/metadata/dm-s2/nearest?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'dm-s1' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: 'plex-daily-mix-sonic' }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-daily-mix-sonic/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-daily-mix-sonic/items?uri=')) {
+        const decoded = decodeURIComponent(target);
+        assert.match(decoded, /library\/metadata\/dm-s1,dm-s3,dm-s2/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in Daily Mix sonic test: ${target}`);
+    };
+
+    try {
+      const built = service.buildDailyMix(userId);
+      assert.deepEqual(built.trackKeys, ['dm-s1', 'dm-s2', 'dm-s3']);
+
+      const synced = await service.syncDailyMix(userId);
+      assert.deepEqual(synced.trackKeys, ['dm-s1', 'dm-s3', 'dm-s2']);
+      assert.equal(synced.sonicApplied, true);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'sonic.ordering'));
+  });
+
+  it('uses Plex sonic path sequencing when selected tracks share a library section', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `daily-mix-sonic-path-${Date.now()}`;
+    const logs = [];
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('dm-p1', 'Artist A', 'Track 1', 'Album A', '', '[]', '1', 10, 0, now);
+    insertMaster.run('dm-p2', 'Artist B', 'Track 2', 'Album B', '', '[]', '1', 8, 0, now);
+    insertMaster.run('dm-p3', 'Artist C', 'Track 3', 'Album C', '', '[]', '1', 6, 0, now);
+
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-p1', userId, 'Track 1', 'Artist A', 'Album A', 12, 'belter', 1.5, 0, now);
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-p2', userId, 'Track 2', 'Artist B', 'Album B', 10, 'decent', 0.5, 0, now);
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-p3', userId, 'Track 3', 'Artist C', 'Album C', 8, 'decent', 0.5, 0, now);
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {
+          dailyMix: {
+            favoriteLimit: 3,
+            suggestedLimit: 0,
+            freshLimit: 0,
+            maxTracks: 3,
+            maxTracksPerArtist: 1,
+            repeatCooldownDays: 0,
+            useSonicOrdering: true,
+            sonicSeedCount: 2,
+            sonicExpansionLimit: 4,
+            sonicMaxDistance: 0.35,
+            sonicStrategy: 'favor-favorites',
+          },
+        },
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.includes('/library/sections/1/computePath?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Path: [{ ratingKey: 'dm-p1' }, { ratingKey: 'dm-p3' }, { ratingKey: 'dm-p2' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.includes('/library/metadata/') && target.includes('/nearest?')) {
+        throw new Error(`Nearest fallback should not run when path sequencing succeeds: ${target}`);
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: 'plex-daily-mix-path' }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-daily-mix-path/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-daily-mix-path/items?uri=')) {
+        const decoded = decodeURIComponent(target);
+        assert.match(decoded, /library\/metadata\/dm-p1,dm-p3,dm-p2/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in Daily Mix sonic path test: ${target}`);
+    };
+
+    try {
+      const synced = await service.syncDailyMix(userId);
+      assert.deepEqual(synced.trackKeys, ['dm-p1', 'dm-p3', 'dm-p2']);
+      assert.equal(synced.sonicApplied, true);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const pathLog = logs.find((entry) => entry?.action === 'sonic.ordering');
+    assert.equal(pathLog?.meta?.method, 'path');
+  });
+
+  it('falls back to standard Curatorr ordering when Plex sonic data is unavailable', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `curatorr-sonic-fallback-${Date.now()}`;
+    const logs = [];
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('ct-s1', 'Artist A', 'Known Favorite', 'Album A', '', '["Rock"]', '1', 20, 0, now);
+    insertMaster.run('ct-s2', 'Artist B', 'Steady Favorite', 'Album B', '', '["Rock"]', '1', 10, 0, now);
+    insertMaster.run('ct-s3', 'Artist C', 'Suggested Track', 'Album C', '', '["Synth"]', '1', 4, 0, now);
+
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('ct-s1', userId, 'Known Favorite', 'Artist A', 'Album A', 14, 'belter', 1.5, now, now);
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('ct-s2', userId, 'Steady Favorite', 'Artist B', 'Album B', 8, 'decent', 0.5, now, now);
+
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?)
+    `).run('Artist A', userId, 14, 9.2, now, now);
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?)
+    `).run('Artist B', userId, 8, 8.1, now, now);
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, 0, 0, 0, 0, 0, 0, ?, 0, ?)
+    `).run('Artist C', userId, 7.1, now);
+
+    db.prepare(`
+      INSERT INTO suggested_tracks (
+        user_plex_id, suggestion_key, rating_key, artist_name, track_title,
+        album_name, source, total_score, reason_json, created_at, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, 'curatorr-sonic-suggested-1', 'ct-s3', 'Artist C', 'Suggested Track', 'Album C', 'curatorr', 8.5, '{}', now, null);
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {
+          appendUsernameToPlaylistTitles: true,
+          artistSkipRank: 2,
+          curatorr: {
+            targetTracks: 3,
+            discoveryRatio: 0.34,
+            maxTracksPerArtist: 1,
+            repeatCooldownDays: 0,
+            useSonicOrdering: true,
+            sonicSeedCount: 2,
+            sonicExpansionLimit: 4,
+            sonicMaxDistance: 0.35,
+            sonicStrategy: 'balanced',
+          },
+        },
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const built = service.buildCuratorr(userId);
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.includes('/library/sections/') && target.includes('/computePath?')) {
+        return new Response('', { status: 404 });
+      }
+      if (target.includes('/library/metadata/') && target.includes('/nearest?')) {
+        return new Response('', { status: 404 });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: 'plex-curatorr-sonic-fallback' }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-curatorr-sonic-fallback/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-curatorr-sonic-fallback/items?uri=')) {
+        const decoded = decodeURIComponent(target);
+        assert.match(decoded, new RegExp(`library/metadata/${built.trackKeys.join(',')}`));
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in Curatorr sonic fallback test: ${target}`);
+    };
+
+    try {
+      const synced = await service.syncCuratorr(userId);
+      assert.deepEqual(synced.trackKeys, built.trackKeys);
+      assert.equal(synced.sonicApplied, false);
+      assert.equal(synced.sonicFallbackReason, 'no-sonic-data');
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'sonic.fallback'));
+  });
+
+  it('backfills track enrichment from MusicBrainz release dates', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-1.db`);
+    const db = initDb(dbPath);
+    const logs = [];
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'enrich-1',
+      'Boards of Canada',
+      'Roygbiv',
+      'Music Has the Right to Children',
+      'mbid-track-1',
+      '[]',
+      '1',
+      '/music/Boards of Canada/Roygbiv.flac',
+      180000,
+      0,
+      0,
+      now,
+    );
+
+    const service = createTrackEnrichmentService({
+      db,
+      pushLog: (entry) => logs.push(entry),
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      if (!target.includes('/ws/2/recording/mbid-track-1?')) {
+        throw new Error(`Unexpected enrichment fetch URL: ${target}`);
+      }
+      return new Response(JSON.stringify({
+        id: 'mbid-track-1',
+        releases: [
+          { id: 'release-late', status: 'Official', date: '2000-04-10' },
+          { id: 'release-early', status: 'Official', date: '1998-04-20' },
+        ],
+        'release-groups': [
+          { id: 'rg-1', 'first-release-date': '1998-04' },
+        ],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const result = await service.runSync({ limit: 5, requestDelayMs: 0, timeoutMs: 5000 });
+      assert.equal(result.processed, 1);
+      assert.equal(result.enriched, 1);
+      assert.equal(result.failed, 0);
+      assert.equal(result.remaining, 0);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const [row] = getTrackEnrichmentByRatingKeys(dbVerify, ['enrich-1']);
+      assert.ok(row);
+      assert.equal(row.recordingMbid, 'mbid-track-1');
+      assert.equal(row.trackYear, 1998);
+      assert.equal(row.originalReleaseDate, '1998-04-20');
+      assert.equal(row.analysisSource, 'musicbrainz');
+      assert.equal(countTracksMissingEnrichment(dbVerify, { requireRecordingMbid: true }), 0);
+    } finally {
+      dbVerify.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'track-enrichment.finish'));
+  });
+
+  it('stores a completed enrichment row when only release-group year data is available', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-2.db`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'enrich-2',
+      'Artist',
+      'Unclear Date Track',
+      'Album',
+      'mbid-track-2',
+      '[]',
+      '1',
+      '/music/Artist/Unclear Date Track.flac',
+      200000,
+      0,
+      0,
+      now,
+    );
+
+    const service = createTrackEnrichmentService({
+      db,
+      pushLog: () => {},
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      if (!target.includes('/ws/2/recording/mbid-track-2?')) {
+        throw new Error(`Unexpected enrichment fetch URL: ${target}`);
+      }
+      return new Response(JSON.stringify({
+        id: 'mbid-track-2',
+        releases: [],
+        'release-groups': [
+          { id: 'rg-only', 'first-release-date': '1987' },
+        ],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const result = await service.runSync({ limit: 5, requestDelayMs: 0, timeoutMs: 5000 });
+      assert.equal(result.processed, 1);
+      assert.equal(result.enriched, 1);
+      assert.equal(result.failed, 0);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const [row] = getTrackEnrichmentByRatingKeys(dbVerify, ['enrich-2']);
+      assert.ok(row);
+      assert.equal(row.trackYear, 1987);
+      assert.equal(row.originalReleaseDate, '1987');
+      assert.equal(row.payload.matchedKind, 'release-group');
+    } finally {
+      dbVerify.close();
+    }
+  });
+
+  it('applies trackYear and originalReleaseDate exclusion filters using enrichment data', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-3.db`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('filter-1', 'Artist A', 'Track 1', 'Album 1', 'mbid-1', '[]', '1', '/music/a.flac', 180000, 0, 0, now);
+    insertMaster.run('filter-2', 'Artist B', 'Track 2', 'Album 2', 'mbid-2', '[]', '1', '/music/b.flac', 180000, 0, 0, now);
+    insertMaster.run('filter-3', 'Artist C', 'Track 3', 'Album 3', 'mbid-3', '[]', '1', '/music/c.flac', 180000, 0, 0, now);
+
+    db.prepare(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, track_year, original_release_date,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('filter-1', 'mbid-1', 1998, '1998-04-20', 'musicbrainz', 0.95, '{}', now);
+    db.prepare(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, track_year, original_release_date,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('filter-2', 'mbid-2', 2005, '2005-11-04', 'musicbrainz', 0.95, '{}', now);
+
+    try {
+      const masterTracks = getMasterTracks(db);
+      assert.equal(masterTracks.find((track) => track.ratingKey === 'filter-1')?.trackYear, 1998);
+      assert.equal(masterTracks.find((track) => track.ratingKey === 'filter-2')?.originalReleaseDate, '2005-11-04');
+
+      const yearFiltered = applyTrackFilters(masterTracks, {
+        rules: [{ field: 'trackYear', operator: 'gt', value: '2000' }],
+      });
+      assert.deepEqual(yearFiltered.map((track) => track.ratingKey).sort(), ['filter-1', 'filter-3']);
+
+      const dateFiltered = applyTrackFilters(masterTracks, {
+        rules: [{ field: 'originalReleaseDate', operator: 'between', value: '1998-01-01..1999-12-31' }],
+      });
+      assert.deepEqual(dateFiltered.map((track) => track.ratingKey).sort(), ['filter-2', 'filter-3']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('imports BPM and key features from a manifest and applies typed filters', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-4.db`);
+    const manifestPath = join(testDir, `track-features-${Date.now()}.json`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('feat-1', 'Artist A', 'Track 1', 'Album 1', 'mbid-feat-1', '[]', '1', '/music/feat-1.flac', 180000, 0, 0, now);
+    insertMaster.run('feat-2', 'Artist B', 'Track 2', 'Album 2', 'mbid-feat-2', '[]', '1', '/music/feat-2.flac', 180000, 0, 0, now);
+
+    await writeFile(manifestPath, JSON.stringify({
+      tracks: [
+        {
+          recordingMbid: 'mbid-feat-1',
+          bpm: 122,
+          musicalKey: 'G minor',
+          camelotKey: '6A',
+          energy: 0.72,
+          danceability: 0.61,
+        },
+        {
+          filePath: '/music/feat-2.flac',
+          bpm: 98,
+          musicalKey: 'C major',
+          camelotKey: '8B',
+          energy: 0.31,
+          danceability: 0.42,
+        },
+      ],
+    }), 'utf8');
+
+    try {
+      const service = createTrackEnrichmentService({
+        db,
+        pushLog: () => {},
+        safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+      });
+      const result = await service.importFeatureManifest({ manifestPath });
+      assert.equal(result.imported, 2);
+
+      const masterTracks = getMasterTracks(db);
+      const feat1 = masterTracks.find((track) => track.ratingKey === 'feat-1');
+      const feat2 = masterTracks.find((track) => track.ratingKey === 'feat-2');
+      assert.equal(feat1?.bpm, 122);
+      assert.equal(feat1?.musicalKey, 'G minor');
+      assert.equal(feat2?.camelotKey, '8B');
+      assert.equal(feat2?.energy, 0.31);
+
+      const bpmFiltered = applyTrackFilters(masterTracks, {
+        rules: [{ field: 'bpm', operator: 'gte', value: '120' }],
+      });
+      assert.deepEqual(bpmFiltered.map((track) => track.ratingKey).sort(), ['feat-2']);
+
+      const keyFiltered = applyTrackFilters(masterTracks, {
+        rules: [{ field: 'camelotKey', operator: 'equals', value: '8B' }],
+      });
+      assert.deepEqual(keyFiltered.map((track) => track.ratingKey).sort(), ['feat-1']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('applies playlist feature presets and harmonic Camelot focus to master tracks', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-feature-presets.db`);
+    const manifestPath = join(testDir, `track-features-${Date.now()}-feature-presets.json`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('preset-1', 'Artist Club', 'Track Club', 'Album 1', 'mbid-preset-1', '[]', '1', '/music/preset-1.flac', 180000, 0, 0, now);
+    insertMaster.run('preset-2', 'Artist Chill', 'Track Chill', 'Album 2', 'mbid-preset-2', '[]', '1', '/music/preset-2.flac', 180000, 0, 0, now);
+    insertMaster.run('preset-3', 'Artist Harmonic', 'Track Harmonic', 'Album 3', 'mbid-preset-3', '[]', '1', '/music/preset-3.flac', 180000, 0, 0, now);
+
+    await writeFile(manifestPath, JSON.stringify({
+      tracks: [
+        { recordingMbid: 'mbid-preset-1', bpm: 126, energy: 0.82, danceability: 0.61, camelotKey: '6A' },
+        { recordingMbid: 'mbid-preset-2', bpm: 96, energy: 0.31, danceability: 0.42, camelotKey: '8B' },
+        { recordingMbid: 'mbid-preset-3', bpm: 122, energy: 0.62, danceability: 0.58, camelotKey: '9A' },
+      ],
+    }), 'utf8');
+
+    try {
+      const service = createTrackEnrichmentService({
+        db,
+        pushLog: () => {},
+        safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+      });
+      const result = await service.importFeatureManifest({ manifestPath });
+      assert.equal(result.imported, 3);
+
+      const masterTracks = getMasterTracks(db);
+      const clubTracks = applyFeaturePresetFilters(masterTracks, { featurePreset: 'club' });
+      assert.deepEqual(clubTracks.map((track) => track.ratingKey), ['preset-1']);
+
+      const harmonicTracks = applyFeaturePresetFilters(masterTracks, {
+        featurePreset: 'harmonic',
+        camelotFocus: '8A',
+        camelotMode: 'adjacent',
+      });
+      assert.deepEqual(harmonicTracks.map((track) => track.ratingKey).sort(), ['preset-3']);
+
+      const harmonicRelativeTracks = applyFeaturePresetFilters(masterTracks, {
+        featurePreset: 'harmonic',
+        camelotFocus: '8A',
+        camelotMode: 'relative',
+      });
+      assert.deepEqual(harmonicRelativeTracks.map((track) => track.ratingKey).sort(), ['preset-2']);
+
+      const harmonicFullTracks = applyFeaturePresetFilters(masterTracks, {
+        featurePreset: 'harmonic',
+        camelotFocus: '8A, 9A',
+        camelotMode: 'harmonic',
+      });
+      assert.deepEqual(harmonicFullTracks.map((track) => track.ratingKey).sort(), ['preset-2', 'preset-3']);
+
+      const customDrivingTracks = applyFeaturePresetFilters(masterTracks, {
+        featurePreset: 'driving',
+        bpmMax: 100,
+        energyMin: 0.25,
+        energyMax: 0.40,
+      });
+      assert.deepEqual(customDrivingTracks.map((track) => track.ratingKey), ['preset-2']);
+
+      const missingFeatureTracks = applyFeaturePresetFilters([
+        { ratingKey: 'missing-all', bpm: null, energy: null, danceability: null, camelotKey: '' },
+        { ratingKey: 'missing-bpm', bpm: null, energy: 0.20, danceability: 0.20, camelotKey: '8A' },
+        { ratingKey: 'valid', bpm: 92, energy: 0.22, danceability: 0.31, camelotKey: '8A' },
+      ], {
+        featurePreset: 'chill',
+        bpmMax: 100,
+        energyMax: 0.30,
+      });
+      assert.deepEqual(missingFeatureTracks.map((track) => track.ratingKey), ['valid']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('runs the built-in track analysis pipeline and imports analyzer output', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-builtin.db`);
+    const manifestPath = join(testDir, `track-features-builtin-${Date.now()}.json`);
+    const resultsPath = join(testDir, `track-features-builtin-${Date.now()}.results.json`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('builtin-1', 'Artist Builtin', 'Track Builtin', 'Album Builtin', 'mbid-builtin-1', '[]', '1', '/music/builtin-1.flac', 180000, 0, 0, now);
+
+    const calls = [];
+    const service = createTrackEnrichmentService({
+      db,
+      DB_PATH: dbPath,
+      pushLog: () => {},
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+      execCommand: async ({ command, cwd, env }) => {
+        calls.push({ command, cwd, env });
+        assert.match(command, /scripts\/analyze-track-features\.py/);
+        assert.equal(env.CURATORR_FEATURE_TEMPLATE, manifestPath);
+        assert.equal(env.CURATORR_ANALYZER_OUTPUT, resultsPath);
+        await writeFile(resultsPath, JSON.stringify({
+          tracks: [
+            {
+              recordingMbid: 'mbid-builtin-1',
+              bpm: 128,
+              musicalKey: 'F minor',
+              camelotKey: '4A',
+              energy: 0.55,
+              danceability: 0.66,
+              analysisSource: 'curatorr-builtin',
+              analysisConfidence: 0.7,
+            },
+          ],
+        }), 'utf8');
+        return { stdout: 'ok', stderr: '' };
+      },
+    });
+
+    try {
+      const result = await service.runAutomatedAnalysis({
+        manifestPath,
+        resultsPath,
+        analyzerMode: 'builtin',
+        analyzerPythonBin: 'python3',
+        workingDir: process.cwd(),
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.analyzerMode, 'builtin');
+      assert.equal(result.importResult.imported, 1);
+      assert.equal(calls.length, 1);
+
+      const rows = getTrackEnrichmentByRatingKeys(db, ['builtin-1']);
+      assert.equal(rows[0]?.bpm, 128);
+      assert.equal(rows[0]?.musicalKey, 'F minor');
+      assert.equal(rows[0]?.camelotKey, '4A');
+      assert.equal(rows[0]?.analysisSource, 'curatorr-builtin');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('runs the analyzer sidecar pipeline and imports analyzer output', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-sidecar.db`);
+    const manifestPath = join(testDir, `track-features-sidecar-${Date.now()}.json`);
+    const resultsPath = join(testDir, `track-features-sidecar-${Date.now()}.results.json`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('sidecar-1', 'Artist Sidecar', 'Track Sidecar', 'Album Sidecar', 'mbid-sidecar-1', '[]', '1', '/media/music/sidecar-1.flac', 180000, 0, 0, now);
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('sidecar-2', 'Artist Sidecar', 'Track Sidecar 2', 'Album Sidecar', 'mbid-sidecar-2', '[]', '1', '/media/music/sidecar-2.flac', 181000, 0, 0, now);
+
+    const service = createTrackEnrichmentService({
+      db,
+      DB_PATH: dbPath,
+      pushLog: () => {},
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+      execCommand: async () => {
+        throw new Error('sidecar mode should not execute a local analyzer command');
+      },
+    });
+
+    let requestCount = 0;
+    const sidecarServer = createServer(async (req, res) => {
+      requestCount += 1;
+      assert.equal(req.method, 'POST');
+      assert.equal(req.url, '/analyze');
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      assert.match(payload.inputPath, /track-features-sidecar-.*\.json$/);
+      assert.match(payload.outputPath, /track-features-sidecar-.*\.results(?:\.chunk-\d+)?\.json$/);
+      const chunkManifest = JSON.parse(await readFile(payload.inputPath, 'utf8'));
+      const chunkTracks = Array.isArray(chunkManifest?.tracks) ? chunkManifest.tracks : [];
+      await writeFile(payload.outputPath, JSON.stringify({
+        tracks: chunkTracks.map((track, index) => ({
+          recordingMbid: track.recordingMbid,
+          bpm: index === 0 && track.recordingMbid === 'mbid-sidecar-1' ? 124 : 126,
+          musicalKey: track.recordingMbid === 'mbid-sidecar-1' ? 'A minor' : 'C major',
+          camelotKey: track.recordingMbid === 'mbid-sidecar-1' ? '8A' : '8B',
+          energy: track.recordingMbid === 'mbid-sidecar-1' ? 0.63 : 0.61,
+          danceability: track.recordingMbid === 'mbid-sidecar-1' ? 0.58 : 0.57,
+          analysisSource: 'curatorr-sidecar',
+          analysisConfidence: 0.74,
+        })),
+      }), 'utf8');
+      const body = JSON.stringify({ ok: true, outputPath: payload.outputPath });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+      res.end(body);
+    });
+    await new Promise((resolve) => sidecarServer.listen(0, '127.0.0.1', resolve));
+    const sidecarAddress = sidecarServer.address();
+    const sidecarUrl = `http://127.0.0.1:${sidecarAddress.port}`;
+
+    try {
+      const result = await service.runAutomatedAnalysis({
+        manifestPath,
+        resultsPath,
+        analyzerMode: 'sidecar',
+        analyzerSidecarUrl: sidecarUrl,
+        chunkSize: 1,
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.analyzerMode, 'sidecar');
+      assert.equal(result.importResult.imported, 2);
+      assert.equal(result.sidecarResult?.ok, true);
+      assert.equal(result.chunkCount, 2);
+      assert.equal(requestCount, 2);
+
+      const rows = getTrackEnrichmentByRatingKeys(db, ['sidecar-1', 'sidecar-2']);
+      assert.equal(rows[0]?.bpm, 124);
+      assert.equal(rows[0]?.musicalKey, 'A minor');
+      assert.equal(rows[0]?.camelotKey, '8A');
+      assert.equal(rows[0]?.analysisSource, 'curatorr-sidecar');
+      assert.equal(rows[1]?.bpm, 126);
+      assert.equal(rows[1]?.musicalKey, 'C major');
+      assert.equal(rows[1]?.camelotKey, '8B');
+    } finally {
+      await new Promise((resolve, reject) => sidecarServer.close((err) => (err ? reject(err) : resolve())));
+      db.close();
+    }
+  });
+
+  it('imports Plex loudness metrics into track enrichment via the public metadata API', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-plex-loudness.db`);
+    const db = initDb(dbPath);
+    const logs = [];
+    const fetchUrls = [];
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('loud-1', 'Artist A', 'Track 1', 'Album 1', 'mbid-loud-1', '[]', '1', '/music/loud-1.flac', 180000, 0, 0, now);
+    insertMaster.run('loud-2', 'Artist B', 'Track 2', 'Album 2', 'mbid-loud-2', '[]', '1', '/music/loud-2.m4a', 190000, 0, 0, now);
+
+    db.prepare(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, track_year, original_release_date,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('loud-1', 'mbid-loud-1', 2001, '2001-01-02', 'musicbrainz', 0.95, '{}', now);
+
+    const service = createTrackEnrichmentService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: { url: 'http://plex.local', token: 'plex-admin-token' },
+      }),
+      pushLog: (entry) => logs.push(entry),
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      fetchUrls.push(target);
+      if (target !== 'http://plex.local/library/metadata/loud-1'
+        && target !== 'http://plex.local/library/metadata/loud-2') {
+        throw new Error(`Unexpected Plex loudness URL: ${target}`);
+      }
+      return new Response(JSON.stringify({
+        MediaContainer: {
+          Metadata: [
+            {
+              ratingKey: 'loud-1',
+              Media: [{
+                id: 101,
+                Part: [{
+                  id: 201,
+                  file: '/music/loud-1.flac',
+                  Stream: [{
+                    id: 301,
+                    streamType: 2,
+                    selected: true,
+                    loudness: '-9.4',
+                    lra: '4.1',
+                    peak: '0.97',
+                    gain: '-10.2',
+                    albumGain: '-9.9',
+                    albumPeak: '0.99',
+                    albumRange: '5.3',
+                  }],
+                }],
+              }],
+            },
+            {
+              ratingKey: 'loud-2',
+              Media: [{
+                id: 102,
+                Part: [{
+                  id: 202,
+                  file: '/music/loud-2.m4a',
+                  Stream: [{
+                    id: 302,
+                    streamType: 2,
+                    selected: true,
+                    loudness: '-12.8',
+                    lra: '6.2',
+                    peak: '0.93',
+                    gain: '-11.4',
+                    albumGain: '-11.1',
+                    albumPeak: '0.95',
+                    albumRange: '6.8',
+                  }],
+                }],
+              }],
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const result = await service.runPlexLoudnessSync({ limit: 1, batchSize: 1 });
+      assert.equal(result.processed, 2);
+      assert.equal(result.synced, 2);
+      assert.equal(result.failed, 0);
+      assert.equal(fetchUrls.length, 2);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const rows = getTrackEnrichmentByRatingKeys(dbVerify, ['loud-1', 'loud-2']);
+      const loud1 = rows.find((row) => row.ratingKey === 'loud-1');
+      const loud2 = rows.find((row) => row.ratingKey === 'loud-2');
+      assert.equal(loud1?.trackYear, 2001);
+      assert.equal(loud1?.loudness, -9.4);
+      assert.equal(loud1?.loudnessRange, 4.1);
+      assert.equal(loud1?.trackGain, -10.2);
+      assert.equal(loud1?.albumGain, -9.9);
+      assert.equal(loud1?.payload?.plexLoudness?.streamId, 301);
+      assert.equal(loud2?.loudness, -12.8);
+      assert.equal(loud2?.albumRange, 6.8);
+    } finally {
+      dbVerify.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'plex-loudness.finish'));
+  });
+
+  it('excludes obvious silence tracks from the Plex loudness queue', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-plex-loudness-silence.db`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('silence-1', 'Blur', '[silence]', 'Think Tank', '', '[]', '1', '/music/blur-silence.mp3', 1000, 0, 0, now);
+    insertMaster.run('song-1', 'Blur', 'Out of Time', 'Think Tank', '', '[]', '1', '/music/out-of-time.mp3', 240000, 0, 0, now);
+
+    try {
+      assert.equal(countTracksMissingPlexLoudness(db), 1);
+      const rows = listTracksMissingPlexLoudness(db, { limit: 10 });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]?.ratingKey, 'song-1');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('applies loudness smoothing to Daily Mix during sync when enabled', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `daily-mix-loudness-${Date.now()}`;
+    const logs = [];
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('dm-l1', 'Artist A', 'Track 1', 'Album A', '', '[]', '1', '/music/dm-l1.flac', 180000, 0, 0, now);
+    insertMaster.run('dm-l2', 'Artist B', 'Track 2', 'Album B', '', '[]', '1', '/music/dm-l2.flac', 180000, 0, 0, now);
+    insertMaster.run('dm-l3', 'Artist C', 'Track 3', 'Album C', '', '[]', '1', '/music/dm-l3.flac', 180000, 0, 0, now);
+    insertMaster.run('dm-l4', 'Artist D', 'Track 4', 'Album D', '', '[]', '1', '/music/dm-l4.flac', 180000, 0, 0, now);
+
+    const insertEnrichment = db.prepare(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, loudness, loudness_range, peak,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, '', ?, ?, ?, ?, ?, '{}', ?)
+    `);
+    insertEnrichment.run('dm-l1', -8.0, 4.0, 0.98, 'plex-loudness', 1, now);
+    insertEnrichment.run('dm-l2', -20.0, 5.0, 0.92, 'plex-loudness', 1, now);
+    insertEnrichment.run('dm-l3', -9.0, 3.5, 0.97, 'plex-loudness', 1, now);
+    insertEnrichment.run('dm-l4', -10.0, 3.0, 0.96, 'plex-loudness', 1, now);
+
+    const insertStats = db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `);
+    insertStats.run('dm-l1', userId, 'Track 1', 'Artist A', 'Album A', 15, 'belter', 1.5, now, now);
+    insertStats.run('dm-l2', userId, 'Track 2', 'Artist B', 'Album B', 14, 'belter', 1.5, now, now);
+    insertStats.run('dm-l3', userId, 'Track 3', 'Artist C', 'Album C', 13, 'decent', 0.5, now, now);
+    insertStats.run('dm-l4', userId, 'Track 4', 'Artist D', 'Album D', 12, 'decent', 0.5, now, now);
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {
+          dailyMix: {
+            favoriteLimit: 4,
+            suggestedLimit: 0,
+            freshLimit: 0,
+            maxTracks: 4,
+            maxTracksPerArtist: 1,
+            repeatCooldownDays: 0,
+            useSonicOrdering: false,
+            useLoudnessOrdering: true,
+            loudnessLookahead: 3,
+            maxLoudnessStepDb: 20,
+          },
+        },
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: (entry) => logs.push(entry),
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: 'plex-daily-mix-loudness' }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-daily-mix-loudness/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-daily-mix-loudness/items?uri=')) {
+        const decoded = decodeURIComponent(target);
+        assert.match(decoded, /library\/metadata\/dm-l1,dm-l3,dm-l4,dm-l2/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in Daily Mix loudness test: ${target}`);
+    };
+
+    try {
+      const built = service.buildDailyMix(userId);
+      assert.deepEqual(built.trackKeys, ['dm-l1', 'dm-l2', 'dm-l3', 'dm-l4']);
+
+      const synced = await service.syncDailyMix(userId);
+      assert.deepEqual(synced.trackKeys, ['dm-l1', 'dm-l3', 'dm-l4', 'dm-l2']);
+      assert.equal(synced.loudnessApplied, true);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    assert.ok(logs.some((entry) => entry?.action === 'loudness.ordering'));
+  });
+
+  it('marks stale running jobs as interrupted when the scheduler starts', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-jobs-${Date.now()}-interrupted.db`);
+    const db = initDb(dbPath);
+    const logs = [];
+    const startedAt = Date.now() - 60_000;
+
+    db.prepare(`
+      INSERT INTO system_job_runs (job_id, status, last_run_at, message, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run('trackAnalysisPipeline', 'running', startedAt, 'Analyzing chunk 2/162…', startedAt);
+
+    const service = createJobService({
+      db,
+      loadConfig: () => ({ jobs: {} }),
+      pushLog: (entry) => logs.push(entry),
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+    }, {});
+
+    service.startAll(false);
+
+    try {
+      const row = db.prepare('SELECT status, message, last_run_at FROM system_job_runs WHERE job_id = ?').get('trackAnalysisPipeline');
+      assert.equal(row?.status, 'error');
+      assert.match(String(row?.message || ''), /Interrupted by app restart/);
+      assert.equal(row?.last_run_at, startedAt);
+      assert.ok(logs.some((entry) => entry?.action === 'job.interrupted'));
+    } finally {
+      db.close();
     }
   });
 

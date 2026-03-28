@@ -156,6 +156,28 @@ Logging is available under the `ListenBrainz` filter in the Curatorr log view.
 
 ListenBrainz playlist sync is currently Plex-only.
 
+## Track analysis import
+
+Track analysis is optional.
+
+Curatorr can import:
+
+- BPM
+- musical key
+- Camelot key
+- energy
+- danceability
+
+This uses a local JSON manifest path configured in `Settings -> General`, plus the `Track Feature Import` background job.
+
+Curatorr ships with an export helper so external analyzers can work from Curatorr's library data:
+
+```bash
+npm run features:export-template
+```
+
+Full workflow details are documented in [Track Analysis](Track-Analysis.md).
+
 ## Lidarr
 
 Lidarr is optional.

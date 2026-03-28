@@ -31,6 +31,7 @@ Current Plex-only features:
 - Daily Mix sync
 - Last.fm station playlists
 - ListenBrainz playlist suggestion sync
+- Sonic ordering and loudness-aware sequencing
 
 ## Documentation
 
@@ -42,6 +43,7 @@ For installation, setup, configuration, and troubleshooting:
 - [Configuration](docs/wiki/Configuration.md)
 - [Authentication and Roles](docs/wiki/Authentication-and-Roles.md)
 - [Integrations](docs/wiki/Integrations.md)
+- [Track Analysis](docs/wiki/Track-Analysis.md)
 - [Artist Suggestions and Lidarr Activity](docs/wiki/Artist-Suggestions-and-Lidarr-Activity.md)
 - [Discover](docs/wiki/Discover.md)
 - [Smart Playlists](docs/wiki/Smart-Playlists.md)

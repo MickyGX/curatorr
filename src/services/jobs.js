@@ -28,6 +28,26 @@ export const JOB_DEFS = {
     description: 'Builds each user\'s Daily Mix and Curatorr rotating playlists from recent favourites, discovery candidates, and stored playlist settings, then syncs them to your media server.',
     defaultIntervalMinutes: 1440,
   },
+  trackEnrichmentSync: {
+    label: 'Track Enrichment Sync',
+    description: 'Backfills stored track metadata such as release year and original release date from MusicBrainz for tracks with a recording MBID.',
+    defaultIntervalMinutes: 360,
+  },
+  trackFeatureImportSync: {
+    label: 'Track Feature Import',
+    description: 'Imports BPM, musical key, Camelot key, energy, and danceability from a local JSON manifest file into track enrichment.',
+    defaultIntervalMinutes: 360,
+  },
+  trackPlexLoudnessSync: {
+    label: 'Plex Loudness Sync',
+    description: 'Fetches finished track loudness metrics from the Plex public API and stores them in track enrichment for loudness-aware playlist sequencing.',
+    defaultIntervalMinutes: 180,
+  },
+  trackAnalysisPipeline: {
+    label: 'Track Analysis Pipeline',
+    description: 'Exports a Curatorr feature template, runs either the built-in Curatorr analyzer worker or the configured analyzer command, merges the analyzer output, and imports the results back into track enrichment.',
+    defaultIntervalMinutes: 1440,
+  },
   tautulliDailySync: {
     label: 'Tautulli Gap-Fill Sync',
     description: 'Optional backup job that fetches recent Tautulli history and fills in plays missed by webhooks without overwriting already-recorded listens.',
@@ -62,6 +82,27 @@ export function createJobService(ctx, jobFunctions) {
   const handles = {}; // jobId → timer handle
   const running = new Set(); // jobIds currently executing
 
+  function clearInterruptedRuns() {
+    const rows = getAllSystemJobRuns(db);
+    for (const row of rows) {
+      if (row?.status !== 'running') continue;
+      const jobId = String(row.job_id || '').trim();
+      if (!jobId) continue;
+      const message = `Interrupted by app restart at ${new Date().toISOString()}.`;
+      setSystemJobRun(db, jobId, {
+        status: 'error',
+        lastRunAt: Number(row.last_run_at || Date.now()),
+        message,
+      });
+      pushLog({
+        level: 'warn',
+        app: 'jobs',
+        action: 'job.interrupted',
+        message: `Marked interrupted job as failed on startup: ${jobId}`,
+      });
+    }
+  }
+
   async function runJob(jobId) {
     const fn = jobFunctions[jobId];
     if (!fn) return;
@@ -90,6 +131,7 @@ export function createJobService(ctx, jobFunctions) {
   }
 
   function startAll(options = false) {
+    clearInterruptedRuns();
     const runImmediately = typeof options === 'boolean'
       ? options
       : options?.runImmediately === true;

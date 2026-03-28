@@ -5,6 +5,7 @@
 - [Configuration](Configuration.md)
 - [Authentication and Roles](Authentication-and-Roles.md)
 - [Integrations](Integrations.md)
+- [Track Analysis](Track-Analysis.md)
 - [Artist Suggestions and Lidarr Activity](Artist-Suggestions-and-Lidarr-Activity.md)
 - [Discover — External Artist Discovery](Discover.md)
 - [Smart Playlists](Smart-Playlists.md)

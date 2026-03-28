@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
-import { applyTrackFilters } from '../services/playlists.js';
+import { applyFeaturePresetFilters, applyTrackFilters, buildFeaturePresetAvailability } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
 import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
@@ -11,6 +11,13 @@ import { buildBlendableUsers } from './pages.js';
 // Settings routes — GET /settings and all POST /settings/*
 
 const DEFAULT_LASTFM_REGION = 'united kingdom';
+const DEFAULT_ANALYSIS_FEATURES_PATH = '/app/data/track-features.json';
+const DEFAULT_ANALYSIS_RESULTS_PATH = '/app/data/track-features.results.json';
+const DEFAULT_ANALYSIS_SIDECAR_URL = 'http://127.0.0.1:8765';
+const LEGACY_ANALYSIS_FEATURES_PATH = '/data/track-features.json';
+const LEGACY_ANALYSIS_RESULTS_PATH = '/data/track-features.results.json';
+const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
+const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
 const LASTFM_REGION_NAMES = [
   'afghanistan',
   'albania',
@@ -229,6 +236,68 @@ function buildLastfmRegionOptions(selectedValue = DEFAULT_LASTFM_REGION) {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function normalizeAnalysisSettings(rawAnalysis = {}) {
+  const featuresImportPathRaw = String(rawAnalysis?.featuresImportPath || '').trim();
+  const analyzerResultsPathRaw = String(rawAnalysis?.analyzerResultsPath || '').trim();
+  const analyzerCommand = String(rawAnalysis?.analyzerCommand || '').trim();
+  const analyzerSidecarUrl = String(rawAnalysis?.analyzerSidecarUrl || '').trim() || DEFAULT_ANALYSIS_SIDECAR_URL;
+  const analyzerModeRaw = String(rawAnalysis?.analyzerMode || '').trim().toLowerCase();
+  const isLegacyDockerPath = (
+    featuresImportPathRaw === LEGACY_ANALYSIS_FEATURES_PATH
+    || analyzerResultsPathRaw === LEGACY_ANALYSIS_RESULTS_PATH
+  );
+  let analyzerMode = ['builtin', 'sidecar', 'custom'].includes(analyzerModeRaw)
+    ? analyzerModeRaw
+    : '';
+  if (!analyzerMode) analyzerMode = analyzerCommand ? 'custom' : 'sidecar';
+  if (analyzerMode === 'custom' && !analyzerCommand) analyzerMode = 'sidecar';
+  return {
+    ...rawAnalysis,
+    featuresImportPath: (
+      !featuresImportPathRaw
+      || featuresImportPathRaw === LEGACY_ANALYSIS_FEATURES_PATH
+    ) ? DEFAULT_ANALYSIS_FEATURES_PATH : featuresImportPathRaw,
+    analyzerResultsPath: (
+      !analyzerResultsPathRaw
+      || analyzerResultsPathRaw === LEGACY_ANALYSIS_RESULTS_PATH
+    ) ? DEFAULT_ANALYSIS_RESULTS_PATH : analyzerResultsPathRaw,
+    analyzerMode,
+    analyzerCommand,
+    analyzerWorkingDir: String(rawAnalysis?.analyzerWorkingDir || '').trim(),
+    analyzerPythonBin: String(rawAnalysis?.analyzerPythonBin || 'python3').trim() || 'python3',
+    analyzerSidecarUrl,
+    analyzerInputFormat: ['auto', 'json', 'csv'].includes(String(rawAnalysis?.analyzerInputFormat || '').trim().toLowerCase())
+      ? String(rawAnalysis?.analyzerInputFormat || '').trim().toLowerCase()
+      : 'auto',
+    analyzerOverwriteExisting: Boolean(rawAnalysis?.analyzerOverwriteExisting),
+  };
+}
+
+function parseNullableNumber(value) {
+  if (value === '' || value == null) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizePlaylistFeaturePreset(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return PLAYLIST_FEATURE_PRESETS.includes(raw) ? raw : 'none';
+}
+
+function buildPlaylistFeatureRuleConfig(input = {}) {
+  return {
+    featurePreset: normalizePlaylistFeaturePreset(input.featurePreset),
+    bpmMin: parseNullableNumber(input.bpmMin),
+    bpmMax: parseNullableNumber(input.bpmMax),
+    energyMin: parseNullableNumber(input.energyMin),
+    energyMax: parseNullableNumber(input.energyMax),
+    danceabilityMin: parseNullableNumber(input.danceabilityMin),
+    danceabilityMax: parseNullableNumber(input.danceabilityMax),
+    camelotFocus: String(input.camelotFocus || '').trim().toUpperCase(),
+    camelotMode: CAMELOT_MODES.includes(String(input.camelotMode || '').trim()) ? String(input.camelotMode).trim() : 'exact',
+  };
+}
+
 export function registerSettings(app, ctx) {
   const {
     requireUser,
@@ -338,6 +407,7 @@ export function registerSettings(app, ctx) {
     const logSettings = resolveLogSettings(config);
     const renderedConfig = {
       ...config,
+      analysis: normalizeAnalysisSettings(config.analysis),
       plex: {
         ...config.plex,
         token: canViewServiceSecrets ? String(config.plex?.token || '') : '',
@@ -367,6 +437,9 @@ export function registerSettings(app, ctx) {
       fetchPlexHomeUsers,
       parsePlexUsers,
     );
+    const playlistFeatureCoverage = (() => {
+      try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; }
+    })();
 
     res.render('settings', {
       title: 'Settings — Curatorr',
@@ -402,6 +475,7 @@ export function registerSettings(app, ctx) {
       globalPlaylists: config.globalPlaylists || [],
       allUserIds: (() => { try { return db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats').all().map((r) => r.user_plex_id); } catch { return []; } })(),
       blendableUsers,
+      playlistFeatureCoverage,
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags:    (() => { try { return getAllLastfmTags(db);         } catch { return []; } })(),
@@ -482,6 +556,19 @@ export function registerSettings(app, ctx) {
     const serverName = String(req.body?.serverName || 'Curatorr').trim() || 'Curatorr';
     const remoteUrl = normalizeBaseUrl(String(req.body?.remoteUrl || '').trim());
     const localUrl = normalizeBaseUrl(String(req.body?.localUrl || '').trim());
+    const normalizedExistingAnalysis = normalizeAnalysisSettings(config.analysis);
+    const nextAnalysis = normalizeAnalysisSettings({
+      ...normalizedExistingAnalysis,
+      featuresImportPath: req.body?.featuresImportPath,
+      analyzerResultsPath: req.body?.analyzerResultsPath,
+      analyzerMode: req.body?.analyzerMode,
+      analyzerCommand: req.body?.analyzerCommand,
+      analyzerWorkingDir: req.body?.analyzerWorkingDir,
+      analyzerPythonBin: req.body?.analyzerPythonBin,
+      analyzerSidecarUrl: req.body?.analyzerSidecarUrl,
+      analyzerInputFormat: req.body?.analyzerInputFormat,
+      analyzerOverwriteExisting: Boolean(req.body?.analyzerOverwriteExisting),
+    });
     const playbackSource = String(req.body?.playbackSource || config.general?.playbackSource || 'plex').trim().toLowerCase() === 'tautulli'
       ? 'tautulli'
       : 'plex';
@@ -490,7 +577,11 @@ export function registerSettings(app, ctx) {
     const basePath = rawPath ? (rawPath.startsWith('/') ? rawPath.replace(/\/+$/, '') : `/${rawPath}`.replace(/\/+$/, '')) : '';
     // Checkbox: present = checked, absent = unchecked (form always submits this field via hidden sentinel)
     const restrictGuests = Boolean(req.body?.restrictGuests);
-    const updated = { ...config, general: { ...config.general, serverName, remoteUrl, localUrl, basePath, playbackSource, restrictGuests } };
+    const updated = {
+      ...config,
+      analysis: nextAnalysis,
+      general: { ...config.general, serverName, remoteUrl, localUrl, basePath, playbackSource, restrictGuests },
+    };
     saveConfig(updated);
     return res.redirect('/settings?tab=general&success=1');
   });
@@ -744,6 +835,8 @@ export function registerSettings(app, ctx) {
 
   app.post('/settings/smart-playlist-types', requireAdmin, (req, res) => {
     const config = loadConfig();
+    const SONIC_STRATEGIES = ['balanced', 'favor-favorites', 'favor-discovery'];
+    const FEATURE_PROFILES = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
     const pct = (name, def) => {
       const raw = Number(req.body?.[name]);
       const value = Number.isFinite(raw) ? raw : def;
@@ -753,6 +846,10 @@ export function registerSettings(app, ctx) {
       const raw = Number(req.body?.[name]);
       const value = Number.isFinite(raw) ? raw : def;
       return Math.max(min, Math.min(max, value));
+    };
+    const oneOf = (name, values, def) => {
+      const raw = String(req.body?.[name] || '').trim();
+      return values.includes(raw) ? raw : def;
     };
     const parseFilters = (prefix) => {
       const fields = [].concat(req.body?.[`${prefix}_rule_field`] || []);
@@ -795,6 +892,17 @@ export function registerSettings(app, ctx) {
       maxTracks: int('dm_maxTracks', 1, 200, 24),
       maxTracksPerArtist: int('dm_maxTracksPerArtist', 1, 5, 1),
       repeatCooldownDays: int('dm_repeatCooldownDays', 0, 60, 5),
+      featureProfile: oneOf('dm_featureProfile', FEATURE_PROFILES, 'none'),
+      camelotFocus: String(req.body?.dm_camelotFocus || '').trim().toUpperCase(),
+      camelotMode: oneOf('dm_camelotMode', CAMELOT_MODES, 'exact'),
+      useSonicOrdering: req.body?.dm_useSonicOrdering === 'on',
+      useLoudnessOrdering: req.body?.dm_useLoudnessOrdering === 'on',
+      loudnessLookahead: int('dm_loudnessLookahead', 2, 10, 4),
+      maxLoudnessStepDb: int('dm_maxLoudnessStepDb', 1, 20, 6),
+      sonicSeedCount: int('dm_sonicSeedCount', 1, 10, 3),
+      sonicExpansionLimit: int('dm_sonicExpansionLimit', 1, 50, 12),
+      sonicMaxDistance: pct('dm_sonicMaxDistance', 35),
+      sonicStrategy: oneOf('dm_sonicStrategy', SONIC_STRATEGIES, 'balanced'),
       trackFilters: parseFilters('dm'),
     };
     const curatorr = {
@@ -802,6 +910,17 @@ export function registerSettings(app, ctx) {
       discoveryRatio: pct('ct_discoveryRatio', 35),
       maxTracksPerArtist: int('ct_maxTracksPerArtist', 1, 5, 2),
       repeatCooldownDays: int('ct_repeatCooldownDays', 0, 90, 14),
+      featureProfile: oneOf('ct_featureProfile', FEATURE_PROFILES, 'none'),
+      camelotFocus: String(req.body?.ct_camelotFocus || '').trim().toUpperCase(),
+      camelotMode: oneOf('ct_camelotMode', CAMELOT_MODES, 'exact'),
+      useSonicOrdering: req.body?.ct_useSonicOrdering === 'on',
+      useLoudnessOrdering: req.body?.ct_useLoudnessOrdering === 'on',
+      loudnessLookahead: int('ct_loudnessLookahead', 2, 10, 4),
+      maxLoudnessStepDb: int('ct_maxLoudnessStepDb', 1, 20, 6),
+      sonicSeedCount: int('ct_sonicSeedCount', 1, 10, 4),
+      sonicExpansionLimit: int('ct_sonicExpansionLimit', 1, 50, 16),
+      sonicMaxDistance: pct('ct_sonicMaxDistance', 35),
+      sonicStrategy: oneOf('ct_sonicStrategy', SONIC_STRATEGIES, 'balanced'),
       trackFilters: parseFilters('ct'),
     };
     const enableDailyMix = req.body?.enableDailyMix === 'on';
@@ -1452,6 +1571,7 @@ export function registerSettings(app, ctx) {
       sortBy: String(req.body?.sortBy || 'ratingCount'),
       blendUsers,
       blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      ...buildPlaylistFeatureRuleConfig(req.body || {}),
     };
     const gpFilters = req.body?.trackFilters !== undefined ? (() => {
       const tf = req.body.trackFilters || {};
@@ -1508,6 +1628,17 @@ export function registerSettings(app, ctx) {
         blendMode: req.body?.blendMode !== undefined
           ? (BLEND_MODES.includes(req.body.blendMode) ? req.body.blendMode : 'average')
           : (existing.rules?.blendMode || 'average'),
+        ...buildPlaylistFeatureRuleConfig({
+          featurePreset: req.body?.featurePreset !== undefined ? req.body.featurePreset : existing.rules?.featurePreset,
+          bpmMin: req.body?.bpmMin !== undefined ? req.body.bpmMin : existing.rules?.bpmMin,
+          bpmMax: req.body?.bpmMax !== undefined ? req.body.bpmMax : existing.rules?.bpmMax,
+          energyMin: req.body?.energyMin !== undefined ? req.body.energyMin : existing.rules?.energyMin,
+          energyMax: req.body?.energyMax !== undefined ? req.body.energyMax : existing.rules?.energyMax,
+          danceabilityMin: req.body?.danceabilityMin !== undefined ? req.body.danceabilityMin : existing.rules?.danceabilityMin,
+          danceabilityMax: req.body?.danceabilityMax !== undefined ? req.body.danceabilityMax : existing.rules?.danceabilityMax,
+          camelotFocus: req.body?.camelotFocus !== undefined ? req.body.camelotFocus : existing.rules?.camelotFocus,
+          camelotMode: req.body?.camelotMode !== undefined ? req.body.camelotMode : existing.rules?.camelotMode,
+        }),
       },
       trackFilters: req.body?.trackFilters !== undefined ? (() => {
         const tf = req.body.trackFilters || {};
@@ -1559,8 +1690,9 @@ export function registerSettings(app, ctx) {
     const smartSettings = config.smartPlaylist || DEFAULT_SMART_PLAYLIST_SETTINGS;
     const allTracks = getMasterTracks(db);
     const filteredTracks = trackFilters ? applyTrackFilters(allTracks, trackFilters) : allTracks;
-    const result = previewGlobalPlaylist(db, rules, userId, smartSettings, filteredTracks);
-    res.json({ ok: true, ...result });
+    const featureFilteredTracks = applyFeaturePresetFilters(filteredTracks, rules || {});
+    const result = previewGlobalPlaylist(db, rules, userId, smartSettings, featureFilteredTracks);
+    res.json({ ok: true, featureTrackCount: featureFilteredTracks.length, ...result });
   });
 
   // GET /api/playlists/smart/preview — live artist/track count estimate using all category pcts

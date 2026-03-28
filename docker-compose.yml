@@ -28,3 +28,22 @@ services:
       - ./data/icons/custom:/app/public/icons/custom
     network_mode: bridge
     restart: unless-stopped
+
+  curatorr_analyzer:
+    profiles: ["analysis"]
+    container_name: curatorr_analyzer
+    depends_on:
+      - curatorr
+    build:
+      context: .
+      dockerfile: docker/analyzer/Dockerfile
+    image: curatorr-analyzer:latest
+    environment:
+      - PORT=8765
+    volumes:
+      - ./data:/app/data
+      # Mount your music library at the same path Plex reports in track file paths.
+      # Example:
+      # - /path/to/music:/media/music:ro
+    network_mode: "service:curatorr"
+    restart: unless-stopped

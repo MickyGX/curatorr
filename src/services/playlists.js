@@ -537,6 +537,19 @@ function normalizeDailyMixOptions(rawOptions = {}) {
     maxTracks: clampNumber(rawOptions.maxTracks, 1, 200, 24),
     maxTracksPerArtist: clampNumber(rawOptions.maxTracksPerArtist, 1, 5, 1),
     repeatCooldownDays: clampNumber(rawOptions.repeatCooldownDays, 0, 60, 5),
+    featureProfile: normalizeFeaturePreset(rawOptions.featurePreset || rawOptions.featureProfile),
+    camelotFocus: normalizeCamelotFocusInput(rawOptions.camelotFocus || ''),
+    camelotMode: ['exact', 'adjacent', 'relative', 'harmonic'].includes(rawOptions.camelotMode) ? rawOptions.camelotMode : 'exact',
+    useSonicOrdering: Boolean(rawOptions.useSonicOrdering),
+    useLoudnessOrdering: Boolean(rawOptions.useLoudnessOrdering),
+    loudnessLookahead: clampNumber(rawOptions.loudnessLookahead, 2, 10, 4),
+    maxLoudnessStepDb: clampNumber(rawOptions.maxLoudnessStepDb, 1, 20, 6),
+    sonicSeedCount: clampNumber(rawOptions.sonicSeedCount, 1, 10, 3),
+    sonicExpansionLimit: clampNumber(rawOptions.sonicExpansionLimit, 1, 50, 12),
+    sonicMaxDistance: clampNumber(rawOptions.sonicMaxDistance, 0, 1, 0.35),
+    sonicStrategy: ['balanced', 'favor-favorites', 'favor-discovery'].includes(rawOptions.sonicStrategy)
+      ? rawOptions.sonicStrategy
+      : 'balanced',
     trackFilters: rawOptions.trackFilters || null,
   };
 }
@@ -547,6 +560,19 @@ function normalizeCuratorrOptions(rawOptions = {}) {
     discoveryRatio: clampNumber(rawOptions.discoveryRatio, 0, 0.8, 0.35),
     maxTracksPerArtist: clampNumber(rawOptions.maxTracksPerArtist, 1, 5, 2),
     repeatCooldownDays: clampNumber(rawOptions.repeatCooldownDays, 0, 90, 14),
+    featureProfile: normalizeFeaturePreset(rawOptions.featurePreset || rawOptions.featureProfile),
+    camelotFocus: normalizeCamelotFocusInput(rawOptions.camelotFocus || ''),
+    camelotMode: ['exact', 'adjacent', 'relative', 'harmonic'].includes(rawOptions.camelotMode) ? rawOptions.camelotMode : 'exact',
+    useSonicOrdering: Boolean(rawOptions.useSonicOrdering),
+    useLoudnessOrdering: Boolean(rawOptions.useLoudnessOrdering),
+    loudnessLookahead: clampNumber(rawOptions.loudnessLookahead, 2, 10, 4),
+    maxLoudnessStepDb: clampNumber(rawOptions.maxLoudnessStepDb, 1, 20, 6),
+    sonicSeedCount: clampNumber(rawOptions.sonicSeedCount, 1, 10, 4),
+    sonicExpansionLimit: clampNumber(rawOptions.sonicExpansionLimit, 1, 50, 16),
+    sonicMaxDistance: clampNumber(rawOptions.sonicMaxDistance, 0, 1, 0.35),
+    sonicStrategy: ['balanced', 'favor-favorites', 'favor-discovery'].includes(rawOptions.sonicStrategy)
+      ? rawOptions.sonicStrategy
+      : 'balanced',
     trackFilters: rawOptions.trackFilters || null,
   };
 }
@@ -569,6 +595,164 @@ function pickFavoriteTracks(db, userPlexId, limit = 12) {
     albumName: row.album_name,
     source: 'favorite',
   }));
+}
+
+const FEATURE_PRESET_KEYS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
+const FEATURE_PROFILE_RULES = {
+  none: [],
+  club: [
+    { field: 'bpm', operator: 'between', value: '118,132' },
+    { field: 'energy', operator: 'gte', value: '0.70' },
+    { field: 'danceability', operator: 'gte', value: '0.55' },
+  ],
+  driving: [
+    { field: 'bpm', operator: 'between', value: '110,145' },
+    { field: 'energy', operator: 'gte', value: '0.60' },
+  ],
+  workout: [
+    { field: 'bpm', operator: 'between', value: '124,150' },
+    { field: 'energy', operator: 'gte', value: '0.72' },
+    { field: 'danceability', operator: 'gte', value: '0.55' },
+  ],
+  harmonic: [],
+  chill: [
+    { field: 'bpm', operator: 'lte', value: '105' },
+    { field: 'energy', operator: 'lte', value: '0.45' },
+  ],
+  downtempo: [
+    { field: 'bpm', operator: 'between', value: '70,100' },
+    { field: 'energy', operator: 'lte', value: '0.40' },
+    { field: 'danceability', operator: 'lte', value: '0.65' },
+  ],
+};
+
+function normalizeCamelotKey(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  const match = raw.match(/^([1-9]|1[0-2])([AB])$/);
+  return match ? `${match[1]}${match[2]}` : '';
+}
+
+function parseCamelotKeys(value) {
+  return Array.from(new Set(String(value || '')
+    .split(/[\s,;/|]+/)
+    .map((entry) => normalizeCamelotKey(entry))
+    .filter(Boolean)));
+}
+
+function normalizeCamelotFocusInput(value) {
+  return parseCamelotKeys(value).join(', ');
+}
+
+function normalizeFeaturePreset(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return FEATURE_PRESET_KEYS.includes(raw) ? raw : 'none';
+}
+
+function buildCamelotSet(camelotKeys, mode = 'exact') {
+  const focusKeys = parseCamelotKeys(camelotKeys);
+  if (!focusKeys.length) return new Set();
+  const result = new Set();
+  for (const normalized of focusKeys) {
+    result.add(normalized);
+    const match = normalized.match(/^([1-9]|1[0-2])([AB])$/);
+    if (!match) continue;
+    const num = Number(match[1]);
+    const letter = match[2];
+    const otherLetter = letter === 'A' ? 'B' : 'A';
+    if (mode === 'relative' || mode === 'harmonic') {
+      result.add(`${num}${otherLetter}`);
+    }
+    if (mode === 'adjacent' || mode === 'harmonic') {
+      const prev = num === 1 ? 12 : num - 1;
+      const next = num === 12 ? 1 : num + 1;
+      result.add(`${prev}${letter}`);
+      result.add(`${next}${letter}`);
+    }
+  }
+  return result;
+}
+
+function parseOptionalFeatureNumber(value) {
+  if (value === '' || value == null) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function buildFeatureSelectionRules(options = {}) {
+  const preset = normalizeFeaturePreset(options.featurePreset || options.featureProfile || 'none');
+  const presetRules = [...(FEATURE_PROFILE_RULES[preset] || [])];
+  const explicitRules = [];
+  const pushRangeRule = (field, minValue, maxValue) => {
+    const min = parseOptionalFeatureNumber(minValue);
+    const max = parseOptionalFeatureNumber(maxValue);
+    if (min == null && max == null) return;
+    if (min != null && max != null) {
+      explicitRules.push({ field, operator: 'between', value: `${Math.min(min, max)},${Math.max(min, max)}` });
+      return;
+    }
+    if (min != null) {
+      explicitRules.push({ field, operator: 'gte', value: String(min) });
+      return;
+    }
+    explicitRules.push({ field, operator: 'lte', value: String(max) });
+  };
+
+  pushRangeRule('bpm', options.bpmMin, options.bpmMax);
+  pushRangeRule('energy', options.energyMin, options.energyMax);
+  pushRangeRule('danceability', options.danceabilityMin, options.danceabilityMax);
+
+  if (!explicitRules.length) return presetRules;
+  const explicitFields = new Set(explicitRules.map((rule) => rule.field));
+  return [
+    ...presetRules.filter((rule) => !explicitFields.has(rule.field)),
+    ...explicitRules,
+  ];
+}
+
+export function applyFeaturePresetFilters(tracks, options = {}) {
+  let result = Array.isArray(tracks) ? tracks : [];
+  const rules = buildFeatureSelectionRules(options);
+  if (rules.length) {
+    result = result.filter((track) => rules.every((rule) => trackMatchesRule(track, rule)));
+  }
+  const preset = normalizeFeaturePreset(options.featurePreset || options.featureProfile || 'none');
+  const camelotFocus = options.camelotFocus || (preset === 'harmonic' ? '8A' : '');
+  const camelotMode = options.camelotMode || (preset === 'harmonic' ? 'harmonic' : 'exact');
+  const camelotSet = buildCamelotSet(camelotFocus, camelotMode);
+  if (camelotSet.size) {
+    result = result.filter((track) => camelotSet.has(normalizeCamelotKey(track?.camelotKey || '')));
+  }
+  return result;
+}
+
+export function buildFeaturePresetAvailability(tracks = []) {
+  const sourceTracks = Array.isArray(tracks) ? tracks : [];
+  const totalTracks = sourceTracks.length;
+  const presets = {};
+  for (const preset of FEATURE_PRESET_KEYS) {
+    if (preset === 'none') {
+      presets[preset] = {
+        key: preset,
+        readyTrackCount: totalTracks,
+        enabled: totalTracks > 0,
+        reason: totalTracks > 0 ? '' : 'No library tracks available yet.',
+      };
+      continue;
+    }
+    const readyTrackCount = applyFeaturePresetFilters(sourceTracks, { featurePreset: preset }).length;
+    presets[preset] = {
+      key: preset,
+      readyTrackCount,
+      enabled: readyTrackCount > 0,
+      reason: readyTrackCount > 0 ? '' : (preset === 'harmonic'
+        ? 'Camelot key data is not available yet.'
+        : 'BPM and feature analysis data is not available yet.'),
+    };
+  }
+  return {
+    totalTracks,
+    presets,
+  };
 }
 
 function pickSuggestedTracks(db, userPlexId, limit = 8) {
@@ -603,6 +787,114 @@ function pickFreshLibraryTracks(db, userPlexId, limit = 10) {
     albumName: row.album_name,
     source: 'fresh-library',
   }));
+}
+
+function isDiscoveryLikeSource(source = '') {
+  const value = String(source || '').trim().toLowerCase();
+  return !['favorite', 'familiar'].includes(value);
+}
+
+function pickSonicSeeds(tracks, { seedCount = 3, strategy = 'balanced' } = {}) {
+  const ordered = [...(tracks || [])]
+    .filter((track) => track?.ratingKey)
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0)
+      || String(a.artistName || '').localeCompare(String(b.artistName || ''))
+      || String(a.trackTitle || '').localeCompare(String(b.trackTitle || '')));
+  const familiar = ordered.filter((track) => !isDiscoveryLikeSource(track.source));
+  const discovery = ordered.filter((track) => isDiscoveryLikeSource(track.source));
+  const seeds = [];
+  const seen = new Set();
+  const take = (track) => {
+    const key = String(track?.ratingKey || '').trim();
+    if (!key || seen.has(key) || seeds.length >= seedCount) return false;
+    seen.add(key);
+    seeds.push(track);
+    return true;
+  };
+  if (strategy === 'favor-favorites') {
+    for (const track of [...familiar, ...discovery]) take(track);
+    return seeds;
+  }
+  if (strategy === 'favor-discovery') {
+    for (const track of [...discovery, ...familiar]) take(track);
+    return seeds;
+  }
+  const maxLen = Math.max(familiar.length, discovery.length);
+  for (let i = 0; i < maxLen && seeds.length < seedCount; i += 1) {
+    if (familiar[i]) take(familiar[i]);
+    if (discovery[i]) take(discovery[i]);
+  }
+  for (const track of ordered) {
+    if (seeds.length >= seedCount) break;
+    take(track);
+  }
+  return seeds;
+}
+
+function reorderTracksByRatingKeys(tracks, orderedKeys = []) {
+  const order = new Map();
+  for (const key of orderedKeys || []) {
+    const cleanKey = String(key || '').trim();
+    if (!cleanKey || order.has(cleanKey)) continue;
+    order.set(cleanKey, order.size);
+  }
+  const ranked = [];
+  const remaining = [];
+  for (const track of tracks || []) {
+    if (order.has(track?.ratingKey)) ranked.push(track);
+    else remaining.push(track);
+  }
+  ranked.sort((a, b) => order.get(a.ratingKey) - order.get(b.ratingKey));
+  return [...ranked, ...remaining];
+}
+
+function resolveTrackLoudness(track) {
+  const value = Number(track?.loudness);
+  return Number.isFinite(value) ? value : null;
+}
+
+function applyLoudnessSmoothing(tracks, options = {}) {
+  const ordered = Array.isArray(tracks) ? [...tracks] : [];
+  if (ordered.length < 3) return ordered;
+  const lookahead = Math.max(2, Math.min(10, Number(options.loudnessLookahead || 4)));
+  const maxStepDb = Math.max(1, Math.min(20, Number(options.maxLoudnessStepDb || 6)));
+  const result = [ordered.shift()];
+
+  while (ordered.length) {
+    const previous = result[result.length - 1];
+    const previousLoudness = resolveTrackLoudness(previous);
+    if (previousLoudness == null) {
+      result.push(ordered.shift());
+      continue;
+    }
+
+    const windowSize = Math.min(lookahead, ordered.length);
+    let bestIndex = -1;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < windowSize; i += 1) {
+      const candidateLoudness = resolveTrackLoudness(ordered[i]);
+      if (candidateLoudness == null) continue;
+      const diff = Math.abs(candidateLoudness - previousLoudness);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex <= 0 || !Number.isFinite(bestDiff) || bestDiff > maxStepDb) {
+      result.push(ordered.shift());
+      continue;
+    }
+    result.push(ordered.splice(bestIndex, 1)[0]);
+  }
+
+  return result;
+}
+
+function resolveTrackLibraryKey(track, masterTrackMap = new Map()) {
+  const direct = String(track?.libraryKey || '').trim();
+  if (direct) return direct;
+  return String(masterTrackMap.get(String(track?.ratingKey || '').trim())?.libraryKey || '').trim();
 }
 
 async function resolveMachineId(ctx, config) {
@@ -766,10 +1058,17 @@ function collectListenbrainzUnmatchedSamples(trackLookups, tracks, limit = 5) {
 function trackMatchesRule(track, rule) {
   const { field, operator, value, caseSensitive } = rule || {};
   if (!field || !operator || value == null || value === '') return false;
+  if (field === 'trackYear') return compareTrackYearRule(track, operator, value);
+  if (field === 'originalReleaseDate') return compareTrackDateRule(track, operator, value);
+  if (field === 'bpm') return compareTrackNumericRule(track?.bpm, operator, value);
+  if (field === 'energy') return compareTrackNumericRule(track?.energy, operator, value);
+  if (field === 'danceability') return compareTrackNumericRule(track?.danceability, operator, value);
   const fieldMap = {
     albumName:  track.albumName,
     trackTitle: track.trackTitle,
     artistName: track.artistName,
+    musicalKey: track.musicalKey,
+    camelotKey: track.camelotKey,
   };
   const raw = String(fieldMap[field] || '');
   const cs = Boolean(caseSensitive);
@@ -787,6 +1086,105 @@ function trackMatchesRule(track, rule) {
     case 'regex':            try { return new RegExp(value, cs ? '' : 'i').test(raw); } catch { return false; }
     case 'not_regex':        try { return !new RegExp(value, cs ? '' : 'i').test(raw); } catch { return false; }
     default:                 return false;
+  }
+}
+
+function parseNumberRuleValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+function resolveTrackNumericValue(actualValue) {
+  if (actualValue === '' || actualValue == null) return null;
+  const actual = Number(actualValue);
+  return Number.isFinite(actual) ? actual : null;
+}
+
+function parseNumericRange(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(/\s*\.\.\s*|\s*,\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const min = Number(parts[0]);
+  const max = Number(parts[1]);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  return { min: Math.min(min, max), max: Math.max(min, max) };
+}
+
+function compareTrackYearRule(track, operator, value) {
+  const actual = resolveTrackNumericValue(track?.trackYear);
+  if (actual == null) return false;
+  return compareTrackNumericRule(actual, operator, value);
+}
+
+function compareTrackNumericRule(actualValue, operator, value) {
+  const actual = resolveTrackNumericValue(actualValue);
+  if (actual == null) return false;
+  if (operator === 'between') {
+    const range = parseNumericRange(value);
+    return Boolean(range && actual >= range.min && actual <= range.max);
+  }
+  const expected = parseNumberRuleValue(value);
+  if (!Number.isFinite(expected)) return false;
+  switch (operator) {
+    case 'equals': return actual === expected;
+    case 'not_equals': return actual !== expected;
+    case 'gt': return actual > expected;
+    case 'gte': return actual >= expected;
+    case 'lt': return actual < expected;
+    case 'lte': return actual <= expected;
+    default: return false;
+  }
+}
+
+function parseComparableDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/);
+  if (!match) return null;
+  const year = Number(match[1] || 0);
+  const month = Number(match[2] || 1);
+  const day = Number(match[3] || 1);
+  const dateValue = Date.UTC(year, Math.max(0, month - 1), day);
+  if (!Number.isFinite(dateValue)) return null;
+  return {
+    raw,
+    value: dateValue,
+  };
+}
+
+function parseDateRange(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(/\s*\.\.\s*|\s*,\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const start = parseComparableDate(parts[0]);
+  const end = parseComparableDate(parts[1]);
+  if (!start || !end) return null;
+  return start.value <= end.value
+    ? { min: start.value, max: end.value }
+    : { min: end.value, max: start.value };
+}
+
+function compareTrackDateRule(track, operator, value) {
+  const actual = parseComparableDate(track?.originalReleaseDate || '');
+  if (!actual) return false;
+  if (operator === 'between') {
+    const range = parseDateRange(value);
+    return Boolean(range && actual.value >= range.min && actual.value <= range.max);
+  }
+  const expected = parseComparableDate(value);
+  if (!expected) return false;
+  switch (operator) {
+    case 'equals': return actual.value === expected.value;
+    case 'not_equals': return actual.value !== expected.value;
+    case 'gt': return actual.value > expected.value;
+    case 'gte': return actual.value >= expected.value;
+    case 'lt': return actual.value < expected.value;
+    case 'lte': return actual.value <= expected.value;
+    default: return false;
   }
 }
 
@@ -1146,9 +1544,10 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
   const sortBy = rules.sortBy || 'ratingCount';
+  const eligibleTracks = applyFeaturePresetFilters(masterTracks, rules);
 
   const byArtist = new Map();
-  for (const t of masterTracks) {
+  for (const t of eligibleTracks) {
     const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
     const artistTier = classifyArtist(score);
     if (artistTierFilter && !artistTierFilter.has(artistTier)) continue;
@@ -1387,14 +1786,27 @@ export function createPlaylistService(ctx) {
   function buildDailyMix(userPlexId, options = {}) {
     const config = ctx.loadConfig();
     const mixOptions = resolveDailyMixOptions(options);
+    const masterTracks = getMasterTracks(db);
+    const masterTrackMap = new Map(masterTracks.map((track) => [String(track.ratingKey || '').trim(), track]));
     const trackStatMap = buildTrackStatMap(db, userPlexId);
     const previousKeys = new Set(getPlaylistTracks(db, userPlexId, DAILY_MIX_PLAYLIST_KEY).map((track) => String(track.ratingKey || '')));
-    const allowedTrackKeys = mixOptions.trackFilters
-      ? new Set(applyTrackFilters(getMasterTracks(db), mixOptions.trackFilters).map((track) => track.ratingKey))
-      : null;
+    const filteredMasterTracks = applyFeaturePresetFilters(
+      mixOptions.trackFilters
+        ? applyTrackFilters(masterTracks, mixOptions.trackFilters)
+        : masterTracks,
+      mixOptions,
+    );
+    const shouldRestrictToMasterTrackKeys = masterTracks.length > 0;
+    const allowedTrackKeys = new Set(filteredMasterTracks.map((track) => track.ratingKey));
 
     const scorePool = (tracks, sourceBonus) => dedupeByRatingKey(tracks)
-      .filter((track) => !allowedTrackKeys || allowedTrackKeys.has(track.ratingKey))
+      .map((track) => ({
+        ...(masterTrackMap.get(String(track?.ratingKey || '').trim()) || {}),
+        ...track,
+      }))
+      .filter((track) => !shouldRestrictToMasterTrackKeys
+        || !masterTrackMap.has(String(track?.ratingKey || '').trim())
+        || allowedTrackKeys.has(track.ratingKey))
       .map((track) => {
         const stat = trackStatMap.get(track.ratingKey) || {};
         return {
@@ -1466,7 +1878,10 @@ export function createPlaylistService(ctx) {
     const artistScoreMap = buildArtistScoreMap(db, userPlexId);
     const suggestedKeys = new Set(pickSuggestedTracks(db, userPlexId, Math.max(curatorrOptions.targetTracks, 24)).map((track) => track.ratingKey));
     const freshKeys = new Set(pickFreshLibraryTracks(db, userPlexId, Math.max(curatorrOptions.targetTracks * 2, 40)).map((track) => track.ratingKey));
-    const masterTracks = applyTrackFilters(getMasterTracks(db), curatorrOptions.trackFilters);
+    const masterTracks = applyFeaturePresetFilters(
+      applyTrackFilters(getMasterTracks(db), curatorrOptions.trackFilters),
+      curatorrOptions,
+    );
     const familiar = [];
     const discovery = [];
     const skipRank = Number(config.smartPlaylist?.artistSkipRank ?? 2);
@@ -1564,11 +1979,257 @@ export function createPlaylistService(ctx) {
     };
   }
 
+  async function fetchPlexSonicNeighbors(userPlexId, seedRatingKey, { limit = 12, maxDistance = 0.35 } = {}) {
+    const config = ctx.loadConfig();
+    const { url } = config?.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    const base = String(url || '').replace(/\/$/, '');
+    if (!base || !token || !seedRatingKey) return [];
+    const nearestUrl = new URL(`${base}/library/metadata/${encodeURIComponent(seedRatingKey)}/nearest`);
+    nearestUrl.searchParams.set('limit', String(Math.max(1, Number(limit || 1))));
+    nearestUrl.searchParams.set('maxDistance', String(Math.max(0, Math.min(1, Number(maxDistance || 0.35)))));
+    const response = await fetch(nearestUrl.toString(), {
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    if (!response.ok) return [];
+    const json = await response.json();
+    return (json?.MediaContainer?.Metadata || []).map((track) => ({
+      ratingKey: String(track?.ratingKey || '').trim(),
+      distance: Number(track?.distance ?? Number.NaN),
+    })).filter((track) => track.ratingKey);
+  }
+
+  async function fetchPlexSonicPath(userPlexId, sectionId, startRatingKey, endRatingKey, { count = 12, maxDistance = 0.35 } = {}) {
+    const config = ctx.loadConfig();
+    const { url } = config?.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    const base = String(url || '').replace(/\/$/, '');
+    if (!base || !token || !sectionId || !startRatingKey || !endRatingKey) return [];
+    const pathUrl = new URL(`${base}/library/sections/${encodeURIComponent(sectionId)}/computePath`);
+    pathUrl.searchParams.set('startID', String(startRatingKey));
+    pathUrl.searchParams.set('endID', String(endRatingKey));
+    pathUrl.searchParams.set('count', String(Math.max(1, Number(count || 1))));
+    pathUrl.searchParams.set('maxDistance', String(Math.max(0, Math.min(1, Number(maxDistance || 0.35)))));
+    const response = await fetch(pathUrl.toString(), {
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    if (!response.ok) return [];
+    const json = await response.json();
+    const rawItems = json?.MediaContainer?.Path || json?.MediaContainer?.Metadata || json?.MediaContainer?.path || [];
+    return rawItems.map((track) => ({
+      ratingKey: String(track?.ratingKey || track?.id || '').trim(),
+    })).filter((track) => track.ratingKey);
+  }
+
+  async function buildPlexSonicPathOrder(userPlexId, tracks, options = {}, masterTrackMap = new Map()) {
+    const selectedKeys = new Set((tracks || []).map((track) => String(track?.ratingKey || '').trim()).filter(Boolean));
+    const libraryGroups = new Map();
+    for (const track of tracks || []) {
+      const libraryKey = resolveTrackLibraryKey(track, masterTrackMap);
+      if (!libraryKey) continue;
+      if (!libraryGroups.has(libraryKey)) libraryGroups.set(libraryKey, []);
+      libraryGroups.get(libraryKey).push(track);
+    }
+    const dominantLibraryEntry = [...libraryGroups.entries()]
+      .sort((a, b) => b[1].length - a[1].length)[0];
+    const sectionId = String(dominantLibraryEntry?.[0] || '').trim();
+    const eligibleTracks = dominantLibraryEntry?.[1] || [];
+    if (!sectionId || eligibleTracks.length < 3) return [];
+
+    const seeds = pickSonicSeeds(eligibleTracks, {
+      seedCount: options.sonicSeedCount,
+      strategy: options.sonicStrategy,
+    });
+    if (seeds.length < 2) return [];
+
+    const orderedKeys = [];
+    const seen = new Set();
+    const pushKey = (key) => {
+      const cleanKey = String(key || '').trim();
+      if (!cleanKey || seen.has(cleanKey) || !selectedKeys.has(cleanKey)) return;
+      seen.add(cleanKey);
+      orderedKeys.push(cleanKey);
+    };
+
+    let matchedPath = false;
+    const perSegmentCount = Math.max(1, Math.ceil(Number(options.sonicExpansionLimit || 12) / Math.max(1, seeds.length - 1)));
+    pushKey(seeds[0].ratingKey);
+    for (let i = 0; i < seeds.length - 1; i += 1) {
+      const startSeed = seeds[i];
+      const endSeed = seeds[i + 1];
+      const path = await fetchPlexSonicPath(userPlexId, sectionId, startSeed.ratingKey, endSeed.ratingKey, {
+        count: perSegmentCount,
+        maxDistance: options.sonicMaxDistance,
+      });
+      const matched = path
+        .map((track) => String(track?.ratingKey || '').trim())
+        .filter((key) => key && selectedKeys.has(key));
+      if (!matched.length) {
+        pushKey(endSeed.ratingKey);
+        continue;
+      }
+      matchedPath = true;
+      for (const key of matched) pushKey(key);
+      pushKey(endSeed.ratingKey);
+    }
+    return matchedPath ? orderedKeys : [];
+  }
+
+  async function buildPlexNearestOrder(userPlexId, tracks, options = {}) {
+    const selectedKeys = new Set((tracks || []).map((track) => String(track?.ratingKey || '').trim()).filter(Boolean));
+    const seeds = pickSonicSeeds(tracks, {
+      seedCount: options.sonicSeedCount,
+      strategy: options.sonicStrategy,
+    });
+    const orderedKeys = [];
+    const seen = new Set();
+    const pushKey = (key) => {
+      const cleanKey = String(key || '').trim();
+      if (!cleanKey || seen.has(cleanKey) || !selectedKeys.has(cleanKey)) return;
+      seen.add(cleanKey);
+      orderedKeys.push(cleanKey);
+    };
+    let matchedNeighbor = false;
+    for (const seed of seeds) {
+      const neighbors = await fetchPlexSonicNeighbors(userPlexId, seed.ratingKey, {
+        limit: options.sonicExpansionLimit,
+        maxDistance: options.sonicMaxDistance,
+      });
+      const matched = neighbors
+        .map((neighbor) => String(neighbor?.ratingKey || '').trim())
+        .filter((key) => key && key !== seed.ratingKey && selectedKeys.has(key));
+      if (!matched.length) continue;
+      matchedNeighbor = true;
+      pushKey(seed.ratingKey);
+      for (const key of matched) pushKey(key);
+    }
+    return matchedNeighbor ? orderedKeys : [];
+  }
+
+  async function buildPlexSonicOrder(userPlexId, tracks, options = {}) {
+    const masterTrackMap = new Map(getMasterTracks(db).map((track) => [String(track.ratingKey || '').trim(), track]));
+    const pathKeys = await buildPlexSonicPathOrder(userPlexId, tracks, options, masterTrackMap);
+    if (pathKeys.length) return { orderedKeys: pathKeys, method: 'path' };
+    const nearestKeys = await buildPlexNearestOrder(userPlexId, tracks, options);
+    if (nearestKeys.length) return { orderedKeys: nearestKeys, method: 'nearest' };
+    return { orderedKeys: [], method: 'none' };
+  }
+
+  async function applyOptionalSonicOrdering(userPlexId, builtPlaylist, options = {}) {
+    const useSonicOrdering = Boolean(options.useSonicOrdering);
+    if (!useSonicOrdering) return builtPlaylist;
+
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    const fallback = (reason, err = null) => {
+      if (typeof ctx.pushLog === 'function') {
+        ctx.pushLog({
+          level: err ? 'warn' : 'info',
+          app: 'playlist',
+          action: 'sonic.fallback',
+          message: `Skipped Plex sonic ordering for ${builtPlaylist?.playlistKey || 'playlist'} for ${userPlexId}: ${reason}${err?.message ? ` (${err.message})` : ''}`,
+        });
+      }
+      return { ...builtPlaylist, sonicApplied: false, sonicFallbackReason: reason };
+    };
+
+    if (msType !== 'plex') return fallback('unsupported-server');
+    if (!Array.isArray(builtPlaylist?.tracks) || builtPlaylist.tracks.length < 3) return fallback('too-few-tracks');
+
+    try {
+      const { orderedKeys, method } = await buildPlexSonicOrder(userPlexId, builtPlaylist.tracks, options);
+      const reorderedTracks = reorderTracksByRatingKeys(builtPlaylist.tracks, orderedKeys);
+      const changed = reorderedTracks.some((track, index) => track?.ratingKey !== builtPlaylist.tracks[index]?.ratingKey);
+      if (!changed) return fallback('no-sonic-data');
+      if (typeof ctx.pushLog === 'function') {
+        const seeds = pickSonicSeeds(builtPlaylist.tracks, {
+          seedCount: options.sonicSeedCount,
+          strategy: options.sonicStrategy,
+        });
+        ctx.pushLog({
+          level: 'info',
+          app: 'playlist',
+          action: 'sonic.ordering',
+          message: `Applied Plex sonic ordering to ${builtPlaylist.playlistKey} for ${userPlexId}`,
+          meta: {
+            playlistKey: builtPlaylist.playlistKey,
+            seedCount: seeds.length,
+            strategy: options.sonicStrategy || 'balanced',
+            trackCount: reorderedTracks.length,
+            method,
+          },
+        });
+      }
+      return {
+        ...builtPlaylist,
+        tracks: reorderedTracks,
+        trackKeys: reorderedTracks.map((track) => track.ratingKey),
+        trackCount: reorderedTracks.length,
+        sonicApplied: true,
+        sonicFallbackReason: '',
+      };
+    } catch (err) {
+      return fallback('plex-error', err);
+    }
+  }
+
+  function applyOptionalLoudnessOrdering(userPlexId, builtPlaylist, options = {}) {
+    const useLoudnessOrdering = Boolean(options.useLoudnessOrdering);
+    if (!useLoudnessOrdering) return builtPlaylist;
+
+    const fallback = (reason) => {
+      if (typeof ctx.pushLog === 'function') {
+        ctx.pushLog({
+          level: 'info',
+          app: 'playlist',
+          action: 'loudness.fallback',
+          message: `Skipped loudness smoothing for ${builtPlaylist?.playlistKey || 'playlist'} for ${userPlexId}: ${reason}`,
+        });
+      }
+      return { ...builtPlaylist, loudnessApplied: false, loudnessFallbackReason: reason };
+    };
+
+    if (!Array.isArray(builtPlaylist?.tracks) || builtPlaylist.tracks.length < 3) return fallback('too-few-tracks');
+    const withLoudness = builtPlaylist.tracks.filter((track) => resolveTrackLoudness(track) != null).length;
+    if (withLoudness < 3) return fallback('no-loudness-data');
+
+    const reorderedTracks = applyLoudnessSmoothing(builtPlaylist.tracks, options);
+    const changed = reorderedTracks.some((track, index) => track?.ratingKey !== builtPlaylist.tracks[index]?.ratingKey);
+    if (!changed) return fallback('no-loudness-benefit');
+
+    if (typeof ctx.pushLog === 'function') {
+      ctx.pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'loudness.ordering',
+        message: `Applied loudness smoothing to ${builtPlaylist.playlistKey} for ${userPlexId}`,
+        meta: {
+          playlistKey: builtPlaylist.playlistKey,
+          lookahead: options.loudnessLookahead || 4,
+          maxLoudnessStepDb: options.maxLoudnessStepDb || 6,
+          trackCount: reorderedTracks.length,
+          loudnessTracks: withLoudness,
+        },
+      });
+    }
+
+    return {
+      ...builtPlaylist,
+      tracks: reorderedTracks,
+      trackKeys: reorderedTracks.map((track) => track.ratingKey),
+      trackCount: reorderedTracks.length,
+      loudnessApplied: true,
+      loudnessFallbackReason: '',
+    };
+  }
+
   async function syncBuiltSelectionPlaylist(userPlexId, builtPlaylist, options = {}) {
     const config = ctx.loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const trigger = String(options.trigger || 'manual');
-    if (!builtPlaylist?.trackKeys?.length) {
+    const sonicOrdered = await applyOptionalSonicOrdering(userPlexId, builtPlaylist, builtPlaylist?.options || {});
+    const playlistToSync = applyOptionalLoudnessOrdering(userPlexId, sonicOrdered, builtPlaylist?.options || {});
+    if (!playlistToSync?.trackKeys?.length) {
       throw new Error(`No ${builtPlaylist?.playlistTitle || 'playlist'} tracks are available yet`);
     }
 
@@ -1579,32 +2240,32 @@ export function createPlaylistService(ctx) {
       const { url, apiKey } = serverCfg;
       if (!url || !apiKey) throw new Error(`${msType} is not configured`);
       const remoteUserId = await adapter.getUserIdByName(url, apiKey, userPlexId);
-      const { playlistId } = await adapter.ensurePlaylist(url, apiKey, remoteUserId, builtPlaylist.playlistTitle);
-      await adapter.replacePlaylistItems(url, apiKey, playlistId, builtPlaylist.trackKeys, remoteUserId);
-      setPlaylistTracks(db, userPlexId, builtPlaylist.playlistKey, builtPlaylist.tracks);
+      const { playlistId } = await adapter.ensurePlaylist(url, apiKey, remoteUserId, playlistToSync.playlistTitle);
+      await adapter.replacePlaylistItems(url, apiKey, playlistId, playlistToSync.trackKeys, remoteUserId);
+      setPlaylistTracks(db, userPlexId, playlistToSync.playlistKey, playlistToSync.tracks);
       const syncedAt = Date.now();
       saveUserGeneratedPlaylist(db, userPlexId, {
-        playlistType: builtPlaylist.playlistType,
-        playlistKey: builtPlaylist.playlistKey,
+        playlistType: playlistToSync.playlistType,
+        playlistKey: playlistToSync.playlistKey,
         plexPlaylistId: playlistId,
-        playlistTitle: builtPlaylist.playlistTitle,
-        algorithmVersion: builtPlaylist.algorithmVersion,
-        lastBuiltAt: builtPlaylist.builtAt,
+        playlistTitle: playlistToSync.playlistTitle,
+        algorithmVersion: playlistToSync.algorithmVersion,
+        lastBuiltAt: playlistToSync.builtAt,
         lastSyncedAt: syncedAt,
-        trackCount: builtPlaylist.trackCount,
+        trackCount: playlistToSync.trackCount,
         active: true,
         updatedAt: syncedAt,
       });
       recordPlaylistSync(db, {
         userPlexId,
         plexPlaylistId: playlistId,
-        playlistTitle: builtPlaylist.playlistTitle,
-        trackCount: builtPlaylist.trackCount,
+        playlistTitle: playlistToSync.playlistTitle,
+        trackCount: playlistToSync.trackCount,
         excludedTracks: 0,
         excludedArtists: 0,
         trigger,
       });
-      return { ...builtPlaylist, syncedAt, plexPlaylistId: playlistId };
+      return { ...playlistToSync, syncedAt, plexPlaylistId: playlistId };
     }
 
     if (!ctx.userHasOwnPlexToken(config, userPlexId)) {
@@ -1620,37 +2281,37 @@ export function createPlaylistService(ctx) {
     const playlistRow = await ensureGeneratedPlaylist(
       ctx,
       userPlexId,
-      builtPlaylist.playlistType,
-      builtPlaylist.playlistKey,
-      builtPlaylist.playlistTitle,
+      playlistToSync.playlistType,
+      playlistToSync.playlistKey,
+      playlistToSync.playlistTitle,
       machineId,
     );
-    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, builtPlaylist.trackKeys);
-    setPlaylistTracks(db, userPlexId, builtPlaylist.playlistKey, builtPlaylist.tracks);
+    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, playlistToSync.trackKeys);
+    setPlaylistTracks(db, userPlexId, playlistToSync.playlistKey, playlistToSync.tracks);
 
     const syncedAt = Date.now();
     saveUserGeneratedPlaylist(db, userPlexId, {
-      playlistType: builtPlaylist.playlistType,
-      playlistKey: builtPlaylist.playlistKey,
+      playlistType: playlistToSync.playlistType,
+      playlistKey: playlistToSync.playlistKey,
       plexPlaylistId: playlistRow.plexPlaylistId,
-      playlistTitle: builtPlaylist.playlistTitle,
-      algorithmVersion: builtPlaylist.algorithmVersion,
-      lastBuiltAt: builtPlaylist.builtAt,
+      playlistTitle: playlistToSync.playlistTitle,
+      algorithmVersion: playlistToSync.algorithmVersion,
+      lastBuiltAt: playlistToSync.builtAt,
       lastSyncedAt: syncedAt,
-      trackCount: builtPlaylist.trackCount,
+      trackCount: playlistToSync.trackCount,
       active: true,
       updatedAt: syncedAt,
     });
     recordPlaylistSync(db, {
       userPlexId,
       plexPlaylistId: playlistRow.plexPlaylistId,
-      playlistTitle: builtPlaylist.playlistTitle,
-      trackCount: builtPlaylist.trackCount,
+      playlistTitle: playlistToSync.playlistTitle,
+      trackCount: playlistToSync.trackCount,
       excludedTracks: 0,
       excludedArtists: 0,
       trigger,
     });
-    return { ...builtPlaylist, syncedAt, plexPlaylistId: playlistRow.plexPlaylistId };
+    return { ...playlistToSync, syncedAt, plexPlaylistId: playlistRow.plexPlaylistId };
   }
 
   async function syncDailyMix(userPlexId, options = {}) {
@@ -2297,6 +2958,7 @@ export function createPlaylistService(ctx) {
     removeSmartPlaylistType,
     renameGeneratedPlaylistTitle,
     renameAllGeneratedPlaylistTitles,
+    buildFeaturePresetAvailability,
     CURATORR_PLAYLIST_KEY,
     CRESCIVE_PLAYLIST_KEY,
     CURATIVE_PLAYLIST_KEY,

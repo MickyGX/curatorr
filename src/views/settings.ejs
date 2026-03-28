@@ -45,6 +45,52 @@
           <div class="settings-debug" style="margin-bottom:0"><%= error %></div>
         <% } %>
 
+        <style>
+          .playlist-preset-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:10px; }
+          .playlist-preset-card { position:relative; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:linear-gradient(180deg,rgba(14,18,27,.92),rgba(11,15,24,.82)); color:inherit; padding:12px; text-align:left; cursor:pointer; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
+          .playlist-preset-card:hover { transform:translateY(-1px); border-color:rgba(255,255,255,.22); }
+          .playlist-preset-card.is-active { border-color:rgba(245,158,11,.92); box-shadow:0 0 0 1px rgba(245,158,11,.28), 0 12px 30px rgba(0,0,0,.26); }
+          .playlist-preset-card.is-disabled,
+          .playlist-preset-card:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:none; }
+          .playlist-preset-card__art { display:block; position:relative; overflow:hidden; height:104px; border-radius:12px; margin-bottom:12px; border:1px solid rgba(255,255,255,.10); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), inset 0 -24px 36px rgba(15,23,42,.22); }
+          .playlist-preset-card__art::before,
+          .playlist-preset-card__art::after { content:""; position:absolute; pointer-events:none; }
+          .playlist-preset-card__art::before { inset:0; background:linear-gradient(180deg,rgba(255,255,255,.14),transparent 26%,rgba(15,23,42,.26)); }
+          .playlist-preset-card__art::after { right:-10%; bottom:-26%; width:72%; height:72%; border-radius:999px; border:1px solid rgba(255,255,255,.20); box-shadow:0 0 0 16px rgba(255,255,255,.05), 0 0 0 36px rgba(255,255,255,.03); opacity:.7; transform:rotate(-18deg); }
+          .playlist-preset-card__eyebrow { display:block; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.5); margin-bottom:4px; }
+          .playlist-preset-card__title { display:block; font-weight:700; margin-bottom:4px; }
+          .playlist-preset-card__desc { display:block; font-size:12px; color:rgba(255,255,255,.68); line-height:1.45; }
+          .playlist-preset-card__meta { display:block; margin-top:7px; font-size:11px; color:rgba(255,255,255,.5); }
+          .playlist-preset-card--none .playlist-preset-card__art { background:
+            linear-gradient(135deg,rgba(255,255,255,.06) 0 12%,transparent 12% 100%),
+            linear-gradient(135deg,#111827,#1f2937); }
+          .playlist-preset-card--club .playlist-preset-card__art { background:
+            radial-gradient(circle at 20% 25%,rgba(236,72,153,.95),transparent 35%),
+            radial-gradient(circle at 80% 20%,rgba(59,130,246,.9),transparent 34%),
+            linear-gradient(135deg,#140c1c,#312e81 54%,#0f172a); }
+          .playlist-preset-card--club .playlist-preset-card__art::after { right:-8%; bottom:-18%; width:82%; height:82%; border-color:rgba(244,114,182,.34); box-shadow:0 0 0 16px rgba(59,130,246,.10), 0 0 0 36px rgba(236,72,153,.10); }
+          .playlist-preset-card--driving .playlist-preset-card__art { background:
+            linear-gradient(180deg,rgba(251,191,36,.98),rgba(249,115,22,.88) 44%,rgba(30,41,59,.98)),
+            linear-gradient(120deg,#1e3a8a,#0f172a); }
+          .playlist-preset-card--driving .playlist-preset-card__art::after { right:-2%; bottom:-22%; width:56%; height:110%; border-radius:28px; border-color:rgba(255,255,255,.30); box-shadow:0 0 0 10px rgba(255,255,255,.06), inset 0 0 0 1px rgba(255,255,255,.08); transform:skewX(-18deg); }
+          .playlist-preset-card--workout .playlist-preset-card__art { background:
+            linear-gradient(135deg,rgba(239,68,68,.98),rgba(249,115,22,.92) 42%,rgba(17,24,39,.98)); }
+          .playlist-preset-card--workout .playlist-preset-card__art::after { right:-14%; bottom:-30%; width:74%; height:88%; border-color:rgba(254,215,170,.28); box-shadow:0 0 0 16px rgba(249,115,22,.10), 0 0 0 34px rgba(239,68,68,.08); transform:rotate(-10deg); }
+          .playlist-preset-card--chill .playlist-preset-card__art { background:
+            radial-gradient(circle at 25% 20%,rgba(125,211,252,.85),transparent 28%),
+            linear-gradient(135deg,#0f172a,#1d4ed8 55%,#164e63); }
+          .playlist-preset-card--chill .playlist-preset-card__art::after { right:-4%; bottom:-24%; width:68%; height:76%; border-color:rgba(186,230,253,.26); box-shadow:0 0 0 14px rgba(125,211,252,.08), 0 0 0 32px rgba(14,165,233,.05); transform:rotate(-6deg); }
+          .playlist-preset-card--harmonic .playlist-preset-card__art { background:
+            radial-gradient(circle at center,rgba(255,255,255,.16) 0,rgba(255,255,255,.06) 24%,transparent 25%),
+            conic-gradient(from 45deg,#f59e0b,#f97316,#ef4444,#8b5cf6,#3b82f6,#14b8a6,#f59e0b); }
+          .playlist-preset-card--harmonic .playlist-preset-card__art::after { right:10%; bottom:12%; width:34%; height:34%; border-color:rgba(255,255,255,.28); box-shadow:0 0 0 12px rgba(255,255,255,.08), 0 0 0 24px rgba(255,255,255,.04); transform:none; }
+          .playlist-preset-card--downtempo .playlist-preset-card__art { background:
+            linear-gradient(135deg,#0f172a,#334155 45%,#475569); }
+          .playlist-preset-card--downtempo .playlist-preset-card__art::after { right:-10%; bottom:-28%; width:72%; height:72%; border-color:rgba(226,232,240,.18); box-shadow:0 0 0 16px rgba(148,163,184,.08), 0 0 0 34px rgba(71,85,105,.06); }
+          .playlist-feature-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-top:14px; }
+          .playlist-feature-note { margin-top:10px; font-size:12px; color:rgba(255,255,255,.62); }
+        </style>
+
         <div class="settings-tabs" role="tablist" aria-label="Settings tabs">
           <button class="settings-tab-btn<%= _tab === 'general' ? ' is-active' : '' %>" type="button" data-tab="general">
             <img class="settings-tab-icon" src="/icons/settings.svg" alt="" />
@@ -148,6 +194,59 @@
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="settings-toggle-text">Restrict guest users</span>
                 </label>
+              </div>
+              <div class="settings-card">
+                <div class="settings-card-title">Track Analysis Import</div>
+                <div class="settings-card-sub">Curatorr writes BPM, musical key, Camelot key, energy, and danceability into the shared track enrichment store. For Docker installs, <strong>Analyzer sidecar</strong> is the normal mode.</div>
+                <div class="settings-card-sub" style="margin-top:8px">Docker installs should normally keep the default paths in <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">/app/data</code>. Sidecar mode should normally use <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">http://127.0.0.1:8765</code>.</div>
+                <label class="field">
+                  <span>Feature manifest path</span>
+                  <input type="text" name="featuresImportPath" value="<%= config.analysis?.featuresImportPath || '/app/data/track-features.json' %>" placeholder="/app/data/track-features.json" />
+                </label>
+                <label class="field">
+                  <span>Analyzer results path</span>
+                  <input type="text" name="analyzerResultsPath" value="<%= config.analysis?.analyzerResultsPath || '/app/data/track-features.results.json' %>" placeholder="/app/data/track-features.results.json" />
+                </label>
+                <label class="field">
+                  <span>Analyzer mode</span>
+                  <select name="analyzerMode" id="analyzerModeSelect">
+                    <option value="sidecar" <%= (config.analysis?.analyzerMode || 'sidecar') === 'sidecar' ? 'selected' : '' %>>Analyzer sidecar</option>
+                    <option value="builtin" <%= (config.analysis?.analyzerMode || 'sidecar') === 'builtin' ? 'selected' : '' %>>Built-in Curatorr worker</option>
+                    <option value="custom" <%= (config.analysis?.analyzerMode || 'sidecar') === 'custom' ? 'selected' : '' %>>Custom command</option>
+                  </select>
+                </label>
+                <div class="settings-card-sub" id="analyzerModeHelp" style="margin-top:4px">Analyzer sidecar is recommended for Docker installs. Built-in runs inside the main Curatorr container. Custom command is for advanced external pipelines.</div>
+                <label class="field" data-analyzer-mode-field="builtin">
+                  <span>Python executable</span>
+                  <input type="text" name="analyzerPythonBin" value="<%= config.analysis?.analyzerPythonBin || 'python3' %>" placeholder="python3" />
+                </label>
+                <label class="field" data-analyzer-mode-field="sidecar">
+                  <span>Analyzer sidecar URL</span>
+                  <input type="text" name="analyzerSidecarUrl" value="<%= config.analysis?.analyzerSidecarUrl || 'http://127.0.0.1:8765' %>" placeholder="http://127.0.0.1:8765" />
+                </label>
+                <label class="field" data-analyzer-mode-field="custom">
+                  <span>Analyzer command</span>
+                  <textarea name="analyzerCommand" rows="4" placeholder="python3 /analysis/run.py --input \"$CURATORR_FEATURE_TEMPLATE\" --output \"$CURATORR_ANALYZER_OUTPUT\""><%= config.analysis?.analyzerCommand || '' %></textarea>
+                </label>
+                <label class="field" data-analyzer-mode-field="custom">
+                  <span>Analyzer working directory</span>
+                  <input type="text" name="analyzerWorkingDir" value="<%= config.analysis?.analyzerWorkingDir || '' %>" placeholder="/analysis" />
+                </label>
+                <label class="field" data-analyzer-mode-field="custom">
+                  <span>Analyzer output format</span>
+                  <select name="analyzerInputFormat">
+                    <option value="auto" <%= (config.analysis?.analyzerInputFormat || 'auto') === 'auto' ? 'selected' : '' %>>Auto-detect</option>
+                    <option value="json" <%= config.analysis?.analyzerInputFormat === 'json' ? 'selected' : '' %>>JSON</option>
+                    <option value="csv" <%= config.analysis?.analyzerInputFormat === 'csv' ? 'selected' : '' %>>CSV</option>
+                  </select>
+                </label>
+                <label class="settings-toggle" style="margin-top:4px">
+                  <input type="checkbox" name="analyzerOverwriteExisting" value="1" <%= config.analysis?.analyzerOverwriteExisting ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text">Allow analyzer results to overwrite existing imported feature values</span>
+                </label>
+                <div class="settings-card-sub" style="margin-top:8px">Accepted JSON formats: an array of track objects, a root object with <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">tracks</code>, or an object keyed by rating key. Matching uses <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">ratingKey</code>, then <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">recordingMbid</code>, then <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">filePath</code>.</div>
+                <div class="settings-card-sub" style="margin-top:8px">Custom command mode is optional and intended for advanced external pipelines. Most Docker installs should leave it unused and stay on the sidecar mode.</div>
               </div>
               <div class="settings-card-actions settings-card-actions--full">
                 <button class="primary-button" type="submit">Save general settings</button>
@@ -767,36 +866,67 @@
                   { value: 'albumName',  label: 'Album name' },
                   { value: 'trackTitle', label: 'Track title' },
                   { value: 'artistName', label: 'Artist name' },
+                  { value: 'trackYear', label: 'Track year' },
+                  { value: 'originalReleaseDate', label: 'Original release date' },
+                  { value: 'bpm', label: 'BPM' },
+                  { value: 'musicalKey', label: 'Musical key' },
+                  { value: 'camelotKey', label: 'Camelot key' },
+                  { value: 'energy', label: 'Energy' },
+                  { value: 'danceability', label: 'Danceability' },
                 ];
                 const _TF_FIELDS_GP = [
                   ..._TF_FIELDS,
                   { value: 'filePath', label: 'File path (folder)' },
                 ];
-                const _TF_OPS = [
+                const _TF_TEXT_OPS = [
                   { value: 'contains',        label: 'contains' },
-                  { value: 'not_contains',     label: 'does not contain' },
-                  { value: 'equals',           label: 'is' },
-                  { value: 'not_equals',       label: 'is not' },
-                  { value: 'starts_with',      label: 'starts with' },
-                  { value: 'not_starts_with',  label: 'does not start with' },
-                  { value: 'ends_with',        label: 'ends with' },
-                  { value: 'not_ends_with',    label: 'does not end with' },
-                  { value: 'regex',            label: 'matches regex' },
-                  { value: 'not_regex',        label: 'does not match regex' },
+                  { value: 'not_contains',    label: 'does not contain' },
+                  { value: 'equals',          label: 'is' },
+                  { value: 'not_equals',      label: 'is not' },
+                  { value: 'starts_with',     label: 'starts with' },
+                  { value: 'not_starts_with', label: 'does not start with' },
+                  { value: 'ends_with',       label: 'ends with' },
+                  { value: 'not_ends_with',   label: 'does not end with' },
+                  { value: 'regex',           label: 'matches regex' },
+                  { value: 'not_regex',       label: 'does not match regex' },
                 ];
+                const _TF_TYPED_OPS = [
+                  { value: 'equals', label: 'is' },
+                  { value: 'not_equals', label: 'is not' },
+                  { value: 'gt', label: 'is greater than' },
+                  { value: 'gte', label: 'is at least' },
+                  { value: 'lt', label: 'is less than' },
+                  { value: 'lte', label: 'is at most' },
+                  { value: 'between', label: 'is between' },
+                ];
+                function _tfOpsForField(field) {
+                  return ['trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
+                }
 
                 function _tfFieldOpts(current, fields) {
                   return (fields || _TF_FIELDS).map(f => `<option value="${f.value}"${current === f.value ? ' selected' : ''}>${f.label}</option>`).join('');
                 }
-                function _tfOpOpts(current) {
-                  return _TF_OPS.map(o => `<option value="${o.value}"${current === o.value ? ' selected' : ''}>${o.label}</option>`).join('');
+                function _tfOpOpts(current, field) {
+                  return _tfOpsForField(field).map(o => `<option value="${o.value}"${current === o.value ? ' selected' : ''}>${o.label}</option>`).join('');
                 }
                 function _tfValInput(rule, prefix, segments) {
                   if (rule.field === 'filePath' && segments && segments.length) {
                     const opts = segments.map(s => `<option value="${s}"${rule.value === s ? ' selected' : ''}>${s}</option>`).join('');
                     return `<select name="${prefix}_rule_val" class="tf-select tf-val-select"><option value="">— select folder —</option>${opts}</select>`;
                   }
-                  return `<input type="text" name="${prefix}_rule_val" value="${(rule.value||'').replace(/"/g,'&quot;')}" class="tf-val" placeholder="value" />`;
+                  const placeholder = rule.field === 'trackYear'
+                    ? (rule.operator === 'between' ? '1990..1999' : '1998')
+                    : (rule.field === 'originalReleaseDate'
+                      ? (rule.operator === 'between' ? '1998-01-01..1998-12-31' : '1998-04-20')
+                      : (rule.field === 'bpm'
+                        ? (rule.operator === 'between' ? '118..124' : '122')
+                        : (rule.field === 'energy' || rule.field === 'danceability'
+                          ? (rule.operator === 'between' ? '0.4..0.8' : '0.65')
+                          : (rule.field === 'camelotKey'
+                            ? '8A'
+                            : (rule.field === 'musicalKey' ? 'G minor' : 'value'))))
+                      );
+                  return `<input type="text" name="${prefix}_rule_val" value="${(rule.value||'').replace(/"/g,'&quot;')}" class="tf-val" placeholder="${placeholder}" />`;
                 }
                 function _renderTrackFilters(prefix, filterCfg, libs, segments) {
                   const rules = Array.isArray(filterCfg?.rules) ? filterCfg.rules : [];
@@ -809,7 +939,7 @@
                   for (const rule of rules) {
                     html += `<div class="tf-rule-row">`;
                     html += `<select name="${prefix}_rule_field" class="tf-select" onchange="tfUpdateVal(this,'${prefix}',${JSON.stringify(segments||[])})">` + _tfFieldOpts(rule.field) + `</select>`;
-                    html += `<select name="${prefix}_rule_op" class="tf-select">` + _tfOpOpts(rule.operator) + `</select>`;
+                    html += `<select name="${prefix}_rule_op" class="tf-select" onchange="tfUpdateOp(this,'${prefix}')">` + _tfOpOpts(rule.operator, rule.field) + `</select>`;
                     html += _tfValInput(rule, prefix, rule.field === 'filePath' ? segments : []);
                     html += `<label class="tf-cs-label"><input type="checkbox" name="${prefix}_rule_cs" value="on"${rule.caseSensitive ? ' checked' : ''} /><span>Aa</span></label>`;
                     html += `<button type="button" class="tf-remove-btn" onclick="this.closest('.tf-rule-row').remove()">×</button>`;
@@ -866,6 +996,26 @@
                   <label class="field"><span>Max tracks per artist</span><input type="number" name="dm_maxTracksPerArtist" value="<%= Number(_dm.maxTracksPerArtist ?? 1) %>" min="1" max="5" /></label>
                   <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="dm_repeatCooldownDays" value="<%= Number(_dm.repeatCooldownDays ?? 5) %>" min="0" max="60" /></label>
                 </div>
+                <div class="settings-card-sub" style="margin-top:14px">Optional Plex sonic ordering can reshuffle the selected tracks for smoother transitions. It only applies on Plex servers with sonic analysis available and falls back automatically otherwise.</div>
+                <div class="settings-type-grid">
+                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                    <span>Use Plex sonic ordering</span>
+                    <input type="checkbox" name="dm_useSonicOrdering" value="on" <%= _dm.useSonicOrdering ? 'checked' : '' %> />
+                  </label>
+                  <label class="field"><span>Sonic seed count</span><input type="number" name="dm_sonicSeedCount" value="<%= Number(_dm.sonicSeedCount ?? 3) %>" min="1" max="10" /></label>
+                  <label class="field"><span>Sonic expansion limit</span><input type="number" name="dm_sonicExpansionLimit" value="<%= Number(_dm.sonicExpansionLimit ?? 12) %>" min="1" max="50" /></label>
+                  <label class="field"><span>Max sonic distance</span><div class="settings-pct-row"><input type="number" name="dm_sonicMaxDistance" value="<%= _capPct(_dm.sonicMaxDistance, 0.35) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Sonic strategy</span><select name="dm_sonicStrategy"><option value="balanced" <%= (_dm.sonicStrategy || 'balanced') === 'balanced' ? 'selected' : '' %>>Balanced</option><option value="favor-favorites" <%= _dm.sonicStrategy === 'favor-favorites' ? 'selected' : '' %>>Favor favourites</option><option value="favor-discovery" <%= _dm.sonicStrategy === 'favor-discovery' ? 'selected' : '' %>>Favor discovery</option></select></label>
+                </div>
+                <div class="settings-card-sub" style="margin-top:14px">Optional loudness smoothing uses Plex loudness data to reduce abrupt jumps between adjacent tracks. It only applies after selection, and after sonic ordering when both are enabled.</div>
+                <div class="settings-type-grid">
+                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                    <span>Use loudness smoothing</span>
+                    <input type="checkbox" name="dm_useLoudnessOrdering" value="on" <%= _dm.useLoudnessOrdering ? 'checked' : '' %> />
+                  </label>
+                  <label class="field"><span>Loudness lookahead</span><input type="number" name="dm_loudnessLookahead" value="<%= Number(_dm.loudnessLookahead ?? 4) %>" min="2" max="10" /></label>
+                  <label class="field"><span>Max loudness step</span><div class="settings-pct-row"><input type="number" name="dm_maxLoudnessStepDb" value="<%= Number(_dm.maxLoudnessStepDb ?? 6) %>" min="1" max="20" /><span class="settings-pct-sym">dB</span></div></label>
+                </div>
                 <%- _renderTrackFilters('dm', config.smartPlaylist?.dailyMix?.trackFilters, allLibraryKeys, null) %>
               </div>
 
@@ -885,6 +1035,26 @@
                   <label class="field"><span>Discovery share</span><div class="settings-pct-row"><input type="number" name="ct_discoveryRatio" value="<%= _capPct(_ct.discoveryRatio, 0.35) %>" min="0" max="80" /><span class="settings-pct-sym">%</span></div></label>
                   <label class="field"><span>Max tracks per artist</span><input type="number" name="ct_maxTracksPerArtist" value="<%= Number(_ct.maxTracksPerArtist ?? 2) %>" min="1" max="5" /></label>
                   <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="ct_repeatCooldownDays" value="<%= Number(_ct.repeatCooldownDays ?? 14) %>" min="0" max="90" /></label>
+                </div>
+                <div class="settings-card-sub" style="margin-top:14px">Optional Plex sonic ordering can reshuffle the selected tracks for smoother transitions. It only applies on Plex servers with sonic analysis available and falls back automatically otherwise.</div>
+                <div class="settings-type-grid">
+                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                    <span>Use Plex sonic ordering</span>
+                    <input type="checkbox" name="ct_useSonicOrdering" value="on" <%= _ct.useSonicOrdering ? 'checked' : '' %> />
+                  </label>
+                  <label class="field"><span>Sonic seed count</span><input type="number" name="ct_sonicSeedCount" value="<%= Number(_ct.sonicSeedCount ?? 4) %>" min="1" max="10" /></label>
+                  <label class="field"><span>Sonic expansion limit</span><input type="number" name="ct_sonicExpansionLimit" value="<%= Number(_ct.sonicExpansionLimit ?? 16) %>" min="1" max="50" /></label>
+                  <label class="field"><span>Max sonic distance</span><div class="settings-pct-row"><input type="number" name="ct_sonicMaxDistance" value="<%= _capPct(_ct.sonicMaxDistance, 0.35) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Sonic strategy</span><select name="ct_sonicStrategy"><option value="balanced" <%= (_ct.sonicStrategy || 'balanced') === 'balanced' ? 'selected' : '' %>>Balanced</option><option value="favor-favorites" <%= _ct.sonicStrategy === 'favor-favorites' ? 'selected' : '' %>>Favor favourites</option><option value="favor-discovery" <%= _ct.sonicStrategy === 'favor-discovery' ? 'selected' : '' %>>Favor discovery</option></select></label>
+                </div>
+                <div class="settings-card-sub" style="margin-top:14px">Optional loudness smoothing uses Plex loudness data to reduce abrupt jumps between adjacent tracks. It only applies after selection, and after sonic ordering when both are enabled.</div>
+                <div class="settings-type-grid">
+                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                    <span>Use loudness smoothing</span>
+                    <input type="checkbox" name="ct_useLoudnessOrdering" value="on" <%= _ct.useLoudnessOrdering ? 'checked' : '' %> />
+                  </label>
+                  <label class="field"><span>Loudness lookahead</span><input type="number" name="ct_loudnessLookahead" value="<%= Number(_ct.loudnessLookahead ?? 4) %>" min="2" max="10" /></label>
+                  <label class="field"><span>Max loudness step</span><div class="settings-pct-row"><input type="number" name="ct_maxLoudnessStepDb" value="<%= Number(_ct.maxLoudnessStepDb ?? 6) %>" min="1" max="20" /><span class="settings-pct-sym">dB</span></div></label>
                 </div>
                 <%- _renderTrackFilters('ct', config.smartPlaylist?.curatorr?.trackFilters, allLibraryKeys, null) %>
               </div>
@@ -1010,8 +1180,15 @@
               { value: 'albumName',  label: 'Album name' },
               { value: 'trackTitle', label: 'Track title' },
               { value: 'artistName', label: 'Artist name' },
+              { value: 'trackYear', label: 'Track year' },
+              { value: 'originalReleaseDate', label: 'Original release date' },
+              { value: 'bpm', label: 'BPM' },
+              { value: 'musicalKey', label: 'Musical key' },
+              { value: 'camelotKey', label: 'Camelot key' },
+              { value: 'energy', label: 'Energy' },
+              { value: 'danceability', label: 'Danceability' },
             ];
-            var _TF_OPS = [
+            var _TF_TEXT_OPS = [
               { value: 'contains',       label: 'contains' },
               { value: 'not_contains',   label: 'does not contain' },
               { value: 'equals',         label: 'is' },
@@ -1023,26 +1200,49 @@
               { value: 'regex',          label: 'matches regex' },
               { value: 'not_regex',      label: 'does not match regex' },
             ];
+            var _TF_TYPED_OPS = [
+              { value: 'equals', label: 'is' },
+              { value: 'not_equals', label: 'is not' },
+              { value: 'gt', label: 'is greater than' },
+              { value: 'gte', label: 'is at least' },
+              { value: 'lt', label: 'is less than' },
+              { value: 'lte', label: 'is at most' },
+              { value: 'between', label: 'is between' },
+            ];
             var _TF_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
+            function tfOpsForField(field) {
+              return ['trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
+            }
 
             function tfMakeFieldOpts(fields, current) {
               return fields.map(function(f) {
                 return '<option value="' + f.value + '"' + (f.value === current ? ' selected' : '') + '>' + f.label + '</option>';
               }).join('');
             }
-            function tfMakeOpOpts(current) {
-              return _TF_OPS.map(function(o) {
+            function tfMakeOpOpts(current, field) {
+              return tfOpsForField(field).map(function(o) {
                 return '<option value="' + o.value + '"' + (o.value === current ? ' selected' : '') + '>' + o.label + '</option>';
               }).join('');
             }
-            function tfMakeValInput(prefix, field, value, segments) {
+            function tfMakeValInput(prefix, field, value, segments, operator) {
               if (field === 'filePath' && segments && segments.length) {
                 var opts = '<option value="">— select folder —</option>' + segments.map(function(s) {
                   return '<option value="' + s + '"' + (s === value ? ' selected' : '') + '>' + s + '</option>';
                 }).join('');
                 return '<select name="' + prefix + '_rule_val" class="tf-select tf-val-select">' + opts + '</select>';
               }
-              return '<input type="text" name="' + prefix + '_rule_val" value="' + (value || '').replace(/"/g, '&quot;') + '" class="tf-val" placeholder="value" />';
+              var placeholder = field === 'trackYear'
+                ? (operator === 'between' ? '1990..1999' : '1998')
+                : (field === 'originalReleaseDate'
+                  ? (operator === 'between' ? '1998-01-01..1998-12-31' : '1998-04-20')
+                  : (field === 'bpm'
+                    ? (operator === 'between' ? '118..124' : '122')
+                    : (field === 'energy' || field === 'danceability'
+                      ? (operator === 'between' ? '0.4..0.8' : '0.65')
+                      : (field === 'camelotKey'
+                        ? '8A'
+                        : (field === 'musicalKey' ? 'G minor' : 'value')))));
+              return '<input type="text" name="' + prefix + '_rule_val" value="' + (value || '').replace(/"/g, '&quot;') + '" class="tf-val" placeholder="' + placeholder + '" />';
             }
             function tfAddRule(prefix, segments) {
               var fields = _TF_FIELDS_CR_CU;
@@ -1051,8 +1251,8 @@
               var defaultField = fields[0].value;
               row.innerHTML =
                 '<select name="' + prefix + '_rule_field" class="tf-select" onchange="tfUpdateVal(this,\'' + prefix + '\')">' + tfMakeFieldOpts(fields, defaultField) + '</select>' +
-                '<select name="' + prefix + '_rule_op" class="tf-select">' + tfMakeOpOpts('contains') + '</select>' +
-                tfMakeValInput(prefix, defaultField, '', segments) +
+                '<select name="' + prefix + '_rule_op" class="tf-select" onchange="tfUpdateOp(this,\'' + prefix + '\')">' + tfMakeOpOpts('contains', defaultField) + '</select>' +
+                tfMakeValInput(prefix, defaultField, '', segments, 'contains') +
                 '<label class="tf-cs-label"><input type="checkbox" name="' + prefix + '_rule_cs" value="on" /><span>Aa</span></label>' +
                 '<button type="button" class="tf-remove-btn" onclick="this.closest(\'.tf-rule-row\').remove()">×</button>';
               document.getElementById('tf-list-' + prefix).appendChild(row);
@@ -1060,11 +1260,27 @@
             function tfUpdateVal(select, prefix) {
               var row = select.closest('.tf-rule-row');
               var field = select.value;
-              var segments = [];
+              var segments = field === 'filePath' ? _TF_PATH_SEGMENTS : [];
+              var opSelect = row.querySelector('[name="' + prefix + '_rule_op"]');
+              var currentOp = opSelect ? opSelect.value : '';
+              var allowedOps = tfOpsForField(field).map(function(op) { return op.value; });
+              var nextOp = allowedOps.includes(currentOp) ? currentOp : allowedOps[0];
+              if (opSelect) opSelect.innerHTML = tfMakeOpOpts(nextOp, field);
               var old = row.querySelector('[name="' + prefix + '_rule_val"]');
               if (old) {
                 var newEl = document.createElement('div');
-                newEl.innerHTML = tfMakeValInput(prefix, field, '', segments);
+                newEl.innerHTML = tfMakeValInput(prefix, field, '', segments, nextOp);
+                old.replaceWith(newEl.firstChild);
+              }
+            }
+            function tfUpdateOp(select, prefix) {
+              var row = select.closest('.tf-rule-row');
+              var fieldEl = row.querySelector('[name="' + prefix + '_rule_field"]');
+              var field = fieldEl ? fieldEl.value : '';
+              var old = row.querySelector('[name="' + prefix + '_rule_val"]');
+              if (old && ['trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability', 'musicalKey', 'camelotKey'].includes(field)) {
+                var newEl = document.createElement('div');
+                newEl.innerHTML = tfMakeValInput(prefix, field, '', [], select.value);
                 old.replaceWith(newEl.firstChild);
               }
             }
@@ -1079,6 +1295,97 @@
               <div class="field">
                 <span>Playlist name</span>
                 <input type="text" id="gp-name" placeholder="e.g. Belting Belters" style="width:100%" />
+              </div>
+
+              <div class="gp-filter-section">
+                <div class="gp-filter-label">Feature preset <span class="gp-filter-hint">(pick a vibe, then tweak the numbers if needed)</span></div>
+                <% const _gpPresetCoverage = (playlistFeatureCoverage && playlistFeatureCoverage.presets) || {}; %>
+                <input type="hidden" id="gp-feature-preset" value="none" />
+                <div class="playlist-preset-grid" id="gp-preset-grid">
+                  <button type="button" class="playlist-preset-card playlist-preset-card--none is-active" data-preset="none">
+                    <span class="playlist-preset-card__art" aria-hidden="true"></span>
+                    <span class="playlist-preset-card__eyebrow">Open brief</span>
+                    <span class="playlist-preset-card__title">Custom</span>
+                    <span class="playlist-preset-card__desc">Start clean and shape the playlist yourself.</span>
+                    <span class="playlist-preset-card__meta"><%= Number(_gpPresetCoverage.none?.readyTrackCount || 0).toLocaleString() %> tracks ready</span>
+                  </button>
+                  <button type="button" class="playlist-preset-card playlist-preset-card--club<%= _gpPresetCoverage.club?.enabled ? '' : ' is-disabled' %>" data-preset="club" <%= _gpPresetCoverage.club?.enabled ? '' : 'disabled' %> title="<%= _gpPresetCoverage.club?.reason || '' %>">
+                    <span class="playlist-preset-card__art" aria-hidden="true"></span>
+                    <span class="playlist-preset-card__eyebrow">Night out</span>
+                    <span class="playlist-preset-card__title">Club</span>
+                    <span class="playlist-preset-card__desc">Fast BPM, strong energy, dancefloor bias.</span>
+                    <span class="playlist-preset-card__meta"><%= _gpPresetCoverage.club?.enabled ? `${Number(_gpPresetCoverage.club.readyTrackCount || 0).toLocaleString()} tracks ready` : (_gpPresetCoverage.club?.reason || 'Unavailable') %></span>
+                  </button>
+                  <button type="button" class="playlist-preset-card playlist-preset-card--driving<%= _gpPresetCoverage.driving?.enabled ? '' : ' is-disabled' %>" data-preset="driving" <%= _gpPresetCoverage.driving?.enabled ? '' : 'disabled' %> title="<%= _gpPresetCoverage.driving?.reason || '' %>">
+                    <span class="playlist-preset-card__art" aria-hidden="true"></span>
+                    <span class="playlist-preset-card__eyebrow">Road pace</span>
+                    <span class="playlist-preset-card__title">Driving</span>
+                    <span class="playlist-preset-card__desc">Steady tempo and lift without going full cardio.</span>
+                    <span class="playlist-preset-card__meta"><%= _gpPresetCoverage.driving?.enabled ? `${Number(_gpPresetCoverage.driving.readyTrackCount || 0).toLocaleString()} tracks ready` : (_gpPresetCoverage.driving?.reason || 'Unavailable') %></span>
+                  </button>
+                  <button type="button" class="playlist-preset-card playlist-preset-card--workout<%= _gpPresetCoverage.workout?.enabled ? '' : ' is-disabled' %>" data-preset="workout" <%= _gpPresetCoverage.workout?.enabled ? '' : 'disabled' %> title="<%= _gpPresetCoverage.workout?.reason || '' %>">
+                    <span class="playlist-preset-card__art" aria-hidden="true"></span>
+                    <span class="playlist-preset-card__eyebrow">High push</span>
+                    <span class="playlist-preset-card__title">Workout</span>
+                    <span class="playlist-preset-card__desc">Higher BPM, higher energy, built for momentum.</span>
+                    <span class="playlist-preset-card__meta"><%= _gpPresetCoverage.workout?.enabled ? `${Number(_gpPresetCoverage.workout.readyTrackCount || 0).toLocaleString()} tracks ready` : (_gpPresetCoverage.workout?.reason || 'Unavailable') %></span>
+                  </button>
+                  <button type="button" class="playlist-preset-card playlist-preset-card--chill<%= _gpPresetCoverage.chill?.enabled ? '' : ' is-disabled' %>" data-preset="chill" <%= _gpPresetCoverage.chill?.enabled ? '' : 'disabled' %> title="<%= _gpPresetCoverage.chill?.reason || '' %>">
+                    <span class="playlist-preset-card__art" aria-hidden="true"></span>
+                    <span class="playlist-preset-card__eyebrow">Low pressure</span>
+                    <span class="playlist-preset-card__title">Chill</span>
+                    <span class="playlist-preset-card__desc">Slower pace, softer energy, easy background flow.</span>
+                    <span class="playlist-preset-card__meta"><%= _gpPresetCoverage.chill?.enabled ? `${Number(_gpPresetCoverage.chill.readyTrackCount || 0).toLocaleString()} tracks ready` : (_gpPresetCoverage.chill?.reason || 'Unavailable') %></span>
+                  </button>
+                  <button type="button" class="playlist-preset-card playlist-preset-card--harmonic<%= _gpPresetCoverage.harmonic?.enabled ? '' : ' is-disabled' %>" data-preset="harmonic" <%= _gpPresetCoverage.harmonic?.enabled ? '' : 'disabled' %> title="<%= _gpPresetCoverage.harmonic?.reason || '' %>">
+                    <span class="playlist-preset-card__art" aria-hidden="true"></span>
+                    <span class="playlist-preset-card__eyebrow">Key pocket</span>
+                    <span class="playlist-preset-card__title">Harmonic</span>
+                    <span class="playlist-preset-card__desc">Focus the set around a Camelot key neighborhood.</span>
+                    <span class="playlist-preset-card__meta"><%= _gpPresetCoverage.harmonic?.enabled ? `${Number(_gpPresetCoverage.harmonic.readyTrackCount || 0).toLocaleString()} tracks ready` : (_gpPresetCoverage.harmonic?.reason || 'Unavailable') %></span>
+                  </button>
+                </div>
+                <div class="playlist-feature-grid">
+                  <label class="field">
+                    <span>BPM min</span>
+                    <input type="number" id="gp-bpm-min" min="0" step="1" placeholder="Any" />
+                  </label>
+                  <label class="field">
+                    <span>BPM max</span>
+                    <input type="number" id="gp-bpm-max" min="0" step="1" placeholder="Any" />
+                  </label>
+                  <label class="field">
+                    <span>Energy min</span>
+                    <input type="number" id="gp-energy-min" min="0" max="1" step="0.01" placeholder="Any" />
+                  </label>
+                  <label class="field">
+                    <span>Energy max</span>
+                    <input type="number" id="gp-energy-max" min="0" max="1" step="0.01" placeholder="Any" />
+                  </label>
+                  <label class="field">
+                    <span>Danceability min</span>
+                    <input type="number" id="gp-danceability-min" min="0" max="1" step="0.01" placeholder="Any" />
+                  </label>
+                  <label class="field">
+                    <span>Danceability max</span>
+                    <input type="number" id="gp-danceability-max" min="0" max="1" step="0.01" placeholder="Any" />
+                  </label>
+                  <label class="field">
+                    <span>Camelot focus</span>
+                    <input type="text" id="gp-camelot-focus" placeholder="8A, 9A, 10A" />
+                  </label>
+                  <label class="field">
+                    <span>Camelot spread</span>
+                    <select id="gp-camelot-mode">
+                      <option value="exact">Exact key</option>
+                      <option value="adjacent">Adjacent keys</option>
+                      <option value="relative">Relative major/minor</option>
+                      <option value="harmonic">Full harmonic set</option>
+                    </select>
+                  </label>
+                </div>
+                  <div class="playlist-feature-note">Presets fill these feature ranges for you. Camelot uses DJ wheel notation rather than classical names: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A</code> is <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">A minor</code>, and <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8B</code> is <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">C major</code>. Camelot focus accepts one or more keys like <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A</code> or <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A, 9A, 10A</code>. Exact uses only the listed keys. Adjacent adds neighboring numbers on the same letter. Relative adds the same number on the opposite letter. Full harmonic set combines both.</div>
+                  <div class="playlist-feature-note" id="gp-feature-match-note">Current feature match: <strong id="gp-feature-match-count">—</strong> tracks after your edits.</div>
               </div>
 
               <div class="gp-builder-grid">
@@ -1317,6 +1624,11 @@
                   <% if (_gr.length) { %><span class="gp-rule-chip">Genres: <%= _gr.join(', ') %></span><% } %>
                   <% if (_mo.length) { %><span class="gp-rule-chip">Moods: <%= _mo.join(', ') %></span><% } %>
                   <% if (_tg.length) { %><span class="gp-rule-chip">Tags: <%= _tg.join(', ') %></span><% } %>
+                  <% if (gp.rules?.featurePreset && gp.rules.featurePreset !== 'none') { %><span class="gp-rule-chip">Preset: <%= gp.rules.featurePreset %></span><% } %>
+                  <% if (gp.rules?.bpmMin != null || gp.rules?.bpmMax != null) { %><span class="gp-rule-chip">BPM: <%= gp.rules?.bpmMin != null ? gp.rules.bpmMin : 'any' %> - <%= gp.rules?.bpmMax != null ? gp.rules.bpmMax : 'any' %></span><% } %>
+                  <% if (gp.rules?.energyMin != null || gp.rules?.energyMax != null) { %><span class="gp-rule-chip">Energy: <%= gp.rules?.energyMin != null ? gp.rules.energyMin : 'any' %> - <%= gp.rules?.energyMax != null ? gp.rules.energyMax : 'any' %></span><% } %>
+                  <% if (gp.rules?.danceabilityMin != null || gp.rules?.danceabilityMax != null) { %><span class="gp-rule-chip">Danceability: <%= gp.rules?.danceabilityMin != null ? gp.rules.danceabilityMin : 'any' %> - <%= gp.rules?.danceabilityMax != null ? gp.rules.danceabilityMax : 'any' %></span><% } %>
+                  <% if (gp.rules?.camelotFocus) { %><span class="gp-rule-chip">Camelot: <%= gp.rules.camelotFocus %> (<%= gp.rules.camelotMode || 'exact' %>)</span><% } %>
                   <% if (gp.rules?.topNPerArtist) { %><span class="gp-rule-chip">Top <%= gp.rules.topNPerArtist %>/artist</span><% } %>
                   <% if (gp.rules?.maxTracks) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracks %> tracks</span><% } %>
                   <% if ((gp.rules?.blendUsers || []).length) { %>
@@ -1336,6 +1648,70 @@
               var previewTimer = null;
               var _editingGpId = null;
               var GP_DATA = <%- JSON.stringify(globalPlaylists || []) %>;
+              var GP_FEATURE_PRESETS = {
+                none: { bpmMin: '', bpmMax: '', energyMin: '', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+                club: { bpmMin: '118', bpmMax: '132', energyMin: '0.70', energyMax: '', danceabilityMin: '0.55', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+                driving: { bpmMin: '110', bpmMax: '145', energyMin: '0.60', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+                workout: { bpmMin: '124', bpmMax: '150', energyMin: '0.72', energyMax: '', danceabilityMin: '0.55', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+                chill: { bpmMin: '', bpmMax: '105', energyMin: '', energyMax: '0.45', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+                harmonic: { bpmMin: '', bpmMax: '', energyMin: '', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '8A', camelotMode: 'harmonic' },
+                downtempo: { bpmMin: '70', bpmMax: '100', energyMin: '', energyMax: '0.40', danceabilityMin: '', danceabilityMax: '0.65', camelotFocus: '', camelotMode: 'exact' },
+              };
+
+              function gpSetPresetSelection(preset) {
+                var value = GP_FEATURE_PRESETS[preset] ? preset : 'none';
+                document.getElementById('gp-feature-preset').value = value;
+                document.querySelectorAll('#gp-preset-grid .playlist-preset-card').forEach(function(card) {
+                  card.classList.toggle('is-active', card.dataset.preset === value);
+                });
+              }
+
+              function gpApplyPresetDefaults(preset) {
+                var defaults = GP_FEATURE_PRESETS[preset] || GP_FEATURE_PRESETS.none;
+                gpSetPresetSelection(preset);
+                document.getElementById('gp-bpm-min').value = defaults.bpmMin;
+                document.getElementById('gp-bpm-max').value = defaults.bpmMax;
+                document.getElementById('gp-energy-min').value = defaults.energyMin;
+                document.getElementById('gp-energy-max').value = defaults.energyMax;
+                document.getElementById('gp-danceability-min').value = defaults.danceabilityMin;
+                document.getElementById('gp-danceability-max').value = defaults.danceabilityMax;
+                document.getElementById('gp-camelot-focus').value = defaults.camelotFocus;
+                document.getElementById('gp-camelot-mode').value = defaults.camelotMode;
+                schedulePreview();
+              }
+
+              function gpLoadFeatureRules(rules) {
+                var preset = rules.featurePreset || 'none';
+                gpSetPresetSelection(preset);
+                document.getElementById('gp-bpm-min').value = rules.bpmMin != null ? rules.bpmMin : '';
+                document.getElementById('gp-bpm-max').value = rules.bpmMax != null ? rules.bpmMax : '';
+                document.getElementById('gp-energy-min').value = rules.energyMin != null ? rules.energyMin : '';
+                document.getElementById('gp-energy-max').value = rules.energyMax != null ? rules.energyMax : '';
+                document.getElementById('gp-danceability-min').value = rules.danceabilityMin != null ? rules.danceabilityMin : '';
+                document.getElementById('gp-danceability-max').value = rules.danceabilityMax != null ? rules.danceabilityMax : '';
+                document.getElementById('gp-camelot-focus').value = rules.camelotFocus || '';
+                document.getElementById('gp-camelot-mode').value = rules.camelotMode || 'exact';
+              }
+
+              function gpFeatureSummaryHtml(rules) {
+                var chips = [];
+                if (rules.featurePreset && rules.featurePreset !== 'none') {
+                  chips.push('<span class="gp-rule-chip">Preset: ' + rules.featurePreset + '</span>');
+                }
+                if (rules.bpmMin != null || rules.bpmMax != null) {
+                  chips.push('<span class="gp-rule-chip">BPM: ' + (rules.bpmMin != null ? rules.bpmMin : 'any') + ' - ' + (rules.bpmMax != null ? rules.bpmMax : 'any') + '</span>');
+                }
+                if (rules.energyMin != null || rules.energyMax != null) {
+                  chips.push('<span class="gp-rule-chip">Energy: ' + (rules.energyMin != null ? rules.energyMin : 'any') + ' - ' + (rules.energyMax != null ? rules.energyMax : 'any') + '</span>');
+                }
+                if (rules.danceabilityMin != null || rules.danceabilityMax != null) {
+                  chips.push('<span class="gp-rule-chip">Danceability: ' + (rules.danceabilityMin != null ? rules.danceabilityMin : 'any') + ' - ' + (rules.danceabilityMax != null ? rules.danceabilityMax : 'any') + '</span>');
+                }
+                if (rules.camelotFocus) {
+                  chips.push('<span class="gp-rule-chip">Camelot: ' + rules.camelotFocus + ' (' + (rules.camelotMode || 'exact') + ')</span>');
+                }
+                return chips.join('');
+              }
 
               function gpLoadIntoBuilder(gp) {
                 var rules = gp.rules || {};
@@ -1366,6 +1742,7 @@
                 document.getElementById('gp-max-tracks').value = rules.maxTracks || '';
                 document.getElementById('gp-sort-by').value = rules.sortBy || 'ratingCount';
                 if (window.gpSetBlendUsers) window.gpSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
+                gpLoadFeatureRules(rules);
                 // Populate track filters
                 var tfList = document.getElementById('tf-list-gp');
                 tfList.innerHTML = '';
@@ -1375,8 +1752,8 @@
                   row.className = 'tf-rule-row';
                   row.innerHTML =
                     '<select name="gp_rule_field" class="tf-select" onchange="tfUpdateVal(this,\'gp\')">' + tfMakeFieldOpts(_TF_FIELDS_CR_CU, rule.field) + '</select>' +
-                    '<select name="gp_rule_op" class="tf-select">' + tfMakeOpOpts(rule.operator) + '</select>' +
-                    tfMakeValInput('gp', rule.field, rule.value, []) +
+                    '<select name="gp_rule_op" class="tf-select" onchange="tfUpdateOp(this,\'gp\')">' + tfMakeOpOpts(rule.operator, rule.field) + '</select>' +
+                    tfMakeValInput('gp', rule.field, rule.value, [], rule.operator) +
                     '<label class="tf-cs-label"><input type="checkbox" name="gp_rule_cs" value="on"' + (rule.caseSensitive ? ' checked' : '') + ' /><span>Aa</span></label>' +
                     '<button type="button" class="tf-remove-btn" onclick="this.closest(\'.tf-rule-row\').remove()">×</button>';
                   tfList.appendChild(row);
@@ -1405,6 +1782,7 @@
                 document.getElementById('gp-max-tracks').value = '';
                 document.getElementById('gp-sort-by').value = 'ratingCount';
                 if (window.gpSetBlendUsers) window.gpSetBlendUsers([], 'average');
+                gpApplyPresetDefaults('none');
                 document.getElementById('tf-list-gp').innerHTML = '';
                 var _ic = document.getElementById('gp-include-chips'); if (_ic) _ic.innerHTML = '';
                 var _ec = document.getElementById('gp-exclude-chips'); if (_ec) _ec.innerHTML = '';
@@ -1425,6 +1803,7 @@
                   + (gr.length ? '<span class="gp-rule-chip">Genres: ' + gr.join(', ') + '</span>' : '')
                   + (mo.length ? '<span class="gp-rule-chip">Moods: ' + mo.join(', ') + '</span>' : '')
                   + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
+                  + gpFeatureSummaryHtml(r)
                   + (r.topNPerArtist ? '<span class="gp-rule-chip">Top ' + r.topNPerArtist + '/artist</span>' : '')
                   + (r.maxTracks ? '<span class="gp-rule-chip">Max ' + r.maxTracks + ' tracks</span>' : '')
                   + (bu.length ? '<span class="gp-rule-chip gp-rule-chip--blend">Blend (' + bm + '): ' + bu.join(', ') + '</span>' : '');
@@ -1457,6 +1836,15 @@
                   sortBy: document.getElementById('gp-sort-by').value,
                   blendUsers: window.gpGetBlendUsers ? window.gpGetBlendUsers() : [],
                   blendMode: blendModeEl ? blendModeEl.value : 'average',
+                  featurePreset: document.getElementById('gp-feature-preset').value || 'none',
+                  bpmMin: document.getElementById('gp-bpm-min').value || null,
+                  bpmMax: document.getElementById('gp-bpm-max').value || null,
+                  energyMin: document.getElementById('gp-energy-min').value || null,
+                  energyMax: document.getElementById('gp-energy-max').value || null,
+                  danceabilityMin: document.getElementById('gp-danceability-min').value || null,
+                  danceabilityMax: document.getElementById('gp-danceability-max').value || null,
+                  camelotFocus: document.getElementById('gp-camelot-focus').value || '',
+                  camelotMode: document.getElementById('gp-camelot-mode').value || 'exact',
                 };
               }
 
@@ -1701,18 +2089,23 @@
                 var url = '/api/playlists/global/preview?rules=' + encodeURIComponent(JSON.stringify(rules))
                   + '&trackFilters=' + encodeURIComponent(JSON.stringify(tf));
                 if (userId) url += '&userId=' + encodeURIComponent(userId);
+                document.getElementById('gp-feature-match-count').textContent = '…';
                 fetch(url).then(function(r) { return r.json(); }).then(function(data) {
                   if (!data.ok) return;
                   if (data.forUser) {
                     document.getElementById('gp-prev-artists').textContent = data.forUser.artistCount;
                     document.getElementById('gp-prev-tracks').textContent = data.forUser.trackCount;
+                    document.getElementById('gp-feature-match-count').textContent = Number(data.featureTrackCount || 0).toLocaleString();
                     document.getElementById('gp-prev-avg-wrap').style.display = 'none';
                   } else if (data.average) {
                     document.getElementById('gp-prev-artists').textContent = data.average.artistCount;
                     document.getElementById('gp-prev-tracks').textContent = data.average.trackCount;
+                    document.getElementById('gp-feature-match-count').textContent = Number(data.featureTrackCount || 0).toLocaleString();
                     document.getElementById('gp-prev-avg-wrap').style.display = 'none';
                   }
-                }).catch(function() {});
+                }).catch(function() {
+                  document.getElementById('gp-feature-match-count').textContent = '?';
+                });
               }
 
               function schedulePreview() {
@@ -1744,6 +2137,17 @@
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('change', schedulePreview);
                 if (el && el.tagName === 'INPUT') el.addEventListener('input', schedulePreview);
+              });
+              ['gp-bpm-min','gp-bpm-max','gp-energy-min','gp-energy-max','gp-danceability-min','gp-danceability-max','gp-camelot-focus','gp-camelot-mode'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('change', schedulePreview);
+                if (el.tagName === 'INPUT') el.addEventListener('input', schedulePreview);
+              });
+              document.querySelectorAll('#gp-preset-grid .playlist-preset-card').forEach(function(card) {
+                card.addEventListener('click', function() {
+                  gpApplyPresetDefaults(card.dataset.preset || 'none');
+                });
               });
               document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb').forEach(function(c) {
                 c.addEventListener('change', schedulePreview);
@@ -1801,7 +2205,7 @@
                   fetch('/api/playlists/global/' + editId, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, trackFilters: getGpFilters() }),
+                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                   }).then(function(r) { return r.json(); }).then(function(d) {
                     if (!d.ok) { msg.textContent = d.error || 'Error updating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                     var card = document.querySelector('.gp-card[data-gp-id="' + editId + '"]');
@@ -1820,7 +2224,7 @@
                 fetch('/api/playlists/global', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, trackFilters: getGpFilters() }),
+                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                 }).then(function(r) { return r.json(); }).then(function(d) {
                   if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                   msg.textContent = 'Created! It will sync on the next job run.';
@@ -2524,6 +2928,33 @@
     var initialTab = serverTab || savedTab || 'general';
     if (!tabBtns.some(function(btn) { return btn.dataset.tab === initialTab; })) initialTab = 'general';
     activateTab(initialTab);
+  })();
+
+  // ── Analyzer mode form visibility ────────────────────────────────────────
+  (function() {
+    var modeSelect = document.getElementById('analyzerModeSelect');
+    if (!modeSelect) return;
+    var help = document.getElementById('analyzerModeHelp');
+    var helpCopy = {
+      sidecar: 'Analyzer sidecar is recommended for Docker installs. Curatorr sends analysis jobs to the companion analyzer service at http://127.0.0.1:8765.',
+      builtin: 'Built-in Curatorr worker runs the analyzer inside the main Curatorr container. Use this only when the main app environment already has the required Python audio dependencies.',
+      custom: 'Custom command is an advanced escape hatch. Curatorr exports the manifest, runs your command, then imports the analyzer output.'
+    };
+    function setFieldState(wrapper, visible) {
+      wrapper.hidden = !visible;
+      wrapper.querySelectorAll('input, textarea, select').forEach(function(field) {
+        field.disabled = !visible;
+      });
+    }
+    function updateAnalyzerModeUi() {
+      var mode = String(modeSelect.value || 'sidecar').trim().toLowerCase();
+      document.querySelectorAll('[data-analyzer-mode-field]').forEach(function(node) {
+        setFieldState(node, node.dataset.analyzerModeField === mode);
+      });
+      if (help) help.textContent = helpCopy[mode] || helpCopy.sidecar;
+    }
+    modeSelect.addEventListener('change', updateAnalyzerModeUi);
+    updateAnalyzerModeUi();
   })();
 
   // ── Jobs ──────────────────────────────────────────────────────────────────

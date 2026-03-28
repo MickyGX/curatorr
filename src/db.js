@@ -137,6 +137,41 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   updated_at    INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
 );
 
+CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid
+  ON master_tracks(recording_mbid)
+  WHERE recording_mbid != '';
+
+CREATE TABLE IF NOT EXISTS track_enrichment (
+  rating_key             TEXT NOT NULL PRIMARY KEY,
+  recording_mbid         TEXT NOT NULL DEFAULT '',
+  track_year             INTEGER,
+  original_release_date  TEXT NOT NULL DEFAULT '',
+  bpm                    REAL,
+  musical_key            TEXT NOT NULL DEFAULT '',
+  camelot_key            TEXT NOT NULL DEFAULT '',
+  energy                 REAL,
+  danceability           REAL,
+  loudness               REAL,
+  loudness_range         REAL,
+  peak                   REAL,
+  track_gain             REAL,
+  album_gain             REAL,
+  album_peak             REAL,
+  album_range            REAL,
+  analysis_source        TEXT NOT NULL DEFAULT '',
+  analysis_confidence    REAL NOT NULL DEFAULT 0,
+  payload_json           TEXT NOT NULL DEFAULT '{}',
+  updated_at             INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_enrichment_recording_mbid
+  ON track_enrichment(recording_mbid)
+  WHERE recording_mbid != '';
+
+CREATE INDEX IF NOT EXISTS idx_track_enrichment_track_year
+  ON track_enrichment(track_year)
+  WHERE track_year IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS user_preferences (
   user_plex_id        TEXT NOT NULL PRIMARY KEY,
   liked_genres        TEXT NOT NULL DEFAULT '[]',   -- JSON string[]
@@ -428,6 +463,49 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('duration_ms'))
     db.exec('ALTER TABLE master_tracks ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0');
+
+  const enrichmentCols = db.prepare('PRAGMA table_info(track_enrichment)').all().map((c) => c.name);
+  if (!enrichmentCols.includes('recording_mbid'))
+    db.exec("ALTER TABLE track_enrichment ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
+  if (!enrichmentCols.includes('track_year'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN track_year INTEGER');
+  if (!enrichmentCols.includes('original_release_date'))
+    db.exec("ALTER TABLE track_enrichment ADD COLUMN original_release_date TEXT NOT NULL DEFAULT ''");
+  if (!enrichmentCols.includes('bpm'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN bpm REAL');
+  if (!enrichmentCols.includes('musical_key'))
+    db.exec("ALTER TABLE track_enrichment ADD COLUMN musical_key TEXT NOT NULL DEFAULT ''");
+  if (!enrichmentCols.includes('camelot_key'))
+    db.exec("ALTER TABLE track_enrichment ADD COLUMN camelot_key TEXT NOT NULL DEFAULT ''");
+  if (!enrichmentCols.includes('energy'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN energy REAL');
+  if (!enrichmentCols.includes('danceability'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN danceability REAL');
+  if (!enrichmentCols.includes('loudness'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN loudness REAL');
+  if (!enrichmentCols.includes('loudness_range'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN loudness_range REAL');
+  if (!enrichmentCols.includes('peak'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN peak REAL');
+  if (!enrichmentCols.includes('track_gain'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN track_gain REAL');
+  if (!enrichmentCols.includes('album_gain'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN album_gain REAL');
+  if (!enrichmentCols.includes('album_peak'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN album_peak REAL');
+  if (!enrichmentCols.includes('album_range'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN album_range REAL');
+  if (!enrichmentCols.includes('analysis_source'))
+    db.exec("ALTER TABLE track_enrichment ADD COLUMN analysis_source TEXT NOT NULL DEFAULT ''");
+  if (!enrichmentCols.includes('analysis_confidence'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN analysis_confidence REAL NOT NULL DEFAULT 0');
+  if (!enrichmentCols.includes('payload_json'))
+    db.exec("ALTER TABLE track_enrichment ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'");
+  if (!enrichmentCols.includes('updated_at'))
+    db.exec('ALTER TABLE track_enrichment ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+  db.exec(`UPDATE track_enrichment
+    SET updated_at = COALESCE(NULLIF(updated_at, 0), unixepoch('now') * 1000)
+    WHERE updated_at = 0`);
 
   const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
   if (!openSessionCols.includes('player_scope'))
@@ -1503,11 +1581,56 @@ export function refreshMasterTracks(db, tracks) {
 }
 
 export function getMasterTracks(db) {
-  return db.prepare('SELECT * FROM master_tracks').all().map((r) => ({
-    ratingKey: r.rating_key, artistName: r.artist_name, trackTitle: r.track_title,
-    albumName: r.album_name, genres: JSON.parse(r.genres || '[]'), moods: JSON.parse(r.moods || '[]'),
-    libraryKey: r.library_key, filePath: String(r.file_path || ''), recordingMbid: String(r.recording_mbid || '').trim(),
-    durationMs: Number(r.duration_ms || 0), ratingCount: r.rating_count, viewCount: r.view_count,
+  return db.prepare(`
+    SELECT
+      m.*,
+      e.track_year,
+      e.original_release_date,
+      e.bpm,
+      e.musical_key,
+      e.camelot_key,
+      e.energy,
+      e.danceability,
+      e.loudness,
+      e.loudness_range,
+      e.peak,
+      e.track_gain,
+      e.album_gain,
+      e.album_peak,
+      e.album_range,
+      e.analysis_source,
+      e.analysis_confidence
+    FROM master_tracks m
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+  `).all().map((r) => ({
+    ratingKey: r.rating_key,
+    artistName: r.artist_name,
+    trackTitle: r.track_title,
+    albumName: r.album_name,
+    genres: JSON.parse(r.genres || '[]'),
+    moods: JSON.parse(r.moods || '[]'),
+    libraryKey: r.library_key,
+    filePath: String(r.file_path || ''),
+    recordingMbid: String(r.recording_mbid || '').trim(),
+    durationMs: Number(r.duration_ms || 0),
+    ratingCount: r.rating_count,
+    viewCount: r.view_count,
+    trackYear: r.track_year == null ? null : Number(r.track_year || 0),
+    originalReleaseDate: String(r.original_release_date || '').trim(),
+    bpm: r.bpm == null ? null : Number(r.bpm),
+    musicalKey: String(r.musical_key || '').trim(),
+    camelotKey: String(r.camelot_key || '').trim(),
+    energy: r.energy == null ? null : Number(r.energy),
+    danceability: r.danceability == null ? null : Number(r.danceability),
+    loudness: r.loudness == null ? null : Number(r.loudness),
+    loudnessRange: r.loudness_range == null ? null : Number(r.loudness_range),
+    peak: r.peak == null ? null : Number(r.peak),
+    trackGain: r.track_gain == null ? null : Number(r.track_gain),
+    albumGain: r.album_gain == null ? null : Number(r.album_gain),
+    albumPeak: r.album_peak == null ? null : Number(r.album_peak),
+    albumRange: r.album_range == null ? null : Number(r.album_range),
+    enrichmentSource: String(r.analysis_source || '').trim(),
+    enrichmentConfidence: Number(r.analysis_confidence || 0),
   }));
 }
 
@@ -1561,6 +1684,223 @@ export function getMasterArtistCount(db) {
     WHERE TRIM(artist_name) != ''
       AND LOWER(TRIM(artist_name)) NOT IN ('various artists', 'va', 'v/a', 'unknown')
   `).get().n;
+}
+
+function parseJsonObject(value, fallback = {}) {
+  try {
+    const parsed = JSON.parse(value || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeTrackEnrichmentRow(row) {
+  if (!row) return null;
+  return {
+    ratingKey: String(row.rating_key || ''),
+    recordingMbid: String(row.recording_mbid || '').trim(),
+    trackYear: row.track_year == null ? null : Number(row.track_year || 0),
+    originalReleaseDate: String(row.original_release_date || '').trim(),
+    bpm: row.bpm == null ? null : Number(row.bpm),
+    musicalKey: String(row.musical_key || '').trim(),
+    camelotKey: String(row.camelot_key || '').trim(),
+    energy: row.energy == null ? null : Number(row.energy),
+    danceability: row.danceability == null ? null : Number(row.danceability),
+    loudness: row.loudness == null ? null : Number(row.loudness),
+    loudnessRange: row.loudness_range == null ? null : Number(row.loudness_range),
+    peak: row.peak == null ? null : Number(row.peak),
+    trackGain: row.track_gain == null ? null : Number(row.track_gain),
+    albumGain: row.album_gain == null ? null : Number(row.album_gain),
+    albumPeak: row.album_peak == null ? null : Number(row.album_peak),
+    albumRange: row.album_range == null ? null : Number(row.album_range),
+    analysisSource: String(row.analysis_source || '').trim(),
+    analysisConfidence: Number(row.analysis_confidence || 0),
+    payload: parseJsonObject(row.payload_json, {}),
+    updatedAt: Number(row.updated_at || 0),
+  };
+}
+
+export function upsertTrackEnrichment(db, entries) {
+  const items = Array.isArray(entries) ? entries : [entries];
+  const upsert = db.prepare(`
+    INSERT INTO track_enrichment (
+      rating_key, recording_mbid, track_year, original_release_date, bpm,
+      musical_key, camelot_key, energy, danceability, loudness, loudness_range,
+      peak, track_gain, album_gain, album_peak, album_range, analysis_source,
+      analysis_confidence, payload_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(rating_key) DO UPDATE SET
+      recording_mbid = excluded.recording_mbid,
+      track_year = excluded.track_year,
+      original_release_date = excluded.original_release_date,
+      bpm = excluded.bpm,
+      musical_key = excluded.musical_key,
+      camelot_key = excluded.camelot_key,
+      energy = excluded.energy,
+      danceability = excluded.danceability,
+      loudness = excluded.loudness,
+      loudness_range = excluded.loudness_range,
+      peak = excluded.peak,
+      track_gain = excluded.track_gain,
+      album_gain = excluded.album_gain,
+      album_peak = excluded.album_peak,
+      album_range = excluded.album_range,
+      analysis_source = excluded.analysis_source,
+      analysis_confidence = excluded.analysis_confidence,
+      payload_json = excluded.payload_json,
+      updated_at = excluded.updated_at
+  `);
+  const run = db.transaction((rows) => {
+    for (const row of rows) {
+      if (!row || !row.ratingKey) continue;
+      upsert.run(
+        String(row.ratingKey || ''),
+        String(row.recordingMbid || '').trim(),
+        row.trackYear == null ? null : Number(row.trackYear),
+        String(row.originalReleaseDate || '').trim(),
+        row.bpm == null ? null : Number(row.bpm),
+        String(row.musicalKey || '').trim(),
+        String(row.camelotKey || '').trim(),
+        row.energy == null ? null : Number(row.energy),
+        row.danceability == null ? null : Number(row.danceability),
+        row.loudness == null ? null : Number(row.loudness),
+        row.loudnessRange == null ? null : Number(row.loudnessRange),
+        row.peak == null ? null : Number(row.peak),
+        row.trackGain == null ? null : Number(row.trackGain),
+        row.albumGain == null ? null : Number(row.albumGain),
+        row.albumPeak == null ? null : Number(row.albumPeak),
+        row.albumRange == null ? null : Number(row.albumRange),
+        String(row.analysisSource || '').trim(),
+        Number(row.analysisConfidence || 0),
+        JSON.stringify(row.payload && typeof row.payload === 'object' ? row.payload : {}),
+        Number(row.updatedAt || Date.now()),
+      );
+    }
+  });
+  run(items);
+}
+
+export function getTrackEnrichmentByRatingKeys(db, ratingKeys) {
+  const keys = Array.isArray(ratingKeys)
+    ? ratingKeys.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
+  if (!keys.length) return [];
+  const placeholders = keys.map(() => '?').join(', ');
+  return db.prepare(`SELECT * FROM track_enrichment WHERE rating_key IN (${placeholders})`).all(...keys)
+    .map(normalizeTrackEnrichmentRow)
+    .filter(Boolean);
+}
+
+export function listTracksMissingEnrichment(db, options = {}) {
+  const limit = Math.max(1, Math.min(500, Number(options.limit || 100)));
+  const requireRecordingMbid = options.requireRecordingMbid !== false;
+  const where = requireRecordingMbid
+    ? `WHERE m.recording_mbid != '' AND e.rating_key IS NULL`
+    : `WHERE e.rating_key IS NULL`;
+  return db.prepare(`
+    SELECT
+      m.rating_key,
+      m.artist_name,
+      m.track_title,
+      m.album_name,
+      m.recording_mbid,
+      m.library_key,
+      m.updated_at
+    FROM master_tracks m
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+    ${where}
+    ORDER BY m.updated_at DESC, m.rating_key ASC
+    LIMIT ?
+  `).all(limit).map((row) => ({
+    ratingKey: String(row.rating_key || ''),
+    artistName: String(row.artist_name || ''),
+    trackTitle: String(row.track_title || ''),
+    albumName: String(row.album_name || ''),
+    recordingMbid: String(row.recording_mbid || '').trim(),
+    libraryKey: String(row.library_key || ''),
+    updatedAt: Number(row.updated_at || 0),
+  }));
+}
+
+export function countTracksMissingEnrichment(db, options = {}) {
+  const requireRecordingMbid = options.requireRecordingMbid !== false;
+  const where = requireRecordingMbid
+    ? `WHERE m.recording_mbid != '' AND e.rating_key IS NULL`
+    : `WHERE e.rating_key IS NULL`;
+  return Number(db.prepare(`
+    SELECT COUNT(*) AS n
+    FROM master_tracks m
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+    ${where}
+  `).get()?.n || 0);
+}
+
+export function listTracksMissingPlexLoudness(db, options = {}) {
+  const limit = Math.max(1, Math.min(500, Number(options.limit || 100)));
+  const rawCursorUpdatedAt = options.cursorUpdatedAt;
+  const cursorUpdatedAt = rawCursorUpdatedAt == null || rawCursorUpdatedAt === ''
+    ? null
+    : (Number.isFinite(Number(rawCursorUpdatedAt)) ? Number(rawCursorUpdatedAt) : null);
+  const cursorRatingKey = String(options.cursorRatingKey || '');
+  return db.prepare(`
+    SELECT
+      m.rating_key,
+      m.artist_name,
+      m.track_title,
+      m.album_name,
+      m.recording_mbid,
+      m.library_key,
+      m.updated_at
+    FROM master_tracks m
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+    WHERE (
+         e.rating_key IS NULL
+      OR e.loudness IS NULL
+      OR e.loudness_range IS NULL
+      OR e.peak IS NULL
+    )
+      AND lower(trim(m.track_title)) NOT IN ('[silence]', 'silence')
+      AND (
+        ? IS NULL
+        OR m.updated_at < ?
+        OR (m.updated_at = ? AND m.rating_key > ?)
+      )
+    ORDER BY m.updated_at DESC, m.rating_key ASC
+    LIMIT ?
+  `).all(cursorUpdatedAt, cursorUpdatedAt, cursorUpdatedAt, cursorRatingKey, limit).map((row) => ({
+    ratingKey: String(row.rating_key || ''),
+    artistName: String(row.artist_name || ''),
+    trackTitle: String(row.track_title || ''),
+    albumName: String(row.album_name || ''),
+    recordingMbid: String(row.recording_mbid || '').trim(),
+    libraryKey: String(row.library_key || ''),
+    updatedAt: Number(row.updated_at || 0),
+  }));
+}
+
+export function countTracksMissingPlexLoudness(db) {
+  return Number(db.prepare(`
+    SELECT COUNT(*) AS n
+    FROM master_tracks m
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+    WHERE (
+         e.rating_key IS NULL
+      OR e.loudness IS NULL
+      OR e.loudness_range IS NULL
+      OR e.peak IS NULL
+    )
+      AND lower(trim(m.track_title)) NOT IN ('[silence]', 'silence')
+  `).get()?.n || 0);
+}
+
+export function mergeMasterTracksWithEnrichment(tracks, enrichmentRows = []) {
+  const enrichByKey = new Map((Array.isArray(enrichmentRows) ? enrichmentRows : [])
+    .map((row) => [String(row?.ratingKey || ''), row]));
+  return (Array.isArray(tracks) ? tracks : []).map((track) => {
+    const enrichment = enrichByKey.get(String(track?.ratingKey || '')) || null;
+    return enrichment ? { ...track, enrichment } : { ...track };
+  });
 }
 
 // ─── System job runs ──────────────────────────────────────────────────────────

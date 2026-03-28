@@ -1,12 +1,16 @@
 {
   "name": "curatorr",
-  "version": "0.1.40",
+  "version": "0.1.41",
   "description": "Automatic smart playlist generator and music taste tracker for Plex, Jellyfin, and Emby",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test src/test/*.test.js"
+    "test": "node --test src/test/*.test.js",
+    "features:export-template": "node scripts/export-track-feature-template.mjs",
+    "features:merge-results": "node scripts/merge-track-feature-results.mjs",
+    "features:analyze": "python3 scripts/analyze-track-features.py",
+    "features:sidecar": "python3 scripts/analyzer-sidecar.py"
   },
   "dependencies": {
     "better-sqlite3": "^11.6.0",

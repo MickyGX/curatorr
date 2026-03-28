@@ -184,6 +184,52 @@
     </section>
   </div>
 
+  <style>
+    .playlist-preset-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:10px; }
+    .playlist-preset-card { position:relative; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:linear-gradient(180deg,rgba(14,18,27,.92),rgba(11,15,24,.82)); color:inherit; padding:12px; text-align:left; cursor:pointer; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
+    .playlist-preset-card:hover { transform:translateY(-1px); border-color:rgba(255,255,255,.22); }
+    .playlist-preset-card.is-active { border-color:rgba(245,158,11,.92); box-shadow:0 0 0 1px rgba(245,158,11,.28), 0 12px 30px rgba(0,0,0,.26); }
+    .playlist-preset-card.is-disabled,
+    .playlist-preset-card:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:none; }
+    .playlist-preset-card__art { display:block; position:relative; overflow:hidden; height:104px; border-radius:12px; margin-bottom:12px; border:1px solid rgba(255,255,255,.10); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), inset 0 -24px 36px rgba(15,23,42,.22); }
+    .playlist-preset-card__art::before,
+    .playlist-preset-card__art::after { content:""; position:absolute; pointer-events:none; }
+    .playlist-preset-card__art::before { inset:0; background:linear-gradient(180deg,rgba(255,255,255,.14),transparent 26%,rgba(15,23,42,.26)); }
+    .playlist-preset-card__art::after { right:-10%; bottom:-26%; width:72%; height:72%; border-radius:999px; border:1px solid rgba(255,255,255,.20); box-shadow:0 0 0 16px rgba(255,255,255,.05), 0 0 0 36px rgba(255,255,255,.03); opacity:.7; transform:rotate(-18deg); }
+    .playlist-preset-card__eyebrow { display:block; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.5); margin-bottom:4px; }
+    .playlist-preset-card__title { display:block; font-weight:700; margin-bottom:4px; }
+    .playlist-preset-card__desc { display:block; font-size:12px; color:rgba(255,255,255,.68); line-height:1.45; }
+    .playlist-preset-card__meta { display:block; margin-top:7px; font-size:11px; color:rgba(255,255,255,.5); }
+    .playlist-preset-card--none .playlist-preset-card__art { background:
+      linear-gradient(135deg,rgba(255,255,255,.06) 0 12%,transparent 12% 100%),
+      linear-gradient(135deg,#111827,#1f2937); }
+    .playlist-preset-card--club .playlist-preset-card__art { background:
+      radial-gradient(circle at 20% 25%,rgba(236,72,153,.95),transparent 35%),
+      radial-gradient(circle at 80% 20%,rgba(59,130,246,.9),transparent 34%),
+      linear-gradient(135deg,#140c1c,#312e81 54%,#0f172a); }
+    .playlist-preset-card--club .playlist-preset-card__art::after { right:-8%; bottom:-18%; width:82%; height:82%; border-color:rgba(244,114,182,.34); box-shadow:0 0 0 16px rgba(59,130,246,.10), 0 0 0 36px rgba(236,72,153,.10); }
+    .playlist-preset-card--driving .playlist-preset-card__art { background:
+      linear-gradient(180deg,rgba(251,191,36,.98),rgba(249,115,22,.88) 44%,rgba(30,41,59,.98)),
+      linear-gradient(120deg,#1e3a8a,#0f172a); }
+    .playlist-preset-card--driving .playlist-preset-card__art::after { right:-2%; bottom:-22%; width:56%; height:110%; border-radius:28px; border-color:rgba(255,255,255,.30); box-shadow:0 0 0 10px rgba(255,255,255,.06), inset 0 0 0 1px rgba(255,255,255,.08); transform:skewX(-18deg); }
+    .playlist-preset-card--workout .playlist-preset-card__art { background:
+      linear-gradient(135deg,rgba(239,68,68,.98),rgba(249,115,22,.92) 42%,rgba(17,24,39,.98)); }
+    .playlist-preset-card--workout .playlist-preset-card__art::after { right:-14%; bottom:-30%; width:74%; height:88%; border-color:rgba(254,215,170,.28); box-shadow:0 0 0 16px rgba(249,115,22,.10), 0 0 0 34px rgba(239,68,68,.08); transform:rotate(-10deg); }
+    .playlist-preset-card--chill .playlist-preset-card__art { background:
+      radial-gradient(circle at 25% 20%,rgba(125,211,252,.85),transparent 28%),
+      linear-gradient(135deg,#0f172a,#1d4ed8 55%,#164e63); }
+    .playlist-preset-card--chill .playlist-preset-card__art::after { right:-4%; bottom:-24%; width:68%; height:76%; border-color:rgba(186,230,253,.26); box-shadow:0 0 0 14px rgba(125,211,252,.08), 0 0 0 32px rgba(14,165,233,.05); transform:rotate(-6deg); }
+    .playlist-preset-card--harmonic .playlist-preset-card__art { background:
+      radial-gradient(circle at center,rgba(255,255,255,.16) 0,rgba(255,255,255,.06) 24%,transparent 25%),
+      conic-gradient(from 45deg,#f59e0b,#f97316,#ef4444,#8b5cf6,#3b82f6,#14b8a6,#f59e0b); }
+    .playlist-preset-card--harmonic .playlist-preset-card__art::after { right:10%; bottom:12%; width:34%; height:34%; border-color:rgba(255,255,255,.28); box-shadow:0 0 0 12px rgba(255,255,255,.08), 0 0 0 24px rgba(255,255,255,.04); transform:none; }
+    .playlist-preset-card--downtempo .playlist-preset-card__art { background:
+      linear-gradient(135deg,#0f172a,#334155 45%,#475569); }
+    .playlist-preset-card--downtempo .playlist-preset-card__art::after { right:-10%; bottom:-28%; width:72%; height:72%; border-color:rgba(226,232,240,.18); box-shadow:0 0 0 16px rgba(148,163,184,.08), 0 0 0 34px rgba(71,85,105,.06); }
+    .playlist-feature-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-top:14px; }
+    .playlist-feature-note { margin-top:10px; font-size:12px; color:rgba(255,255,255,.62); }
+  </style>
+
   <%# ── Smart Playlist Modal ────────────────────────────────────────────────── %>
   <div id="smartPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeSmartPlaylistModal()">
     <div class="spm-dialog" role="dialog" aria-modal="true" aria-label="Create Smart Playlist">
@@ -195,6 +241,97 @@
         <div class="field" style="margin-bottom:16px">
           <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#888)">Playlist name</span>
           <input type="text" id="spm-name" class="cur-input" placeholder="e.g. Britpop Belters" style="width:100%;margin-top:4px" />
+        </div>
+
+        <div class="spm-filter-section" style="margin-bottom:16px">
+          <div class="spm-filter-label">Feature preset <span class="gp-filter-hint">(select a starting point, then tweak the ranges)</span></div>
+          <% const _spmPresetCoverage = (playlistFeatureCoverage && playlistFeatureCoverage.presets) || {}; %>
+          <input type="hidden" id="spm-feature-preset" value="none" />
+          <div class="playlist-preset-grid" id="spm-preset-grid">
+            <button type="button" class="playlist-preset-card playlist-preset-card--none is-active" data-preset="none">
+              <span class="playlist-preset-card__art" aria-hidden="true"></span>
+              <span class="playlist-preset-card__eyebrow">Open brief</span>
+              <span class="playlist-preset-card__title">Custom</span>
+              <span class="playlist-preset-card__desc">Start clean and shape the playlist yourself.</span>
+              <span class="playlist-preset-card__meta"><%= Number(_spmPresetCoverage.none?.readyTrackCount || 0).toLocaleString() %> tracks ready</span>
+            </button>
+            <button type="button" class="playlist-preset-card playlist-preset-card--club<%= _spmPresetCoverage.club?.enabled ? '' : ' is-disabled' %>" data-preset="club" <%= _spmPresetCoverage.club?.enabled ? '' : 'disabled' %> title="<%= _spmPresetCoverage.club?.reason || '' %>">
+              <span class="playlist-preset-card__art" aria-hidden="true"></span>
+              <span class="playlist-preset-card__eyebrow">Night out</span>
+              <span class="playlist-preset-card__title">Club</span>
+              <span class="playlist-preset-card__desc">Fast BPM, strong energy, dancefloor bias.</span>
+              <span class="playlist-preset-card__meta"><%= _spmPresetCoverage.club?.enabled ? `${Number(_spmPresetCoverage.club.readyTrackCount || 0).toLocaleString()} tracks ready` : (_spmPresetCoverage.club?.reason || 'Unavailable') %></span>
+            </button>
+            <button type="button" class="playlist-preset-card playlist-preset-card--driving<%= _spmPresetCoverage.driving?.enabled ? '' : ' is-disabled' %>" data-preset="driving" <%= _spmPresetCoverage.driving?.enabled ? '' : 'disabled' %> title="<%= _spmPresetCoverage.driving?.reason || '' %>">
+              <span class="playlist-preset-card__art" aria-hidden="true"></span>
+              <span class="playlist-preset-card__eyebrow">Road pace</span>
+              <span class="playlist-preset-card__title">Driving</span>
+              <span class="playlist-preset-card__desc">Steady tempo and lift without going full cardio.</span>
+              <span class="playlist-preset-card__meta"><%= _spmPresetCoverage.driving?.enabled ? `${Number(_spmPresetCoverage.driving.readyTrackCount || 0).toLocaleString()} tracks ready` : (_spmPresetCoverage.driving?.reason || 'Unavailable') %></span>
+            </button>
+            <button type="button" class="playlist-preset-card playlist-preset-card--workout<%= _spmPresetCoverage.workout?.enabled ? '' : ' is-disabled' %>" data-preset="workout" <%= _spmPresetCoverage.workout?.enabled ? '' : 'disabled' %> title="<%= _spmPresetCoverage.workout?.reason || '' %>">
+              <span class="playlist-preset-card__art" aria-hidden="true"></span>
+              <span class="playlist-preset-card__eyebrow">High push</span>
+              <span class="playlist-preset-card__title">Workout</span>
+              <span class="playlist-preset-card__desc">Higher BPM, higher energy, built for momentum.</span>
+              <span class="playlist-preset-card__meta"><%= _spmPresetCoverage.workout?.enabled ? `${Number(_spmPresetCoverage.workout.readyTrackCount || 0).toLocaleString()} tracks ready` : (_spmPresetCoverage.workout?.reason || 'Unavailable') %></span>
+            </button>
+            <button type="button" class="playlist-preset-card playlist-preset-card--chill<%= _spmPresetCoverage.chill?.enabled ? '' : ' is-disabled' %>" data-preset="chill" <%= _spmPresetCoverage.chill?.enabled ? '' : 'disabled' %> title="<%= _spmPresetCoverage.chill?.reason || '' %>">
+              <span class="playlist-preset-card__art" aria-hidden="true"></span>
+              <span class="playlist-preset-card__eyebrow">Low pressure</span>
+              <span class="playlist-preset-card__title">Chill</span>
+              <span class="playlist-preset-card__desc">Slower pace, softer energy, easy background flow.</span>
+              <span class="playlist-preset-card__meta"><%= _spmPresetCoverage.chill?.enabled ? `${Number(_spmPresetCoverage.chill.readyTrackCount || 0).toLocaleString()} tracks ready` : (_spmPresetCoverage.chill?.reason || 'Unavailable') %></span>
+            </button>
+            <button type="button" class="playlist-preset-card playlist-preset-card--harmonic<%= _spmPresetCoverage.harmonic?.enabled ? '' : ' is-disabled' %>" data-preset="harmonic" <%= _spmPresetCoverage.harmonic?.enabled ? '' : 'disabled' %> title="<%= _spmPresetCoverage.harmonic?.reason || '' %>">
+              <span class="playlist-preset-card__art" aria-hidden="true"></span>
+              <span class="playlist-preset-card__eyebrow">Key pocket</span>
+              <span class="playlist-preset-card__title">Harmonic</span>
+              <span class="playlist-preset-card__desc">Bias the set around a Camelot key neighborhood.</span>
+              <span class="playlist-preset-card__meta"><%= _spmPresetCoverage.harmonic?.enabled ? `${Number(_spmPresetCoverage.harmonic.readyTrackCount || 0).toLocaleString()} tracks ready` : (_spmPresetCoverage.harmonic?.reason || 'Unavailable') %></span>
+            </button>
+          </div>
+          <div class="playlist-feature-grid">
+            <label class="field">
+              <span>BPM min</span>
+              <input type="number" id="spm-bpm-min" min="0" step="1" placeholder="Any" />
+            </label>
+            <label class="field">
+              <span>BPM max</span>
+              <input type="number" id="spm-bpm-max" min="0" step="1" placeholder="Any" />
+            </label>
+            <label class="field">
+              <span>Energy min</span>
+              <input type="number" id="spm-energy-min" min="0" max="1" step="0.01" placeholder="Any" />
+            </label>
+            <label class="field">
+              <span>Energy max</span>
+              <input type="number" id="spm-energy-max" min="0" max="1" step="0.01" placeholder="Any" />
+            </label>
+            <label class="field">
+              <span>Danceability min</span>
+              <input type="number" id="spm-danceability-min" min="0" max="1" step="0.01" placeholder="Any" />
+            </label>
+            <label class="field">
+              <span>Danceability max</span>
+              <input type="number" id="spm-danceability-max" min="0" max="1" step="0.01" placeholder="Any" />
+            </label>
+            <label class="field">
+              <span>Camelot focus</span>
+              <input type="text" id="spm-camelot-focus" placeholder="8A, 9A, 10A" />
+            </label>
+            <label class="field">
+              <span>Camelot spread</span>
+              <select id="spm-camelot-mode">
+                <option value="exact">Exact key</option>
+                <option value="adjacent">Adjacent keys</option>
+                <option value="relative">Relative major/minor</option>
+                <option value="harmonic">Full harmonic set</option>
+              </select>
+            </label>
+          </div>
+          <div class="playlist-feature-note">Presets fill these fields for you. Camelot uses DJ wheel notation rather than classical names: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A</code> is <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">A minor</code>, and <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8B</code> is <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">C major</code>. Camelot focus accepts one or more keys like <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A</code> or <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A, 9A, 10A</code>. Exact uses only the listed keys. Adjacent adds neighboring numbers on the same letter. Relative adds the same number on the opposite letter. Full harmonic set combines both.</div>
+          <div class="playlist-feature-note" id="spm-feature-match-note">Current feature match: <strong id="spm-feature-match-count">—</strong> tracks after your edits.</div>
         </div>
 
         <div class="spm-tiers-row">
@@ -1102,6 +1239,49 @@
     var _spmPreviewTimer = null;
 
     var _spmEditId = null; // non-null when editing an existing personal playlist
+    var SPM_FEATURE_PRESETS = {
+      none: { bpmMin: '', bpmMax: '', energyMin: '', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+      club: { bpmMin: '118', bpmMax: '132', energyMin: '0.70', energyMax: '', danceabilityMin: '0.55', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+      driving: { bpmMin: '110', bpmMax: '145', energyMin: '0.60', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+      workout: { bpmMin: '124', bpmMax: '150', energyMin: '0.72', energyMax: '', danceabilityMin: '0.55', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+      chill: { bpmMin: '', bpmMax: '105', energyMin: '', energyMax: '0.45', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
+      harmonic: { bpmMin: '', bpmMax: '', energyMin: '', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '8A', camelotMode: 'harmonic' },
+      downtempo: { bpmMin: '70', bpmMax: '100', energyMin: '', energyMax: '0.40', danceabilityMin: '', danceabilityMax: '0.65', camelotFocus: '', camelotMode: 'exact' },
+    };
+
+    function spmSetPresetSelection(preset) {
+      var value = SPM_FEATURE_PRESETS[preset] ? preset : 'none';
+      document.getElementById('spm-feature-preset').value = value;
+      document.querySelectorAll('#spm-preset-grid .playlist-preset-card').forEach(function(card) {
+        card.classList.toggle('is-active', card.dataset.preset === value);
+      });
+    }
+
+    function spmApplyPresetDefaults(preset) {
+      var defaults = SPM_FEATURE_PRESETS[preset] || SPM_FEATURE_PRESETS.none;
+      spmSetPresetSelection(preset);
+      document.getElementById('spm-bpm-min').value = defaults.bpmMin;
+      document.getElementById('spm-bpm-max').value = defaults.bpmMax;
+      document.getElementById('spm-energy-min').value = defaults.energyMin;
+      document.getElementById('spm-energy-max').value = defaults.energyMax;
+      document.getElementById('spm-danceability-min').value = defaults.danceabilityMin;
+      document.getElementById('spm-danceability-max').value = defaults.danceabilityMax;
+      document.getElementById('spm-camelot-focus').value = defaults.camelotFocus;
+      document.getElementById('spm-camelot-mode').value = defaults.camelotMode;
+      spmSchedulePreview();
+    }
+
+    function spmLoadFeatureRules(rules) {
+      spmSetPresetSelection(rules.featurePreset || 'none');
+      document.getElementById('spm-bpm-min').value = rules.bpmMin != null ? rules.bpmMin : '';
+      document.getElementById('spm-bpm-max').value = rules.bpmMax != null ? rules.bpmMax : '';
+      document.getElementById('spm-energy-min').value = rules.energyMin != null ? rules.energyMin : '';
+      document.getElementById('spm-energy-max').value = rules.energyMax != null ? rules.energyMax : '';
+      document.getElementById('spm-danceability-min').value = rules.danceabilityMin != null ? rules.danceabilityMin : '';
+      document.getElementById('spm-danceability-max').value = rules.danceabilityMax != null ? rules.danceabilityMax : '';
+      document.getElementById('spm-camelot-focus').value = rules.camelotFocus || '';
+      document.getElementById('spm-camelot-mode').value = rules.camelotMode || 'exact';
+    }
 
     function openSmartPlaylistModal() {
       _spmEditId = null;
@@ -1159,6 +1339,7 @@
       if (window.spmSetBlendUsers) window.spmSetBlendUsers([], 'average');
       var blendModeDefault = document.querySelector('input[name="spm-blend-mode"][value="average"]');
       if (blendModeDefault) blendModeDefault.checked = true;
+      spmApplyPresetDefaults('none');
       var topN = document.getElementById('spm-top-n');
       if (topN) topN.value = '';
       var maxT = document.getElementById('spm-max-tracks');
@@ -1282,6 +1463,7 @@
         if (cb) cb.checked = true;
       });
       if (window.spmSetBlendUsers) window.spmSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
+      spmLoadFeatureRules(rules);
       spmUpdateBlendVisibility();
       var topN = document.getElementById('spm-top-n');
       if (topN) topN.value = rules.topNPerArtist || '';
@@ -1341,7 +1523,27 @@
       var blendUsers = (window.spmGetBlendUsers ? window.spmGetBlendUsers() : []);
       var blendModeEl = document.querySelector('input[name="spm-blend-mode"]:checked');
       var blendMode = blendModeEl ? blendModeEl.value : 'average';
-      return { artistTiers: artistTiers, trackTiers: trackTiers, genres: genres, moods: moods, tags: tags, topNPerArtist: topN, maxTracks: maxTracks, sortBy: sortBy, blendUsers: blendUsers, blendMode: blendMode };
+      return {
+        artistTiers: artistTiers,
+        trackTiers: trackTiers,
+        genres: genres,
+        moods: moods,
+        tags: tags,
+        topNPerArtist: topN,
+        maxTracks: maxTracks,
+        sortBy: sortBy,
+        blendUsers: blendUsers,
+        blendMode: blendMode,
+        featurePreset: document.getElementById('spm-feature-preset').value || 'none',
+        bpmMin: document.getElementById('spm-bpm-min').value || null,
+        bpmMax: document.getElementById('spm-bpm-max').value || null,
+        energyMin: document.getElementById('spm-energy-min').value || null,
+        energyMax: document.getElementById('spm-energy-max').value || null,
+        danceabilityMin: document.getElementById('spm-danceability-min').value || null,
+        danceabilityMax: document.getElementById('spm-danceability-max').value || null,
+        camelotFocus: document.getElementById('spm-camelot-focus').value || '',
+        camelotMode: document.getElementById('spm-camelot-mode').value || 'exact',
+      };
     }
 
     function spmSchedulePreview() {
@@ -1356,15 +1558,18 @@
       params.set('rules', JSON.stringify(rules));
       document.getElementById('spm-prev-artists').textContent = '…';
       document.getElementById('spm-prev-tracks').textContent = '…';
+      document.getElementById('spm-feature-match-count').textContent = '…';
       fetch('/api/music/playlists/personal/preview?' + params.toString())
         .then(function(r) { return r.json(); })
         .then(function(data) {
           document.getElementById('spm-prev-artists').textContent = (data.artistCount || 0).toLocaleString();
           document.getElementById('spm-prev-tracks').textContent = (data.trackCount || 0).toLocaleString();
+          document.getElementById('spm-feature-match-count').textContent = (data.featureTrackCount || 0).toLocaleString();
         })
         .catch(function() {
           document.getElementById('spm-prev-artists').textContent = '?';
           document.getElementById('spm-prev-tracks').textContent = '?';
+          document.getElementById('spm-feature-match-count').textContent = '?';
         });
     }
 
@@ -1418,9 +1623,15 @@
         cb.addEventListener('change', spmSchedulePreview);
       });
 
-      ['spm-top-n', 'spm-max-tracks', 'spm-sort-by'].forEach(function(id) {
+      ['spm-top-n', 'spm-max-tracks', 'spm-sort-by', 'spm-bpm-min', 'spm-bpm-max', 'spm-energy-min', 'spm-energy-max', 'spm-danceability-min', 'spm-danceability-max', 'spm-camelot-focus', 'spm-camelot-mode'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('change', spmSchedulePreview);
+        if (el && el.tagName === 'INPUT') el.addEventListener('input', spmSchedulePreview);
+      });
+      document.querySelectorAll('#spm-preset-grid .playlist-preset-card').forEach(function(card) {
+        card.addEventListener('click', function() {
+          spmApplyPresetDefaults(card.dataset.preset || 'none');
+        });
       });
 
       document.querySelectorAll('#smartPlModal .gp-checklist-search').forEach(function(input) {

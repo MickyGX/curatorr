@@ -24,6 +24,7 @@ import {
   listUserPersonalPlaylists,
   listUserGeneratedPlaylists,
   getPlaylistTracks,
+  getMasterTracks,
   getMasterTrackCount,
   getMasterArtistCount,
   getExcludedTrackKeys,
@@ -31,6 +32,7 @@ import {
   getAllUserIds,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
+import { buildFeaturePresetAvailability } from '../services/playlists.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
 
@@ -1559,6 +1561,7 @@ export function registerPages(app, ctx) {
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
+      playlistFeatureCoverage: (() => { try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
       blendableUsers: await buildBlendableUsers(
         db,

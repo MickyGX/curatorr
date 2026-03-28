@@ -26,6 +26,7 @@ import { rebuildSmartPlaylist } from './routes/api-music.js';
 import { runTautulliDailySync } from './services/tautulli-sync.js';
 import { runLastfmHistorySync } from './services/lastfm-sync.js';
 import { runLastfmHistoryBackfill } from './services/lastfm-backfill.js';
+import { createTrackEnrichmentService } from './services/track-enrichment.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,12 +111,34 @@ const DEFAULT_SMART_PLAYLIST_SETTINGS = {
     maxTracks: 24,
     maxTracksPerArtist: 1,
     repeatCooldownDays: 5,
+    featureProfile: 'none',
+    camelotFocus: '',
+    camelotMode: 'exact',
+    useSonicOrdering: false,
+    useLoudnessOrdering: false,
+    loudnessLookahead: 4,
+    maxLoudnessStepDb: 6,
+    sonicSeedCount: 3,
+    sonicExpansionLimit: 12,
+    sonicMaxDistance: 0.35,
+    sonicStrategy: 'balanced',
   },
   curatorr: {
     targetTracks: 48,
     discoveryRatio: 0.35,
     maxTracksPerArtist: 2,
     repeatCooldownDays: 14,
+    featureProfile: 'none',
+    camelotFocus: '',
+    camelotMode: 'exact',
+    useSonicOrdering: false,
+    useLoudnessOrdering: false,
+    loudnessLookahead: 4,
+    maxLoudnessStepDb: 6,
+    sonicSeedCount: 4,
+    sonicExpansionLimit: 16,
+    sonicMaxDistance: 0.35,
+    sonicStrategy: 'balanced',
   },
   crescive: {
     favouriteArtistTrackPct: 0.80,
@@ -582,6 +605,10 @@ const DEFAULT_JOBS_CONFIG = {
   smartPlaylistSync:   { intervalMinutes: 30,    enabled: true },
   lidarrReviewArtists: { intervalMinutes: 30,    enabled: true },
   lidarrProcessQueue:  { intervalMinutes: 20,    enabled: true },
+  trackEnrichmentSync: { intervalMinutes: 360,   enabled: true },
+  trackPlexLoudnessSync: { intervalMinutes: 180, enabled: true },
+  trackFeatureImportSync: { intervalMinutes: 360, enabled: false },
+  trackAnalysisPipeline: { intervalMinutes: 1440, enabled: false },
   tautulliDailySync:   { intervalMinutes: 1440,  enabled: true },
   lidarrRetryFailed:   { intervalMinutes: 1440,  enabled: true },
   lastfmTagSync:       { intervalMinutes: 10080, enabled: true },
@@ -597,6 +624,17 @@ const DEFAULT_CONFIG = {
   smartPlaylist: { ...DEFAULT_SMART_PLAYLIST_SETTINGS },
   discovery: { lastfmApiKey: '', region: 'united states', showTrendingArtists: true, showTrendingTracks: true, showSimilarArtists: true },
   filters: { mustIncludeArtists: [], neverIncludeArtists: [] },
+  analysis: {
+    featuresImportPath: '/app/data/track-features.json',
+    analyzerResultsPath: '/app/data/track-features.results.json',
+    analyzerMode: 'sidecar',
+    analyzerCommand: '',
+    analyzerWorkingDir: '',
+    analyzerPythonBin: 'python3',
+    analyzerSidecarUrl: 'http://127.0.0.1:8765',
+    analyzerInputFormat: 'auto',
+    analyzerOverwriteExisting: false,
+  },
   general: { serverName: 'Curatorr', remoteUrl: '', localUrl: '', basePath: '', playbackSource: 'plex', restrictGuests: false },
   users: [],
   theme: {},
@@ -1790,6 +1828,7 @@ export async function start() {
     _routeCtx.recommendationService = createRecommendationService(_routeCtx);
     _routeCtx.lidarrService = createLidarrService(_routeCtx);
     _routeCtx.playlistService = createPlaylistService(_routeCtx);
+    _routeCtx.trackEnrichmentService = createTrackEnrichmentService(_routeCtx);
 
     // Middleware: redirect Plex users who haven't completed the personal wizard.
     // Locally created Curatorr users can still launch it manually if they want.
@@ -1893,6 +1932,22 @@ export async function start() {
           }
         }
       },
+      trackEnrichmentSync: () => _routeCtx.trackEnrichmentService?.runSync(),
+      trackPlexLoudnessSync: () => _routeCtx.trackEnrichmentService?.runPlexLoudnessSync(),
+      trackFeatureImportSync: () => _routeCtx.trackEnrichmentService?.importFeatureManifest({
+        manifestPath: loadConfig().analysis?.featuresImportPath,
+      }),
+      trackAnalysisPipeline: () => _routeCtx.trackEnrichmentService?.runAutomatedAnalysis({
+        manifestPath: loadConfig().analysis?.featuresImportPath,
+        resultsPath: loadConfig().analysis?.analyzerResultsPath,
+        analyzerMode: loadConfig().analysis?.analyzerMode,
+        command: loadConfig().analysis?.analyzerCommand,
+        workingDir: loadConfig().analysis?.analyzerWorkingDir,
+        analyzerPythonBin: loadConfig().analysis?.analyzerPythonBin,
+        analyzerSidecarUrl: loadConfig().analysis?.analyzerSidecarUrl,
+        inputFormat: loadConfig().analysis?.analyzerInputFormat,
+        overwriteExisting: loadConfig().analysis?.analyzerOverwriteExisting,
+      }),
       lastfmTagSync: () => syncLastfmTags(_routeCtx),
       lastfmHistorySync: () => runLastfmHistorySync(_routeCtx),
       lastfmHistoryBackfill: () => runLastfmHistoryBackfill(_routeCtx),
@@ -1903,7 +1958,7 @@ export async function start() {
     if (config0.wizard?.completed) {
       _routeCtx.jobService.startAll({
         runImmediately: true,
-        skipImmediate: ['tautulliDailySync', 'lastfmTagSync', 'lastfmHistorySync'],
+        skipImmediate: ['tautulliDailySync', 'lastfmTagSync', 'lastfmHistorySync', 'trackEnrichmentSync', 'trackPlexLoudnessSync', 'trackFeatureImportSync', 'trackAnalysisPipeline'],
       }); // start intervals + run most jobs immediately once
     }
 
