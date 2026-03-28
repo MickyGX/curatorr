@@ -1,7 +1,7 @@
 services:
   curatorr:
     container_name: curatorr
-    image: curatorr:latest
+    image: mickygx/curatorr:latest
     ports:
       - "7676:7676"
     environment:
@@ -34,10 +34,7 @@ services:
     container_name: curatorr_analyzer
     depends_on:
       - curatorr
-    build:
-      context: .
-      dockerfile: docker/analyzer/Dockerfile
-    image: curatorr-analyzer:latest
+    image: mickygx/curatorr-analyzer:latest
     environment:
       - PORT=8765
     volumes:
