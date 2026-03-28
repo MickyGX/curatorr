@@ -355,9 +355,9 @@ function extractPlexLoudnessValues(metadata = {}) {
 
 function resolveAnalyzerExecution(options = {}) {
   const rawMode = String(options.analyzerMode || options.mode || 'custom').trim().toLowerCase();
-  const mode = rawMode === 'builtin'
-    ? 'builtin'
-    : (rawMode === 'sidecar' ? 'sidecar' : 'custom');
+  const mode = (rawMode === 'sidecar' || rawMode === 'builtin')
+    ? 'sidecar'
+    : 'custom';
   if (mode === 'custom') {
     return {
       mode,
@@ -373,15 +373,6 @@ function resolveAnalyzerExecution(options = {}) {
     };
   }
 
-  const pythonBin = String(options.analyzerPythonBin || options.pythonBin || 'python3').trim() || 'python3';
-  const scriptPath = path.resolve(process.cwd(), 'scripts', 'analyze-track-features.py');
-  return {
-    mode,
-    command: `${pythonBin} ${shellQuote(scriptPath)} --input \"$CURATORR_FEATURE_TEMPLATE\" --output \"$CURATORR_ANALYZER_OUTPUT\"`,
-    workingDir: resolveManifestPath(options.workingDir || process.cwd()) || process.cwd(),
-    scriptPath,
-    pythonBin,
-  };
 }
 
 async function invokeAnalyzerSidecar(sidecarUrl, payload = {}, options = {}) {

@@ -3513,10 +3513,10 @@ describe('security guards', () => {
     }
   });
 
-  it('runs the built-in track analysis pipeline and imports analyzer output', async () => {
-    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-builtin.db`);
-    const manifestPath = join(testDir, `track-features-builtin-${Date.now()}.json`);
-    const resultsPath = join(testDir, `track-features-builtin-${Date.now()}.results.json`);
+  it('treats legacy builtin analyzer mode as sidecar mode', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-builtin-alias.db`);
+    const manifestPath = join(testDir, `track-features-builtin-alias-${Date.now()}.json`);
+    const resultsPath = join(testDir, `track-features-builtin-alias-${Date.now()}.results.json`);
     const db = initDb(dbPath);
     const now = Date.now();
 
@@ -3525,56 +3525,62 @@ describe('security guards', () => {
         rating_key, artist_name, track_title, album_name, recording_mbid,
         genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('builtin-1', 'Artist Builtin', 'Track Builtin', 'Album Builtin', 'mbid-builtin-1', '[]', '1', '/music/builtin-1.flac', 180000, 0, 0, now);
+    `).run('builtin-alias-1', 'Artist Builtin Alias', 'Track Builtin Alias', 'Album Builtin Alias', 'mbid-builtin-alias-1', '[]', '1', '/media/music/builtin-alias-1.flac', 180000, 0, 0, now);
 
-    const calls = [];
     const service = createTrackEnrichmentService({
       db,
       DB_PATH: dbPath,
       pushLog: () => {},
       safeMessage: (err) => String(err?.message || err || 'Unknown error'),
-      execCommand: async ({ command, cwd, env }) => {
-        calls.push({ command, cwd, env });
-        assert.match(command, /scripts\/analyze-track-features\.py/);
-        assert.equal(env.CURATORR_FEATURE_TEMPLATE, manifestPath);
-        assert.equal(env.CURATORR_ANALYZER_OUTPUT, resultsPath);
-        await writeFile(resultsPath, JSON.stringify({
-          tracks: [
-            {
-              recordingMbid: 'mbid-builtin-1',
-              bpm: 128,
-              musicalKey: 'F minor',
-              camelotKey: '4A',
-              energy: 0.55,
-              danceability: 0.66,
-              analysisSource: 'curatorr-builtin',
-              analysisConfidence: 0.7,
-            },
-          ],
-        }), 'utf8');
-        return { stdout: 'ok', stderr: '' };
+      execCommand: async () => {
+        throw new Error('legacy builtin mode should not execute a local analyzer command');
       },
     });
+
+    const sidecarServer = createServer(async (req, res) => {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      const chunkManifest = JSON.parse(await readFile(payload.inputPath, 'utf8'));
+      const chunkTracks = Array.isArray(chunkManifest?.tracks) ? chunkManifest.tracks : [];
+      await writeFile(payload.outputPath, JSON.stringify({
+        tracks: chunkTracks.map((track) => ({
+          recordingMbid: track.recordingMbid,
+          bpm: 128,
+          musicalKey: 'F minor',
+          camelotKey: '4A',
+          energy: 0.55,
+          danceability: 0.66,
+          analysisSource: 'curatorr-sidecar',
+          analysisConfidence: 0.7,
+        })),
+      }), 'utf8');
+      const body = JSON.stringify({ ok: true, outputPath: payload.outputPath });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+      res.end(body);
+    });
+    await new Promise((resolve) => sidecarServer.listen(0, '127.0.0.1', resolve));
+    const sidecarAddress = sidecarServer.address();
+    const sidecarUrl = `http://127.0.0.1:${sidecarAddress.port}`;
 
     try {
       const result = await service.runAutomatedAnalysis({
         manifestPath,
         resultsPath,
         analyzerMode: 'builtin',
-        analyzerPythonBin: 'python3',
-        workingDir: process.cwd(),
+        analyzerSidecarUrl: sidecarUrl,
       });
       assert.equal(result.ok, true);
-      assert.equal(result.analyzerMode, 'builtin');
+      assert.equal(result.analyzerMode, 'sidecar');
       assert.equal(result.importResult.imported, 1);
-      assert.equal(calls.length, 1);
 
-      const rows = getTrackEnrichmentByRatingKeys(db, ['builtin-1']);
+      const rows = getTrackEnrichmentByRatingKeys(db, ['builtin-alias-1']);
       assert.equal(rows[0]?.bpm, 128);
       assert.equal(rows[0]?.musicalKey, 'F minor');
       assert.equal(rows[0]?.camelotKey, '4A');
-      assert.equal(rows[0]?.analysisSource, 'curatorr-builtin');
+      assert.equal(rows[0]?.analysisSource, 'curatorr-sidecar');
     } finally {
+      await new Promise((resolve, reject) => sidecarServer.close((err) => (err ? reject(err) : resolve())));
       db.close();
     }
   });

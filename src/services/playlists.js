@@ -120,19 +120,22 @@ function isSyntheticPlaylistSeed(track) {
 //   exact — feat-stripped only; preserves (acoustic), (Fade Out), etc.
 //   fuzzy — also strips trailing parens/brackets; catches remaster/version mismatches.
 // Matching always tries exact first, then falls back to fuzzy.
+// For tracks with comma-separated multi-artist originalTitle (e.g. "Jacob Collier, Shawn Mendes,
+// Stormzy & Kirk Franklin"), extra entries are added under the primary artist alone so that
+// external sources (Last.fm, ListenBrainz) that only send the primary artist still match.
 function buildPlaylistTrackLookup(masterTracks) {
   const exact = new Map();
   const fuzzy = new Map();
-  for (const track of masterTracks || []) {
-    if (!track?.ratingKey) continue;
-    const ek = buildExactLookupKey(track.artistName, track.trackTitle);
+
+  function indexArtist(artistName, track) {
+    const ek = buildExactLookupKey(artistName, track.trackTitle);
     if (ek) {
       const prev = exact.get(ek);
       if (!prev || (isSyntheticPlaylistSeed(prev) && !isSyntheticPlaylistSeed(track))) {
         exact.set(ek, track);
       }
     }
-    const fk = buildFuzzyLookupKey(track.artistName, track.trackTitle);
+    const fk = buildFuzzyLookupKey(artistName, track.trackTitle);
     if (fk && fk !== ek) {
       const prev = fuzzy.get(fk);
       if (!prev || (isSyntheticPlaylistSeed(prev) && !isSyntheticPlaylistSeed(track))) {
@@ -140,6 +143,18 @@ function buildPlaylistTrackLookup(masterTracks) {
       }
     }
   }
+
+  for (const track of masterTracks || []) {
+    if (!track?.ratingKey) continue;
+    indexArtist(track.artistName, track);
+    // If artistName is a comma-separated joint credit (from Plex originalTitle), also index
+    // by the primary artist so lookups using only the first artist still resolve.
+    const primaryArtist = String(track.artistName || '').split(/\s*,\s*/)[0].trim();
+    if (primaryArtist && primaryArtist !== track.artistName) {
+      indexArtist(primaryArtist, track);
+    }
+  }
+
   return {
     exact: new Map([...exact.entries()].map(([k, t]) => [k, t.ratingKey])),
     fuzzy: new Map([...fuzzy.entries()].map(([k, t]) => [k, t.ratingKey])),

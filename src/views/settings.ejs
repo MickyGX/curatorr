@@ -211,15 +211,10 @@
                   <span>Analyzer mode</span>
                   <select name="analyzerMode" id="analyzerModeSelect">
                     <option value="sidecar" <%= (config.analysis?.analyzerMode || 'sidecar') === 'sidecar' ? 'selected' : '' %>>Analyzer sidecar</option>
-                    <option value="builtin" <%= (config.analysis?.analyzerMode || 'sidecar') === 'builtin' ? 'selected' : '' %>>Built-in Curatorr worker</option>
                     <option value="custom" <%= (config.analysis?.analyzerMode || 'sidecar') === 'custom' ? 'selected' : '' %>>Custom command</option>
                   </select>
                 </label>
-                <div class="settings-card-sub" id="analyzerModeHelp" style="margin-top:4px">Analyzer sidecar is recommended for Docker installs. Built-in runs inside the main Curatorr container. Custom command is for advanced external pipelines.</div>
-                <label class="field" data-analyzer-mode-field="builtin">
-                  <span>Python executable</span>
-                  <input type="text" name="analyzerPythonBin" value="<%= config.analysis?.analyzerPythonBin || 'python3' %>" placeholder="python3" />
-                </label>
+                <div class="settings-card-sub" id="analyzerModeHelp" style="margin-top:4px">Analyzer sidecar is recommended for Docker installs. Custom command is for advanced external pipelines.</div>
                 <label class="field" data-analyzer-mode-field="sidecar">
                   <span>Analyzer sidecar URL</span>
                   <input type="text" name="analyzerSidecarUrl" value="<%= config.analysis?.analyzerSidecarUrl || 'http://127.0.0.1:8765' %>" placeholder="http://127.0.0.1:8765" />
@@ -2937,7 +2932,6 @@
     var help = document.getElementById('analyzerModeHelp');
     var helpCopy = {
       sidecar: 'Analyzer sidecar is recommended for Docker installs. Curatorr sends analysis jobs to the companion analyzer service at http://127.0.0.1:8765.',
-      builtin: 'Built-in Curatorr worker runs the analyzer inside the main Curatorr container. Use this only when the main app environment already has the required Python audio dependencies.',
       custom: 'Custom command is an advanced escape hatch. Curatorr exports the manifest, runs your command, then imports the analyzer output.'
     };
     function setFieldState(wrapper, visible) {

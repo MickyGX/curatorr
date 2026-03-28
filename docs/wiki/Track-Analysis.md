@@ -13,16 +13,12 @@ Long-term, Curatorr uses this split:
 - Plex API and sonic analysis for ordering and loudness where available
 - Curatorr-owned analysis for explicit `BPM`, key, Camelot, `energy`, and `danceability`
 
-Curatorr now supports three analysis modes:
+Curatorr now supports two shipped analysis modes:
 
-1. `Built-in Curatorr worker`:
-   Curatorr runs its bundled Python analyzer script automatically from the `Track Analysis Pipeline` job.
-2. `Analyzer sidecar`:
+1. `Analyzer sidecar`:
    Curatorr posts the manifest and output paths to a separate `curatorr_analyzer` service running beside the main app.
-3. `Custom command`:
+2. `Custom command`:
    Curatorr exports a manifest, runs your preferred analyzer, then imports the results.
-
-The built-in worker currently uses `librosa` and `numpy` in the analysis environment. If those packages are not available, switch to custom mode or install them where Curatorr runs the analysis job.
 
 ## Sidecar analysis mode
 
@@ -101,30 +97,6 @@ The sidecar pipeline:
 5. shows chunk progress in `Settings -> Jobs`
 
 If a run is interrupted, the next run starts again from chunk `1` of the remaining missing-track set rather than from the entire library.
-
-## Built-in analysis mode
-
-In `Settings -> General -> Track Analysis Import`:
-
-1. set `Analyzer mode` to `Built-in Curatorr worker`
-2. set `Feature manifest path`
-3. set `Analyzer results path`
-4. optionally override `Python executable`
-5. enable or run the `Track Analysis Pipeline` job
-
-Curatorr will:
-
-1. export a manifest of tracks that still need features
-2. run `scripts/analyze-track-features.py`
-3. write the analyzer output to the configured results path
-4. merge the results
-5. import them into `track_enrichment`
-
-Useful manual command:
-
-```bash
-npm run features:analyze -- --input /data/track-features.json --output /data/track-features.results.json
-```
 
 ## Export a manifest template
 
@@ -248,4 +220,3 @@ Those presets can prefill BPM, energy, danceability, and Camelot controls, then 
 - `energy` and `danceability` are expected on a `0` to `1` scale.
 - Curatorr keeps year/date enrichment and feature enrichment in the same `track_enrichment` store.
 - If a track already has year metadata from MusicBrainz, feature imports add BPM/key-style data without overwriting the year fields.
-- The built-in worker is Curatorr-owned, but it still depends on Python audio-analysis packages being available in the analysis environment.

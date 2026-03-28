@@ -246,9 +246,10 @@ function normalizeAnalysisSettings(rawAnalysis = {}) {
     featuresImportPathRaw === LEGACY_ANALYSIS_FEATURES_PATH
     || analyzerResultsPathRaw === LEGACY_ANALYSIS_RESULTS_PATH
   );
-  let analyzerMode = ['builtin', 'sidecar', 'custom'].includes(analyzerModeRaw)
+  let analyzerMode = ['sidecar', 'custom'].includes(analyzerModeRaw)
     ? analyzerModeRaw
     : '';
+  if (analyzerModeRaw === 'builtin') analyzerMode = 'sidecar';
   if (!analyzerMode) analyzerMode = analyzerCommand ? 'custom' : 'sidecar';
   if (analyzerMode === 'custom' && !analyzerCommand) analyzerMode = 'sidecar';
   return {

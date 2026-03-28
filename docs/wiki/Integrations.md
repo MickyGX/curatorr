@@ -171,7 +171,6 @@ Curatorr can enrich tracks with:
 Curatorr supports three analysis paths from `Settings -> General -> Track Analysis Import`:
 
 - `Analyzer sidecar`
-- `Built-in Curatorr worker`
 - `Custom command`
 
 The recommended Docker deployment is the sidecar. It keeps Python audio-analysis dependencies out of the main app container while letting Curatorr run analysis automatically through `Track Analysis Pipeline`.

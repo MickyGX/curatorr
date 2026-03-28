@@ -45,7 +45,7 @@ export const JOB_DEFS = {
   },
   trackAnalysisPipeline: {
     label: 'Track Analysis Pipeline',
-    description: 'Exports a Curatorr feature template, runs either the built-in Curatorr analyzer worker or the configured analyzer command, merges the analyzer output, and imports the results back into track enrichment.',
+    description: 'Exports a Curatorr feature template, runs either the analyzer sidecar or a configured external analyzer command, merges the analyzer output, and imports the results back into track enrichment.',
     defaultIntervalMinutes: 1440,
   },
   tautulliDailySync: {
