@@ -554,7 +554,13 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
       return true;
     });
 
-    const ratingKeys = included.map((t) => t.ratingKey);
+    const seenTitles = new Set();
+    const ratingKeys = included.filter((t) => {
+      const key = `${cleanMasterArtistName(t.artistName).toLowerCase()}|${String(t.trackTitle || '').trim().toLowerCase()}`;
+      if (seenTitles.has(key)) return false;
+      seenTitles.add(key);
+      return true;
+    }).map((t) => t.ratingKey);
 
     // Resolve machineId
     let mid = machineId;
@@ -1957,7 +1963,7 @@ export function registerApiMusic(app, ctx) {
   // ── Playlist track listing (paginated, fetched from Plex) ────────────────
 
   app.get('/api/music/playlist/tracks', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const config = loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
 
@@ -2090,7 +2096,7 @@ export function registerApiMusic(app, ctx) {
   // ── Smart playlist ────────────────────────────────────────────────────────
 
   app.post('/api/music/playlist/sync', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     try {
       await rebuildSmartPlaylist(ctx, userPlexId);
       const lastSync = getLastPlaylistSync(db, userPlexId);
@@ -2101,7 +2107,7 @@ export function registerApiMusic(app, ctx) {
   });
 
   app.post('/api/music/playlists/rebuild', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const playlistKind = String(req.body?.playlistKind || '').trim().toLowerCase();
     const playlistKey = String(req.body?.playlistKey || '').trim();
 
@@ -2155,14 +2161,14 @@ export function registerApiMusic(app, ctx) {
   });
 
   app.post('/api/music/playlist/job/dismiss', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     if (!userPlexId) return res.status(401).json({ error: 'Auth required.' });
     clearPlaylistJob(db, userPlexId);
     return res.json({ ok: true });
   });
 
   app.post('/api/music/playlists/daily-mix/sync', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     try {
       const result = await playlistService.syncDailyMix(userPlexId, {
         favoriteLimit: Number(req.body?.favoriteLimit || 12),
@@ -2189,7 +2195,7 @@ export function registerApiMusic(app, ctx) {
   });
 
   app.get('/api/music/playlist/excluded', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const excludedKeys = getExcludedTrackKeys(db, userPlexId);
     return res.json({ ok: true, excludedTracks: excludedKeys });
   });
@@ -2197,7 +2203,7 @@ export function registerApiMusic(app, ctx) {
   // ── Playlist track removal ────────────────────────────────────────────────
 
   app.delete('/api/music/playlist/tracks', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const config = loadConfig();
     const { url } = config.plex || {};
     const token = resolveUserPlexServerToken(config, req.session?.user || userPlexId, req.session?.plexServerToken || '');
@@ -2241,7 +2247,7 @@ export function registerApiMusic(app, ctx) {
   // ── Add all artist tracks to a playlist ──────────────────────────────────
 
   app.post('/api/music/playlist/tracks/add-artist', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const config = loadConfig();
     const { url, machineId = '' } = config.plex || {};
     const token = resolveUserPlexServerToken(config, req.session?.user || userPlexId, req.session?.plexServerToken || '');
@@ -2305,7 +2311,7 @@ export function registerApiMusic(app, ctx) {
   // ── Create a custom playlist ──────────────────────────────────────────────
 
   app.post('/api/music/playlists/custom', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const config = loadConfig();
     const { url, machineId = '' } = config.plex || {};
     const token = resolveUserPlexServerToken(config, req.session?.user || userPlexId, req.session?.plexServerToken || '');
@@ -2984,7 +2990,7 @@ export function registerApiMusic(app, ctx) {
 
   // GET /api/music/playlists/personal/preview — must be before /:id to avoid route shadowing
   app.get('/api/music/playlists/personal/preview', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     let rules;
     try { rules = JSON.parse(String(req.query?.rules || '{}')); } catch { return res.status(400).json({ error: 'Invalid rules JSON' }); }
     const config = loadConfig();
@@ -2996,7 +3002,7 @@ export function registerApiMusic(app, ctx) {
 
   // GET /api/music/playlists/personal/:id — must be after /preview to avoid route shadowing
   app.get('/api/music/playlists/personal/:id', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const id = String(req.params.id || '');
     const playlist = getUserPersonalPlaylist(db, id, userPlexId);
     if (!playlist) return res.status(404).json({ error: 'Not found' });
@@ -3005,7 +3011,7 @@ export function registerApiMusic(app, ctx) {
 
   // POST /api/music/playlists/personal
   app.post('/api/music/playlists/personal', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
@@ -3037,7 +3043,7 @@ export function registerApiMusic(app, ctx) {
 
   // PUT /api/music/playlists/personal/:id — update name and rules for a personal playlist
   app.put('/api/music/playlists/personal/:id', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const id = String(req.params.id || '');
     const existing = getUserPersonalPlaylist(db, id, userPlexId);
     if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -3071,7 +3077,7 @@ export function registerApiMusic(app, ctx) {
 
   // DELETE /api/music/playlists/generated — remove a generated playlist from Plex and Curatorr
   app.delete('/api/music/playlists/generated', requireUser, async (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const playlistKey = String(req.body?.playlistKey || req.query?.playlistKey || '').trim();
     if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required' });
 
@@ -3101,7 +3107,7 @@ export function registerApiMusic(app, ctx) {
 
   // DELETE /api/music/playlists/personal/:id
   app.delete('/api/music/playlists/personal/:id', requireUser, (req, res) => {
-    const userPlexId = resolveQueryUserId(req);
+    const userPlexId = resolveCanonicalUserId(req);
     const id = String(req.params.id || '');
     const existing = getUserPersonalPlaylist(db, id, userPlexId);
     if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -3261,6 +3267,14 @@ function resolveQueryUserId(req) {
   if (previewUserId) return previewUserId;
   const user = req.session?.user || {};
   return String(user.username || '').trim();
+}
+
+// For playlist/preference lookups — uses the canonical OAuth identity which may differ from
+// the play_events identity used by resolveQueryUserId (e.g. webhook numeric ID vs username).
+function resolveCanonicalUserId(req) {
+  const previewCanonicalId = String(req.session?.previewCanonicalId || '').trim();
+  if (previewCanonicalId) return previewCanonicalId;
+  return resolveQueryUserId(req);
 }
 
 function resolveSuggestionUserId(req) {

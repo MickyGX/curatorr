@@ -1700,7 +1700,7 @@ export function deleteUserPersonalPlaylist(db, id, userPlexId) {
 export function cleanMasterArtistName(value) {
   let name = String(value || '').trim();
   if (!name) return '';
-  name = name.replace(/\s+(feat\.?|featuring|ft\.?|with)\s+.+$/i, '').trim();
+  name = name.replace(/\s+(f\/|feat\.?|featuring|ft\.?|with)\s+.+$/i, '').trim();
   name = name.replace(/\s+/g, ' ').trim();
   return name;
 }

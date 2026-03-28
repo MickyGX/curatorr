@@ -745,6 +745,15 @@ async function buildLocalAdminPreviewData({
   // Also filter managed home users (no real Plex account) when the Plex API was reachable.
   const plexApiAvailable = liveUsers.length > 0;
   const seenPlexEntries = new Set();
+  // Build a lookup so data lookups (playlists, preferences) use the canonical user_plex_id from
+  // user_preferences rather than the raw play_events identifier (which may differ — e.g. numeric
+  // Plex account ID in webhooks vs OAuth username stored at login).
+  // We only match on username/email to avoid cross-user collisions with display names or numeric IDs.
+  const prefRows = db.prepare('SELECT user_plex_id FROM user_preferences').all();
+  const prefCanonicalById = new Map(prefRows.map((r) => {
+    const id = String(r.user_plex_id || '').trim();
+    return [id.toLowerCase(), id];
+  }));
   const options = observedRows.reduce((acc, row) => {
     const entry = liveUserByObservedKey.get(String(row.id || '').trim().toLowerCase()) || null;
     // When Plex API was reachable, skip users with no real Plex identity (managed home accounts)
@@ -762,8 +771,14 @@ async function buildLocalAdminPreviewData({
       String(row.id || ''),
     ]).map((value) => String(value || '').trim().toLowerCase());
     const name = String(entry?.title || entry?.username || entry?.email || row.id).trim() || row.id;
+    // Resolve canonical ID via OAuth identifiers (username/email) only — avoids collisions with
+    // display names or numeric IDs. Used for playlists/preferences lookups; the raw play_events
+    // id is kept as the option id for history lookups and dropdown validation.
+    const authIds = normalizeIdentityList([entry?.username, entry?.email]).map((v) => v.toLowerCase());
+    const canonicalId = authIds.reduce((found, lid) => found || prefCanonicalById.get(lid) || null, null) || row.id;
     acc.push({
       id: row.id,
+      canonicalId,
       name,
       avatarUrl: String(entry?.thumb || '').trim(),
       avatarLabel: name.charAt(0).toUpperCase() || 'P',
@@ -780,10 +795,16 @@ async function buildLocalAdminPreviewData({
     || null;
 
   setPreviewUserId(req, selectedOption?.id || '');
+  // Cache id→canonicalId map so /admin/preview-user can resolve canonical without a Plex API call.
+  if (req.session) {
+    req.session.previewUserMap = Object.fromEntries(options.map((o) => [o.id, o.canonicalId]));
+    req.session.previewCanonicalId = String(selectedOption?.canonicalId || selectedOption?.id || '').trim() || null;
+  }
 
   return {
     enabled: true,
     selectedUserId: String(selectedOption?.id || '').trim(),
+    selectedCanonicalId: String(selectedOption?.canonicalId || selectedOption?.id || '').trim(),
     selectedName: String(selectedOption?.name || '').trim(),
     selectedAvatarUrl: String(selectedOption?.avatarUrl || '').trim(),
     selectedAvatarLabel: String(selectedOption?.avatarLabel || 'P').trim() || 'P',
@@ -962,7 +983,7 @@ function pickBlendShowcasePlaylist(playlists = []) {
   return ordered.find(Boolean) || null;
 }
 
-async function attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken) {
+async function attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken, userToken = null) {
   const playlistCards = Array.isArray(cards) ? cards : [];
   if (!playlistCards.length) return playlistCards;
 
@@ -1001,9 +1022,10 @@ async function attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken) 
   }
 
   const { url: plexUrl, token: plexToken } = config.plex || {};
-  if (plexUrl && plexToken && fetchPlexPlaylistsForToken) {
+  const effectivePlexToken = userToken || plexToken;
+  if (plexUrl && effectivePlexToken && fetchPlexPlaylistsForToken) {
     try {
-      const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
+      const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, effectivePlexToken);
       const plexPlaylistMap = new Map(
         plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]),
       );
@@ -1142,15 +1164,19 @@ export function registerPages(app, ctx) {
       config,
     });
     const previewUserId = String(adminPreview?.selectedUserId || '').trim();
+    const previewCanonicalId = String(adminPreview?.selectedCanonicalId || previewUserId).trim();
     const user = req.session?.user || {};
     const role = getEffectiveRole(req);
+    // userPlexId: play_events identity — used for history/stats queries
+    // personalUserId: OAuth canonical identity — used for playlists/preferences
     const scopedUserId = previewUserId || String(user.username || '').trim();
+    const scopedCanonicalId = previewCanonicalId || scopedUserId;
     return {
       adminPreview,
       role,
       userPlexId: scopedUserId,
-      suggestionUserId: scopedUserId,
-      personalUserId: scopedUserId,
+      suggestionUserId: scopedCanonicalId,
+      personalUserId: scopedCanonicalId,
     };
   }
 
@@ -1191,7 +1217,7 @@ export function registerPages(app, ctx) {
   app.get('/dashboard', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const { adminPreview, role, userPlexId, suggestionUserId } = await buildPageScope(req, config);
+    const { adminPreview, role, userPlexId, suggestionUserId, personalUserId } = await buildPageScope(req, config);
 
     const now = Date.now();
     const since7d = now - 7 * 24 * 60 * 60 * 1000;
@@ -1236,7 +1262,7 @@ export function registerPages(app, ctx) {
       ...event,
       curatorrTier: deriveHistoryTier(event, config),
     }));
-    const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: true }) || [];
+    const generatedPlaylists = playlistService?.listGenerated(personalUserId, { activeOnly: true }) || [];
     const _dashLastSync = getLastPlaylistSync(db, suggestionUserId);
     let dashboardPlaylists = generatedPlaylists.map((playlist) => ({
       ...playlist,
@@ -1246,9 +1272,10 @@ export function registerPages(app, ctx) {
       tracksRemoved: Number(_dashLastSync?.tracks_removed || 0),
     }));
     const { url: plexUrl, token: plexToken } = config.plex || {};
-    if (dashboardPlaylists.length && plexUrl && plexToken && fetchPlexPlaylistsForToken) {
+    const dashboardUserToken = ctx.resolveUserPlexServerToken(config, personalUserId) || plexToken;
+    if (dashboardPlaylists.length && plexUrl && dashboardUserToken && fetchPlexPlaylistsForToken) {
       try {
-        const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, plexToken);
+        const plexPlaylists = await fetchPlexPlaylistsForToken(plexUrl, dashboardUserToken);
         const plexPlaylistMap = new Map(
           plexPlaylists.map((playlist) => [String(playlist.ratingKey || ''), playlist]),
         );
@@ -1514,7 +1541,8 @@ export function registerPages(app, ctx) {
       });
     }
     playlistCards.push(...generatedCards);
-    await attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken);
+    const userPlexToken = ctx.resolveUserPlexServerToken(config, userPlexId);
+    await attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken, userPlexToken);
 
     res.render('playlists', {
       title: 'Playlists — Curatorr',

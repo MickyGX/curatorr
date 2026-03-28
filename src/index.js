@@ -17,7 +17,7 @@ import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
-import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest } from './db.js';
+import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists } from './db.js';
 import { createRecommendationService } from './services/recommendations.js';
 import { createLidarrService, DEFAULT_LIDARR_AUTOMATION_SETTINGS } from './services/lidarr.js';
 import { createPlaylistService } from './services/playlists.js';
@@ -1812,6 +1812,10 @@ export async function start() {
           const regularGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && !p.rules?.blendUsers?.length);
           for (const gp of regularGlobal) {
             await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+          }
+          const personalPlaylists = listUserPersonalPlaylists(db, userId).filter((p) => p.enabled);
+          for (const pp of personalPlaylists) {
+            await _routeCtx.playlistService.syncPersonalPlaylist(userId, pp).catch(() => {});
           }
         }
         // Blend playlists: sync only for the users they were built from, not the whole server

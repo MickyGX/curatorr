@@ -74,6 +74,9 @@ export function registerApiUtil(app, ctx) {
       const msType = String(loadConfig()?.mediaServer?.type || 'plex').trim().toLowerCase();
       const isNonPlex = msType === 'jellyfin' || msType === 'emby';
       setPreviewUserId(req, (exists || isNonPlex) ? requestedUserId : '');
+      // Resolve canonical ID from the map cached during page load (avoids a Plex API round-trip).
+      const idMap = req.session?.previewUserMap || {};
+      req.session.previewCanonicalId = idMap[requestedUserId] || requestedUserId || null;
     }
     const nextPath = String(req.body?.next || req.headers?.referer || '/dashboard').trim();
     return res.redirect(nextPath.startsWith('/') ? nextPath : '/dashboard');

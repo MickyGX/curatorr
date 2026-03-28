@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.1.37 (2026-03-28)
+
+- Added ARM64 Docker image — the published image is now multi-arch (`linux/amd64,linux/arm64`), so Raspberry Pi and Apple Silicon NAS devices can pull a native image without emulation.
+- Fixed user-created smart playlists (personal playlists) not being rebuilt by the scheduled sync job — they are now included alongside Crescive, Curative, and Daily Mix in every automatic sync cycle.
+- Fixed admin preview showing no playlists or play history when a Plex user's webhook identity differs from their OAuth login identity (e.g. numeric Plex account ID vs username) — the system now carries both identities separately and uses the correct one for each type of query.
+- Fixed playlist artwork not loading in admin preview — the previewed user's own Plex token is now used when fetching playlist artwork, instead of the admin token which cannot see other users' playlists.
+- Fixed duplicate and triplicate tracks appearing in Crescive and Curative playlists when the same song exists across multiple albums — tracks are now deduplicated by normalised artist and title, keeping the highest-rated copy.
+- Fixed featured-artist variants (e.g. `Eminem f/ Eye-Kyu`) being treated as different artists from the primary during deduplication, causing both versions of the same song to appear in a playlist.
+- Fixed dashboard playlists panel showing empty when viewing another user in admin preview.
+
 ## v0.1.34 (2026-03-26)
 
 - Added playlist-style select, view, and add controls to manual discovery album cards and Curatorr picks, with richer album overview modals including track lists and ordered fallback albums.

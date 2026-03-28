@@ -661,6 +661,11 @@ export function applyTrackFilters(tracks, filterConfig) {
 
 // ─── Smart playlist build pipeline ───────────────────────────────────────────
 
+// Strip featured-artist suffixes so "Eminem" and "Eminem f/ Eye-Kyu" resolve to the same primary key.
+function primaryArtistKey(name) {
+  return String(name || '').toLowerCase().replace(/\s+(?:f\/|feat\.?|ft\.?|featuring)\s.*/i, '').trim();
+}
+
 function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
   const capMultiplier   = Math.max(0, Math.min(1, playlistCfg.capMultiplier ?? 1.0));
   const favArtistCap    = Math.max(0, Math.min(1, playlistCfg.favouriteArtistTrackPct  ?? 1.0));
@@ -707,7 +712,8 @@ function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
   const favGenreIncluded = new Set(favGenreArtists.sort(byScore).slice(0, Math.ceil(favGenreArtists.length * favGenreArtPct)));
   const otherIncluded    = new Set(otherArtists.sort(byScore).slice(0, Math.ceil(otherArtists.length * otherArtPct)));
 
-  const seen = new Set();
+  const seen = new Set();       // by ratingKey
+  const seenTitles = new Set(); // by artist|title — prevents the same song appearing multiple times from different albums
   const ratingKeys = [], trackList = [];
 
   const addArtistTracks = (lower, name, tracks, trackCap) => {
@@ -728,9 +734,12 @@ function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
     for (const t of sorted) {
       if (added >= count) break;
       if (seen.has(t.ratingKey)) continue;
+      const titleKey = `${primaryArtistKey(lower)}|${String(t.trackTitle || '').trim().toLowerCase()}`;
+      if (seenTitles.has(titleKey)) continue;
       const stat = statMap.get(t.ratingKey);
       if (stat?.excluded_from_smart === 1 && stat?.manually_included !== 1) continue;
       seen.add(t.ratingKey);
+      seenTitles.add(titleKey);
       ratingKeys.push(t.ratingKey);
       trackList.push({ ratingKey: t.ratingKey, artistName: name });
       added++;
