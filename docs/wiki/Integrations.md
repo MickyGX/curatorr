@@ -11,7 +11,7 @@ Curatorr uses Plex for:
 - smart playlist creation and updates
 - live playback webhooks when playback source is set to `Plex`
 - optional Tautulli live playback or gap-fill support
-- Plex-only generated playlist integrations like Last.fm stations, ListenBrainz playlist suggestions, and Daily Mix
+- Plex-only generated playlist integrations like Last.fm stations, ListenBrainz playlist suggestions, Daily Mix, Curatorr rotating playlists, sonic ordering, and loudness-aware sequencing
 
 ### Plex setup
 
@@ -160,7 +160,7 @@ ListenBrainz playlist sync is currently Plex-only.
 
 Track analysis is optional.
 
-Curatorr can import:
+Curatorr can enrich tracks with:
 
 - BPM
 - musical key
@@ -168,13 +168,49 @@ Curatorr can import:
 - energy
 - danceability
 
-This uses a local JSON manifest path configured in `Settings -> General`, plus the `Track Feature Import` background job.
+Curatorr supports three analysis paths from `Settings -> General -> Track Analysis Import`:
 
-Curatorr ships with an export helper so external analyzers can work from Curatorr's library data:
+- `Analyzer sidecar`
+- `Built-in Curatorr worker`
+- `Custom command`
+
+The recommended Docker deployment is the sidecar. It keeps Python audio-analysis dependencies out of the main app container while letting Curatorr run analysis automatically through `Track Analysis Pipeline`.
+
+Minimal same-stack example:
+
+```yaml
+  curatorr_analyzer:
+    image: mickygx/curatorr-analyzer:latest
+    container_name: curatorr_analyzer
+    depends_on:
+      - curatorr
+    environment:
+      - PORT=8765
+    volumes:
+      - ./data:/app/data
+      # Mount your music library at the same absolute path Plex reports for track files.
+      # - /path/to/music:/media/music:ro
+    network_mode: "service:curatorr"
+    restart: unless-stopped
+```
+
+Sidecar mode should normally use:
+
+- `Analyzer sidecar URL`: `http://127.0.0.1:8765`
+- `Feature manifest path`: `/app/data/track-features.json`
+- `Analyzer results path`: `/app/data/track-features.results.json`
+
+Curatorr also ships with an export helper so external analyzers can work from Curatorr's library data:
 
 ```bash
 npm run features:export-template
 ```
+
+Important behavior:
+
+- BPM/key-driven presets and numeric feature filters ignore tracks that do not have the required analysis data yet.
+- `Track Analysis Pipeline` runs in chunks and imports results as chunks complete.
+- If a run is interrupted, the next run starts again from chunk `1` of the remaining missing-track set, not from the whole library.
 
 Full workflow details are documented in [Track Analysis](Track-Analysis.md).
 
@@ -202,3 +238,4 @@ The main Plex-only gaps at the moment are:
 - Daily Mix sync
 - Last.fm station playlists
 - ListenBrainz playlist suggestion sync
+- Sonic ordering and loudness-aware sequencing

@@ -76,14 +76,61 @@ These control when more tracks are surfaced or removed as engagement changes.
 Curatorr also supports:
 
 - Daily Mix
+- Curatorr rotating playlists
 - personal rule-based playlists
 - blended playlists across users
+- global rule-based playlists
 
-Smart playlists, personal playlists, and blended playlists sync on Plex, Jellyfin, and Emby. Daily Mix is currently Plex-only.
+Smart playlists, personal playlists, and blended playlists sync on Plex, Jellyfin, and Emby. Daily Mix, Curatorr rotating playlists, sonic ordering, and loudness-aware sequencing are currently Plex-only.
 
 Last.fm station playlists and ListenBrainz playlist suggestions are also currently Plex-only exports.
 
 These features use the same underlying play history, track tiers, and master track cache.
+
+## Feature Presets
+
+Global and personal playlist builders now include feature presets with visual preset cards:
+
+- `Custom`
+- `Club`
+- `Driving`
+- `Workout`
+- `Chill`
+- `Harmonic`
+
+These presets can prefill:
+
+- `BPM`
+- `energy`
+- `danceability`
+- `Camelot focus`
+- `Camelot spread`
+
+You can then tweak the values before saving the playlist.
+
+Important behavior:
+
+- Presets that rely on BPM, energy, danceability, or Camelot data are coverage-aware.
+- If the required analysis coverage is effectively unavailable, the preset disables itself and explains why.
+- Tracks without the required feature data are ignored by those feature filters rather than being treated as `0`.
+
+## Harmonic Filtering
+
+`Camelot focus` uses DJ wheel notation such as `8A` or `10B` rather than classical names like `A minor` or `D major`.
+
+It accepts one or more focus keys:
+
+- `8A`
+- `8A, 9A, 10A`
+
+`Camelot spread` controls how broadly Curatorr expands the focus keys:
+
+- `Exact key`
+- `Adjacent keys`
+- `Relative major/minor`
+- `Full harmonic set`
+
+This is available in both personal and global playlist builders.
 
 ## Background Jobs
 
@@ -92,6 +139,8 @@ Relevant jobs include:
 - Master Track Cache Refresh
 - Smart Playlist Sync
 - Daily Mix Sync
+- Track Analysis Pipeline
+- Plex Loudness Sync
 - optional Tautulli gap-fill
 - Last.fm history sync
 

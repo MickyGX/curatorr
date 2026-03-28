@@ -14,7 +14,8 @@ Curatorr is a self-hosted Plex, Jellyfin, and Emby companion for playback tracki
 
 - Tracks playback from Plex, Jellyfin, or Emby
 - Builds per-user smart playlists from real listening behavior
-- Supports personal playlists, blended playlists, and artist scoring
+- Supports personal playlists, blended playlists, Curatorr rotating playlists, and configurable Daily Mix
+- Adds feature-driven playlist building with BPM, key, Camelot, energy, and danceability filters when analysis data is available
 - Surfaces library-based suggestions and external discovery
 - Integrates with Lidarr for optional add, queue, and progression workflows
 - Supports Last.fm history/station features and ListenBrainz playlist suggestions on supported server paths
@@ -32,6 +33,58 @@ Current Plex-only features:
 - Last.fm station playlists
 - ListenBrainz playlist suggestion sync
 - Sonic ordering and loudness-aware sequencing
+
+## Analyzer Sidecar
+
+Curatorr can enrich tracks with `BPM`, `musical key`, `Camelot key`, `energy`, and `danceability` through the optional `curatorr-analyzer` sidecar.
+
+Minimal Docker Compose example:
+
+```yaml
+services:
+  curatorr:
+    image: mickygx/curatorr:latest
+    container_name: curatorr
+    ports:
+      - "7676:7676"
+    environment:
+      - CONFIG_PATH=/app/config/config.json
+      - DATA_DIR=/app/data
+      - BASE_URL=http://localhost:7676
+      - TRUST_PROXY=true
+      - TRUST_PROXY_HOPS=1
+      - SESSION_SECRET=replace-this-with-a-random-secret
+      - WEBHOOK_SECRET=replace-this-with-a-random-secret
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./data/icons/custom:/app/public/icons/custom
+    network_mode: bridge
+    restart: unless-stopped
+
+  curatorr_analyzer:
+    image: mickygx/curatorr-analyzer:latest
+    container_name: curatorr_analyzer
+    depends_on:
+      - curatorr
+    environment:
+      - PORT=8765
+    volumes:
+      - ./data:/app/data
+      # Mount your music library at the same absolute path Plex reports for track files.
+      # Example:
+      # - /path/to/music:/media/music:ro
+    network_mode: "service:curatorr"
+    restart: unless-stopped
+```
+
+Then in `Settings -> General -> Track Analysis Import`:
+
+- set `Analyzer mode` to `Analyzer sidecar`
+- set `Analyzer sidecar URL` to `http://127.0.0.1:8765`
+- set `Feature manifest path` to `/app/data/track-features.json`
+- set `Analyzer results path` to `/app/data/track-features.results.json`
+- run `Track Analysis Pipeline`
 
 ## Documentation
 

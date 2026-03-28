@@ -45,6 +45,8 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 
 - Tracks plays from Plex, Jellyfin, or Emby, with optional Tautulli repair and backfill on Plex installs.
 - Builds per-user smart playlists directly in the connected media server using real listening behavior.
+- Builds configurable `Curatorr` rotating playlists and Daily Mix playlists from the same scoring data.
+- Supports feature-driven playlist shaping with BPM, key, Camelot, energy, and danceability when track analysis has been run.
 - Scores artists in your own library to surface under-explored suggestions.
 - Supports personal playlists, blended playlists, Daily Mix, and external discovery.
 - Optionally connects to Lidarr to queue artists, pick starter albums, and progressively expand catalogs.
@@ -54,6 +56,9 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 
 - Multi-server support across Plex, Jellyfin, and Emby, with optional Tautulli live source or gap-fill support on Plex.
 - Per-user track tiers: `Belter`, `Decent`, `Half Decent`, `Skip`, and `Curatorr`.
+- Visual playlist presets for both global and personal playlists, including `Club`, `Driving`, `Workout`, `Chill`, and `Harmonic`.
+- Coverage-aware preset gating so BPM/key-driven presets disable themselves when the required analysis data is unavailable.
+- Optional analyzer sidecar for first-party BPM/key/Camelot/energy/danceability enrichment.
 - Local admin account plus media-server sign-in support, including Plex Home profiles on Plex installs.
 - Admin preview mode so the local admin can inspect the app as another Plex user.
 - Per-user Last.fm and ListenBrainz integrations from User Profile.

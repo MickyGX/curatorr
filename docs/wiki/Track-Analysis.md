@@ -13,7 +13,7 @@ Long-term, Curatorr uses this split:
 - Plex API and sonic analysis for ordering and loudness where available
 - Curatorr-owned analysis for explicit `BPM`, key, Camelot, `energy`, and `danceability`
 
-Curatorr now supports two analysis modes:
+Curatorr now supports three analysis modes:
 
 1. `Built-in Curatorr worker`:
    Curatorr runs its bundled Python analyzer script automatically from the `Track Analysis Pipeline` job.
@@ -28,7 +28,49 @@ The built-in worker currently uses `librosa` and `numpy` in the analysis environ
 
 This is the recommended long-term deployment model because it keeps Python and audio-analysis dependencies out of the main Curatorr container.
 
-Curatorr includes an optional same-repo sidecar image:
+Curatorr includes an optional same-repo sidecar image.
+
+Full Docker Compose example:
+
+```yaml
+services:
+  curatorr:
+    image: mickygx/curatorr:latest
+    container_name: curatorr
+    ports:
+      - "7676:7676"
+    environment:
+      - CONFIG_PATH=/app/config/config.json
+      - DATA_DIR=/app/data
+      - BASE_URL=http://localhost:7676
+      - TRUST_PROXY=true
+      - TRUST_PROXY_HOPS=1
+      - SESSION_SECRET=replace-this-with-a-random-secret
+      - WEBHOOK_SECRET=replace-this-with-a-random-secret
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./data/icons/custom:/app/public/icons/custom
+    network_mode: bridge
+    restart: unless-stopped
+
+  curatorr_analyzer:
+    image: mickygx/curatorr-analyzer:latest
+    container_name: curatorr_analyzer
+    depends_on:
+      - curatorr
+    environment:
+      - PORT=8765
+    volumes:
+      - ./data:/app/data
+      # Mount your music library at the same absolute path Plex reports in track file paths.
+      # Example:
+      # - /path/to/music:/media/music:ro
+    network_mode: "service:curatorr"
+    restart: unless-stopped
+```
+
+Repository example:
 
 ```bash
 docker compose --profile analysis up -d curatorr curatorr_analyzer
@@ -45,8 +87,20 @@ In `Settings -> General -> Track Analysis Import`:
 
 1. set `Analyzer mode` to `Analyzer sidecar`
 2. set `Analyzer sidecar URL` to `http://127.0.0.1:8765`
-3. set `Feature manifest path` and `Analyzer results path` to files inside `/app/data`
-4. enable or run `Track Analysis Pipeline`
+3. set `Feature manifest path` to `/app/data/track-features.json`
+4. set `Analyzer results path` to `/app/data/track-features.results.json`
+5. leave `Analyzer command` and `Analyzer working directory` unused in sidecar mode
+6. enable or run `Track Analysis Pipeline`
+
+The sidecar pipeline:
+
+1. exports only tracks still missing feature data
+2. processes them in chunks
+3. writes intermediate output into `/app/data`
+4. imports results chunk by chunk into `track_enrichment`
+5. shows chunk progress in `Settings -> Jobs`
+
+If a run is interrupted, the next run starts again from chunk `1` of the remaining missing-track set rather than from the entire library.
 
 ## Built-in analysis mode
 
@@ -169,6 +223,25 @@ Numeric fields support:
 - `is between`
 
 String fields such as `musical key` and `Camelot key` use the existing text operators.
+
+Feature-dependent filters only match tracks that actually have the required data. Missing values are ignored rather than being treated as zero.
+
+Curatorr also uses this data in visual playlist presets for both personal and global playlist builders:
+
+- `Club`
+- `Driving`
+- `Workout`
+- `Chill`
+- `Harmonic`
+
+Those presets can prefill BPM, energy, danceability, and Camelot controls, then be tweaked before saving.
+
+`Camelot key` uses DJ wheel notation:
+
+- `8A` = `A minor`
+- `8B` = `C major`
+
+`Camelot focus` accepts one or more focus keys like `8A` or `8A, 9A, 10A`.
 
 ## Notes
 
