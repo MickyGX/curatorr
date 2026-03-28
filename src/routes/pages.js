@@ -975,6 +975,7 @@ function applyBlendConfidence(rawScore, sharedArtists) {
 
 function pickBlendShowcasePlaylist(playlists = []) {
   const ordered = [
+    playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'curatorr' || String(playlist?.playlistKey || '').trim() === 'curatorr'),
     playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'curative' || String(playlist?.playlistKey || '').trim() === 'curative'),
     playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'crescive' || String(playlist?.playlistKey || '').trim() === 'crescive'),
     playlists.find((playlist) => String(playlist?.playlistType || '').trim() === 'daily-mix' || String(playlist?.playlistKey || '').trim() === 'daily-mix'),

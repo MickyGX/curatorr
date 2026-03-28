@@ -2142,6 +2142,10 @@ export function registerApiMusic(app, ctx) {
         await playlistService.syncDailyMix(userPlexId);
         return res.json({ ok: true });
       }
+      if (playlistType === 'curatorr') {
+        await playlistService.syncCuratorr(userPlexId);
+        return res.json({ ok: true });
+      }
       if (playlistType === 'global') {
         const globalId = playlistKey.replace(/^global:/, '');
         const playlistDef = (loadConfig().globalPlaylists || []).find((entry) => String(entry?.id || '') === globalId);
@@ -2175,11 +2179,15 @@ export function registerApiMusic(app, ctx) {
   app.post('/api/music/playlists/daily-mix/sync', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     try {
+      const config = loadConfig();
+      const dailyMixConfig = config.smartPlaylist?.dailyMix || {};
       const result = await playlistService.syncDailyMix(userPlexId, {
-        favoriteLimit: Number(req.body?.favoriteLimit || 12),
-        suggestedLimit: Number(req.body?.suggestedLimit || 8),
-        freshLimit: Number(req.body?.freshLimit || 10),
-        maxTracks: Number(req.body?.maxTracks || 24),
+        favoriteLimit: req.body?.favoriteLimit !== undefined ? Number(req.body.favoriteLimit) : dailyMixConfig.favoriteLimit,
+        suggestedLimit: req.body?.suggestedLimit !== undefined ? Number(req.body.suggestedLimit) : dailyMixConfig.suggestedLimit,
+        freshLimit: req.body?.freshLimit !== undefined ? Number(req.body.freshLimit) : dailyMixConfig.freshLimit,
+        maxTracks: req.body?.maxTracks !== undefined ? Number(req.body.maxTracks) : dailyMixConfig.maxTracks,
+        maxTracksPerArtist: req.body?.maxTracksPerArtist !== undefined ? Number(req.body.maxTracksPerArtist) : dailyMixConfig.maxTracksPerArtist,
+        repeatCooldownDays: req.body?.repeatCooldownDays !== undefined ? Number(req.body.repeatCooldownDays) : dailyMixConfig.repeatCooldownDays,
       });
       pushLog({
         level: 'info',
@@ -2240,7 +2248,7 @@ export function registerApiMusic(app, ctx) {
       if (!r.ok) return res.status(502).json({ error: `Plex returned ${r.status}` });
 
       // Remove from playlist_tracks so sync doesn't re-add it
-      if (ratingKey && playlistKey && (playlistKey === 'crescive' || playlistKey === 'curative')) {
+      if (ratingKey && playlistKey && ['crescive', 'curative', 'curatorr', 'daily-mix'].includes(String(playlistKey))) {
         removePlaylistTracks(db, userPlexId, playlistKey, [String(ratingKey)]);
       }
       return res.json({ ok: true });
@@ -2304,7 +2312,7 @@ export function registerApiMusic(app, ctx) {
         });
       }
 
-      if (playlistKey && (playlistKey === 'crescive' || playlistKey === 'curative')) {
+      if (playlistKey && ['crescive', 'curative', 'curatorr', 'daily-mix'].includes(String(playlistKey))) {
         addPlaylistTracks(db, userPlexId, playlistKey, artistTracks.map((t) => ({ ratingKey: t.ratingKey, artistName: t.artistName })));
       }
       return res.json({ ok: true, added: ratingKeys.length });

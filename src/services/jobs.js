@@ -24,8 +24,8 @@ export const JOB_DEFS = {
     defaultIntervalMinutes: 20,
   },
   dailyMixSync: {
-    label: 'Daily Mix Sync',
-    description: 'Builds each user\'s Daily Mix playlist based on recent favourites, suggestions, and fresh library tracks, then syncs it to your media server.',
+    label: 'Rotating Playlist Sync',
+    description: 'Builds each user\'s Daily Mix and Curatorr rotating playlists from recent favourites, discovery candidates, and stored playlist settings, then syncs them to your media server.',
     defaultIntervalMinutes: 1440,
   },
   tautulliDailySync: {

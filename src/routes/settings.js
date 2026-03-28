@@ -744,7 +744,16 @@ export function registerSettings(app, ctx) {
 
   app.post('/settings/smart-playlist-types', requireAdmin, (req, res) => {
     const config = loadConfig();
-    const pct = (name, def) => Math.max(0, Math.min(100, Number(req.body?.[name]) || def)) / 100;
+    const pct = (name, def) => {
+      const raw = Number(req.body?.[name]);
+      const value = Number.isFinite(raw) ? raw : def;
+      return Math.max(0, Math.min(100, value)) / 100;
+    };
+    const int = (name, min, max, def) => {
+      const raw = Number(req.body?.[name]);
+      const value = Number.isFinite(raw) ? raw : def;
+      return Math.max(min, Math.min(max, value));
+    };
     const parseFilters = (prefix) => {
       const fields = [].concat(req.body?.[`${prefix}_rule_field`] || []);
       const ops    = [].concat(req.body?.[`${prefix}_rule_op`]    || []);
@@ -779,13 +788,52 @@ export function registerSettings(app, ctx) {
       otherGenreTrackPct:      pct('cu_otherTrackPct',        50),
       trackFilters:            parseFilters('cu'),
     };
+    const dailyMix = {
+      favoriteLimit: int('dm_favoriteLimit', 1, 100, 12),
+      suggestedLimit: int('dm_suggestedLimit', 0, 100, 8),
+      freshLimit: int('dm_freshLimit', 0, 100, 10),
+      maxTracks: int('dm_maxTracks', 1, 200, 24),
+      maxTracksPerArtist: int('dm_maxTracksPerArtist', 1, 5, 1),
+      repeatCooldownDays: int('dm_repeatCooldownDays', 0, 60, 5),
+      trackFilters: parseFilters('dm'),
+    };
+    const curatorr = {
+      targetTracks: int('ct_targetTracks', 1, 200, 48),
+      discoveryRatio: pct('ct_discoveryRatio', 35),
+      maxTracksPerArtist: int('ct_maxTracksPerArtist', 1, 5, 2),
+      repeatCooldownDays: int('ct_repeatCooldownDays', 0, 90, 14),
+      trackFilters: parseFilters('ct'),
+    };
+    const enableDailyMix = req.body?.enableDailyMix === 'on';
+    const enableCuratorr = req.body?.enableCuratorr === 'on';
     const enableCrescive = req.body?.enableCrescive === 'on';
     const enableCurative = req.body?.enableCurative === 'on';
+    const wasDailyMix = config.smartPlaylist?.enableDailyMix !== false;
+    const wasCuratorr = config.smartPlaylist?.enableCuratorr !== false;
     const wasCrescive = config.smartPlaylist?.enableCrescive !== false;
     const wasCurative = config.smartPlaylist?.enableCurative !== false;
-    saveConfig({ ...config, smartPlaylist: { ...config.smartPlaylist, enableCrescive, enableCurative, crescive, curative } });
+    saveConfig({
+      ...config,
+      smartPlaylist: {
+        ...config.smartPlaylist,
+        enableDailyMix,
+        enableCuratorr,
+        enableCrescive,
+        enableCurative,
+        dailyMix,
+        curatorr,
+        crescive,
+        curative,
+      },
+    });
 
     // Remove playlists for any type that was just disabled
+    if (wasDailyMix && !enableDailyMix) {
+      playlistService.removeSmartPlaylistType('daily-mix').catch((err) => pushLog({ level: 'warn', app: 'playlist', action: 'daily-mix.remove', message: `Error removing Daily Mix playlists: ${err.message}` }));
+    }
+    if (wasCuratorr && !enableCuratorr) {
+      playlistService.removeSmartPlaylistType('curatorr').catch((err) => pushLog({ level: 'warn', app: 'playlist', action: 'curatorr.remove', message: `Error removing Curatorr playlists: ${err.message}` }));
+    }
     if (wasCrescive && !enableCrescive) {
       playlistService.removeSmartPlaylistType('crescive').catch((err) => pushLog({ level: 'warn', app: 'playlist', action: 'crescive.remove', message: `Error removing crescive playlists: ${err.message}` }));
     }
@@ -1287,8 +1335,11 @@ export function registerSettings(app, ctx) {
     if (topTracksPeriod && VALID_PERIODS.includes(topTracksPeriod)) {
       lastfmEnabledStations.push(`topTracks:${topTracksPeriod}`);
     }
+    const rawStrictStations = req.body?.lastfmStrictMatchStations;
+    const lastfmStrictMatchStations = (Array.isArray(rawStrictStations) ? rawStrictStations : rawStrictStations ? [rawStrictStations] : [])
+      .filter((s) => VALID_UNDOCUMENTED.includes(s) || (s.startsWith('topTracks:') && VALID_PERIODS.includes(s.slice('topTracks:'.length))));
     const prefs = getUserPreferences(db, userPlexId);
-    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations });
+    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations, lastfmStrictMatchStations });
     return res.redirect('/user-settings?success=lastfm-updated');
   });
 
@@ -1301,12 +1352,16 @@ export function registerSettings(app, ctx) {
     const VALID_PLAYLISTS = ['daily-jams', 'weekly-jams', 'weekly-exploration'];
     const listenbrainzEnabledPlaylists = (Array.isArray(rawPlaylists) ? rawPlaylists : rawPlaylists ? [rawPlaylists] : [])
       .filter((playlistKey) => VALID_PLAYLISTS.includes(String(playlistKey || '').trim()));
+    const rawStrictPlaylists = req.body?.listenbrainzStrictMatchPlaylists;
+    const listenbrainzStrictMatchPlaylists = (Array.isArray(rawStrictPlaylists) ? rawStrictPlaylists : rawStrictPlaylists ? [rawStrictPlaylists] : [])
+      .filter((playlistKey) => VALID_PLAYLISTS.includes(String(playlistKey || '').trim()));
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, {
       ...prefs,
       listenbrainzUsername,
       listenbrainzToken,
       listenbrainzEnabledPlaylists,
+      listenbrainzStrictMatchPlaylists,
     });
     pushLog({
       level: 'info',

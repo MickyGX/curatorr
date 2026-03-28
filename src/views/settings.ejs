@@ -757,6 +757,8 @@
             <form method="post" action="/settings/smart-playlist-types" class="settings-form settings-playlist-types-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <%
+                const _dm = config.smartPlaylist?.dailyMix || {};
+                const _ct = config.smartPlaylist?.curatorr || {};
                 const _cr = config.smartPlaylist?.crescive || {};
                 const _cu = config.smartPlaylist?.curative || {};
                 function _capPct(val, def) { return Math.round(((val ?? def ?? 1.0) * 100)); }
@@ -843,6 +845,48 @@
                   Tracks marked <em>Excluded from Smart</em> are always skipped; tracks marked <em>Manual Include</em> are always added regardless of score.
                   Additions and subtractions happen automatically on every sync as scores change — no manual rules needed.
                 </div>
+              </div>
+
+              <%# Daily Mix %>
+              <div class="settings-card settings-playlist-types-card">
+                <div class="settings-card-title" style="display:flex;align-items:center;gap:12px">
+                  Daily Mix
+                  <label class="settings-toggle" style="margin-left:auto;font-weight:normal">
+                    <input type="checkbox" name="enableDailyMix" value="on" <%= (config.smartPlaylist?.enableDailyMix !== false) ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Enabled</span>
+                  </label>
+                </div>
+                <div class="settings-card-sub">Build a compact rotating mix from favourites, suggestions, and fresh library tracks. These settings are used for the scheduled Daily Mix sync and manual rebuilds.</div>
+                <div class="settings-type-grid">
+                  <label class="field"><span>Favourite tracks</span><input type="number" name="dm_favoriteLimit" value="<%= Number(_dm.favoriteLimit ?? 12) %>" min="1" max="100" /></label>
+                  <label class="field"><span>Suggested tracks</span><input type="number" name="dm_suggestedLimit" value="<%= Number(_dm.suggestedLimit ?? 8) %>" min="0" max="100" /></label>
+                  <label class="field"><span>Fresh tracks</span><input type="number" name="dm_freshLimit" value="<%= Number(_dm.freshLimit ?? 10) %>" min="0" max="100" /></label>
+                  <label class="field"><span>Max tracks</span><input type="number" name="dm_maxTracks" value="<%= Number(_dm.maxTracks ?? 24) %>" min="1" max="200" /></label>
+                  <label class="field"><span>Max tracks per artist</span><input type="number" name="dm_maxTracksPerArtist" value="<%= Number(_dm.maxTracksPerArtist ?? 1) %>" min="1" max="5" /></label>
+                  <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="dm_repeatCooldownDays" value="<%= Number(_dm.repeatCooldownDays ?? 5) %>" min="0" max="60" /></label>
+                </div>
+                <%- _renderTrackFilters('dm', config.smartPlaylist?.dailyMix?.trackFilters, allLibraryKeys, null) %>
+              </div>
+
+              <%# Curatorr rotating playlist %>
+              <div class="settings-card settings-playlist-types-card">
+                <div class="settings-card-title" style="display:flex;align-items:center;gap:12px">
+                  Curatorr
+                  <label class="settings-toggle" style="margin-left:auto;font-weight:normal">
+                    <input type="checkbox" name="enableCuratorr" value="on" <%= (config.smartPlaylist?.enableCuratorr !== false) ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Enabled</span>
+                  </label>
+                </div>
+                <div class="settings-card-sub">Build a finite rotating playlist that leans on your strongest signals but keeps room for discovery. Unlike Curative and Crescive, this is designed to stay small and refresh cleanly over time.</div>
+                <div class="settings-type-grid">
+                  <label class="field"><span>Target tracks</span><input type="number" name="ct_targetTracks" value="<%= Number(_ct.targetTracks ?? 48) %>" min="1" max="200" /></label>
+                  <label class="field"><span>Discovery share</span><div class="settings-pct-row"><input type="number" name="ct_discoveryRatio" value="<%= _capPct(_ct.discoveryRatio, 0.35) %>" min="0" max="80" /><span class="settings-pct-sym">%</span></div></label>
+                  <label class="field"><span>Max tracks per artist</span><input type="number" name="ct_maxTracksPerArtist" value="<%= Number(_ct.maxTracksPerArtist ?? 2) %>" min="1" max="5" /></label>
+                  <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="ct_repeatCooldownDays" value="<%= Number(_ct.repeatCooldownDays ?? 14) %>" min="0" max="90" /></label>
+                </div>
+                <%- _renderTrackFilters('ct', config.smartPlaylist?.curatorr?.trackFilters, allLibraryKeys, null) %>
               </div>
 
               <%# Crescive %>
@@ -2438,7 +2482,7 @@
             <div class="settings-card" style="margin-top:20px">
               <div class="settings-card-title">Playlist Account Maintenance</div>
               <div class="settings-card-sub">
-                If generated playlists (Crescive, Curative, Daily Mix) appear under the wrong Plex account in Plexamp,
+                If generated playlists (Curatorr, Crescive, Curative, Daily Mix) appear under the wrong Plex account in Plexamp,
                 use this to delete the misowned copies from Plex and re-register them so the next sync recreates
                 each playlist under the correct user's account.
               </div>

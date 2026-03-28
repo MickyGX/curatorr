@@ -629,7 +629,7 @@
 
     function canRebuildSelection(kind, type) {
       if (kind === 'legacy') return true;
-      return ['curatorred', 'crescive', 'curative', 'daily-mix', 'global', 'personal'].indexOf(String(type || '').toLowerCase()) !== -1;
+      return ['curatorred', 'crescive', 'curative', 'curatorr', 'daily-mix', 'global', 'personal'].indexOf(String(type || '').toLowerCase()) !== -1;
     }
 
     function updateSelectionButtons() {

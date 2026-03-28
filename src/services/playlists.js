@@ -9,6 +9,7 @@ import {
   getUserPreferences,
   getMasterTracks,
   setPlaylistTracks,
+  getPlaylistTracks,
   getArtistTagMap,
 } from '../db.js';
 
@@ -30,6 +31,8 @@ const execFileAsync = (file, args, options = {}) => new Promise((resolve, reject
 
 const DAILY_MIX_PLAYLIST_KEY = 'daily-mix';
 const DAILY_MIX_PLAYLIST_TYPE = 'daily-mix';
+const CURATORR_PLAYLIST_KEY = 'curatorr';
+const CURATORR_PLAYLIST_TYPE = 'curatorr';
 const CRESCIVE_PLAYLIST_KEY  = 'crescive';
 const CRESCIVE_PLAYLIST_TYPE = 'crescive';
 const CURATIVE_PLAYLIST_KEY  = 'curative';
@@ -63,24 +66,7 @@ function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Normalize a track title for cross-source matching (Plex ↔ Last.fm / ListenBrainz).
-// Strips featured-artist credits and parenthetical version annotations that vary between sources.
-function normalizeMatchTitle(value) {
-  let t = String(value || '').trim();
-  // Strip featured-artist credits wrapped in parens: (feat. X), (ft. X), (f/ X), (featuring X)
-  t = t.replace(/\s*\(\s*(?:feat\.?|ft\.?|f\/|featuring)\b[^)]*\)/gi, '');
-  // Strip trailing featured-artist credits not in parens: " feat. X", " ft. X", " f/ X"
-  t = t.replace(/\s+(?:feat\.?|ft\.?|f\/|featuring)\b.+$/i, '');
-  // Strip trailing parenthetical version suffixes: (Remastered), (Interlude), (from the series ...), etc.
-  // Applied twice to catch back-to-back annotations like "(Live) (2011)".
-  t = t.replace(/\s*\([^)]*\)\s*$/g, '').trim();
-  t = t.replace(/\s*\([^)]*\)\s*$/g, '').trim();
-  // Strip trailing square-bracket suffixes: [Remix], [Live], etc.
-  t = t.replace(/\s*\[[^\]]*\]\s*$/g, '').trim();
-  return t.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-// Normalize an artist name for cross-source matching.
+// Normalize artist name for cross-source matching.
 // Strips featured-artist credits that some sources append to the primary artist name.
 function normalizeMatchArtist(value) {
   let a = String(value || '').trim();
@@ -88,9 +74,39 @@ function normalizeMatchArtist(value) {
   return a.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function buildPlaylistTrackLookupKey(artistName, trackTitle) {
+// Tier-1 (exact) title normalisation: strip only featured-artist credits.
+// Preserves meaningful parens like "(acoustic)", "(Fade Out)", "(Oh Doctor Jesus)".
+function normalizeMatchTitleExact(value) {
+  let t = String(value || '').trim();
+  // Strip featured-artist credits wrapped in parens: (feat. X), (ft. X), (f/ X), (featuring X)
+  t = t.replace(/\s*\(\s*(?:feat\.?|ft\.?|f\/|featuring)\b[^)]*\)/gi, '');
+  // Strip trailing featured-artist credits not in parens
+  t = t.replace(/\s+(?:feat\.?|ft\.?|f\/|featuring)\b.+$/i, '');
+  return t.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// Tier-2 (fuzzy) title normalisation: also strips trailing parenthetical/bracket version
+// suffixes like (Remastered), (Live), [Remix], (from the series ...).
+// Used as a fallback when the exact key finds no match.
+function normalizeMatchTitleFuzzy(value) {
+  let t = normalizeMatchTitleExact(value);
+  // Strip trailing parenthetical suffixes — applied twice for back-to-back annotations.
+  t = t.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  t = t.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  // Strip trailing square-bracket suffixes: [Remix], [Live], etc.
+  t = t.replace(/\s*\[[^\]]*\]\s*$/g, '').trim();
+  return t;
+}
+
+function buildExactLookupKey(artistName, trackTitle) {
   const artist = normalizeMatchArtist(artistName);
-  const title = normalizeMatchTitle(trackTitle);
+  const title = normalizeMatchTitleExact(trackTitle);
+  return artist && title ? `${artist}|${title}` : '';
+}
+
+function buildFuzzyLookupKey(artistName, trackTitle) {
+  const artist = normalizeMatchArtist(artistName);
+  const title = normalizeMatchTitleFuzzy(trackTitle);
   return artist && title ? `${artist}|${title}` : '';
 }
 
@@ -100,28 +116,51 @@ function isSyntheticPlaylistSeed(track) {
   return libraryKey === 'listenbrainz-seed' || ratingKey.startsWith('lb-seed-');
 }
 
+// Build two lookup Maps from master tracks:
+//   exact — feat-stripped only; preserves (acoustic), (Fade Out), etc.
+//   fuzzy — also strips trailing parens/brackets; catches remaster/version mismatches.
+// Matching always tries exact first, then falls back to fuzzy.
 function buildPlaylistTrackLookup(masterTracks) {
-  const lookup = new Map();
+  const exact = new Map();
+  const fuzzy = new Map();
   for (const track of masterTracks || []) {
-    const key = buildPlaylistTrackLookupKey(track?.artistName, track?.trackTitle);
-    if (!key || !track?.ratingKey) continue;
-    const existing = lookup.get(key);
-    if (!existing) {
-      lookup.set(key, track);
-      continue;
+    if (!track?.ratingKey) continue;
+    const ek = buildExactLookupKey(track.artistName, track.trackTitle);
+    if (ek) {
+      const prev = exact.get(ek);
+      if (!prev || (isSyntheticPlaylistSeed(prev) && !isSyntheticPlaylistSeed(track))) {
+        exact.set(ek, track);
+      }
     }
-    if (isSyntheticPlaylistSeed(existing) && !isSyntheticPlaylistSeed(track)) {
-      lookup.set(key, track);
+    const fk = buildFuzzyLookupKey(track.artistName, track.trackTitle);
+    if (fk && fk !== ek) {
+      const prev = fuzzy.get(fk);
+      if (!prev || (isSyntheticPlaylistSeed(prev) && !isSyntheticPlaylistSeed(track))) {
+        fuzzy.set(fk, track);
+      }
     }
   }
-  return new Map([...lookup.entries()].map(([key, track]) => [key, track.ratingKey]));
+  return {
+    exact: new Map([...exact.entries()].map(([k, t]) => [k, t.ratingKey])),
+    fuzzy: new Map([...fuzzy.entries()].map(([k, t]) => [k, t.ratingKey])),
+  };
 }
 
-function collectMatchedRatingKeys(trackLookup, tracks, getArtistName, getTrackTitle) {
+function lookupTrackRatingKey(lookup, artistName, trackTitle, { strictMatch = false } = {}) {
+  const ek = buildExactLookupKey(artistName, trackTitle);
+  if (ek) {
+    const hit = lookup.exact.get(ek);
+    if (hit) return hit;
+  }
+  if (strictMatch) return '';
+  const fk = buildFuzzyLookupKey(artistName, trackTitle);
+  return (fk ? lookup.fuzzy.get(fk) : '') || '';
+}
+
+function collectMatchedRatingKeys(trackLookup, tracks, getArtistName, getTrackTitle, { strictMatch = false } = {}) {
   const ratingKeys = [];
   for (const track of tracks || []) {
-    const key = buildPlaylistTrackLookupKey(getArtistName(track), getTrackTitle(track));
-    const ratingKey = key ? trackLookup.get(key) : '';
+    const ratingKey = lookupTrackRatingKey(trackLookup, getArtistName(track), getTrackTitle(track), { strictMatch });
     if (ratingKey) ratingKeys.push(ratingKey);
   }
   return ratingKeys;
@@ -279,7 +318,7 @@ function buildListenbrainzTrackLookups(masterTracks) {
   };
 }
 
-function collectMatchedListenbrainzTracks(trackLookups, tracks) {
+function collectMatchedListenbrainzTracks(trackLookups, tracks, { strictMatch = false } = {}) {
   const ratingKeys = [];
   let mbidMatched = 0;
   let textMatched = 0;
@@ -291,8 +330,7 @@ function collectMatchedListenbrainzTracks(trackLookups, tracks) {
       ratingKeys.push(ratingKey);
       continue;
     }
-    const key = buildPlaylistTrackLookupKey(getListenbrainzTrackArtist(track), track?.title);
-    ratingKey = key ? trackLookups.byText.get(key) : '';
+    ratingKey = lookupTrackRatingKey(trackLookups.byText, getListenbrainzTrackArtist(track), track?.title, { strictMatch });
     if (!ratingKey) continue;
     textMatched += 1;
     ratingKeys.push(ratingKey);
@@ -318,6 +356,7 @@ function getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId
   const rawKey = String(playlistKey || '').trim();
   const cleanFallbackTitle = stripPlaylistUserSuffix(fallbackTitle, userId);
   if (playlistType === DAILY_MIX_PLAYLIST_TYPE || rawKey === DAILY_MIX_PLAYLIST_KEY) return 'Daily Mix';
+  if (playlistType === CURATORR_PLAYLIST_TYPE || rawKey === CURATORR_PLAYLIST_KEY) return 'Curatorr';
   if (playlistType === CRESCIVE_PLAYLIST_TYPE || rawKey === CRESCIVE_PLAYLIST_KEY) return 'Crescive Playlist';
   if (playlistType === CURATIVE_PLAYLIST_TYPE || rawKey === CURATIVE_PLAYLIST_KEY) return 'Curative Playlist';
   if (playlistType === 'lastfm-station' || rawKey.startsWith('lastfm:')) {
@@ -368,6 +407,10 @@ function buildGeneratedPlaylistSearchTitles(config, playlistType, playlistKey, u
   if (playlistType === DAILY_MIX_PLAYLIST_TYPE || playlistKey === DAILY_MIX_PLAYLIST_KEY) {
     titles.add(`${userId}'s Daily Mix`);
   }
+  if (playlistType === CURATORR_PLAYLIST_TYPE || playlistKey === CURATORR_PLAYLIST_KEY) {
+    titles.add(`${userId}'s Curatorr`);
+    titles.add(`${userId}'s Curatorr Playlist`);
+  }
   if (playlistType === CRESCIVE_PLAYLIST_TYPE || playlistKey === CRESCIVE_PLAYLIST_KEY) {
     titles.add(`${userId}'s Crescive Playlist`);
   }
@@ -386,6 +429,126 @@ function dedupeByRatingKey(items) {
     seen.add(key);
     return true;
   });
+}
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(min, Math.min(max, num));
+}
+
+function createSelectionState(maxTracksPerArtist = 1) {
+  return {
+    maxTracksPerArtist: Math.max(1, Number(maxTracksPerArtist) || 1),
+    seenRatingKeys: new Set(),
+    seenLookupKeys: new Set(),
+    artistCounts: new Map(),
+  };
+}
+
+function tryAddSelectionTrack(state, selected, track) {
+  const ratingKey = String(track?.ratingKey || '').trim();
+  const artistName = String(track?.artistName || '').trim();
+  if (!ratingKey || !artistName) return false;
+  if (state.seenRatingKeys.has(ratingKey)) return false;
+  const lookupKey = buildExactLookupKey(artistName, track?.trackTitle);
+  if (lookupKey && state.seenLookupKeys.has(lookupKey)) return false;
+  const artistKey = normalizeMatchArtist(artistName);
+  const artistCount = state.artistCounts.get(artistKey) || 0;
+  if (artistKey && artistCount >= state.maxTracksPerArtist) return false;
+  state.seenRatingKeys.add(ratingKey);
+  if (lookupKey) state.seenLookupKeys.add(lookupKey);
+  if (artistKey) state.artistCounts.set(artistKey, artistCount + 1);
+  selected.push(track);
+  return true;
+}
+
+function addTracksFromPool(pool, targetCount, state, selected) {
+  let added = 0;
+  for (const track of pool || []) {
+    if (selected.length >= targetCount) break;
+    if (!tryAddSelectionTrack(state, selected, track)) continue;
+    added += 1;
+  }
+  return added;
+}
+
+function buildTrackStatMap(db, userPlexId) {
+  return new Map(
+    db.prepare(`
+      SELECT plex_rating_key, artist_name, play_count, tier, tier_weight,
+             last_played_at, excluded_from_smart, manually_included
+      FROM track_stats
+      WHERE user_plex_id = ?
+    `).all(userPlexId).map((row) => [
+      String(row.plex_rating_key || ''),
+      {
+        artistName: String(row.artist_name || ''),
+        playCount: Number(row.play_count || 0),
+        tier: String(row.tier || 'curatorr'),
+        tierWeight: Number(row.tier_weight || 0),
+        lastPlayedAt: Number(row.last_played_at || 0),
+        excludedFromSmart: Boolean(row.excluded_from_smart),
+        manuallyIncluded: Boolean(row.manually_included),
+      },
+    ]),
+  );
+}
+
+function buildArtistScoreMap(db, userPlexId) {
+  return new Map(
+    db.prepare('SELECT artist_name, ranking_score FROM artist_stats WHERE user_plex_id = ?').all(userPlexId)
+      .map((row) => [String(row.artist_name || '').trim().toLowerCase(), Number(row.ranking_score || 5)]),
+  );
+}
+
+function buildRecentPenalty(lastPlayedAt, cooldownDays = 0) {
+  const cooldownMs = Math.max(0, Number(cooldownDays || 0)) * 24 * 60 * 60 * 1000;
+  if (!cooldownMs || !lastPlayedAt) return 0;
+  const age = Date.now() - Number(lastPlayedAt || 0);
+  if (!Number.isFinite(age) || age >= cooldownMs) return 0;
+  return (1 - (age / cooldownMs)) * 40;
+}
+
+function scoreSelectionTrack(track, extras = {}) {
+  const stat = extras.stat || {};
+  const artistScore = Number(extras.artistScore ?? 5);
+  const playCount = Number(stat.playCount || 0);
+  const tierWeight = Number(stat.tierWeight || 0);
+  const ratingCount = Number(track?.ratingCount || 0);
+  let score = 0;
+  score += artistScore * Number(extras.artistWeight || 0);
+  score += tierWeight * Number(extras.tierWeight || 0);
+  score += Math.min(playCount, 25) * Number(extras.playWeight || 0);
+  score += Math.min(ratingCount, 100) * Number(extras.ratingWeight || 0);
+  score += Number(extras.sourceBonus || 0);
+  if (extras.inLikedArtist) score += Number(extras.likedArtistBonus || 0);
+  if (extras.inLikedGenre) score += Number(extras.likedGenreBonus || 0);
+  if (extras.inPreviousPlaylist) score -= Number(extras.previousPenalty || 0);
+  score -= buildRecentPenalty(stat.lastPlayedAt, extras.repeatCooldownDays);
+  return score;
+}
+
+function normalizeDailyMixOptions(rawOptions = {}) {
+  return {
+    favoriteLimit: clampNumber(rawOptions.favoriteLimit, 1, 100, 12),
+    suggestedLimit: clampNumber(rawOptions.suggestedLimit, 0, 100, 8),
+    freshLimit: clampNumber(rawOptions.freshLimit, 0, 100, 10),
+    maxTracks: clampNumber(rawOptions.maxTracks, 1, 200, 24),
+    maxTracksPerArtist: clampNumber(rawOptions.maxTracksPerArtist, 1, 5, 1),
+    repeatCooldownDays: clampNumber(rawOptions.repeatCooldownDays, 0, 60, 5),
+    trackFilters: rawOptions.trackFilters || null,
+  };
+}
+
+function normalizeCuratorrOptions(rawOptions = {}) {
+  return {
+    targetTracks: clampNumber(rawOptions.targetTracks, 1, 200, 48),
+    discoveryRatio: clampNumber(rawOptions.discoveryRatio, 0, 0.8, 0.35),
+    maxTracksPerArtist: clampNumber(rawOptions.maxTracksPerArtist, 1, 5, 2),
+    repeatCooldownDays: clampNumber(rawOptions.repeatCooldownDays, 0, 90, 14),
+    trackFilters: rawOptions.trackFilters || null,
+  };
 }
 
 function pickFavoriteTracks(db, userPlexId, limit = 12) {
@@ -591,8 +754,7 @@ function collectListenbrainzUnmatchedSamples(trackLookups, tracks, limit = 5) {
     const trackTitle = String(track?.title || '').trim();
     const recordingMbid = getListenbrainzRecordingMbid(track);
     if (recordingMbid && trackLookups.byRecordingMbid.get(recordingMbid)) continue;
-    const key = buildPlaylistTrackLookupKey(artistName, trackTitle);
-    if (!key || trackLookups.byText.get(key)) continue;
+    if (lookupTrackRatingKey(trackLookups.byText, artistName, trackTitle)) continue;
     samples.push(`${artistName || 'Unknown Artist'} - ${trackTitle || 'Unknown Title'}`);
     if (samples.length >= limit) break;
   }
@@ -1214,30 +1376,69 @@ export function createPlaylistService(ctx) {
     };
   }
 
+  function resolveDailyMixOptions(options = {}) {
+    const config = ctx.loadConfig();
+    return normalizeDailyMixOptions({
+      ...(config.smartPlaylist?.dailyMix || {}),
+      ...options,
+    });
+  }
+
   function buildDailyMix(userPlexId, options = {}) {
     const config = ctx.loadConfig();
-    const favoriteLimit = Math.max(1, Number(options.favoriteLimit || 12));
-    const suggestedLimit = Math.max(1, Number(options.suggestedLimit || 8));
-    const freshLimit = Math.max(1, Number(options.freshLimit || 10));
-    const maxTracks = Math.max(10, Number(options.maxTracks || 24));
+    const mixOptions = resolveDailyMixOptions(options);
+    const trackStatMap = buildTrackStatMap(db, userPlexId);
+    const previousKeys = new Set(getPlaylistTracks(db, userPlexId, DAILY_MIX_PLAYLIST_KEY).map((track) => String(track.ratingKey || '')));
+    const allowedTrackKeys = mixOptions.trackFilters
+      ? new Set(applyTrackFilters(getMasterTracks(db), mixOptions.trackFilters).map((track) => track.ratingKey))
+      : null;
 
-    const favorites = pickFavoriteTracks(db, userPlexId, favoriteLimit);
-    const suggestions = pickSuggestedTracks(db, userPlexId, suggestedLimit);
-    const fresh = pickFreshLibraryTracks(db, userPlexId, freshLimit);
-    const deduped = dedupeByRatingKey([...favorites, ...suggestions, ...fresh]);
-    const seenArtists = new Set();
-    const combined = deduped.filter((track) => {
-      const artist = String(track.artistName || '').trim().toLowerCase();
-      if (!artist || seenArtists.has(artist)) return false;
-      seenArtists.add(artist);
-      return true;
-    }).slice(0, maxTracks);
+    const scorePool = (tracks, sourceBonus) => dedupeByRatingKey(tracks)
+      .filter((track) => !allowedTrackKeys || allowedTrackKeys.has(track.ratingKey))
+      .map((track) => {
+        const stat = trackStatMap.get(track.ratingKey) || {};
+        return {
+          ...track,
+          score: scoreSelectionTrack(track, {
+            stat,
+            tierWeight: 8,
+            playWeight: 0.75,
+            ratingWeight: 0.03,
+            sourceBonus,
+            previousPenalty: 16,
+            repeatCooldownDays: mixOptions.repeatCooldownDays,
+            inPreviousPlaylist: previousKeys.has(track.ratingKey),
+          }),
+        };
+      })
+      .sort((a, b) => b.score - a.score || (b.ratingCount || 0) - (a.ratingCount || 0));
+
+    const favorites = scorePool(pickFavoriteTracks(db, userPlexId, mixOptions.favoriteLimit), 30);
+    const suggestions = scorePool(pickSuggestedTracks(db, userPlexId, mixOptions.suggestedLimit), 22);
+    const fresh = scorePool(pickFreshLibraryTracks(db, userPlexId, mixOptions.freshLimit), 14);
+    const pools = [favorites, suggestions, fresh];
+    const combined = [];
+    const state = createSelectionState(mixOptions.maxTracksPerArtist);
+
+    let madeProgress = true;
+    while (combined.length < mixOptions.maxTracks && madeProgress) {
+      madeProgress = false;
+      for (const pool of pools) {
+        while (pool.length) {
+          const next = pool.shift();
+          if (!tryAddSelectionTrack(state, combined, next)) continue;
+          madeProgress = true;
+          break;
+        }
+        if (combined.length >= mixOptions.maxTracks) break;
+      }
+    }
 
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,
       playlistType: DAILY_MIX_PLAYLIST_TYPE,
       playlistTitle: buildGeneratedPlaylistTitle(config, DAILY_MIX_PLAYLIST_TYPE, DAILY_MIX_PLAYLIST_KEY, userPlexId),
-      algorithmVersion: 'phase2c-daily-mix',
+      algorithmVersion: 'phase3-daily-mix',
       trackCount: combined.length,
       trackKeys: combined.map((track) => track.ratingKey),
       tracks: combined,
@@ -1246,57 +1447,218 @@ export function createPlaylistService(ctx) {
         suggestions: suggestions.length,
         fresh: fresh.length,
       },
+      options: mixOptions,
       builtAt: Date.now(),
     };
   }
 
-  async function syncDailyMix(userPlexId, options = {}) {
+  function buildCuratorr(userPlexId, options = {}) {
+    const config = ctx.loadConfig();
+    const curatorrOptions = normalizeCuratorrOptions({
+      ...(config.smartPlaylist?.curatorr || {}),
+      ...options,
+    });
+    const prefs = getUserPreferences(db, userPlexId) || {};
+    const likedArtists = new Set((prefs.likedArtists || []).map((artist) => String(artist || '').trim().toLowerCase()).filter(Boolean));
+    const likedGenres = new Set((prefs.likedGenres || []).map((genre) => String(genre || '').trim().toLowerCase()).filter(Boolean));
+    const previousKeys = new Set(getPlaylistTracks(db, userPlexId, CURATORR_PLAYLIST_KEY).map((track) => String(track.ratingKey || '')));
+    const trackStatMap = buildTrackStatMap(db, userPlexId);
+    const artistScoreMap = buildArtistScoreMap(db, userPlexId);
+    const suggestedKeys = new Set(pickSuggestedTracks(db, userPlexId, Math.max(curatorrOptions.targetTracks, 24)).map((track) => track.ratingKey));
+    const freshKeys = new Set(pickFreshLibraryTracks(db, userPlexId, Math.max(curatorrOptions.targetTracks * 2, 40)).map((track) => track.ratingKey));
+    const masterTracks = applyTrackFilters(getMasterTracks(db), curatorrOptions.trackFilters);
+    const familiar = [];
+    const discovery = [];
+    const skipRank = Number(config.smartPlaylist?.artistSkipRank ?? 2);
+
+    for (const track of masterTracks) {
+      const stat = trackStatMap.get(track.ratingKey) || {};
+      if (stat.excludedFromSmart && !stat.manuallyIncluded) continue;
+      if (stat.tier === 'skip' && !stat.manuallyIncluded) continue;
+
+      const artistKey = String(track.artistName || '').trim().toLowerCase();
+      const artistScore = artistScoreMap.get(artistKey) ?? 5;
+      const inLikedArtist = likedArtists.has(artistKey);
+      const inLikedGenre = (track.genres || []).some((genre) => likedGenres.has(String(genre || '').trim().toLowerCase()));
+      const inSuggested = suggestedKeys.has(track.ratingKey);
+      const inFresh = freshKeys.has(track.ratingKey);
+      const isHeard = Number(stat.playCount || 0) > 0 || (stat.tier && stat.tier !== 'curatorr');
+      const inPreviousPlaylist = previousKeys.has(track.ratingKey);
+      const commonExtras = {
+        stat,
+        artistScore,
+        inLikedArtist,
+        inLikedGenre,
+        inPreviousPlaylist,
+        repeatCooldownDays: curatorrOptions.repeatCooldownDays,
+        likedArtistBonus: 16,
+        likedGenreBonus: 8,
+        previousPenalty: 22,
+      };
+
+      if (isHeard) {
+        familiar.push({
+          ratingKey: track.ratingKey,
+          artistName: track.artistName,
+          trackTitle: track.trackTitle,
+          albumName: track.albumName,
+          score: scoreSelectionTrack(track, {
+            ...commonExtras,
+            artistWeight: 6,
+            tierWeight: 11,
+            playWeight: 1.2,
+            ratingWeight: 0.02,
+            sourceBonus: inSuggested ? 6 : 0,
+          }),
+          source: 'familiar',
+        });
+      }
+
+      const qualifiesDiscovery = !isHeard || inSuggested || inFresh || inLikedArtist || inLikedGenre;
+      if (!qualifiesDiscovery) continue;
+      if (!inSuggested && !inFresh && artistScore <= skipRank && !inLikedArtist) continue;
+      discovery.push({
+        ratingKey: track.ratingKey,
+        artistName: track.artistName,
+        trackTitle: track.trackTitle,
+        albumName: track.albumName,
+        score: scoreSelectionTrack(track, {
+          ...commonExtras,
+          artistWeight: 4.5,
+          tierWeight: 3,
+          playWeight: 0.2,
+          ratingWeight: 0.04,
+          sourceBonus: (inSuggested ? 18 : 0) + (inFresh ? 12 : 0) + (!isHeard ? 6 : 0),
+        }),
+        source: inSuggested ? 'suggested' : inFresh ? 'fresh-library' : 'discovery',
+      });
+    }
+
+    familiar.sort((a, b) => b.score - a.score || a.artistName.localeCompare(b.artistName) || a.trackTitle.localeCompare(b.trackTitle));
+    discovery.sort((a, b) => b.score - a.score || a.artistName.localeCompare(b.artistName) || a.trackTitle.localeCompare(b.trackTitle));
+
+    const familiarTarget = Math.max(0, Math.round(curatorrOptions.targetTracks * (1 - curatorrOptions.discoveryRatio)));
+    const selected = [];
+    const state = createSelectionState(curatorrOptions.maxTracksPerArtist);
+    addTracksFromPool(familiar, familiarTarget, state, selected);
+    addTracksFromPool(discovery, curatorrOptions.targetTracks, state, selected);
+    if (selected.length < curatorrOptions.targetTracks) {
+      const fallbackPool = [...familiar, ...discovery].sort((a, b) => b.score - a.score);
+      addTracksFromPool(fallbackPool, curatorrOptions.targetTracks, state, selected);
+    }
+
+    return {
+      playlistKey: CURATORR_PLAYLIST_KEY,
+      playlistType: CURATORR_PLAYLIST_TYPE,
+      playlistTitle: buildGeneratedPlaylistTitle(config, CURATORR_PLAYLIST_TYPE, CURATORR_PLAYLIST_KEY, userPlexId),
+      algorithmVersion: 'phase1-rotating-curatorr',
+      trackCount: selected.length,
+      trackKeys: selected.map((track) => track.ratingKey),
+      tracks: selected,
+      sourceBreakdown: {
+        familiar: selected.filter((track) => track.source === 'familiar').length,
+        discovery: selected.filter((track) => track.source !== 'familiar').length,
+      },
+      options: curatorrOptions,
+      builtAt: Date.now(),
+    };
+  }
+
+  async function syncBuiltSelectionPlaylist(userPlexId, builtPlaylist, options = {}) {
     const config = ctx.loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
-    if (msType === 'jellyfin' || msType === 'emby') throw new Error('Daily Mix playlist sync is not yet supported for Jellyfin/Emby.');
-    if (!ctx.userHasOwnPlexToken(config, userPlexId)) throw new Error('User has no Plex account — playlist sync is not available for local-only users.');
+    const trigger = String(options.trigger || 'manual');
+    if (!builtPlaylist?.trackKeys?.length) {
+      throw new Error(`No ${builtPlaylist?.playlistTitle || 'playlist'} tracks are available yet`);
+    }
+
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { getAdapter } = await import('./media-servers/index.js');
+      const adapter = getAdapter(msType);
+      const serverCfg = config[msType] || {};
+      const { url, apiKey } = serverCfg;
+      if (!url || !apiKey) throw new Error(`${msType} is not configured`);
+      const remoteUserId = await adapter.getUserIdByName(url, apiKey, userPlexId);
+      const { playlistId } = await adapter.ensurePlaylist(url, apiKey, remoteUserId, builtPlaylist.playlistTitle);
+      await adapter.replacePlaylistItems(url, apiKey, playlistId, builtPlaylist.trackKeys, remoteUserId);
+      setPlaylistTracks(db, userPlexId, builtPlaylist.playlistKey, builtPlaylist.tracks);
+      const syncedAt = Date.now();
+      saveUserGeneratedPlaylist(db, userPlexId, {
+        playlistType: builtPlaylist.playlistType,
+        playlistKey: builtPlaylist.playlistKey,
+        plexPlaylistId: playlistId,
+        playlistTitle: builtPlaylist.playlistTitle,
+        algorithmVersion: builtPlaylist.algorithmVersion,
+        lastBuiltAt: builtPlaylist.builtAt,
+        lastSyncedAt: syncedAt,
+        trackCount: builtPlaylist.trackCount,
+        active: true,
+        updatedAt: syncedAt,
+      });
+      recordPlaylistSync(db, {
+        userPlexId,
+        plexPlaylistId: playlistId,
+        playlistTitle: builtPlaylist.playlistTitle,
+        trackCount: builtPlaylist.trackCount,
+        excludedTracks: 0,
+        excludedArtists: 0,
+        trigger,
+      });
+      return { ...builtPlaylist, syncedAt, plexPlaylistId: playlistId };
+    }
+
+    if (!ctx.userHasOwnPlexToken(config, userPlexId)) {
+      throw new Error('User has no Plex account — playlist sync is not available for local-only users.');
+    }
     const { url } = config.plex || {};
     const token = ctx.resolveUserPlexServerToken(config, userPlexId);
     if (!url || !token) throw new Error('Plex is not configured');
 
-    const mix = buildDailyMix(userPlexId, options);
-    if (!mix.trackKeys.length) throw new Error('No Daily Mix tracks are available yet');
-
     const machineId = await resolveMachineId(ctx, config);
     if (!machineId) throw new Error('Could not determine Plex machine ID');
 
-    const playlistRow = await ensurePlexPlaylist(ctx, userPlexId, mix.playlistKey, mix.playlistTitle, machineId);
-    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, mix.trackKeys);
+    const playlistRow = await ensureGeneratedPlaylist(
+      ctx,
+      userPlexId,
+      builtPlaylist.playlistType,
+      builtPlaylist.playlistKey,
+      builtPlaylist.playlistTitle,
+      machineId,
+    );
+    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, builtPlaylist.trackKeys);
+    setPlaylistTracks(db, userPlexId, builtPlaylist.playlistKey, builtPlaylist.tracks);
 
     const syncedAt = Date.now();
     saveUserGeneratedPlaylist(db, userPlexId, {
-      playlistType: mix.playlistType,
-      playlistKey: mix.playlistKey,
+      playlistType: builtPlaylist.playlistType,
+      playlistKey: builtPlaylist.playlistKey,
       plexPlaylistId: playlistRow.plexPlaylistId,
-      playlistTitle: mix.playlistTitle,
-      algorithmVersion: mix.algorithmVersion,
-      lastBuiltAt: mix.builtAt,
+      playlistTitle: builtPlaylist.playlistTitle,
+      algorithmVersion: builtPlaylist.algorithmVersion,
+      lastBuiltAt: builtPlaylist.builtAt,
       lastSyncedAt: syncedAt,
-      trackCount: mix.trackCount,
+      trackCount: builtPlaylist.trackCount,
       active: true,
       updatedAt: syncedAt,
     });
-
     recordPlaylistSync(db, {
       userPlexId,
       plexPlaylistId: playlistRow.plexPlaylistId,
-      playlistTitle: mix.playlistTitle,
-      trackCount: mix.trackCount,
+      playlistTitle: builtPlaylist.playlistTitle,
+      trackCount: builtPlaylist.trackCount,
       excludedTracks: 0,
       excludedArtists: 0,
-      trigger: 'manual',
+      trigger,
     });
+    return { ...builtPlaylist, syncedAt, plexPlaylistId: playlistRow.plexPlaylistId };
+  }
 
-    return {
-      ...mix,
-      syncedAt,
-      plexPlaylistId: playlistRow.plexPlaylistId,
-    };
+  async function syncDailyMix(userPlexId, options = {}) {
+    return syncBuiltSelectionPlaylist(userPlexId, buildDailyMix(userPlexId, options), options);
+  }
+
+  async function syncCuratorr(userPlexId, options = {}) {
+    return syncBuiltSelectionPlaylist(userPlexId, buildCuratorr(userPlexId, options), options);
   }
 
   async function syncGlobalPlaylist(userId, playlistDef) {
@@ -1451,6 +1813,7 @@ export function createPlaylistService(ctx) {
 
     // Cleanup: delete Plex playlists for stations that have been disabled
     const enabledSet = new Set(prefs.lastfmEnabledStations || []);
+    const strictMatchSet = new Set(prefs.lastfmStrictMatchStations || []);
     const existingLastfm = listGenerated(userId, { activeOnly: false })
       .filter((p) => p.playlistKey.startsWith('lastfm:') && p.active);
     for (const existing of existingLastfm) {
@@ -1509,6 +1872,7 @@ export function createPlaylistService(ctx) {
             rawTracks,
             (track) => track?.artist?.name,
             (track) => track?.name,
+            { strictMatch: strictMatchSet.has(stationKey) },
           );
 
           const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
@@ -1545,6 +1909,7 @@ export function createPlaylistService(ctx) {
           tracks,
           (track) => track?.artists?.[0]?._name,
           (track) => track?._name,
+          { strictMatch: strictMatchSet.has(stationKey) },
         );
 
         const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
@@ -1685,6 +2050,7 @@ export function createPlaylistService(ctx) {
     });
 
     const masterTrackLookups = buildListenbrainzTrackLookups(getMasterTracks(db));
+    const lbStrictMatchSet = new Set(prefs.listenbrainzStrictMatchPlaylists || []);
     for (const playlistType of prefs.listenbrainzEnabledPlaylists || []) {
       const label = LISTENBRAINZ_PLAYLIST_LABELS[playlistType];
       if (!label) continue;
@@ -1726,7 +2092,7 @@ export function createPlaylistService(ctx) {
             sourceTracks: tracks.length,
           },
         });
-        const { ratingKeys, mbidMatched, textMatched } = collectMatchedListenbrainzTracks(masterTrackLookups, tracks);
+        const { ratingKeys, mbidMatched, textMatched } = collectMatchedListenbrainzTracks(masterTrackLookups, tracks, { strictMatch: lbStrictMatchSet.has(playlistType) });
         if (!ratingKeys.length && tracks.length) {
           ctx.pushLog({
             level: 'warn',
@@ -1918,7 +2284,9 @@ export function createPlaylistService(ctx) {
     upsertGenerated,
     getCanonicalPlaylist,
     buildDailyMix,
+    buildCuratorr,
     syncDailyMix,
+    syncCuratorr,
     syncGlobalPlaylist,
     syncPersonalPlaylist,
     syncLastfmStations,
@@ -1929,6 +2297,7 @@ export function createPlaylistService(ctx) {
     removeSmartPlaylistType,
     renameGeneratedPlaylistTitle,
     renameAllGeneratedPlaylistTitles,
+    CURATORR_PLAYLIST_KEY,
     CRESCIVE_PLAYLIST_KEY,
     CURATIVE_PLAYLIST_KEY,
   };

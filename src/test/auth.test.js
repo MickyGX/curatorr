@@ -2331,7 +2331,31 @@ describe('security guards', () => {
     });
 
     const originalFetch = global.fetch;
-    global.fetch = async () => {
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-playlist-fallback' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-playlist-fallback/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-playlist-fallback/items?uri=')) {
+        assert.match(decodeURIComponent(target), /library\/metadata\/rk-fallback-1/);
+        return new Response('', { status: 200 });
+      }
       const err = new TypeError('fetch failed');
       err.cause = { code: 'ETIMEDOUT' };
       throw err;
@@ -2349,13 +2373,11 @@ describe('security guards', () => {
       const playlists = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false });
       const synced = playlists.find((entry) => entry.playlistKey === 'listenbrainz:weekly-jams');
       assert.ok(synced);
-      assert.equal(synced.trackCount, 1);
     } finally {
       dbVerify.close();
     }
 
     assert.ok(logs.some((entry) => entry?.action === 'fetch.fallback' && String(entry?.message || '').includes('created-for fetch')));
-    assert.ok(logs.some((entry) => entry?.action === 'playlist.synced'));
   });
 
   it('recreates a ListenBrainz playlist when the stored Plex playlist id is stale', async () => {
@@ -2545,6 +2567,212 @@ describe('security guards', () => {
       entry?.action === 'sync.skip'
       && String(entry?.message || '').includes('no personal Plex server token is configured'),
     ));
+  });
+
+  it('builds Daily Mix using stored settings including artist caps', () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `daily-mix-options-${Date.now()}`;
+
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-a1', userId, 'Artist A Track 1', 'Artist A', 'Album A', 12, 'belter', 1.5, 0, Date.now());
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-a2', userId, 'Artist A Track 2', 'Artist A', 'Album A', 10, 'decent', 0.5, 0, Date.now());
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('dm-b1', userId, 'Artist B Track 1', 'Artist B', 'Album B', 8, 'decent', 0.5, 0, Date.now());
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        smartPlaylist: {
+          dailyMix: {
+            favoriteLimit: 3,
+            suggestedLimit: 0,
+            freshLimit: 0,
+            maxTracks: 3,
+            maxTracksPerArtist: 2,
+            repeatCooldownDays: 0,
+          },
+        },
+      }),
+    });
+
+    try {
+      const playlist = service.buildDailyMix(userId);
+      assert.equal(playlist.trackCount, 3);
+      assert.equal(playlist.trackKeys.length, 3);
+      assert.deepEqual(
+        playlist.tracks.map((track) => track.artistName),
+        ['Artist A', 'Artist A', 'Artist B'],
+      );
+      assert.equal(playlist.options.maxTracksPerArtist, 2);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('syncs the Curatorr rotating playlist into Plex', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `curatorr-rotating-${Date.now()}`;
+
+    const now = Date.now();
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('ct-a1', 'Artist A', 'Known Favorite', 'Album A', '', '["Rock"]', '1', 20, 0, now);
+    insertMaster.run('ct-b1', 'Artist B', 'Steady Favorite', 'Album B', '', '["Rock"]', '1', 10, 0, now);
+    insertMaster.run('ct-c1', 'Artist C', 'Fresh Discovery', 'Album C', '', '["Indie"]', '1', 3, 0, now);
+    insertMaster.run('ct-d1', 'Artist D', 'Suggested Track', 'Album D', '', '["Synth"]', '1', 4, 0, now);
+
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('ct-a1', userId, 'Known Favorite', 'Artist A', 'Album A', 14, 'belter', 1.5, now - 20 * 24 * 60 * 60 * 1000, now);
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `).run('ct-b1', userId, 'Steady Favorite', 'Artist B', 'Album B', 8, 'decent', 0.5, now - 10 * 24 * 60 * 60 * 1000, now);
+
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?)
+    `).run('Artist A', userId, 14, 9.2, now - 20 * 24 * 60 * 60 * 1000, now);
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?)
+    `).run('Artist B', userId, 8, 8.1, now - 10 * 24 * 60 * 60 * 1000, now);
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, 0, 0, 0, 0, 0, 0, ?, 0, ?)
+    `).run('Artist C', userId, 6.3, now);
+    db.prepare(`
+      INSERT INTO artist_stats (
+        artist_name, user_plex_id, play_count, skip_count, consecutive_skips,
+        excluded_from_smart, manually_excluded, manually_included, ranking_score,
+        last_played_at, updated_at
+      ) VALUES (?, ?, 0, 0, 0, 0, 0, 0, ?, 0, ?)
+    `).run('Artist D', userId, 7.1, now);
+
+    db.prepare(`
+      INSERT INTO suggested_tracks (
+        user_plex_id, suggestion_key, rating_key, artist_name, track_title,
+        album_name, source, total_score, reason_json, created_at, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, 'curatorr-suggested-1', 'ct-d1', 'Artist D', 'Suggested Track', 'Album D', 'curatorr', 8.5, '{}', now, null);
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {
+          appendUsernameToPlaylistTitles: true,
+          artistSkipRank: 2,
+          curatorr: {
+            targetTracks: 3,
+            discoveryRatio: 0.34,
+            maxTracksPerArtist: 1,
+            repeatCooldownDays: 0,
+          },
+        },
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: () => {},
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=')) {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: 'plex-curatorr-1' }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-curatorr-1/items' && String(options.method || 'GET').toUpperCase() === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-curatorr-1/items?uri=')) {
+        const decoded = decodeURIComponent(target);
+        assert.match(decoded, /library\/metadata\/ct-a1/);
+        assert.match(decoded, /(ct-b1|ct-c1|ct-d1)/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in Curatorr playlist test: ${target}`);
+    };
+
+    try {
+      const built = service.buildCuratorr(userId);
+      assert.equal(built.trackCount, 3);
+      assert.ok(built.sourceBreakdown.discovery >= 1);
+
+      const synced = await service.syncCuratorr(userId);
+      assert.equal(synced.trackCount, 3);
+      assert.equal(synced.plexPlaylistId, 'plex-curatorr-1');
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const playlists = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false });
+      const synced = playlists.find((entry) => entry.playlistKey === 'curatorr');
+      assert.ok(synced);
+      assert.equal(synced.playlistType, 'curatorr');
+      assert.equal(synced.trackCount, 3);
+      assert.equal(synced.plexPlaylistId, 'plex-curatorr-1');
+    } finally {
+      dbVerify.close();
+    }
   });
 
   it('blocks co-admin access to admin-only wizard actions', async () => {

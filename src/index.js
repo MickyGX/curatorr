@@ -101,6 +101,22 @@ const DEFAULT_SMART_PLAYLIST_SETTINGS = {
   artistBelterRank: 8,
   maxTrackDurationMins: 10,
   appendUsernameToPlaylistTitles: true,
+  enableDailyMix: true,
+  enableCuratorr: true,
+  dailyMix: {
+    favoriteLimit: 12,
+    suggestedLimit: 8,
+    freshLimit: 10,
+    maxTracks: 24,
+    maxTracksPerArtist: 1,
+    repeatCooldownDays: 5,
+  },
+  curatorr: {
+    targetTracks: 48,
+    discoveryRatio: 0.35,
+    maxTracksPerArtist: 2,
+    repeatCooldownDays: 14,
+  },
   crescive: {
     favouriteArtistTrackPct: 0.80,
     favouriteGenreArtistPct: 0.80,
@@ -1865,10 +1881,16 @@ export async function start() {
       },
       dailyMixSync: async () => {
         const userIds = getAllUserIds(db);
+        const smartPlaylistConfig = loadConfig().smartPlaylist || {};
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
           if (!prefs.userWizardCompleted) continue;
-          await _routeCtx.playlistService.syncDailyMix(userId).catch(() => {});
+          if (smartPlaylistConfig.enableDailyMix !== false) {
+            await _routeCtx.playlistService.syncDailyMix(userId, { trigger: 'auto' }).catch(() => {});
+          }
+          if (smartPlaylistConfig.enableCuratorr !== false) {
+            await _routeCtx.playlistService.syncCuratorr(userId, { trigger: 'auto' }).catch(() => {});
+          }
         }
       },
       lastfmTagSync: () => syncLastfmTags(_routeCtx),

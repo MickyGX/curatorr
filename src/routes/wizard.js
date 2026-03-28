@@ -277,10 +277,17 @@ async function runWizardPlaylistJob(ctx, { user, sessionPlexToken = '', trigger 
     clearPlaylistState(db, userId, 'curative');
     await playlistService.syncCurative(userId);
 
+    if (config.smartPlaylist?.enableCuratorr !== false) {
+      savePlaylistJob(db, userId, { status: 'building', trigger, message: 'Creating Curatorr playlist…', completedAt: null, errorMessage: '' });
+      await playlistService.syncCuratorr(userId);
+    }
+
     const curativeRow = listUserGeneratedPlaylists(db, userId).find((e) => e.playlistKey === 'curative');
     savePlaylistJob(db, userId, {
       status: 'completed', trigger,
-      message: 'Crescive and Curative playlists created.',
+      message: config.smartPlaylist?.enableCuratorr !== false
+        ? 'Curatorr, Crescive, and Curative playlists created.'
+        : 'Crescive and Curative playlists created.',
       playlistId: curativeRow?.plexPlaylistId || '',
       playlistTitle: curativeRow?.playlistTitle || `${userId}'s Curative Playlist`,
       trackCount: curativeRow?.trackCount || 0,
@@ -288,7 +295,14 @@ async function runWizardPlaylistJob(ctx, { user, sessionPlexToken = '', trigger 
       completedAt: Date.now(),
       errorMessage: '',
     });
-    pushLog({ level: 'info', app: 'wizard', action: 'user.playlist.synced', message: `Crescive + Curative playlists created for ${userId}` });
+    pushLog({
+      level: 'info',
+      app: 'wizard',
+      action: 'user.playlist.synced',
+      message: config.smartPlaylist?.enableCuratorr !== false
+        ? `Curatorr + Crescive + Curative playlists created for ${userId}`
+        : `Crescive + Curative playlists created for ${userId}`,
+    });
   } catch (err) {
     savePlaylistJob(db, userId, { status: 'failed', trigger, message: 'Playlist creation failed.', errorMessage: safeMessage(err), completedAt: Date.now() });
     pushLog({ level: 'error', app: 'wizard', action: 'user.playlist.error', message: safeMessage(err) });

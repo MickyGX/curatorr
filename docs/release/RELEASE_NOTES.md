@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.40 (2026-03-28)
+
+- Added a new generated rotating playlist type called `Curatorr`, blending familiar favourites with discovery tracks using configurable target size, discovery ratio, artist caps, cooldowns, and track filters.
+- Expanded Daily Mix into a fully configurable rotating playlist with controls for favourite, suggested, and fresh-track mix, total track count, per-artist caps, repeat cooldown, and filters.
+- Unified Daily Mix and Curatorr rebuild/sync handling so jobs, playlist rebuilds, stored playlist membership, wizard creation, and playlists-page support all behave consistently.
+- Fixed settings persistence so very small Daily Mix and Curatorr playlist sizes are saved correctly instead of being clamped back to older minimum values.
+- Fixed missing strict-match defaults in user preferences, preventing first-save and ListenBrainz fallback-path issues.
+
 ## v0.1.39 (2026-03-28)
 
 - Added max track duration setting in Settings → Smart Playlists — tracks longer than the configured limit (default 10 minutes) are excluded from Crescive, Curative, and personal smart playlists, preventing long live recordings from negatively skewing play-skip scoring.
