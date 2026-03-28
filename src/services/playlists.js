@@ -63,13 +63,34 @@ function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function normalizePlaylistMatchText(value) {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// Normalize a track title for cross-source matching (Plex ↔ Last.fm / ListenBrainz).
+// Strips featured-artist credits and parenthetical version annotations that vary between sources.
+function normalizeMatchTitle(value) {
+  let t = String(value || '').trim();
+  // Strip featured-artist credits wrapped in parens: (feat. X), (ft. X), (f/ X), (featuring X)
+  t = t.replace(/\s*\(\s*(?:feat\.?|ft\.?|f\/|featuring)\b[^)]*\)/gi, '');
+  // Strip trailing featured-artist credits not in parens: " feat. X", " ft. X", " f/ X"
+  t = t.replace(/\s+(?:feat\.?|ft\.?|f\/|featuring)\b.+$/i, '');
+  // Strip trailing parenthetical version suffixes: (Remastered), (Interlude), (from the series ...), etc.
+  // Applied twice to catch back-to-back annotations like "(Live) (2011)".
+  t = t.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  t = t.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  // Strip trailing square-bracket suffixes: [Remix], [Live], etc.
+  t = t.replace(/\s*\[[^\]]*\]\s*$/g, '').trim();
+  return t.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// Normalize an artist name for cross-source matching.
+// Strips featured-artist credits that some sources append to the primary artist name.
+function normalizeMatchArtist(value) {
+  let a = String(value || '').trim();
+  a = a.replace(/\s+(?:feat\.?|ft\.?|f\/|featuring)\b.+$/i, '');
+  return a.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function buildPlaylistTrackLookupKey(artistName, trackTitle) {
-  const artist = normalizePlaylistMatchText(artistName);
-  const title = normalizePlaylistMatchText(trackTitle);
+  const artist = normalizeMatchArtist(artistName);
+  const title = normalizeMatchTitle(trackTitle);
   return artist && title ? `${artist}|${title}` : '';
 }
 

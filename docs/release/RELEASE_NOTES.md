@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.38 (2026-03-28)
+
+- Improved cross-source playlist matching so Last.fm and ListenBrainz tracks resolve more reliably against Plex library items even when metadata differs slightly.
+- Fixed featured-artist text in track titles and artist names causing otherwise identical songs to miss the library match step.
+- Fixed parenthetical and bracketed title suffixes such as remaster, live, and remix labels causing playlist seed tracks to fail matching when Plex stores a cleaner title.
+
 ## v0.1.37 (2026-03-28)
 
 - Added ARM64 Docker image — the published image is now multi-arch (`linux/amd64,linux/arm64`), so Raspberry Pi and Apple Silicon NAS devices can pull a native image without emulation.
