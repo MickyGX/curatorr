@@ -527,6 +527,9 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
 
     const smartSettings = config.smartPlaylist || {};
     const artistSkipRankThreshold = smartSettings.artistSkipRank ?? 2;
+    const maxDurationMs = Number(smartSettings.maxTrackDurationMins ?? 0) > 0
+      ? Number(smartSettings.maxTrackDurationMins) * 60 * 1000
+      : 0;
     // Get skip-based exclusions from play stats
     const excludedKeys = new Set(getExcludedTrackKeys(db, userPlexId));
     // Artists whose ranking_score has fallen to or below the skip threshold
@@ -551,6 +554,8 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
       }
       // Track excluded by consecutive skips
       if (excludedKeys.has(t.ratingKey)) { excludedTrackCount++; return false; }
+      // Track exceeds max duration setting (0 = no limit)
+      if (maxDurationMs > 0 && Number(t.durationMs || 0) > maxDurationMs) { excludedTrackCount++; return false; }
       return true;
     });
 

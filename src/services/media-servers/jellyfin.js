@@ -157,6 +157,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
           moods:       [], // no native mood field in Jellyfin; Tags could map here later
           libraryKey:  String(key),
           filePath:    String(item.Path || ''),
+          durationMs:  Math.round((item.RunTimeTicks || 0) / 10_000),
           ratingCount: 0,
           viewCount:   Number(item.UserData?.PlayCount ?? 0),
         });

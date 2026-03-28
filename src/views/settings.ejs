@@ -573,6 +573,7 @@
                   const _decentW = +(_belterW / 2).toFixed(2);
                   const _artistSkipRank = config.smartPlaylist?.artistSkipRank ?? 2;
                   const _artistBelterRank = config.smartPlaylist?.artistBelterRank ?? 8;
+                  const _maxTrackDurationMins = config.smartPlaylist?.maxTrackDurationMins ?? 0;
                 %>
                 <div class="settings-smart-preset">
                   <label class="field">
@@ -702,6 +703,11 @@
                       <option value="3"<%= _songLim == 3 ? ' selected' : '' %>>3 skips</option>
                     </select>
                     <small class="settings-smart-helper">Consecutive skips before auto-excluding a track.</small>
+                  </label>
+                  <label class="field settings-smart-field">
+                    <span>Max track duration (mins)</span>
+                    <input type="number" name="maxTrackDurationMins" value="<%= _maxTrackDurationMins %>" min="0" max="180" step="1" class="cur-tier-input" />
+                    <small class="settings-smart-helper">Exclude tracks longer than this from playlists. Set to 0 to disable.</small>
                   </label>
 
                 </div>

@@ -99,6 +99,7 @@ const DEFAULT_SMART_PLAYLIST_SETTINGS = {
   syncIntervalMinutes: 30,
   artistSkipRank: 2,
   artistBelterRank: 8,
+  maxTrackDurationMins: 10,
   appendUsernameToPlaylistTitles: true,
   crescive: {
     favouriteArtistTrackPct: 0.80,

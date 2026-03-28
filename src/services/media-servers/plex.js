@@ -102,6 +102,7 @@ export async function getLibraryTracks(url, token, libraryKeys) {
           moods:       [],
           libraryKey:  String(key),
           filePath:    String(t.Media?.[0]?.Part?.[0]?.file || ''),
+          durationMs:  Number(t.duration || 0),
           ratingCount: Number(t.ratingCount || 0),
           viewCount:   Number(t.viewCount || 0),
         });

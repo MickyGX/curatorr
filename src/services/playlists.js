@@ -1082,7 +1082,11 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   const token = ctx.resolveUserPlexServerToken(config, userId);
   if (!url || !token) return;
 
-  const masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
+  let masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
+  const maxDurationMs = Number(smartConfig?.maxTrackDurationMins ?? 0) > 0
+    ? Number(smartConfig.maxTrackDurationMins) * 60 * 1000
+    : 0;
+  if (maxDurationMs > 0) masterTracks = masterTracks.filter((t) => !t.durationMs || t.durationMs <= maxDurationMs);
   if (!masterTracks.length) return;
 
   // Resolve machine ID (use admin token since this is a server property)
@@ -1125,7 +1129,7 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   });
 }
 
-async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, _smartConfig, _options = {}) {
+async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, _options = {}) {
   const { db, loadConfig, pushLog } = ctx;
   const config = loadConfig();
   const msType = String(config?.mediaServer?.type || 'jellyfin').toLowerCase();
@@ -1134,7 +1138,11 @@ async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playl
   const { url, apiKey } = serverCfg;
   if (!url || !apiKey) return;
 
-  const masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
+  let masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
+  const maxDurationMsJf = Number(smartConfig?.maxTrackDurationMins ?? 0) > 0
+    ? Number(smartConfig.maxTrackDurationMins) * 60 * 1000
+    : 0;
+  if (maxDurationMsJf > 0) masterTracks = masterTracks.filter((t) => !t.durationMs || t.durationMs <= maxDurationMsJf);
   if (!masterTracks.length) return;
 
   // Resolve the Jellyfin user ID for this Curatorr user

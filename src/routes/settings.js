@@ -698,6 +698,7 @@ export function registerSettings(app, ctx) {
     // halfDecentWeight and decentWeight are always derived (skipWeight/2, belterWeight/2) — not stored
     const artistSkipRank = Math.max(0, Math.min(5, Number(req.body?.artistSkipRank) || 2));
     const artistBelterRank = Math.max(5, Math.min(10, Number(req.body?.artistBelterRank) || 8));
+    const maxTrackDurationMins = Math.max(0, Math.min(180, Number(req.body?.maxTrackDurationMins) || 0));
     const playlistId = String(req.body?.playlistId || config.smartPlaylist?.playlistId || '').trim();
     const playlistTitle = String(req.body?.playlistTitle || 'Curatorr Smart Playlist').trim();
     const appendUsernameToPlaylistTitles = Boolean(req.body?.appendUsernameToPlaylistTitles);
@@ -711,6 +712,7 @@ export function registerSettings(app, ctx) {
         skipThresholdSeconds, completionThresholdSeconds, songSkipLimit,
         syncIntervalMinutes, skipWeight, belterWeight,
         artistSkipRank, artistBelterRank,
+        maxTrackDurationMins,
         appendUsernameToPlaylistTitles,
         playlistId, playlistTitle,
       },

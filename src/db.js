@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   genres        TEXT NOT NULL DEFAULT '[]',
   library_key   TEXT NOT NULL DEFAULT '',
   file_path     TEXT NOT NULL DEFAULT '',
+  duration_ms   INTEGER NOT NULL DEFAULT 0,
   rating_count  INTEGER NOT NULL DEFAULT 0,
   view_count    INTEGER NOT NULL DEFAULT 0,
   updated_at    INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
@@ -418,7 +419,9 @@ export function initDb(dbPath) {
   if (!masterCols.includes('recording_mbid'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('file_path'))
-    db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''")
+    db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
+  if (!masterCols.includes('duration_ms'))
+    db.exec('ALTER TABLE master_tracks ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0');
 
   const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
   if (!openSessionCols.includes('player_scope'))
@@ -1450,14 +1453,14 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, library_key, file_path, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, library_key, file_path, duration_ms, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
       album_name = excluded.album_name, recording_mbid = excluded.recording_mbid,
       genres = excluded.genres, moods = excluded.moods,
       library_key = excluded.library_key, file_path = excluded.file_path,
-      rating_count = excluded.rating_count,
+      duration_ms = excluded.duration_ms, rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
   `);
   const run = db.transaction((rows) => {
@@ -1472,6 +1475,7 @@ export function refreshMasterTracks(db, tracks) {
         JSON.stringify(r.moods || []),
         r.libraryKey,
         String(r.filePath || ''),
+        Number(r.durationMs ?? 0),
         r.ratingCount ?? 0,
         r.viewCount ?? 0,
         Date.now(),
@@ -1485,7 +1489,7 @@ export function getMasterTracks(db) {
     ratingKey: r.rating_key, artistName: r.artist_name, trackTitle: r.track_title,
     albumName: r.album_name, genres: JSON.parse(r.genres || '[]'), moods: JSON.parse(r.moods || '[]'),
     libraryKey: r.library_key, filePath: String(r.file_path || ''), recordingMbid: String(r.recording_mbid || '').trim(),
-    ratingCount: r.rating_count, viewCount: r.view_count,
+    durationMs: Number(r.duration_ms || 0), ratingCount: r.rating_count, viewCount: r.view_count,
   }));
 }
 

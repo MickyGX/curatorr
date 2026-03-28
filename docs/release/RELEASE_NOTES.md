@@ -1,7 +1,8 @@
 # Release Notes
 
-## v0.1.38 (2026-03-28)
+## v0.1.39 (2026-03-28)
 
+- Added max track duration setting in Settings → Smart Playlists — tracks longer than the configured limit (default 10 minutes) are excluded from Crescive, Curative, and personal smart playlists, preventing long live recordings from negatively skewing play-skip scoring.
 - Improved cross-source playlist matching so Last.fm and ListenBrainz tracks resolve more reliably against Plex library items even when metadata differs slightly.
 - Fixed featured-artist text in track titles and artist names causing otherwise identical songs to miss the library match step.
 - Fixed parenthetical and bracketed title suffixes such as remaster, live, and remix labels causing playlist seed tracks to fail matching when Plex stores a cleaner title.
