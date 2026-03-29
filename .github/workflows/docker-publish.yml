@@ -2,8 +2,8 @@ name: Docker Publish
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: ["main"]
+    tags: ["v*.*.*"]
 
 permissions:
   contents: read
@@ -14,12 +14,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Derive version
-        id: version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -33,14 +27,25 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: mickygx/curatorr
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=development,enable=${{ github.ref == 'refs/heads/main' }}
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            APP_VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            mickygx/curatorr:${{ steps.version.outputs.version }}
-            mickygx/curatorr:latest
+            APP_VERSION=${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'development' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
