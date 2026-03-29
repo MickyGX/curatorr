@@ -3719,6 +3719,60 @@ describe('security guards', () => {
     }
   });
 
+  it('includes sidecar error details when automated analysis fails', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-sidecar-error.db`);
+    const manifestPath = join(testDir, `track-features-sidecar-error-${Date.now()}.json`);
+    const resultsPath = join(testDir, `track-features-sidecar-error-${Date.now()}.results.json`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('sidecar-error-1', 'Artist Error', 'Track Error', 'Album Error', 'mbid-sidecar-error-1', '[]', '1', '/media/music/sidecar-error-1.flac', 180000, 0, 0, now);
+
+    const service = createTrackEnrichmentService({
+      db,
+      DB_PATH: dbPath,
+      pushLog: () => {},
+      safeMessage: (err) => String(err?.message || err || 'Unknown error'),
+    });
+
+    const sidecarServer = createServer(async (req, res) => {
+      assert.equal(req.method, 'POST');
+      assert.equal(req.url, '/analyze');
+      for await (const _chunk of req) {}
+      const body = JSON.stringify({
+        ok: false,
+        error: 'analysis-failed',
+        message: 'decoder crashed',
+        stderr: 'Traceback: boom',
+      });
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+      res.end(body);
+    });
+    await new Promise((resolve) => sidecarServer.listen(0, '127.0.0.1', resolve));
+    const sidecarAddress = sidecarServer.address();
+    const sidecarUrl = `http://127.0.0.1:${sidecarAddress.port}`;
+
+    try {
+      await assert.rejects(async () => {
+        await service.runAutomatedAnalysis({
+          manifestPath,
+          resultsPath,
+          analyzerMode: 'sidecar',
+          analyzerSidecarUrl: sidecarUrl,
+          chunkSize: 100,
+        });
+      }, /Chunk 1\/1 failed: External request failed \(500\): analysis-failed \| decoder crashed \| Traceback: boom/);
+    } finally {
+      await new Promise((resolve, reject) => sidecarServer.close((err) => (err ? reject(err) : resolve())));
+      db.close();
+    }
+  });
+
   it('imports Plex loudness metrics into track enrichment via the public metadata API', async () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-plex-loudness.db`);
     const db = initDb(dbPath);

@@ -52,9 +52,12 @@ import {
   deleteUserPersonalPlaylist,
   previewGlobalPlaylist,
   getArtistTagMap,
+  listRuleTemplates,
+  saveRuleTemplate,
+  deleteRuleTemplate,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
-import { applyFeaturePresetFilters } from '../services/playlists.js';
+import { applyFeaturePresetFilters, applyTrackFilters } from '../services/playlists.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -65,7 +68,7 @@ const THUMB_CACHE_TTL_MS = 30 * 60 * 1000;
 const THUMB_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 const THUMB_CACHE_MAX = 600;
 const thumbCache = new Map();
-const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
+const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
 // Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
 const msUserIdCache = new Map();
@@ -75,6 +78,29 @@ function parseNullablePlaylistNumber(value) {
   if (value === '' || value == null) return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+// Accepts a flat string[] (legacy) or { include: string[], exclude: string[], includeMode?: 'any'|'all' } from the tri-state UI.
+function normaliseTriStateInput(value) {
+  if (!value) return { include: [], exclude: [], includeMode: 'any' };
+  if (Array.isArray(value)) return { include: value.filter(Boolean), exclude: [], includeMode: 'any' };
+  return {
+    include: Array.isArray(value.include) ? value.include.filter(Boolean) : [],
+    exclude: Array.isArray(value.exclude) ? value.exclude.filter(Boolean) : [],
+    includeMode: value.includeMode === 'all' ? 'all' : 'any',
+  };
+}
+
+function normaliseTrackFiltersInput(value) {
+  if (!value || typeof value !== 'object') return null;
+  const includeFolders = Array.isArray(value.includeFolders) ? value.includeFolders.map(String).filter(Boolean) : [];
+  const excludeFolders = Array.isArray(value.excludeFolders) ? value.excludeFolders.map(String).filter(Boolean) : [];
+  const deduplicateByMbid = Boolean(value.deduplicateByMbid);
+  const rules = (Array.isArray(value.rules) ? value.rules : [])
+    .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
+    .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
+  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !rules.length) return null;
+  return { includeFolders, excludeFolders, deduplicateByMbid, rules };
 }
 
 function buildPlaylistFeatureRules(payload = {}) {
@@ -89,6 +115,12 @@ function buildPlaylistFeatureRules(payload = {}) {
     danceabilityMax: parseNullablePlaylistNumber(payload.danceabilityMax),
     camelotFocus: String(payload.camelotFocus || '').trim().toUpperCase(),
     camelotMode: CAMELOT_MODES.includes(String(payload.camelotMode || '').trim()) ? String(payload.camelotMode).trim() : 'exact',
+    seasonalGenres: Array.isArray(payload.seasonalGenres) ? payload.seasonalGenres.map(String).filter(Boolean) : [],
+    seasonalKeywords: Array.isArray(payload.seasonalKeywords) ? payload.seasonalKeywords.map(String).filter(Boolean) : [],
+    seasonalExcludeGenres: Array.isArray(payload.seasonalExcludeGenres) ? payload.seasonalExcludeGenres.map(String).filter(Boolean) : [],
+    seasonalExcludeKeywords: Array.isArray(payload.seasonalExcludeKeywords) ? payload.seasonalExcludeKeywords.map(String).filter(Boolean) : [],
+    seasonalGenresMode: String(payload.seasonalGenresMode || '').trim() === 'all' ? 'all' : 'any',
+    seasonalKeywordsMode: String(payload.seasonalKeywordsMode || '').trim() === 'all' ? 'all' : 'any',
   };
 }
 
@@ -3031,12 +3063,22 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveCanonicalUserId(req);
     let rules;
     try { rules = JSON.parse(String(req.query?.rules || '{}')); } catch { return res.status(400).json({ error: 'Invalid rules JSON' }); }
+    let trackFilters;
+    try { trackFilters = req.query?.trackFilters ? normaliseTrackFiltersInput(JSON.parse(String(req.query.trackFilters))) : null; } catch { trackFilters = null; }
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
-    const filteredTracks = applyFeaturePresetFilters(getMasterTracks(db), rules || {});
+    const baseTracks = trackFilters ? applyTrackFilters(getMasterTracks(db), trackFilters) : getMasterTracks(db);
+    const filteredTracks = applyFeaturePresetFilters(baseTracks, rules || {});
     const result = previewGlobalPlaylist(db, rules, userPlexId, smartSettings, filteredTracks);
-    const counts = result.forUser || { artistCount: 0, trackCount: 0 };
-    res.json({ ok: true, artistCount: counts.artistCount, trackCount: counts.trackCount, featureTrackCount: filteredTracks.length });
+    const counts = result.forUser || { artistCount: 0, trackCount: 0, eligibleArtistCount: 0, eligibleTrackCount: 0 };
+    res.json({
+      ok: true,
+      artistCount: counts.artistCount,
+      trackCount: counts.trackCount,
+      eligibleArtistCount: counts.eligibleArtistCount,
+      eligibleTrackCount: counts.eligibleTrackCount,
+      featureTrackCount: filteredTracks.length,
+    });
   });
 
   // GET /api/music/playlists/personal/:id — must be after /preview to avoid route shadowing
@@ -3057,21 +3099,24 @@ export function registerApiMusic(app, ctx) {
       return res.status(409).json({ error: 'You already have a personal playlist with that name.' });
     }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
+    const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
+    const trackFilters = normaliseTrackFiltersInput(req.body?.trackFilters);
     const rules = {
-      artistTiers:  Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
-      trackTiers:   Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
-      genres:       Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : [],
-      moods:        Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : [],
-      tags:         Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : [],
-      topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
-      maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
-      sortBy: String(req.body?.sortBy || 'ratingCount'),
+      artistTiers:     normaliseTriStateInput(req.body?.artistTiers),
+      trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
+      genres:          normaliseTriStateInput(req.body?.genres),
+      moods:           normaliseTriStateInput(req.body?.moods),
+      tags:            normaliseTriStateInput(req.body?.tags),
+      topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracks:       req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
+      sortBy:          String(req.body?.sortBy || 'ratingCount'),
       blendUsers,
-      blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      blendMode:       blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      rebuildSchedule: REBUILD_SCHEDULES.includes(req.body?.rebuildSchedule) ? req.body.rebuildSchedule : 'daily',
       ...buildPlaylistFeatureRules(req.body || {}),
     };
-    const playlistDef = { id: makePersonalPlaylistId(), name, rules };
+    const playlistDef = { id: makePersonalPlaylistId(), name, rules, trackFilters };
     createUserPersonalPlaylist(db, userPlexId, playlistDef);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.create', message: `Personal playlist created: ${name} for ${userPlexId}` });
     res.json({ ok: true, playlist: playlistDef });
@@ -3096,21 +3141,24 @@ export function registerApiMusic(app, ctx) {
       return res.status(409).json({ error: 'You already have a personal playlist with that name.' });
     }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
+    const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
+    const trackFilters = req.body?.trackFilters !== undefined ? normaliseTrackFiltersInput(req.body.trackFilters) : (existing.trackFilters || null);
     const rules = {
-      artistTiers:  Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
-      trackTiers:   Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
-      genres:       Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : [],
-      moods:        Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : [],
-      tags:         Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : [],
-      topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
-      maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
-      sortBy: String(req.body?.sortBy || 'ratingCount'),
+      artistTiers:     normaliseTriStateInput(req.body?.artistTiers),
+      trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
+      genres:          normaliseTriStateInput(req.body?.genres),
+      moods:           normaliseTriStateInput(req.body?.moods),
+      tags:            normaliseTriStateInput(req.body?.tags),
+      topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracks:       req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
+      sortBy:          String(req.body?.sortBy || 'ratingCount'),
       blendUsers,
-      blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      blendMode:       blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      rebuildSchedule: REBUILD_SCHEDULES.includes(req.body?.rebuildSchedule) ? req.body.rebuildSchedule : 'daily',
       ...buildPlaylistFeatureRules(req.body || {}),
     };
-    const updated = { ...existing, name, rules };
+    const updated = { ...existing, name, rules, trackFilters };
     updateUserPersonalPlaylist(db, userPlexId, updated);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.update', message: `Personal playlist updated: ${id} for ${userPlexId}` });
     res.json({ ok: true, playlist: updated });
@@ -3120,6 +3168,34 @@ export function registerApiMusic(app, ctx) {
         await playlistService?.syncPersonalPlaylist(uid, updated).catch(() => {});
       }
     });
+  });
+
+  // ── Playlist rule templates ───────────────────────────────────────────────
+
+  // GET /api/music/playlist-templates
+  app.get('/api/music/playlist-templates', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const templates = listRuleTemplates(db, userPlexId);
+    res.json({ ok: true, templates });
+  });
+
+  // POST /api/music/playlist-templates — save current rules as a named template
+  app.post('/api/music/playlist-templates', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const description = String(req.body?.description || '').trim();
+    const rules = req.body?.rules && typeof req.body.rules === 'object' ? req.body.rules : {};
+    const id = saveRuleTemplate(db, userPlexId, { name, description, rules });
+    res.json({ ok: true, id });
+  });
+
+  // DELETE /api/music/playlist-templates/:id — delete a user-saved template
+  app.delete('/api/music/playlist-templates/:id', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const id = String(req.params.id || '');
+    deleteRuleTemplate(db, id, userPlexId);
+    res.json({ ok: true });
   });
 
   // DELETE /api/music/playlists/generated — remove a generated playlist from Plex and Curatorr

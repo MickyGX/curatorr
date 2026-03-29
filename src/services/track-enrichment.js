@@ -55,6 +55,29 @@ function shellQuote(value) {
   return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
 }
 
+function summarizeExternalFailure(rawBody) {
+  const text = String(rawBody || '').trim();
+  if (!text) return '';
+  let detail = text;
+  try {
+    const parsed = JSON.parse(text);
+    const parts = [
+      parsed?.error,
+      parsed?.message,
+      parsed?.stderr,
+      parsed?.stdout,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    if (parts.length) detail = parts.join(' | ');
+  } catch (_err) {
+    // keep raw text when the response is not JSON
+  }
+  detail = detail.replace(/\s+/g, ' ').trim();
+  if (!detail) return '';
+  return detail.length > 400 ? `${detail.slice(0, 397)}...` : detail;
+}
+
 function normalizeFeatureNumber(value, { min = null, max = null } = {}) {
   if (value == null || value === '') return null;
   const num = Number(value);
@@ -288,7 +311,10 @@ async function requestLongRunningJson(url, options = {}) {
         const rawBody = Buffer.concat(chunks).toString('utf8');
         const statusCode = Number(res.statusCode || 0);
         if (statusCode < 200 || statusCode >= 300) {
-          const err = new Error(`External request failed (${statusCode}).`);
+          const detail = summarizeExternalFailure(rawBody);
+          const err = new Error(detail
+            ? `External request failed (${statusCode}): ${detail}`
+            : `External request failed (${statusCode}).`);
           err.status = statusCode;
           err.responseBody = rawBody;
           reject(err);

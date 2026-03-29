@@ -11,6 +11,7 @@ import {
   setPlaylistTracks,
   getPlaylistTracks,
   getArtistTagMap,
+  parseTriStateFilter,
 } from '../db.js';
 
 const execFileAsync = (file, args, options = {}) => new Promise((resolve, reject) => {
@@ -612,7 +613,7 @@ function pickFavoriteTracks(db, userPlexId, limit = 12) {
   }));
 }
 
-const FEATURE_PRESET_KEYS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
+const FEATURE_PRESET_KEYS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const FEATURE_PROFILE_RULES = {
   none: [],
   club: [
@@ -630,6 +631,11 @@ const FEATURE_PROFILE_RULES = {
     { field: 'danceability', operator: 'gte', value: '0.55' },
   ],
   harmonic: [],
+  wakeup: [
+    { field: 'bpm', operator: 'between', value: '88,116' },
+    { field: 'energy', operator: 'between', value: '0.38,0.68' },
+    { field: 'danceability', operator: 'between', value: '0.45,0.78' },
+  ],
   chill: [
     { field: 'bpm', operator: 'lte', value: '105' },
     { field: 'energy', operator: 'lte', value: '0.45' },
@@ -1221,6 +1227,41 @@ function trackMatchesRule(track, rule) {
   }
 }
 
+function matchesSeasonalRule(track, rules) {
+  const seasonalGenres = Array.isArray(rules?.seasonalGenres) ? rules.seasonalGenres.filter(Boolean) : [];
+  const seasonalKeywords = Array.isArray(rules?.seasonalKeywords) ? rules.seasonalKeywords.filter(Boolean) : [];
+  const seasonalExcludeGenres = Array.isArray(rules?.seasonalExcludeGenres) ? rules.seasonalExcludeGenres.filter(Boolean) : [];
+  const seasonalExcludeKeywords = Array.isArray(rules?.seasonalExcludeKeywords) ? rules.seasonalExcludeKeywords.filter(Boolean) : [];
+  const seasonalGenresMode = rules?.seasonalGenresMode === 'all' ? 'all' : 'any';
+  const seasonalKeywordsMode = rules?.seasonalKeywordsMode === 'all' ? 'all' : 'any';
+  if (!seasonalGenres.length && !seasonalKeywords.length && !seasonalExcludeGenres.length && !seasonalExcludeKeywords.length) return true;
+
+  const genreMatch = seasonalGenres.length
+    ? (seasonalGenresMode === 'all'
+      ? seasonalGenres.every((genre) => (track?.genres || []).includes(genre))
+      : (track?.genres || []).some((genre) => seasonalGenres.includes(genre)))
+    : false;
+  const genreExcluded = seasonalExcludeGenres.length
+    ? (track?.genres || []).some((genre) => seasonalExcludeGenres.includes(genre))
+    : false;
+
+  const haystacks = [track?.trackTitle, track?.albumName]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+  const keywordMatch = seasonalKeywords.length ? seasonalKeywords[seasonalKeywordsMode === 'all' ? 'every' : 'some']((keyword) => {
+    const needle = String(keyword || '').trim().toLowerCase();
+    return needle && haystacks.some((haystack) => haystack.includes(needle));
+  }) : false;
+  const keywordExcluded = seasonalExcludeKeywords.some((keyword) => {
+    const needle = String(keyword || '').trim().toLowerCase();
+    return needle && haystacks.some((haystack) => haystack.includes(needle));
+  });
+
+  if (genreExcluded || keywordExcluded) return false;
+  if (!seasonalGenres.length && !seasonalKeywords.length) return true;
+  return genreMatch || keywordMatch;
+}
+
 function parseNumberRuleValue(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -1667,12 +1708,12 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
     return 'skip';
   }
 
-  const artistTierFilter = Array.isArray(rules.artistTiers) && rules.artistTiers.length ? new Set(rules.artistTiers) : null;
-  const trackTierFilter  = Array.isArray(rules.trackTiers)  && rules.trackTiers.length  ? new Set(rules.trackTiers)  : null;
-  const genreFilter      = Array.isArray(rules.genres)      && rules.genres.length      ? new Set(rules.genres)      : null;
-  const moodFilter       = Array.isArray(rules.moods)       && rules.moods.length       ? new Set(rules.moods)       : null;
-  const tagFilter        = Array.isArray(rules.tags)        && rules.tags.length        ? new Set(rules.tags)        : null;
-  const artistTagMap     = tagFilter ? getArtistTagMap(db) : null;
+  const artistTierFilter = parseTriStateFilter(rules.artistTiers);
+  const trackTierFilter  = parseTriStateFilter(rules.trackTiers);
+  const gf = parseTriStateFilter(rules.genres);
+  const mf = parseTriStateFilter(rules.moods);
+  const tf = parseTriStateFilter(rules.tags);
+  const artistTagMap = (tf.include || tf.exclude) ? getArtistTagMap(db) : null;
   const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
   const sortBy = rules.sortBy || 'ratingCount';
@@ -1683,19 +1724,31 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   for (const t of eligibleTracks) {
     const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
     const artistTier = classifyArtist(score);
-    if (artistTierFilter && !artistTierFilter.has(artistTier)) continue;
+    if (artistTierFilter.include && !artistTierFilter.include.has(artistTier)) continue;
+    if (artistTierFilter.exclude && artistTierFilter.exclude.has(artistTier)) continue;
 
     const stat = trackMap.get(t.ratingKey);
     const rawTier = stat?.tier || 'curatorr';
     const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
-    if (trackTierFilter && !trackTierFilter.has(normTier)) continue;
+    if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
+    if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
 
-    if (genreFilter && !(t.genres || []).some((g) => genreFilter.has(g))) continue;
-    if (moodFilter  && !(t.moods  || []).some((m) => moodFilter.has(m)))  continue;
-    if (tagFilter) {
+    if (gf.include && !(gf.includeMode === 'all'
+      ? Array.from(gf.include).every((g) => (t.genres || []).includes(g))
+      : (t.genres || []).some((g) => gf.include.has(g)))) continue;
+    if (gf.exclude && (t.genres || []).some((g) => gf.exclude.has(g))) continue;
+    if (mf.include && !(mf.includeMode === 'all'
+      ? Array.from(mf.include).every((m) => (t.moods || []).includes(m))
+      : (t.moods || []).some((m) => mf.include.has(m)))) continue;
+    if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
+    if (tf.include || tf.exclude) {
       const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
-      if (!artistTags.some((tag) => tagFilter.has(tag))) continue;
+      if (tf.include && !(tf.includeMode === 'all'
+        ? Array.from(tf.include).every((tag) => artistTags.includes(tag))
+        : artistTags.some((tag) => tf.include.has(tag)))) continue;
+      if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
     }
+    if (!matchesSeasonalRule(t, rules)) continue;
 
     if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
     byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });

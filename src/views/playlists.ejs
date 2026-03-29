@@ -226,11 +226,11 @@
     .playlist-preset-card--downtempo .playlist-preset-card__art { background:
       linear-gradient(135deg,#0f172a,#334155 45%,#475569); }
     .playlist-preset-card--downtempo .playlist-preset-card__art::after { right:-10%; bottom:-28%; width:72%; height:72%; border-color:rgba(226,232,240,.18); box-shadow:0 0 0 16px rgba(148,163,184,.08), 0 0 0 34px rgba(71,85,105,.06); }
-    .playlist-feature-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:14px; align-items:end; }
+    .playlist-feature-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-top:12px; align-items:end; }
     .playlist-feature-grid .field { display:flex; flex-direction:column; gap:6px; min-width:0; }
     .playlist-feature-grid .field span { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted,#94a3b8); }
     .playlist-feature-grid .field input,
-    .playlist-feature-grid .field select { width:100%; min-height:44px; box-sizing:border-box; border-radius:10px; border:1px solid var(--border, rgba(255,255,255,.15)); background:var(--surface-1,#1e1e1e); color:var(--text,#e5e7eb); padding:9px 12px; }
+    .playlist-feature-grid .field select { width:100%; min-height:40px; box-sizing:border-box; border-radius:10px; border:1px solid var(--border, rgba(255,255,255,.15)); background:var(--surface-1,#1e1e1e); color:var(--text,#e5e7eb); padding:8px 10px; }
     .playlist-feature-note { margin-top:10px; font-size:12px; line-height:1.55; color:var(--muted,#a0aec0); }
     .playlist-feature-note strong { color:var(--text,#f8fafc); }
     .playlist-inline-code { display:inline-flex; align-items:center; padding:2px 6px; border-radius:5px; font-size:11px; line-height:1.35; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.08); color:inherit; }
@@ -265,6 +265,8 @@
         <button class="spm-close" type="button" onclick="closeSmartPlaylistModal()" aria-label="Close">✕</button>
       </div>
       <div class="spm-body">
+        <div id="spm-wizard-body" style="display:none"></div>
+        <div id="spm-flat-form">
         <div class="field" style="margin-bottom:16px">
           <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#888)">Playlist name</span>
           <input type="text" id="spm-name" class="cur-input" placeholder="e.g. Britpop Belters" style="width:100%;margin-top:4px" />
@@ -389,42 +391,45 @@
 
         <% if ((allGenres || []).length) { %>
         <div class="spm-filter-section">
-          <div class="spm-filter-label">Genres <span class="gp-filter-hint">(none = all)</span></div>
-          <div class="gp-checklist-wrap">
-            <input type="text" class="gp-checklist-search" placeholder="Filter genres…" data-target="spm-genres-list" />
-            <div class="gp-checklist" id="spm-genres-list">
+          <div class="spm-filter-label">Genres <span class="gp-filter-hint">(click once to include, again to exclude, again to clear)</span></div>
+          <div class="spm-tristate-wrap">
+            <input type="text" class="spm-tristate-search" placeholder="Filter genres…" data-chips="spm-genres-chips" />
+            <div class="spm-tristate-chips" id="spm-genres-chips">
               <% (allGenres || []).forEach(function(g) { %>
-              <label class="gp-checklist-item"><input type="checkbox" class="spm-genre-cb" value="<%= g %>" /><span><%= g %></span></label>
+              <button type="button" class="spm-chip" data-kind="genre" data-value="<%= g %>" data-state="neutral"><%= g %></button>
               <% }); %>
             </div>
+            <div class="spm-chip-hint">None selected = include all</div>
           </div>
         </div>
         <% } %>
 
         <% if ((allMoods || []).length) { %>
         <div class="spm-filter-section">
-          <div class="spm-filter-label">Moods <span class="gp-filter-hint">(none = all)</span></div>
-          <div class="gp-checklist-wrap">
-            <input type="text" class="gp-checklist-search" placeholder="Filter moods…" data-target="spm-moods-list" />
-            <div class="gp-checklist" id="spm-moods-list">
+          <div class="spm-filter-label">Moods <span class="gp-filter-hint">(click once to include, again to exclude, again to clear)</span></div>
+          <div class="spm-tristate-wrap">
+            <input type="text" class="spm-tristate-search" placeholder="Filter moods…" data-chips="spm-moods-chips" />
+            <div class="spm-tristate-chips" id="spm-moods-chips">
               <% (allMoods || []).forEach(function(m) { %>
-              <label class="gp-checklist-item"><input type="checkbox" class="spm-mood-cb" value="<%= m %>" /><span><%= m %></span></label>
+              <button type="button" class="spm-chip" data-kind="mood" data-value="<%= m %>" data-state="neutral"><%= m %></button>
               <% }); %>
             </div>
+            <div class="spm-chip-hint">None selected = include all</div>
           </div>
         </div>
         <% } %>
 
         <% if ((allLastfmTags || []).length) { %>
         <div class="spm-filter-section">
-          <div class="spm-filter-label">Last.fm Tags <span class="gp-filter-hint">(none = all)</span></div>
-          <div class="gp-checklist-wrap">
-            <input type="text" class="gp-checklist-search" placeholder="Filter tags… e.g. britpop" data-target="spm-tags-list" />
-            <div class="gp-checklist" id="spm-tags-list">
+          <div class="spm-filter-label">Last.fm Tags <span class="gp-filter-hint">(click once to include, again to exclude, again to clear)</span></div>
+          <div class="spm-tristate-wrap">
+            <input type="text" class="spm-tristate-search" placeholder="Filter tags… e.g. britpop" data-chips="spm-tags-chips" />
+            <div class="spm-tristate-chips" id="spm-tags-chips">
               <% (allLastfmTags || []).forEach(function(t) { %>
-              <label class="gp-checklist-item"><input type="checkbox" class="spm-tag-cb" value="<%= t %>" /><span><%= t %></span></label>
+              <button type="button" class="spm-chip" data-kind="tag" data-value="<%= t %>" data-state="neutral"><%= t %></button>
               <% }); %>
             </div>
+            <div class="spm-chip-hint">None selected = include all</div>
           </div>
         </div>
         <% } %>
@@ -437,6 +442,14 @@
           <label class="field" style="flex:1">
             <span>Max total tracks</span>
             <input type="number" id="spm-max-tracks" min="1" placeholder="No limit" />
+          </label>
+          <label class="field" style="flex:1">
+            <span>Auto-rebuild</span>
+            <select id="spm-rebuild-schedule">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="manual">Manual only</option>
+            </select>
           </label>
           <label class="field" style="flex:1">
             <span>Sort tracks by</span>
@@ -480,12 +493,16 @@
           <span id="spm-prev-artists">—</span> artists ·
           <span id="spm-prev-tracks">—</span> tracks
         </div>
+        </div><%# /spm-flat-form %>
       </div>
 
       <div class="spm-footer">
-        <button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>
-        <button class="btn btn-primary" type="button" id="spm-create-btn" onclick="spmSubmit()">Create Playlist</button>
-        <span id="spm-msg" style="font-size:13px;margin-left:8px"></span>
+        <div id="spm-flat-footer" style="display:flex;align-items:center;gap:10px;width:100%">
+          <button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>
+          <button class="btn btn-primary" type="button" id="spm-create-btn" onclick="spmSubmit()">Create Playlist</button>
+          <span id="spm-msg" style="font-size:13px;margin-left:8px"></span>
+        </div>
+        <div id="spm-wizard-footer" style="display:none;width:100%"></div>
       </div>
     </div>
   </div>
@@ -516,6 +533,9 @@
     var PLEX_MACHINE_ID = '<%= _plexMachineId %>';
     var MS_LABEL = '<%= _msLabel %>';
     var _msType = '<%= _msType %>';
+    var CURRENT_USER_ID = <%- JSON.stringify(currentUserId || '') %>;
+    var IS_ACTUAL_ADMIN = <%- JSON.stringify(actualRole === 'admin') %>;
+    var ALL_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
 
     function fmtDuration(ms) {
       if (!ms) return '';
@@ -1317,17 +1337,82 @@
       document.getElementById('spm-camelot-mode').value = rules.camelotMode || 'exact';
     }
 
-    function openSmartPlaylistModal() {
+    function openSmartPlaylistModal(options) {
+      options = options || {};
       _spmEditId = null;
-      document.getElementById('spm-modal-title').textContent = 'Create Smart Playlist';
-      document.getElementById('spm-create-btn').textContent = 'Create Playlist';
-      document.getElementById('spm-name').value = '';
-      spmResetFilters();
+      _wizardEditKind = options.editKind || null;
+      _wizardEditId = options.editId || '';
+      // Show the wizard for creating, not the flat form
+      document.getElementById('spm-flat-form').style.display = 'none';
+      document.getElementById('spm-flat-footer').style.display = 'none';
+      document.getElementById('spm-wizard-body').style.display = '';
+      document.getElementById('spm-wizard-footer').style.display = '';
+      document.getElementById('spm-modal-title').textContent = wizardModalTitle();
       var modal = document.getElementById('smartPlModal');
       if (!modal) return;
       modal.style.display = '';
-      document.getElementById('spm-name').focus();
-      spmRunPreview();
+      wizardInit();
+    }
+
+    function openSmartPlaylistWizard(prefill, options) {
+      _wizardPendingPrefill = prefill || null;
+      openSmartPlaylistModal(options || {});
+    }
+
+    function wizardPrefillFromPlaylist(playlist, playlistTarget) {
+      var rules = playlist && playlist.rules ? playlist.rules : {};
+      var trackFilters = wizardStarterTrackFilters(playlist && playlist.trackFilters);
+      var target = playlistTarget || 'personal';
+      if (target !== 'global' && Array.isArray(rules.blendUsers) && rules.blendUsers.length) target = 'blend';
+      return {
+        templateId: 'blank',
+        name: String(playlist && playlist.name || '').trim(),
+        nameManual: true,
+        playlistTarget: target,
+        rebuildSchedule: String(rules.rebuildSchedule || 'daily'),
+        genres: normaliseUiTriState(rules.genres),
+        moods: normaliseUiTriState(rules.moods),
+        tags: normaliseUiTriState(rules.tags),
+        artistTiers: normaliseUiTriState(rules.artistTiers),
+        trackTiers: normaliseUiTriState(rules.trackTiers),
+        featurePreset: wizardNormalizeStarterPreset(rules.featurePreset),
+        bpmMin: rules.bpmMin != null ? rules.bpmMin : null,
+        bpmMax: rules.bpmMax != null ? rules.bpmMax : null,
+        energyMin: rules.energyMin != null ? rules.energyMin : null,
+        energyMax: rules.energyMax != null ? rules.energyMax : null,
+        danceabilityMin: rules.danceabilityMin != null ? rules.danceabilityMin : null,
+        danceabilityMax: rules.danceabilityMax != null ? rules.danceabilityMax : null,
+        camelotFocus: String(rules.camelotFocus || ''),
+        camelotMode: String(rules.camelotMode || 'exact'),
+        topNPerArtist: rules.topNPerArtist != null ? Number(rules.topNPerArtist) : null,
+        maxTracks: rules.maxTracks != null ? Number(rules.maxTracks) : null,
+        sortBy: String(rules.sortBy || 'ratingCount'),
+        blendUsers: Array.isArray(rules.blendUsers) ? rules.blendUsers.slice() : [],
+        blendMode: String(rules.blendMode || 'average'),
+        seasonalGenres: Array.isArray(rules.seasonalGenres) ? rules.seasonalGenres.slice() : [],
+        seasonalKeywords: Array.isArray(rules.seasonalKeywords) ? rules.seasonalKeywords.slice() : [],
+        seasonalExcludeGenres: Array.isArray(rules.seasonalExcludeGenres) ? rules.seasonalExcludeGenres.slice() : [],
+        seasonalExcludeKeywords: Array.isArray(rules.seasonalExcludeKeywords) ? rules.seasonalExcludeKeywords.slice() : [],
+        seasonalGenresMode: rules.seasonalGenresMode === 'all' ? 'all' : 'any',
+        seasonalKeywordsMode: rules.seasonalKeywordsMode === 'all' ? 'all' : 'any',
+        includeFolders: trackFilters.includeFolders,
+        excludeFolders: trackFilters.excludeFolders,
+        advancedRules: trackFilters.rules,
+        deduplicateByMbid: trackFilters.deduplicateByMbid,
+      };
+    }
+
+    function openWizardEdit(kind, id, endpoint) {
+      fetch(endpoint)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok || !data.playlist) { alert('Could not load playlist data.'); return; }
+          openSmartPlaylistWizard(
+            wizardPrefillFromPlaylist(data.playlist, kind === 'global' ? 'global' : 'personal'),
+            { editKind: kind, editId: id }
+          );
+        })
+        .catch(function() { alert('Network error loading playlist.'); });
     }
 
     function openEditPlaylistModal(card) {
@@ -1335,25 +1420,7 @@
       var key = card.dataset.plKey || '';
       var id = key.replace(/^personal:/, '');
       if (!id) return;
-      fetch('/api/music/playlists/personal/preview?rules=%7B%7D', { method: 'GET' }); // warm-up (ignore)
-      fetch('/api/music/playlists/personal/' + encodeURIComponent(id))
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (!data.ok || !data.playlist) { alert('Could not load playlist data.'); return; }
-          _spmEditId = id;
-          var pl = data.playlist;
-          document.getElementById('spm-modal-title').textContent = 'Edit Smart Playlist';
-          document.getElementById('spm-create-btn').textContent = 'Save Changes';
-          document.getElementById('spm-name').value = pl.name || '';
-          spmResetFilters();
-          var rules = pl.rules || {};
-          spmApplyRules(rules);
-          var modal = document.getElementById('smartPlModal');
-          if (modal) modal.style.display = '';
-          document.getElementById('spm-name').focus();
-          spmRunPreview();
-        })
-        .catch(function() { alert('Network error loading playlist.'); });
+      openWizardEdit('personal', id, '/api/music/playlists/personal/' + encodeURIComponent(id));
     }
 
     function openEditGlobalPlaylist(card) {
@@ -1361,15 +1428,24 @@
       var plKey = card.dataset.plKey || '';
       var gpId = plKey.replace(/^global:/, '');
       if (!gpId) return;
-      window.location.href = '/settings?tab=smart-playlist&edit=' + encodeURIComponent(gpId);
+      openWizardEdit('global', gpId, '/api/playlists/global/' + encodeURIComponent(gpId));
+    }
+
+    function spmResetChips(containerId) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+      container.querySelectorAll('.spm-chip').forEach(function(chip) {
+        chip.dataset.state = 'neutral';
+        chip.classList.remove('is-include', 'is-exclude');
+      });
     }
 
     function spmResetFilters() {
       document.querySelectorAll('.spm-artist-tier').forEach(function(cb) { cb.checked = false; });
       document.querySelectorAll('.spm-track-tier').forEach(function(cb) { cb.checked = false; });
-      document.querySelectorAll('.spm-genre-cb').forEach(function(cb) { cb.checked = false; });
-      document.querySelectorAll('.spm-mood-cb').forEach(function(cb) { cb.checked = false; });
-      document.querySelectorAll('.spm-tag-cb').forEach(function(cb) { cb.checked = false; });
+      spmResetChips('spm-genres-chips');
+      spmResetChips('spm-moods-chips');
+      spmResetChips('spm-tags-chips');
       if (window.spmSetBlendUsers) window.spmSetBlendUsers([], 'average');
       var blendModeDefault = document.querySelector('input[name="spm-blend-mode"][value="average"]');
       if (blendModeDefault) blendModeDefault.checked = true;
@@ -1380,6 +1456,8 @@
       if (maxT) maxT.value = '';
       var sortBy = document.getElementById('spm-sort-by');
       if (sortBy) sortBy.value = 'ratingCount';
+      var rebSched = document.getElementById('spm-rebuild-schedule');
+      if (rebSched) rebSched.value = 'daily';
       spmUpdateBlendVisibility();
     }
 
@@ -1470,32 +1548,53 @@
       spmUpdateBlendVisibility();
     })();
 
+    function spmApplyChips(containerId, triState) {
+      // triState: flat string[] (legacy) or { include: [], exclude: [] }
+      var container = document.getElementById(containerId);
+      if (!container) return;
+      var includeSet, excludeSet;
+      if (Array.isArray(triState)) {
+        includeSet = new Set(triState);
+        excludeSet = new Set();
+      } else {
+        includeSet = new Set((triState && triState.include) || []);
+        excludeSet = new Set((triState && triState.exclude) || []);
+      }
+      container.querySelectorAll('.spm-chip').forEach(function(chip) {
+        var v = chip.dataset.value;
+        if (includeSet.has(v)) {
+          chip.dataset.state = 'include';
+          chip.classList.add('is-include');
+          chip.classList.remove('is-exclude');
+        } else if (excludeSet.has(v)) {
+          chip.dataset.state = 'exclude';
+          chip.classList.add('is-exclude');
+          chip.classList.remove('is-include');
+        } else {
+          chip.dataset.state = 'neutral';
+          chip.classList.remove('is-include', 'is-exclude');
+        }
+      });
+    }
+
     function spmApplyRules(rules) {
-      if (rules.artistTiers && rules.artistTiers.length) {
-        rules.artistTiers.forEach(function(v) {
+      var artistTierState = normaliseUiTriState(rules.artistTiers);
+      var trackTierState = normaliseUiTriState(rules.trackTiers);
+      if (artistTierState.include.length) {
+        artistTierState.include.forEach(function(v) {
           var cb = document.querySelector('.spm-artist-tier[value="' + v + '"]');
           if (cb) cb.checked = true;
         });
       }
-      if (rules.trackTiers && rules.trackTiers.length) {
-        rules.trackTiers.forEach(function(v) {
+      if (trackTierState.include.length) {
+        trackTierState.include.forEach(function(v) {
           var cb = document.querySelector('.spm-track-tier[value="' + v + '"]');
           if (cb) cb.checked = true;
         });
       }
-      (rules.genres || []).forEach(function(v) {
-        var cb = document.querySelector('.spm-genre-cb[value="' + CSS.escape(v) + '"]') ||
-                 document.querySelector('.spm-genre-cb[value="' + v.replace(/"/g, '\\"') + '"]');
-        if (cb) cb.checked = true;
-      });
-      (rules.moods || []).forEach(function(v) {
-        var cb = document.querySelector('.spm-mood-cb[value="' + CSS.escape(v) + '"]');
-        if (cb) cb.checked = true;
-      });
-      (rules.tags || []).forEach(function(v) {
-        var cb = document.querySelector('.spm-tag-cb[value="' + CSS.escape(v) + '"]');
-        if (cb) cb.checked = true;
-      });
+      spmApplyChips('spm-genres-chips', rules.genres || []);
+      spmApplyChips('spm-moods-chips',  rules.moods  || []);
+      spmApplyChips('spm-tags-chips',   rules.tags   || []);
       if (window.spmSetBlendUsers) window.spmSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
       spmLoadFeatureRules(rules);
       spmUpdateBlendVisibility();
@@ -1505,15 +1604,25 @@
       if (maxT) maxT.value = rules.maxTracks || '';
       var sortBy = document.getElementById('spm-sort-by');
       if (sortBy && rules.sortBy) sortBy.value = rules.sortBy;
+      var rebSched = document.getElementById('spm-rebuild-schedule');
+      if (rebSched && rules.rebuildSchedule) rebSched.value = rules.rebuildSchedule;
     }
 
     function closeSmartPlaylistModal() {
       var modal = document.getElementById('smartPlModal');
       if (modal) modal.style.display = 'none';
       if (_spmPreviewTimer) { clearTimeout(_spmPreviewTimer); _spmPreviewTimer = null; }
+      // Restore flat form visibility for next edit open
+      document.getElementById('spm-flat-form').style.display = '';
+      document.getElementById('spm-flat-footer').style.display = 'flex';
+      document.getElementById('spm-wizard-body').style.display = 'none';
+      document.getElementById('spm-wizard-footer').style.display = 'none';
       document.getElementById('spm-msg').textContent = '';
       document.getElementById('spm-create-btn').disabled = false;
       _spmEditId = null;
+      _wizardEditKind = null;
+      _wizardEditId = '';
+      _wizardPendingPrefill = null;
     }
 
     function spmSubmit() {
@@ -1545,14 +1654,23 @@
         });
     }
 
+    function spmReadChips(containerId) {
+      var inc = [], exc = [];
+      var container = document.getElementById(containerId);
+      if (!container) return { include: inc, exclude: exc };
+      container.querySelectorAll('.spm-chip').forEach(function(chip) {
+        if (chip.dataset.state === 'include') inc.push(chip.dataset.value);
+        else if (chip.dataset.state === 'exclude') exc.push(chip.dataset.value);
+      });
+      return { include: inc, exclude: exc };
+    }
+
     function getSpmRules() {
       var artistTiers = Array.from(document.querySelectorAll('.spm-artist-tier:checked')).map(function(el) { return el.value; });
       var trackTiers = Array.from(document.querySelectorAll('.spm-track-tier:checked')).map(function(el) { return el.value; });
-      var genres = Array.from(document.querySelectorAll('.spm-genre-cb:checked')).map(function(el) { return el.value; });
-      var moods = Array.from(document.querySelectorAll('.spm-mood-cb:checked')).map(function(el) { return el.value; });
-      var tags = Array.from(document.querySelectorAll('.spm-tag-cb:checked')).map(function(el) { return el.value; });
       var topN = parseInt(document.getElementById('spm-top-n').value, 10) || null;
       var maxTracks = parseInt(document.getElementById('spm-max-tracks').value, 10) || null;
+      var rebuildSchedule = document.getElementById('spm-rebuild-schedule') ? document.getElementById('spm-rebuild-schedule').value : 'daily';
       var sortBy = document.getElementById('spm-sort-by').value || 'ratingCount';
       var blendUsers = (window.spmGetBlendUsers ? window.spmGetBlendUsers() : []);
       var blendModeEl = document.querySelector('input[name="spm-blend-mode"]:checked');
@@ -1560,12 +1678,13 @@
       return {
         artistTiers: artistTiers,
         trackTiers: trackTiers,
-        genres: genres,
-        moods: moods,
-        tags: tags,
+        genres: spmReadChips('spm-genres-chips'),
+        moods:  spmReadChips('spm-moods-chips'),
+        tags:   spmReadChips('spm-tags-chips'),
         topNPerArtist: topN,
         maxTracks: maxTracks,
         sortBy: sortBy,
+        rebuildSchedule: rebuildSchedule,
         blendUsers: blendUsers,
         blendMode: blendMode,
         featurePreset: document.getElementById('spm-feature-preset').value || 'none',
@@ -1607,34 +1726,55 @@
         });
     }
 
-    function createSmartPlaylist() {
-      var name = (document.getElementById('spm-name').value || '').trim();
+    function createSmartPlaylist(nameOverride, rulesOverride, optionsOverride) {
+      var name = nameOverride || (document.getElementById('spm-name').value || '').trim();
+      var msg = document.getElementById('wiz-msg') || document.getElementById('spm-msg');
+      var btn = document.getElementById('wiz-create-btn') || document.getElementById('spm-create-btn');
       if (!name) {
-        document.getElementById('spm-msg').textContent = 'Please enter a playlist name.';
-        document.getElementById('spm-name').focus();
+        if (msg) msg.textContent = 'Please enter a playlist name.';
+        var nameInput = document.getElementById('wiz-finish-name') || document.getElementById('spm-name');
+        if (nameInput) nameInput.focus();
         return;
       }
-      var rules = getSpmRules();
-      var msg = document.getElementById('spm-msg');
-      var btn = document.getElementById('spm-create-btn');
-      btn.disabled = true;
-      msg.textContent = 'Creating…';
-      fetch('/api/music/playlists/personal', {
-        method: 'POST',
+      var rules = rulesOverride || getSpmRules();
+      var options = optionsOverride || {};
+      var playlistTarget = options.playlistTarget || 'personal';
+      var trackFilters = options.trackFilters || null;
+      var editKind = options.editKind || _wizardEditKind || null;
+      var editId = options.editId || _wizardEditId || '';
+      var isEdit = Boolean(editKind && editId);
+      var endpoint = isEdit
+        ? (editKind === 'global'
+          ? '/api/playlists/global/' + encodeURIComponent(editId)
+          : '/api/music/playlists/personal/' + encodeURIComponent(editId))
+        : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
+      var payload = Object.assign({ name: name }, rules);
+      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, rules: [] };
+      if (btn) btn.disabled = true;
+      if (msg) msg.textContent = isEdit ? 'Saving…' : 'Creating…';
+      fetch(endpoint, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
-        body: JSON.stringify(Object.assign({ name: name }, rules)),
+        body: JSON.stringify(payload),
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (!data.ok) throw new Error(data.error || 'Failed');
+          if (isEdit) {
+            closeSmartPlaylistModal();
+            window.location.reload();
+            return;
+          }
+          var playlist = data.playlist || {};
+          var isGlobal = playlistTarget === 'global';
           var card = buildPlaylistCard({
             plexPlaylistId: data.plexPlaylistId || '',
-            playlistKey: data.playlistKey || '',
-            playlistTitle: data.playlistTitle || name,
+            playlistKey: data.playlistKey || (isGlobal ? 'global:' + String(playlist.id || '') : 'personal:' + String(playlist.id || '')),
+            playlistTitle: data.playlistTitle || playlist.name || name,
             playlistKind: 'generated',
-            playlistType: 'personal',
+            playlistType: isGlobal ? 'global' : 'personal',
             trackCount: 0,
-            updatedAt: Date.now(),
+            updatedAt: playlist.createdAt || Date.now(),
             artPath: '',
           });
           var carouselTrack = document.getElementById('playlistCarouselTrack');
@@ -1643,9 +1783,1374 @@
           selectPlaylist(card);
         })
         .catch(function(err) {
-          msg.textContent = 'Error: ' + (err.message || 'Unknown');
-          btn.disabled = false;
+          if (msg) msg.textContent = 'Error: ' + (err.message || 'Unknown');
+          if (btn) btn.disabled = false;
         });
+    }
+
+    // ── Smart Playlist Creation Wizard ──────────────────────────────────────────
+
+    var _wizardState = {};
+    var _wizardPreviewSeq = 0;
+    var _wizardTemplates = [];
+    var _wizardPendingPrefill = null;
+    var _wizardEditKind = null;
+    var _wizardEditId = '';
+    var _wizardFolderBrowse = { include: '', exclude: '' };
+
+    var WIZARD_BUILTIN_TEMPLATES = [
+      { id: 'blank',            icon: '✦', name: 'Custom',      description: 'Start clean and shape it yourself.', rules: {}, trackFilters: null },
+      { id: 'tmpl_favourites',  icon: '★', name: 'Favourites',  description: 'Your highest-rated tracks and artists.', rules: { artistTiers: { include: ['belter'], exclude: [] }, trackTiers: { include: ['belter'], exclude: [] } }, trackFilters: null },
+      { id: 'tmpl_discovery',   icon: '⊕', name: 'Discovery',   description: 'Unplayed tracks from unranked artists.', rules: { artistTiers: { include: ['unranked'], exclude: [] }, trackTiers: { include: ['unplayed'], exclude: [] } }, trackFilters: null },
+      { id: 'tmpl_seasonal',    icon: '❄', name: 'Seasonal',    description: 'Holiday genre plus festive title and album keywords.', rules: { seasonalGenres: ['Holiday'], seasonalKeywords: ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday'] }, trackFilters: null },
+    ];
+
+    var WIZARD_PRESET_COVERAGE = <%- JSON.stringify((playlistFeatureCoverage && playlistFeatureCoverage.presets) || {}) %>;
+    var WIZARD_FEATURE_PRESETS = {
+      club:      { bpmMin:'126', bpmMax:'', energyMin:'0.78', energyMax:'', danceabilityMin:'0.70', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
+      driving:   { bpmMin:'110', bpmMax:'135', energyMin:'0.55', energyMax:'', danceabilityMin:'', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
+      workout:   { bpmMin:'124', bpmMax:'150', energyMin:'0.72', energyMax:'', danceabilityMin:'0.55', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
+      chill:     { bpmMin:'', bpmMax:'105', energyMin:'', energyMax:'0.45', danceabilityMin:'', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
+      harmonic:  { bpmMin:'', bpmMax:'', energyMin:'', energyMax:'', danceabilityMin:'', danceabilityMax:'', camelotFocus:'8A', camelotMode:'harmonic' },
+      wakeup:    { bpmMin:'88', bpmMax:'116', energyMin:'0.38', energyMax:'0.68', danceabilityMin:'0.45', danceabilityMax:'0.78', camelotFocus:'', camelotMode:'exact' },
+      downtempo: { bpmMin:'70', bpmMax:'100', energyMin:'', energyMax:'0.40', danceabilityMin:'', danceabilityMax:'0.65', camelotFocus:'', camelotMode:'exact' },
+      none:      { bpmMin:'', bpmMax:'', energyMin:'', energyMax:'', danceabilityMin:'', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
+    };
+    var WIZARD_FEATURE_PRESET_META = {
+      none:      { label: 'Custom',    eyebrow: 'Open brief',   description: 'Leave this open and shape the ranges yourself.' },
+      club:      { label: 'Late Night', eyebrow: 'Night out',   description: 'Fast BPM, strong energy, dancefloor bias.' },
+      driving:   { label: 'Driving',   eyebrow: 'Road pace',    description: 'Steady tempo and lift without going full cardio.' },
+      workout:   { label: 'Workout',   eyebrow: 'High push',    description: 'Higher BPM, higher energy, built for momentum.' },
+      chill:     { label: 'Focus',     eyebrow: 'Low pressure', description: 'Slower pace, softer energy, easy background flow.' },
+      harmonic:  { label: 'Harmonic',  eyebrow: 'Key pocket',   description: 'Bias the set around a Camelot key neighborhood.' },
+      wakeup:    { label: 'Wake Up',   eyebrow: 'Early rise',   description: 'Bright, steady lift for the first hour of the day.' },
+      downtempo: { label: 'Downtempo', eyebrow: 'Late drift',   description: 'Lower BPM and softer movement for a gentler lane.' },
+    };
+    var WIZARD_FEATURE_PRESET_CONTENT = {
+      none:      { genres: { include: [], exclude: [] }, moods: { include: [], exclude: [] }, tags: { include: [], exclude: [] } },
+      club:      { genres: { include: ['Electronic', 'Pop/Rock', 'R&B', 'Rap'], exclude: ['Classical', 'Easy Listening'] }, moods: { include: ['Celebratory', 'Bombastic', 'Driving'], exclude: ['Calm/Peaceful', 'Delicate'] }, tags: { include: [], exclude: [] } },
+      driving:   { genres: { include: ['Pop/Rock', 'Country', 'Electronic'], exclude: [] }, moods: { include: ['Driving', 'Anthemic', 'Aggressive'], exclude: ['Calm/Peaceful'] }, tags: { include: [], exclude: [] } },
+      workout:   { genres: { include: ['Electronic', 'Pop/Rock', 'Rap', 'R&B'], exclude: [] }, moods: { include: ['Athletic', 'Aggressive', 'Driving', 'Anthemic'], exclude: ['Calm/Peaceful', 'Delicate'] }, tags: { include: [], exclude: [] } },
+      chill:     { genres: { include: ['Easy Listening', 'Jazz', 'Classical'], exclude: ['Rap'] }, moods: { include: ['Calm/Peaceful', 'Atmospheric', 'Dreamy'], exclude: ['Aggressive', 'Driving', 'Bombastic'] }, tags: { include: [], exclude: [] } },
+      harmonic:  { genres: { include: [], exclude: [] }, moods: { include: ['Atmospheric', 'Dreamy'], exclude: [] }, tags: { include: [], exclude: [] } },
+      wakeup:    { genres: { include: ['Pop/Rock', 'Electronic', 'R&B'], exclude: [] }, moods: { include: ['Bright', 'Cheerful', 'Airy'], exclude: ['Bleak', 'Brooding', 'Angst-Ridden'] }, tags: { include: [], exclude: [] } },
+      downtempo: { genres: { include: ['Electronic', 'Easy Listening', 'Jazz'], exclude: [] }, moods: { include: ['Calm/Peaceful', 'Atmospheric', 'Dreamy'], exclude: ['Aggressive', 'Driving', 'Bombastic'] }, tags: { include: [], exclude: [] } },
+    };
+    var WIZARD_SEASONAL_GENRES = ['Holiday', 'Christmas', 'Winter', 'Religious'];
+    var WIZARD_SEASONAL_KEYWORDS = ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday', 'snow', 'winter'];
+    var WIZARD_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u){return{id:u.id,avatar:u.avatarUrl||u.avatar||''};})) %>;
+    var WIZARD_SMART_SETTINGS = <%- JSON.stringify((config && config.smartPlaylist) || {}) %>;
+    var WIZARD_LIBRARY_TRACK_COUNT = <%- JSON.stringify((playlistFeatureCoverage && playlistFeatureCoverage.totalTracks) || 0) %>;
+    var WIZARD_GENERATED_PLAYLIST_COUNTS = <%- JSON.stringify((playlistCards || []).reduce(function(map, card) {
+      var type = String(card && card.playlistType || '').trim();
+      var count = Number(card && card.trackCount || 0);
+      if (type && count > 0 && !map[type]) map[type] = count;
+      return map;
+    }, {})) %>;
+
+    var WIZARD_TOTAL_STEPS = IS_ACTUAL_ADMIN ? 5 : 4;
+
+    function cloneWizardValue(value) {
+      return value == null ? value : JSON.parse(JSON.stringify(value));
+    }
+
+    function normaliseUiTriState(value) {
+      if (!value) return { include: [], exclude: [], includeMode: 'any' };
+      if (Array.isArray(value)) return { include: value.filter(Boolean), exclude: [], includeMode: 'any' };
+      return {
+        include: Array.isArray(value.include) ? value.include.filter(Boolean) : [],
+        exclude: Array.isArray(value.exclude) ? value.exclude.filter(Boolean) : [],
+        includeMode: value.includeMode === 'all' ? 'all' : 'any',
+      };
+    }
+
+    function wizardNormalizeStarterPreset(value) {
+      var raw = String(value || '').trim().toLowerCase();
+      return ['none','club','driving','workout','chill','harmonic','downtempo','wakeup'].indexOf(raw) !== -1 ? raw : 'none';
+    }
+
+    function wizardStarterTrackFilters(trackFilters) {
+      var tf = trackFilters && typeof trackFilters === 'object' ? trackFilters : null;
+      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false };
+      return {
+        includeFolders: Array.isArray(tf.includeFolders) ? tf.includeFolders.slice() : [],
+        excludeFolders: Array.isArray(tf.excludeFolders) ? tf.excludeFolders.slice() : [],
+        rules: Array.isArray(tf.rules) ? tf.rules.map(function(rule) { return cloneWizardValue(rule); }) : [],
+        deduplicateByMbid: Boolean(tf.deduplicateByMbid),
+      };
+    }
+
+    function wizardEstimatedStarterMaxTracks(capMultiplier, fallback) {
+      var cap = Number(capMultiplier);
+      var total = Number(WIZARD_LIBRARY_TRACK_COUNT || 0);
+      if (Number.isFinite(cap) && cap > 0 && total > 0) return Math.max(1, Math.round(total * Math.max(0, Math.min(1, cap))));
+      var fallbackNum = Number(fallback);
+      return Number.isFinite(fallbackNum) && fallbackNum > 0 ? Math.round(fallbackNum) : null;
+    }
+
+    function wizardManagedStarterTrackCount(type, capMultiplier, baselineShare) {
+      var liveCount = Number((WIZARD_GENERATED_PLAYLIST_COUNTS || {})[type] || 0);
+      if (Number.isFinite(liveCount) && liveCount > 0) return Math.round(liveCount);
+      var total = Number(WIZARD_LIBRARY_TRACK_COUNT || 0);
+      var share = Number(baselineShare);
+      var cap = Number(capMultiplier);
+      if (total > 0 && Number.isFinite(share) && share > 0) {
+        var normalizedCap = Number.isFinite(cap) ? Math.max(0, Math.min(1, cap)) : 1;
+        return Math.max(1, Math.round(total * share * normalizedCap));
+      }
+      return null;
+    }
+
+    function wizardPctLabel(value, fallback) {
+      var num = Number(value);
+      if (!Number.isFinite(num)) num = Number(fallback);
+      if (!Number.isFinite(num)) return '';
+      return Math.round(num * 100) + '%';
+    }
+
+    function wizardManagedStarterTemplates() {
+      var smart = WIZARD_SMART_SETTINGS || {};
+      var curatorr = smart.curatorr || {};
+      var crescive = smart.crescive || {};
+      var curative = smart.curative || {};
+      return [
+        {
+          id: 'tmpl_curatorr_settings',
+          icon: '◌',
+          name: 'Curatorr',
+          description: 'Uses your current Curatorr settings as the starter, then lets you tune taste filters.',
+          meta: [
+            (Number(curatorr.targetTracks || 48) || 48) + ' track target',
+            (Number(curatorr.maxTracksPerArtist || 2) || 2) + ' per artist',
+            (curatorr.useSonicOrdering ? 'DJ flow' : 'Rating order'),
+          ].join(' · '),
+          rules: {
+            maxTracks: Number(curatorr.targetTracks || 48) || 48,
+            topNPerArtist: Number(curatorr.maxTracksPerArtist || 2) || 2,
+            sortBy: curatorr.useSonicOrdering ? 'djFlow' : 'ratingCount',
+            featurePreset: wizardNormalizeStarterPreset(curatorr.featurePreset || curatorr.featureProfile),
+            camelotFocus: String(curatorr.camelotFocus || ''),
+            camelotMode: String(curatorr.camelotMode || 'exact'),
+          },
+          trackFilters: wizardStarterTrackFilters(curatorr.trackFilters),
+        },
+        {
+          id: 'tmpl_crescive_settings',
+          icon: '↗',
+          name: 'Crescive',
+          description: 'Derived from your current Crescive size and filter settings, ready for taste tweaks.',
+          meta: [
+            wizardPctLabel(crescive.favouriteArtistTrackPct, 0.80) + ' fav artist',
+            wizardPctLabel(crescive.favouriteGenreArtistPct, 0.80) + ' fav genre artists',
+            wizardPctLabel(crescive.favouriteGenreTrackPct, 0.20) + ' fav genre tracks',
+            wizardPctLabel(crescive.otherGenreArtistPct, 0.20) + ' other artists',
+            wizardPctLabel(crescive.otherGenreTrackPct, 0.20) + ' other tracks',
+          ].join(' · '),
+          rules: {
+            maxTracks: wizardManagedStarterTrackCount('crescive', crescive.capMultiplier, 0.20),
+            sortBy: 'tierWeight',
+          },
+          trackFilters: wizardStarterTrackFilters(crescive.trackFilters),
+        },
+        {
+          id: 'tmpl_curative_settings',
+          icon: '◔',
+          name: 'Curative',
+          description: 'Derived from your current Curative size and filter settings, then adjustable to taste.',
+          meta: [
+            wizardPctLabel(curative.favouriteArtistTrackPct, 1.00) + ' fav artist',
+            wizardPctLabel(curative.favouriteGenreArtistPct, 1.00) + ' fav genre artists',
+            wizardPctLabel(curative.favouriteGenreTrackPct, 0.80) + ' fav genre tracks',
+            wizardPctLabel(curative.otherGenreArtistPct, 0.50) + ' other artists',
+            wizardPctLabel(curative.otherGenreTrackPct, 0.50) + ' other tracks',
+          ].join(' · '),
+          rules: {
+            maxTracks: wizardManagedStarterTrackCount('curative', curative.capMultiplier, 0.50),
+            sortBy: 'tierWeight',
+          },
+          trackFilters: wizardStarterTrackFilters(curative.trackFilters),
+        },
+      ];
+    }
+
+    function wizardAllBuiltinTemplates() {
+      return WIZARD_BUILTIN_TEMPLATES.concat(wizardManagedStarterTemplates());
+    }
+
+    function wizardDefaultState() {
+      return {
+        step: 1,
+        templateId: 'blank',
+        name: '',
+        nameManual: false,
+        playlistTarget: 'personal',
+        rebuildSchedule: 'daily',
+        genres: { include: [], exclude: [], includeMode: 'any' },
+        moods:  { include: [], exclude: [], includeMode: 'any' },
+        tags:   { include: [], exclude: [], includeMode: 'any' },
+        includeFolders: [],
+        excludeFolders: [],
+        advancedRules: [],
+        activeContentSection: 'genre',
+        activeAdvancedSection: 'include',
+        artistTiers: { include: [], exclude: [] },
+        trackTiers: { include: [], exclude: [] },
+        featurePreset: 'none',
+        bpmMin: null, bpmMax: null,
+        energyMin: null, energyMax: null,
+        danceabilityMin: null, danceabilityMax: null,
+        camelotFocus: '', camelotMode: 'exact',
+        topNPerArtist: null,
+        maxTracks: null,
+        sortBy: 'ratingCount',
+        blendUsers: [],
+        blendMode: 'average',
+        seasonalGenres: [],
+        seasonalKeywords: [],
+        seasonalExcludeGenres: [],
+        seasonalExcludeKeywords: [],
+        seasonalGenresMode: 'any',
+        seasonalKeywordsMode: 'any',
+        deduplicateByMbid: false,
+      };
+    }
+
+    function wizardAssembleRules(ws) {
+      var keepBlend = ws.playlistTarget === 'blend'
+        || (ws.playlistTarget === 'global' && Array.isArray(ws.blendUsers) && ws.blendUsers.length);
+      return {
+        artistTiers: normaliseUiTriState(ws.artistTiers),
+        trackTiers:  normaliseUiTriState(ws.trackTiers),
+        genres:      normaliseUiTriState(ws.genres),
+        moods:       normaliseUiTriState(ws.moods),
+        tags:        normaliseUiTriState(ws.tags),
+        topNPerArtist: ws.topNPerArtist || null,
+        maxTracks:     ws.maxTracks     || null,
+        sortBy:        ws.sortBy        || 'ratingCount',
+        blendUsers:    keepBlend ? (ws.blendUsers || []) : [],
+        blendMode:     keepBlend ? (ws.blendMode || 'average') : 'average',
+        seasonalGenres: Array.isArray(ws.seasonalGenres) ? ws.seasonalGenres : [],
+        seasonalKeywords: Array.isArray(ws.seasonalKeywords) ? ws.seasonalKeywords : [],
+        seasonalExcludeGenres: Array.isArray(ws.seasonalExcludeGenres) ? ws.seasonalExcludeGenres : [],
+        seasonalExcludeKeywords: Array.isArray(ws.seasonalExcludeKeywords) ? ws.seasonalExcludeKeywords : [],
+        seasonalGenresMode: ws.seasonalGenresMode === 'all' ? 'all' : 'any',
+        seasonalKeywordsMode: ws.seasonalKeywordsMode === 'all' ? 'all' : 'any',
+        rebuildSchedule: ws.rebuildSchedule || 'daily',
+        featurePreset: ws.featurePreset || 'none',
+        bpmMin: ws.bpmMin || null, bpmMax: ws.bpmMax || null,
+        energyMin: ws.energyMin || null, energyMax: ws.energyMax || null,
+        danceabilityMin: ws.danceabilityMin || null, danceabilityMax: ws.danceabilityMax || null,
+        camelotFocus: ws.camelotFocus || '', camelotMode: ws.camelotMode || 'exact',
+      };
+    }
+
+    function wizardAssembleTrackFilters(ws) {
+      var includeFolders = Array.isArray(ws.includeFolders) ? ws.includeFolders.filter(Boolean) : [];
+      var excludeFolders = Array.isArray(ws.excludeFolders) ? ws.excludeFolders.filter(Boolean) : [];
+      var deduplicateByMbid = Boolean(ws.deduplicateByMbid);
+      var rules = Array.isArray(ws.advancedRules) ? ws.advancedRules.filter(function(rule) {
+        return rule && rule.field && rule.operator && rule.value != null && String(rule.value).trim() !== '';
+      }).map(function(rule) {
+        return {
+          field: String(rule.field),
+          operator: String(rule.operator),
+          value: String(rule.value),
+          caseSensitive: Boolean(rule.caseSensitive),
+        };
+      }) : [];
+      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid) return null;
+      return { includeFolders: includeFolders, excludeFolders: excludeFolders, deduplicateByMbid: deduplicateByMbid, rules: rules };
+    }
+
+    function wizardTargetLabel(target) {
+      if (target === 'blend') return 'Blend';
+      if (target === 'global') return 'Global';
+      return 'Personal';
+    }
+
+    function wizardIsEditMode() {
+      return Boolean(_wizardEditKind && _wizardEditId);
+    }
+
+    function wizardModalTitle() {
+      return wizardIsEditMode() ? 'Edit Smart Playlist' : 'Create Smart Playlist';
+    }
+
+    function wizardSubmitLabel() {
+      return wizardIsEditMode() ? 'Save Changes' : 'Create Playlist';
+    }
+
+    function wizardSuggestedName(state) {
+      var parts = [];
+      var targetLabel = wizardTargetLabel(state && state.playlistTarget || 'personal');
+      if (targetLabel) parts.push(targetLabel);
+      var tmpl = wizardFindTemplate(state && state.templateId || 'blank');
+      if (tmpl && tmpl.id !== 'blank' && tmpl.name) parts.push(tmpl.name);
+      var preset = String(state && state.featurePreset || 'none');
+      var presetMeta = WIZARD_FEATURE_PRESET_META[preset] || null;
+      if (preset !== 'none' && presetMeta && presetMeta.label) parts.push(presetMeta.label);
+      if (parts.length === 1) parts.push('Playlist');
+      return parts.join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function wizardSyncSuggestedName(state, force) {
+      if (!state) return;
+      if (state.nameManual && !force && state.name) return;
+      state.name = wizardSuggestedName(state);
+    }
+
+    function wizardFindTemplate(templateId) {
+      return _wizardTemplates.find(function(t) { return t.id === templateId; })
+        || wizardAllBuiltinTemplates().find(function(t) { return t.id === templateId; })
+        || null;
+    }
+
+    function wizardPresetValues(presetId) {
+      var preset = presetId || 'none';
+      var defaults = WIZARD_FEATURE_PRESETS[preset] || WIZARD_FEATURE_PRESETS.none;
+      return {
+        featurePreset: preset,
+        bpmMin: defaults.bpmMin || null,
+        bpmMax: defaults.bpmMax || null,
+        energyMin: defaults.energyMin || null,
+        energyMax: defaults.energyMax || null,
+        danceabilityMin: defaults.danceabilityMin || null,
+        danceabilityMax: defaults.danceabilityMax || null,
+        camelotFocus: defaults.camelotFocus || '',
+        camelotMode: defaults.camelotMode || 'exact',
+      };
+    }
+
+    function wizardApplyPresetValues(state, presetId, overwrite) {
+      var nextValues = wizardPresetValues(presetId);
+      Object.keys(nextValues).forEach(function(key) {
+        if (overwrite || state[key] == null || state[key] === '') state[key] = nextValues[key];
+      });
+    }
+
+    function wizardReplaceAudioState(state, presetId) {
+      var nextValues = wizardPresetValues(presetId);
+      state.featurePreset = nextValues.featurePreset;
+      state.bpmMin = nextValues.bpmMin;
+      state.bpmMax = nextValues.bpmMax;
+      state.energyMin = nextValues.energyMin;
+      state.energyMax = nextValues.energyMax;
+      state.danceabilityMin = nextValues.danceabilityMin;
+      state.danceabilityMax = nextValues.danceabilityMax;
+      state.camelotFocus = nextValues.camelotFocus;
+      state.camelotMode = nextValues.camelotMode;
+    }
+
+    function wizardReplaceContentStateFromAudioProfile(state, presetId) {
+      var defaults = WIZARD_FEATURE_PRESET_CONTENT[presetId || 'none'] || WIZARD_FEATURE_PRESET_CONTENT.none;
+      state.genres = {
+        include: (defaults.genres && defaults.genres.include ? defaults.genres.include.slice() : []),
+        exclude: (defaults.genres && defaults.genres.exclude ? defaults.genres.exclude.slice() : []),
+        includeMode: 'any',
+      };
+      state.moods = {
+        include: (defaults.moods && defaults.moods.include ? defaults.moods.include.slice() : []),
+        exclude: (defaults.moods && defaults.moods.exclude ? defaults.moods.exclude.slice() : []),
+        includeMode: 'any',
+      };
+      state.tags = {
+        include: (defaults.tags && defaults.tags.include ? defaults.tags.include.slice() : []),
+        exclude: (defaults.tags && defaults.tags.exclude ? defaults.tags.exclude.slice() : []),
+        includeMode: 'any',
+      };
+    }
+
+    function wizardFolderChildren(prefix) {
+      var base = prefix ? prefix + '/' : '';
+      var seen = new Set();
+      return ALL_PATH_SEGMENTS.reduce(function(acc, path) {
+        if (prefix) {
+          if (path === prefix || path.indexOf(base) !== 0) return acc;
+        }
+        var rest = prefix ? path.slice(base.length) : path;
+        if (!rest) return acc;
+        var name = rest.split('/')[0];
+        var fullPath = prefix ? (prefix + '/' + name) : name;
+        if (!name || seen.has(fullPath)) return acc;
+        seen.add(fullPath);
+        acc.push({
+          name: name,
+          path: fullPath,
+          hasChildren: ALL_PATH_SEGMENTS.some(function(entry) { return entry.indexOf(fullPath + '/') === 0; }),
+        });
+        return acc;
+      }, []).sort(function(a, b) { return a.name.localeCompare(b.name); });
+    }
+
+    function wizardApplyTemplate(templateId) {
+      var currentName = _wizardState.name || '';
+      var currentTarget = _wizardState.playlistTarget || 'personal';
+      var currentSchedule = _wizardState.rebuildSchedule || 'daily';
+      var currentBlendUsers = Array.isArray(_wizardState.blendUsers) ? _wizardState.blendUsers.slice() : [];
+      var currentBlendMode = _wizardState.blendMode || 'average';
+      var currentActiveAdvancedSection = _wizardState.activeAdvancedSection || 'include';
+      var currentNameManual = Boolean(_wizardState.nameManual);
+      var currentAudio = {
+        featurePreset: _wizardState.featurePreset || 'none',
+        bpmMin: _wizardState.bpmMin,
+        bpmMax: _wizardState.bpmMax,
+        energyMin: _wizardState.energyMin,
+        energyMax: _wizardState.energyMax,
+        danceabilityMin: _wizardState.danceabilityMin,
+        danceabilityMax: _wizardState.danceabilityMax,
+        camelotFocus: _wizardState.camelotFocus || '',
+        camelotMode: _wizardState.camelotMode || 'exact',
+      };
+      var nextState = wizardDefaultState();
+      nextState.templateId = templateId || 'blank';
+      nextState.name = currentName;
+      nextState.nameManual = currentNameManual;
+      nextState.playlistTarget = currentTarget;
+      nextState.rebuildSchedule = currentSchedule;
+      nextState.blendUsers = currentBlendUsers;
+      nextState.blendMode = currentBlendMode;
+      nextState.activeAdvancedSection = currentActiveAdvancedSection;
+      Object.assign(nextState, currentAudio);
+      var tmpl = wizardFindTemplate(nextState.templateId);
+      if (tmpl && tmpl.rules) Object.assign(nextState, tmpl.rules);
+      if (tmpl && Object.prototype.hasOwnProperty.call(tmpl, 'trackFilters')) {
+        var templateTrackFilters = wizardStarterTrackFilters(tmpl.trackFilters);
+        nextState.includeFolders = templateTrackFilters.includeFolders;
+        nextState.excludeFolders = templateTrackFilters.excludeFolders;
+        nextState.advancedRules = templateTrackFilters.rules;
+        nextState.deduplicateByMbid = templateTrackFilters.deduplicateByMbid;
+      }
+      if (nextState.featurePreset) wizardApplyPresetValues(nextState, nextState.featurePreset, false);
+      if (nextState.featurePreset && nextState.featurePreset !== 'none') wizardReplaceContentStateFromAudioProfile(nextState, nextState.featurePreset);
+      wizardSyncSuggestedName(nextState, false);
+      _wizardState = nextState;
+    }
+
+    function wizardInit() {
+      _wizardState = wizardDefaultState();
+      wizardSyncSuggestedName(_wizardState, true);
+      _wizardFolderBrowse = { include: '', exclude: '' };
+      if (_wizardPendingPrefill) {
+        Object.assign(_wizardState, _wizardPendingPrefill);
+        wizardSyncSuggestedName(_wizardState, false);
+        _wizardPendingPrefill = null;
+      }
+      fetch('/api/music/playlist-templates')
+        .then(function(r) { return r.json(); })
+        .then(function(data) { _wizardTemplates = data.templates || []; })
+        .catch(function() { _wizardTemplates = []; })
+        .finally(function() { wizardRenderStep(1); });
+    }
+
+    function wizardRenderStep(step) {
+      _wizardState.step = step;
+      document.getElementById('spm-modal-title').textContent = wizardModalTitle();
+      var body = document.getElementById('spm-wizard-body');
+      var footer = document.getElementById('spm-wizard-footer');
+      body.innerHTML = wizardStepDots(step) + wizardStepContent(step);
+      footer.innerHTML = wizardStepFooter(step);
+      wizardBindStep(step);
+      setTimeout(wizardRunPreview, 50);
+    }
+
+    function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function wizardStepDots(current) {
+      var dots = '';
+      for (var i = 1; i <= WIZARD_TOTAL_STEPS; i++) {
+        var cls = i < current ? 'spm-wizard-step-dot is-done' : i === current ? 'spm-wizard-step-dot is-active' : 'spm-wizard-step-dot';
+        dots += '<span class="' + cls + '" title="Step ' + i + '"></span>';
+      }
+      return '<div class="spm-wizard-steps">' + dots + '</div>';
+    }
+
+    function wizardStepContent(step) {
+      if (step === 1) return wizardStep1();
+      if (step === 2) return wizardStep2();
+      if (step === 3) return wizardStep3();
+      if (step === 4) return IS_ACTUAL_ADMIN ? wizardStep6() : wizardStep7();
+      if (step === 5) return wizardStep7();
+      return '';
+    }
+
+    function wizardStepFooter(step) {
+      var back = step > 1 ? '<button class="btn btn-ghost" type="button" id="wiz-back-btn">← Back</button>' : '<button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>';
+      var fwd = step < WIZARD_TOTAL_STEPS
+        ? '<button class="btn btn-primary" type="button" id="wiz-next-btn">Next →</button>'
+        : '<button class="btn btn-primary" type="button" id="wiz-create-btn">' + wizardSubmitLabel() + '</button>';
+      return '<div class="spm-wizard-footer-wrap">' +
+        '<div class="spm-wizard-preview-bar">' +
+          '<div class="spm-wizard-preview-main">' +
+            '<span class="spm-preview-label">Final playlist</span>' +
+            '<span id="wiz-prev-tracks">…</span> tracks' +
+            '<span class="spm-wizard-preview-sep">·</span>' +
+            '<span id="wiz-prev-artists">…</span> artists' +
+          '</div>' +
+          '<div class="spm-wizard-preview-sub">' +
+            '<span class="spm-preview-label">Eligible pool</span>' +
+            '<span id="wiz-prev-eligible-tracks">…</span> tracks' +
+            '<span class="spm-wizard-preview-sep">·</span>' +
+            '<span id="wiz-prev-eligible-artists">…</span> artists' +
+          '</div>' +
+        '</div>' +
+        '<div class="spm-wizard-footer">' + back + '<span class="spm-wizard-footer-spacer"></span><span id="wiz-msg" style="font-size:13px;color:var(--muted,#888)"></span>' + fwd + '</div>' +
+      '</div>';
+    }
+
+    function wizardBlendSection() {
+      if (_wizardState.playlistTarget !== 'blend' || WIZARD_BLEND_USERS.length <= 1) return '';
+      return '<div class="spm-wizard-subsection">' +
+        '<div class="spm-wizard-subsection-title">Blend users</div>' +
+        '<div class="spm-wizard-subsection-copy">Pick the people you want to mix into this playlist. Blend mode decides how strict the shared taste match should be.</div>' +
+        '<div class="spm-filter-section gp-blend-section" style="margin-top:0">' +
+          '<div class="blend-slots" id="wiz-blend-slots"></div>' +
+          '<button class="blend-add-btn" type="button" id="wiz-blend-add">+ Add user</button>' +
+          '<div id="wiz-blend-mode-wrap" style="' + ((_wizardState.blendUsers || []).length ? '' : 'display:none;') + 'margin-top:10px"><div class="spm-filter-label">Blend mode</div><div class="gp-blend-modes">' +
+          ['average','intersection','union','veto'].map(function(m) {
+            var labels = {average:'Average',intersection:'Intersection',union:'Union',veto:'Veto'};
+            return '<label class="gp-blend-mode-option"><input type="radio" name="wiz-blend-mode" value="' + m + '"' + (_wizardState.blendMode === m ? ' checked' : '') + ' /><span class="gp-blend-mode-name">' + labels[m] + '</span></label>';
+          }).join('') +
+          '</div></div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    // Step 1 — Basics
+    function wizardStep1() {
+      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
+      var AUDIO_PROFILES = [
+        { preset: 'workout',  icon: '⚡' },
+        { preset: 'chill',    icon: '◎' },
+        { preset: 'club',     icon: '✦' },
+        { preset: 'driving',  icon: '➜' },
+        { preset: 'harmonic', icon: '♪' },
+        { preset: 'wakeup',   icon: '☀' },
+        { preset: 'downtempo', icon: '☾' },
+      ];
+      var cur = _wizardState.featurePreset && _wizardState.featurePreset !== 'none' ? _wizardState.featurePreset : '';
+      var ws = _wizardState;
+      var html = '<div class="spm-wizard-step-label">Step 1 of ' + WIZARD_TOTAL_STEPS + ' — Basics</div>';
+      html += '<div class="spm-wizard-step-intro">Choose who this playlist is for, where it starts, and the audio lane you want it to follow.</div>';
+      html += '<div class="spm-wizard-stack">';
+      html += '<div class="spm-wizard-field">' +
+        '<span class="spm-wizard-field-label">Create for</span>' +
+        '<div class="spm-wizard-choice-grid">' +
+          '<button type="button" class="spm-wizard-choice-card' + (_wizardState.playlistTarget === 'personal' ? ' is-selected' : '') + '" data-target="personal"><span class="spm-wizard-choice-name">Personal</span><span class="spm-wizard-choice-desc">Only your listening profile shapes it.</span></button>' +
+          '<button type="button" class="spm-wizard-choice-card' + (_wizardState.playlistTarget === 'blend' ? ' is-selected' : '') + '" data-target="blend"><span class="spm-wizard-choice-name">Blend</span><span class="spm-wizard-choice-desc">Mix your listening profile with selected users.</span></button>' +
+          (IS_ACTUAL_ADMIN ? '<button type="button" class="spm-wizard-choice-card' + (_wizardState.playlistTarget === 'global' ? ' is-selected' : '') + '" data-target="global"><span class="spm-wizard-choice-name">Global</span><span class="spm-wizard-choice-desc">Shared Curatorr playlist for every user.</span></button>' : '') +
+        '</div>' +
+        '<div class="spm-wizard-field-hint">Blend playlists still sync as personal playlists, but the selected users shape the ranking too.</div>' +
+        '</div>';
+      html += wizardBlendSection();
+      html += '<div class="spm-wizard-subsection">';
+      html += '<div class="spm-wizard-subsection-title">Starting point</div>';
+      html += '<div class="spm-wizard-subsection-copy">Choose the quickest route into the kind of playlist you want.</div>';
+      html += '<div class="spm-wizard-template-grid" id="wiz-tmpl-grid">';
+      wizardAllBuiltinTemplates().filter(function(t) { return STARTING_POINTS.indexOf(t.id) !== -1; }).forEach(function(t) {
+        var sel = _wizardState.templateId === t.id ? ' is-selected' : '';
+        html += '<button type="button" class="spm-wizard-template-card' + sel + '" data-tmpl-id="' + escH(t.id) + '">' +
+          '<div class="spm-wizard-template-card__icon">' + t.icon + '</div>' +
+          '<div class="spm-wizard-template-card__name">' + escH(t.name) + '</div>' +
+          '<div class="spm-wizard-template-card__desc">' + escH(t.description) + '</div>' +
+          (t.meta ? '<div class="spm-wizard-template-card__meta">' + escH(t.meta) + '</div>' : '') +
+          '</button>';
+      });
+      html += '</div>';
+      html += '</div>';
+      html += '<div class="spm-wizard-subsection spm-wizard-subsection--audio">';
+      html += '<div class="spm-wizard-subsection-title">Audio profile <span class="gp-filter-hint">(optional)</span></div>';
+      html += '<div class="spm-wizard-subsection-copy">These cards set BPM, energy, danceability, Camelot defaults, and prefill matching content chips on the next step. You can edit any of that later.</div>';
+      html += '<div class="spm-wizard-template-grid spm-wizard-template-grid--audio">';
+      AUDIO_PROFILES.forEach(function(entry) {
+        var cov = WIZARD_PRESET_COVERAGE[entry.preset] || {};
+        var meta = WIZARD_FEATURE_PRESET_META[entry.preset] || WIZARD_FEATURE_PRESET_META.none;
+        var disabled = !cov.enabled;
+        var isActive = cur === entry.preset;
+        html += '<button type="button" class="spm-wizard-template-card spm-wizard-template-card--audio' + (isActive ? ' is-selected' : '') + (disabled ? ' is-disabled' : '') + '" data-audio-preset="' + entry.preset + '"' + (disabled ? ' disabled' : '') + '>' +
+          '<div class="spm-wizard-template-card__icon">' + entry.icon + '</div>' +
+          '<div class="spm-wizard-template-card__name">' + escH(meta.label) + '</div>' +
+          '<div class="spm-wizard-template-card__desc">' + escH(meta.description) + '</div>' +
+          '<div class="spm-wizard-template-card__meta">' + (cov.enabled ? (Number(cov.readyTrackCount || 0)).toLocaleString() + ' audio-ready' : escH(cov.reason || 'Unavailable')) + '</div>' +
+          '</button>';
+      });
+      html += '</div>';
+      html += '<div class="playlist-feature-grid">' +
+        '<label class="field"><span>BPM min</span><input type="number" id="wiz-bpm-min" min="0" step="1" placeholder="Any" value="' + (ws.bpmMin || '') + '"/></label>' +
+        '<label class="field"><span>BPM max</span><input type="number" id="wiz-bpm-max" min="0" step="1" placeholder="Any" value="' + (ws.bpmMax || '') + '"/></label>' +
+        '<label class="field"><span>Energy min</span><input type="number" id="wiz-energy-min" min="0" max="1" step="0.01" placeholder="Any" value="' + (ws.energyMin || '') + '"/></label>' +
+        '<label class="field"><span>Energy max</span><input type="number" id="wiz-energy-max" min="0" max="1" step="0.01" placeholder="Any" value="' + (ws.energyMax || '') + '"/></label>' +
+        '<label class="field"><span>Danceability min</span><input type="number" id="wiz-dance-min" min="0" max="1" step="0.01" placeholder="Any" value="' + (ws.danceabilityMin || '') + '"/></label>' +
+        '<label class="field"><span>Danceability max</span><input type="number" id="wiz-dance-max" min="0" max="1" step="0.01" placeholder="Any" value="' + (ws.danceabilityMax || '') + '"/></label>' +
+        '<label class="field"><span>Camelot spread</span><select id="wiz-camelot-mode"><option value="exact"' + (ws.camelotMode === 'exact' ? ' selected' : '') + '>Exact key</option><option value="adjacent"' + (ws.camelotMode === 'adjacent' ? ' selected' : '') + '>Adjacent keys</option><option value="relative"' + (ws.camelotMode === 'relative' ? ' selected' : '') + '>Relative</option><option value="harmonic"' + (ws.camelotMode === 'harmonic' ? ' selected' : '') + '>Full harmonic</option></select></label>' +
+        '<label class="field"><span>Camelot focus</span><input type="text" id="wiz-camelot-focus" placeholder="8A, 9A" value="' + escH(ws.camelotFocus || '') + '"/></label>' +
+        '</div>';
+      html += '</div>';
+      html += '</div>';
+      return html;
+    }
+
+    // Step 2 — Content
+    function wizardStep2() {
+      var ALLGENRES = <%- JSON.stringify(allGenres || []) %>;
+      var ALLMOODS  = <%- JSON.stringify(allMoods  || []) %>;
+      var ALLTAGS   = <%- JSON.stringify(allLastfmTags || []) %>;
+      var html = '<div class="spm-wizard-step-label">Step 2 of ' + WIZARD_TOTAL_STEPS + ' — Content</div>';
+      if (_wizardState.featurePreset && _wizardState.featurePreset !== 'none') {
+        var activePresetMeta = WIZARD_FEATURE_PRESET_META[_wizardState.featurePreset] || WIZARD_FEATURE_PRESET_META.none;
+        html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">The ' + escH(activePresetMeta.label) + ' audio profile has already prefilled some content chips here. Change anything you want.</p>';
+      }
+      html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Click once to <span style="color:#4ade80;font-weight:600">include</span>, again to <span style="color:#f87171;font-weight:600">exclude</span>, again to clear. Leave all neutral to allow everything.</p>';
+
+      function renderIncludeModeControl(kind, mode) {
+        var currentMode = mode === 'all' ? 'all' : 'any';
+        return '<div class="spm-wizard-match-mode" data-match-mode-group="' + kind + '">' +
+          '<span class="spm-wizard-match-mode-label">Include matches</span>' +
+          '<div class="spm-wizard-match-mode-buttons">' +
+            '<button type="button" class="spm-wizard-match-mode-btn' + (currentMode === 'any' ? ' is-selected' : '') + '" data-match-mode-kind="' + kind + '" data-match-mode-value="any">Any</button>' +
+            '<button type="button" class="spm-wizard-match-mode-btn' + (currentMode === 'all' ? ' is-selected' : '') + '" data-match-mode-kind="' + kind + '" data-match-mode-value="all">All</button>' +
+          '</div>' +
+        '</div>';
+      }
+
+      function renderWizChips(items, stateObj, kind, placeholderSearch) {
+        if (!items.length) return '';
+        var label = escH(placeholderSearch.replace('Filter ','').replace('…',''));
+        var triState = normaliseUiTriState(stateObj);
+        var isOpen = (_wizardState.activeContentSection || 'genre') === kind;
+        var s = '<div class="spm-filter-section spm-wizard-accordion' + (isOpen ? ' is-open' : '') + '" data-accordion-kind="' + kind + '">' +
+          '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="' + kind + '">' +
+            '<span class="spm-filter-label">' + label + '</span>' +
+            '<span class="spm-wizard-accordion-indicator">' + (isOpen ? '−' : '+') + '</span>' +
+          '</button>' +
+          '<div class="spm-tristate-wrap"' + (isOpen ? '' : ' hidden') + ' data-accordion-panel="' + kind + '">' +
+          renderIncludeModeControl(kind, triState.includeMode) +
+          '<input type="text" class="spm-tristate-search wiz-chip-search" placeholder="' + escH(placeholderSearch) + '" data-kind="' + kind + '" />' +
+          '<div class="spm-tristate-chips" id="wiz-chips-' + kind + '">';
+        var incSet = new Set(triState.include || []);
+        var excSet = new Set(triState.exclude || []);
+        items.forEach(function(v) {
+          var state = incSet.has(v) ? 'include' : excSet.has(v) ? 'exclude' : 'neutral';
+          var cls = state === 'include' ? ' is-include' : state === 'exclude' ? ' is-exclude' : '';
+          s += '<button type="button" class="spm-chip' + cls + '" data-kind="' + kind + '" data-value="' + escH(v) + '" data-state="' + state + '">' + escH(v) + '</button>';
+        });
+        s += '</div><div class="spm-chip-hint">None selected = include all</div></div></div>';
+        return s;
+      }
+
+      function renderSeasonalChips(items, stateObj, kind, title, placeholderSearch, mode) {
+        if (!items.length) return '';
+        var triState = normaliseUiTriState(stateObj);
+        var s = '<div class="spm-filter-section">' +
+          '<div class="spm-filter-label">' + escH(title) + '</div>' +
+          renderIncludeModeControl(kind, mode) +
+          '<input type="text" class="spm-tristate-search wiz-chip-search" placeholder="' + escH(placeholderSearch) + '" data-kind="' + kind + '" />' +
+          '<div class="spm-tristate-chips" id="wiz-chips-' + kind + '">';
+        var incSet = new Set(triState.include || []);
+        var excSet = new Set(triState.exclude || []);
+        items.forEach(function(v) {
+          var state = incSet.has(v) ? 'include' : excSet.has(v) ? 'exclude' : 'neutral';
+          var cls = state === 'include' ? ' is-include' : state === 'exclude' ? ' is-exclude' : '';
+          s += '<button type="button" class="spm-chip' + cls + '" data-kind="' + kind + '" data-value="' + escH(v) + '" data-state="' + state + '">' + escH(v) + '</button>';
+        });
+        s += '</div><div class="spm-chip-hint">Use include, exclude, or leave neutral.</div></div>';
+        return s;
+      }
+
+      html += renderWizChips(ALLGENRES, _wizardState.genres, 'genre', 'Filter genres…');
+      html += renderWizChips(ALLMOODS,  _wizardState.moods,  'mood',  'Filter moods…');
+      html += renderWizChips(ALLTAGS,   _wizardState.tags,   'tag',   'Filter tags…');
+      function renderTierPills(items, stateObj, kind, title) {
+        var triState = normaliseUiTriState(stateObj);
+        var includeSet = new Set(triState.include || []);
+        var excludeSet = new Set(triState.exclude || []);
+        return '<div class="spm-filter-section"><div class="spm-filter-label">' + escH(title) + '</div><div class="spm-tristate-chips" id="wiz-chips-' + kind + '">' +
+          items.map(function(item) {
+            var value = item[0];
+            var state = includeSet.has(value) ? 'include' : excludeSet.has(value) ? 'exclude' : 'neutral';
+            var cls = state === 'include' ? ' is-include' : state === 'exclude' ? ' is-exclude' : '';
+            return '<button type="button" class="spm-chip' + cls + '" data-kind="' + kind + '" data-value="' + escH(value) + '" data-state="' + state + '">' + escH(item[1]) + '</button>';
+          }).join('') +
+          '</div><div class="spm-chip-hint">Use include, exclude, or leave neutral.</div></div>';
+      }
+      var seasonalOpen = (_wizardState.activeContentSection || 'genre') === 'seasonal';
+      html += '<div class="spm-wizard-subsection spm-wizard-accordion' + (seasonalOpen ? ' is-open' : '') + '" style="margin-top:18px" data-accordion-kind="seasonal">';
+      html += '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="seasonal">' +
+        '<span class="spm-wizard-subsection-title">Seasonal</span>' +
+        '<span class="spm-wizard-accordion-indicator">' + (seasonalOpen ? '−' : '+') + '</span>' +
+      '</button>';
+      html += '<div class="spm-wizard-accordion-panel"' + (seasonalOpen ? '' : ' hidden') + ' data-accordion-panel="seasonal">';
+      html += '<div class="spm-wizard-subsection-copy">Always available so you can explicitly include or exclude holiday and winter signals. Choosing the Seasonal starting point preselects these for you.</div>';
+      html += renderSeasonalChips(
+        WIZARD_SEASONAL_GENRES,
+        { include: _wizardState.seasonalGenres, exclude: _wizardState.seasonalExcludeGenres },
+        'seasonal-genre',
+        'Seasonal genres',
+        'Filter seasonal genres…',
+        _wizardState.seasonalGenresMode,
+      );
+      html += renderSeasonalChips(
+        WIZARD_SEASONAL_KEYWORDS,
+        { include: _wizardState.seasonalKeywords, exclude: _wizardState.seasonalExcludeKeywords },
+        'seasonal-keyword',
+        'Seasonal keywords',
+        'Filter seasonal keywords…',
+        _wizardState.seasonalKeywordsMode,
+      );
+      html += '</div></div>';
+      var tiersOpen = (_wizardState.activeContentSection || 'genre') === 'tiers';
+      html += '<div class="spm-wizard-subsection spm-wizard-accordion' + (tiersOpen ? ' is-open' : '') + '" style="margin-top:18px" data-accordion-kind="tiers">';
+      html += '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="tiers">' +
+        '<span class="spm-wizard-subsection-title">Artist and track tiers</span>' +
+        '<span class="spm-wizard-accordion-indicator">' + (tiersOpen ? '−' : '+') + '</span>' +
+      '</button>';
+      html += '<div class="spm-wizard-accordion-panel"' + (tiersOpen ? '' : ' hidden') + ' data-accordion-panel="tiers">';
+      html += '<div class="spm-wizard-subsection-copy">Use these to lean harder into favourites, discovery, or to block skips entirely.</div>';
+      html += '<div class="spm-tiers-row">';
+      html += renderTierPills([['belter','Belter'],['decent','Decent'],['halfDecent','Half-Decent'],['skip','Skip'],['unranked','Unranked']], _wizardState.artistTiers, 'artist-tier', 'Artist tier');
+      html += renderTierPills([['belter','Belter'],['decent','Decent'],['halfDecent','Half-Decent'],['skip','Skip'],['unplayed','Unplayed']], _wizardState.trackTiers, 'track-tier', 'Track tier');
+      html += '</div>';
+      html += '</div></div>';
+      return html;
+    }
+
+    // Step 3 — Output rules
+    function wizardStep3() {
+      var html = '<div class="spm-wizard-step-label">Step 3 of ' + WIZARD_TOTAL_STEPS + ' — Output rules</div>';
+      html += '<div class="spm-wizard-step-intro">Shape the final playlist size and ordering after the content filters have done their work.</div>';
+      html += '<div class="spm-filter-section spm-filter-section--inline">' +
+        '<label class="field" style="flex:1"><span>Top N per artist</span><input type="number" id="wiz-top-n" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.topNPerArtist||'') + '"/></label>' +
+        '<label class="field" style="flex:1"><span>Max total tracks</span><input type="number" id="wiz-max-tracks" min="1" placeholder="No limit" value="' + (_wizardState.maxTracks||'') + '"/></label>' +
+        '<label class="field" style="flex:1"><span>Sort tracks by</span><select id="wiz-sort-by">' +
+        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        '</select></label></div>';
+      html += '<div class="spm-wizard-toggle-block">' +
+        '<label class="spm-wizard-toggle-row" for="wiz-dedupe-mbid">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Deduplicate duplicate releases by MusicBrainz recording ID</span>' +
+            '<span class="spm-wizard-field-hint">Useful when the same recording exists across original albums, remasters, deluxe editions, or compilations.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-dedupe-mbid"' + (_wizardState.deduplicateByMbid ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
+      '</div>';
+      return html;
+    }
+
+    // Step 4 — Advanced settings (admin only)
+    function wizardStep6() {
+      var regexRules = Array.isArray(_wizardState.advancedRules) ? _wizardState.advancedRules : [];
+      function renderFolderSection(kind, label, selected) {
+        var sectionOpen = (_wizardState.activeAdvancedSection || 'include') === kind;
+        var currentPath = _wizardFolderBrowse[kind] || '';
+        var children = wizardFolderChildren(currentPath);
+        var crumbs = currentPath ? currentPath.split('/') : [];
+        var chips = (selected || []).map(function(folder) {
+          return '<span class="spm-folder-chip" data-folder="' + escH(folder) + '">' + escH(folder) + '<button type="button" class="spm-folder-chip-remove" aria-label="Remove">×</button></span>';
+        }).join('');
+        return '<div class="spm-filter-section spm-wizard-accordion' + (sectionOpen ? ' is-open' : '') + '" data-advanced-kind="' + kind + '">' +
+          '<button type="button" class="spm-wizard-accordion-toggle" data-advanced-toggle="' + kind + '">' +
+            '<span class="spm-filter-label">' + label + '</span>' +
+            '<span class="spm-wizard-accordion-indicator">' + (sectionOpen ? '−' : '+') + '</span>' +
+          '</button>' +
+          '<div class="spm-wizard-accordion-panel"' + (sectionOpen ? '' : ' hidden') + ' data-advanced-panel="' + kind + '">' +
+          '<div class="spm-wizard-folder-browser">' +
+            '<div class="spm-wizard-folder-row">' +
+              '<button type="button" class="btn btn-ghost spm-folder-nav-btn" data-folder-root="' + kind + '"' + (currentPath ? '' : ' disabled') + '>Top level</button>' +
+              '<button type="button" class="btn btn-ghost spm-folder-nav-btn" data-folder-up="' + kind + '"' + (currentPath ? '' : ' disabled') + '>Up</button>' +
+              '<div class="spm-wizard-folder-breadcrumbs">' +
+                '<button type="button" class="spm-wizard-folder-crumb' + (!currentPath ? ' is-current' : '') + '" data-folder-browse="' + kind + '">Root</button>' +
+                crumbs.map(function(part, index) {
+                  var crumbPath = crumbs.slice(0, index + 1).join('/');
+                  return '<span class="spm-wizard-folder-sep">/</span><button type="button" class="spm-wizard-folder-crumb' + (crumbPath === currentPath ? ' is-current' : '') + '" data-folder-browse="' + kind + '" data-folder-path="' + escH(crumbPath) + '">' + escH(part) + '</button>';
+                }).join('') +
+              '</div>' +
+            '</div>' +
+            '<div class="spm-wizard-folder-list">' +
+              (children.length ? children.map(function(child) {
+                return '<div class="spm-wizard-folder-item">' +
+                  '<button type="button" class="spm-wizard-folder-open" data-folder-open="' + kind + '" data-folder-path="' + escH(child.path) + '">' +
+                    '<span>' + escH(child.name) + '</span>' +
+                    '<span class="spm-wizard-folder-open-meta">' + (child.hasChildren ? 'Open' : 'Leaf') + '</span>' +
+                  '</button>' +
+                  '<button type="button" class="btn btn-ghost spm-wizard-folder-add" data-folder-add="' + kind + '" data-folder-path="' + escH(child.path) + '">Add</button>' +
+                '</div>';
+              }).join('') : '<div class="spm-wizard-folder-empty">No deeper folders here.</div>') +
+            '</div>' +
+          '</div>' +
+          '<div class="spm-wizard-field-hint">' + (kind === 'include' ? 'If any folders are included, only tracks from those folders are eligible.' : 'Excluded folders are removed before rules are evaluated.') + '</div>' +
+          '<div class="spm-folder-chip-row" id="wiz-folder-' + kind + '-chips">' + chips + '</div>' +
+          '</div>' +
+        '</div>';
+      }
+      function renderRegexRule(rule, index) {
+        var field = String(rule?.field || 'trackTitle');
+        var operator = String(rule?.operator || 'regex');
+        var value = String(rule?.value || '');
+        var caseSensitive = Boolean(rule?.caseSensitive);
+        return '<div class="spm-wizard-regex-row" data-regex-index="' + index + '">' +
+          '<label class="field"><span>Field</span><select class="wiz-regex-field"><option value="trackTitle"' + (field === 'trackTitle' ? ' selected' : '') + '>Track title</option><option value="albumName"' + (field === 'albumName' ? ' selected' : '') + '>Album</option><option value="artistName"' + (field === 'artistName' ? ' selected' : '') + '>Artist</option></select></label>' +
+          '<label class="field"><span>Match</span><select class="wiz-regex-operator"><option value="regex"' + (operator === 'regex' ? ' selected' : '') + '>Matches regex</option><option value="not_regex"' + (operator === 'not_regex' ? ' selected' : '') + '>Does not match</option></select></label>' +
+          '<label class="field field--wide"><span>Pattern</span><input type="text" class="wiz-regex-value" placeholder="e.g. (christmas|xmas)" value="' + escH(value) + '" /></label>' +
+          '<label class="spm-wizard-regex-case"><input type="checkbox" class="wiz-regex-case"' + (caseSensitive ? ' checked' : '') + ' /> <span>Case sensitive</span></label>' +
+          '<button type="button" class="btn btn-ghost spm-wizard-regex-remove" data-regex-remove="' + index + '">Remove</button>' +
+        '</div>';
+      }
+      var html = '<div class="spm-wizard-step-label">Step 4 of ' + WIZARD_TOTAL_STEPS + ' — Advanced settings <span class="gp-filter-hint">(admin only)</span></div>';
+      html += '<div class="spm-wizard-step-intro">Folder scoping and regex rules live here so the main wizard stays focused on normal playlist setup.</div>';
+      html += renderFolderSection('include', 'Include folders', _wizardState.includeFolders);
+      html += renderFolderSection('exclude', 'Exclude folders', _wizardState.excludeFolders);
+      var regexOpen = (_wizardState.activeAdvancedSection || 'include') === 'regex';
+      html += '<div class="spm-filter-section spm-wizard-accordion' + (regexOpen ? ' is-open' : '') + '" data-advanced-kind="regex">' +
+        '<button type="button" class="spm-wizard-accordion-toggle" data-advanced-toggle="regex">' +
+          '<span class="spm-filter-label">Regex rules</span>' +
+          '<span class="spm-wizard-accordion-indicator">' + (regexOpen ? '−' : '+') + '</span>' +
+        '</button>' +
+        '<div class="spm-wizard-accordion-panel"' + (regexOpen ? '' : ' hidden') + ' data-advanced-panel="regex">' +
+        '<div class="spm-wizard-field-hint">Apply regex matches against track title, album, or artist. Leave this empty if you do not need advanced text matching.</div>' +
+        '<div id="wiz-regex-rules">' + (regexRules.length ? regexRules.map(renderRegexRule).join('') : '<div class="spm-wizard-folder-empty">No regex rules yet.</div>') + '</div>' +
+        '<button type="button" class="btn btn-ghost" id="wiz-regex-add">+ Add regex rule</button>' +
+        '</div>' +
+      '</div>';
+      return html;
+    }
+
+    // Final step — Finish & create
+    function wizardStep7() {
+      var ws = _wizardState;
+      var html = '<div class="spm-wizard-step-label">Step ' + WIZARD_TOTAL_STEPS + ' of ' + WIZARD_TOTAL_STEPS + ' — Finish &amp; create</div>';
+      html += '<label class="spm-wizard-field" style="margin-bottom:18px">' +
+        '<span class="spm-wizard-field-label">Playlist name</span>' +
+        '<input type="text" id="wiz-finish-name" class="cur-input" placeholder="e.g. Britpop Belters" value="' + escH(ws.name || wizardSuggestedName(ws)) + '" />' +
+        '<div class="spm-wizard-field-hint">Auto-filled from target, starting point, and audio profile. You can overwrite it.</div>' +
+      '</label>';
+      html += '<label class="spm-wizard-field spm-wizard-field--schedule" style="margin-bottom:18px">' +
+        '<span class="spm-wizard-field-label">Auto-rebuild schedule</span>' +
+        '<select id="wiz-schedule" class="spm-wizard-select">' +
+          '<option value="daily"' + (ws.rebuildSchedule === 'daily' ? ' selected' : '') + '>Daily — rebuild automatically each day</option>' +
+          '<option value="weekly"' + (ws.rebuildSchedule === 'weekly' ? ' selected' : '') + '>Weekly — rebuild once a week</option>' +
+          '<option value="manual"' + (ws.rebuildSchedule === 'manual' ? ' selected' : '') + '>Manual — only rebuild when I trigger it</option>' +
+        '</select>' +
+        '<div class="spm-wizard-field-hint">Manual keeps the rules saved without rebuilding on the schedule.</div>' +
+      '</label>';
+      html += '<div class="spm-wizard-review-list">';
+
+      function row(key, val) { return '<div class="spm-wizard-review-row"><span class="spm-wizard-review-key">' + key + '</span><span class="spm-wizard-review-val">' + val + '</span></div>'; }
+      function chipList(triState) {
+        var norm = normaliseUiTriState(triState);
+        var parts = [];
+        if (norm.include && norm.include.length) parts.push('<span class="is-include">+ ' + (norm.includeMode === 'all' ? '[all] ' : '') + escH(norm.include.join(', ')) + '</span>');
+        if (norm.exclude && norm.exclude.length) parts.push('<span class="is-exclude">− ' + escH(norm.exclude.join(', ')) + '</span>');
+        return parts.length ? parts.join(' &nbsp; ') : '<span style="color:var(--muted,#888)">All</span>';
+      }
+
+      html += row('Name', '<strong>' + escH(ws.name) + '</strong>');
+      html += row('Target', escH(wizardTargetLabel(ws.playlistTarget || 'personal')));
+      html += row('Rebuild', escH(ws.rebuildSchedule || 'daily'));
+      if (ws.playlistTarget === 'blend' && ws.blendUsers && ws.blendUsers.length) html += row('Blend users', escH(ws.blendUsers.join(', ')));
+      if (ws.playlistTarget === 'blend') html += row('Blend mode', escH(ws.blendMode || 'average'));
+      var artistTierState = normaliseUiTriState(ws.artistTiers);
+      var trackTierState = normaliseUiTriState(ws.trackTiers);
+      if (artistTierState.include.length || artistTierState.exclude.length) html += row('Artist tiers', chipList(artistTierState));
+      if (trackTierState.include.length || trackTierState.exclude.length) html += row('Track tiers', chipList(trackTierState));
+      var hasGenre = (ws.genres && (ws.genres.include.length || ws.genres.exclude.length));
+      var hasMood  = (ws.moods  && (ws.moods.include.length  || ws.moods.exclude.length));
+      var hasTag   = (ws.tags   && (ws.tags.include.length   || ws.tags.exclude.length));
+      if (hasGenre) html += row('Genres', chipList(ws.genres));
+      if (hasMood)  html += row('Moods',  chipList(ws.moods));
+      if (hasTag)   html += row('Tags',   chipList(ws.tags));
+      if (ws.featurePreset && ws.featurePreset !== 'none') html += row('Preset', escH(ws.featurePreset));
+      if ((ws.seasonalGenres && ws.seasonalGenres.length) || (ws.seasonalExcludeGenres && ws.seasonalExcludeGenres.length)) {
+        html += row('Seasonal genres', chipList({ include: ws.seasonalGenres || [], exclude: ws.seasonalExcludeGenres || [], includeMode: ws.seasonalGenresMode || 'any' }));
+      }
+      if ((ws.seasonalKeywords && ws.seasonalKeywords.length) || (ws.seasonalExcludeKeywords && ws.seasonalExcludeKeywords.length)) {
+        html += row('Seasonal keywords', chipList({ include: ws.seasonalKeywords || [], exclude: ws.seasonalExcludeKeywords || [], includeMode: ws.seasonalKeywordsMode || 'any' }));
+      }
+      if (ws.includeFolders && ws.includeFolders.length) html += row('Include folders', escH(ws.includeFolders.join(', ')));
+      if (ws.excludeFolders && ws.excludeFolders.length) html += row('Exclude folders', escH(ws.excludeFolders.join(', ')));
+      if (ws.advancedRules && ws.advancedRules.length) html += row('Regex rules', escH(ws.advancedRules.map(function(rule) { return [rule.field, rule.operator, rule.value].join(' '); }).join(' | ')));
+      if (ws.topNPerArtist) html += row('Top N / artist', escH(String(ws.topNPerArtist)));
+      if (ws.maxTracks)     html += row('Max tracks', escH(String(ws.maxTracks)));
+      if (ws.deduplicateByMbid) html += row('Deduplicate releases', 'MusicBrainz recording ID');
+      html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
+      html += '</div>';
+      // Save as template row
+      html += '<div class="spm-wizard-save-tmpl-row">' +
+        '<input type="text" id="wiz-tmpl-name" class="spm-wizard-save-tmpl-input" placeholder="Save these rules as a template (optional name)…" />' +
+        '<button class="btn btn-ghost" type="button" id="wiz-save-tmpl-btn" style="white-space:nowrap">Save template</button>' +
+        '</div>';
+      return html;
+    }
+
+    function wizardSaveStateFromStep(step) {
+      if (step === 1) {
+        var targetEl = document.querySelector('#spm-wizard-body .spm-wizard-choice-card.is-selected');
+        if (targetEl) _wizardState.playlistTarget = targetEl.dataset.target || 'personal';
+        var sel = document.querySelector('#spm-wizard-body [data-tmpl-id].is-selected');
+        _wizardState.templateId = sel ? sel.dataset.tmplId : 'blank';
+        var selPreset = document.querySelector('#spm-wizard-body [data-audio-preset].is-selected');
+        _wizardState.featurePreset = selPreset ? (selPreset.dataset.audioPreset || 'none') : 'none';
+        _wizardState.bpmMin          = document.getElementById('wiz-bpm-min') ? document.getElementById('wiz-bpm-min').value || null : null;
+        _wizardState.bpmMax          = document.getElementById('wiz-bpm-max') ? document.getElementById('wiz-bpm-max').value || null : null;
+        _wizardState.energyMin       = document.getElementById('wiz-energy-min') ? document.getElementById('wiz-energy-min').value || null : null;
+        _wizardState.energyMax       = document.getElementById('wiz-energy-max') ? document.getElementById('wiz-energy-max').value || null : null;
+        _wizardState.danceabilityMin = document.getElementById('wiz-dance-min') ? document.getElementById('wiz-dance-min').value || null : null;
+        _wizardState.danceabilityMax = document.getElementById('wiz-dance-max') ? document.getElementById('wiz-dance-max').value || null : null;
+        _wizardState.camelotFocus    = document.getElementById('wiz-camelot-focus') ? document.getElementById('wiz-camelot-focus').value : '';
+        _wizardState.camelotMode     = document.getElementById('wiz-camelot-mode') ? document.getElementById('wiz-camelot-mode').value : 'exact';
+        var blendRadio = document.querySelector('input[name="wiz-blend-mode"]:checked');
+        if (blendRadio) _wizardState.blendMode = blendRadio.value;
+        if (window._wizGetBlendUsers) _wizardState.blendUsers = window._wizGetBlendUsers();
+        wizardSyncSuggestedName(_wizardState, false);
+      } else if (step === 2) {
+        ['genre','mood','tag','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
+          var inc = [], exc = [];
+          var seen = new Set();
+          var selectedModeBtn = document.querySelector('[data-match-mode-kind="' + kind + '"].is-selected');
+          var selectedMode = selectedModeBtn && selectedModeBtn.dataset.matchModeValue === 'all' ? 'all' : 'any';
+          document.querySelectorAll('#wiz-chips-' + kind + ' .spm-chip').forEach(function(chip) {
+            seen.add(chip.dataset.value);
+            if (chip.dataset.state === 'include') inc.push(chip.dataset.value);
+            else if (chip.dataset.state === 'exclude') exc.push(chip.dataset.value);
+          });
+          if (kind === 'seasonal-genre' || kind === 'seasonal-keyword') {
+            var incKey = kind === 'seasonal-genre' ? 'seasonalGenres' : 'seasonalKeywords';
+            var excKey = kind === 'seasonal-genre' ? 'seasonalExcludeGenres' : 'seasonalExcludeKeywords';
+            var modeKey = kind === 'seasonal-genre' ? 'seasonalGenresMode' : 'seasonalKeywordsMode';
+            (_wizardState[incKey] || []).forEach(function(value) {
+              if (!seen.has(value) && inc.indexOf(value) === -1) inc.push(value);
+            });
+            (_wizardState[excKey] || []).forEach(function(value) {
+              if (!seen.has(value) && exc.indexOf(value) === -1) exc.push(value);
+            });
+            _wizardState[incKey] = inc;
+            _wizardState[excKey] = exc;
+            _wizardState[modeKey] = selectedMode;
+            return;
+          }
+          if (kind === 'artist-tier' || kind === 'track-tier') {
+            var tierKey = kind === 'artist-tier' ? 'artistTiers' : 'trackTiers';
+            var prevTier = normaliseUiTriState(_wizardState[tierKey]);
+            prevTier.include.forEach(function(value) {
+              if (!seen.has(value) && inc.indexOf(value) === -1) inc.push(value);
+            });
+            prevTier.exclude.forEach(function(value) {
+              if (!seen.has(value) && exc.indexOf(value) === -1) exc.push(value);
+            });
+            _wizardState[tierKey] = { include: inc, exclude: exc, includeMode: 'any' };
+            return;
+          }
+          var key = kind === 'genre' ? 'genres' : kind === 'mood' ? 'moods' : 'tags';
+          var prev = normaliseUiTriState(_wizardState[key]);
+          (prev.include || []).forEach(function(value) {
+            if (!seen.has(value) && inc.indexOf(value) === -1) inc.push(value);
+          });
+          (prev.exclude || []).forEach(function(value) {
+            if (!seen.has(value) && exc.indexOf(value) === -1) exc.push(value);
+          });
+          _wizardState[key] = { include: inc, exclude: exc, includeMode: selectedMode || prev.includeMode || 'any' };
+        });
+      } else if (step === 3) {
+        _wizardState.topNPerArtist = parseInt(document.getElementById('wiz-top-n') ? document.getElementById('wiz-top-n').value : '', 10) || null;
+        _wizardState.maxTracks     = parseInt(document.getElementById('wiz-max-tracks') ? document.getElementById('wiz-max-tracks').value : '', 10) || null;
+        _wizardState.sortBy        = document.getElementById('wiz-sort-by') ? document.getElementById('wiz-sort-by').value : 'ratingCount';
+        _wizardState.deduplicateByMbid = !!(document.getElementById('wiz-dedupe-mbid') && document.getElementById('wiz-dedupe-mbid').checked);
+      } else if (step === 4 && IS_ACTUAL_ADMIN) {
+        ['include', 'exclude'].forEach(function(kind) {
+          var container = document.getElementById('wiz-folder-' + kind + '-chips');
+          var values = container ? Array.from(container.querySelectorAll('[data-folder]')).map(function(chip) { return chip.dataset.folder; }) : [];
+          if (kind === 'include') _wizardState.includeFolders = values;
+          else _wizardState.excludeFolders = values;
+        });
+        _wizardState.advancedRules = Array.from(document.querySelectorAll('#wiz-regex-rules .spm-wizard-regex-row')).map(function(row) {
+          return {
+            field: row.querySelector('.wiz-regex-field') ? row.querySelector('.wiz-regex-field').value : 'trackTitle',
+            operator: row.querySelector('.wiz-regex-operator') ? row.querySelector('.wiz-regex-operator').value : 'regex',
+            value: row.querySelector('.wiz-regex-value') ? row.querySelector('.wiz-regex-value').value.trim() : '',
+            caseSensitive: !!(row.querySelector('.wiz-regex-case') && row.querySelector('.wiz-regex-case').checked),
+          };
+        }).filter(function(rule) { return rule.value; });
+      } else if (step === WIZARD_TOTAL_STEPS) {
+        var finishNameEl = document.getElementById('wiz-finish-name');
+        if (finishNameEl) _wizardState.name = finishNameEl.value.trim();
+        var schedEl = document.getElementById('wiz-schedule');
+        if (schedEl) _wizardState.rebuildSchedule = schedEl.value;
+      }
+    }
+
+    function wizardRunPreview() {
+      try { wizardSaveStateFromStep(_wizardState.step || 1); } catch (_) {}
+      var rules = wizardAssembleRules(_wizardState);
+      var trackFilters = wizardAssembleTrackFilters(_wizardState);
+      var target = _wizardState.playlistTarget || 'personal';
+      var isGlobal = target === 'global' && IS_ACTUAL_ADMIN;
+      var endpoint = isGlobal ? '/api/playlists/global/preview' : '/api/music/playlists/personal/preview';
+      var params = new URLSearchParams();
+      params.set('rules', JSON.stringify(rules));
+      if (trackFilters) params.set('trackFilters', JSON.stringify(trackFilters));
+      if (isGlobal && CURRENT_USER_ID) params.set('userId', CURRENT_USER_ID);
+      var atEl = document.getElementById('wiz-prev-artists');
+      var trEl = document.getElementById('wiz-prev-tracks');
+      var eatEl = document.getElementById('wiz-prev-eligible-artists');
+      var etrEl = document.getElementById('wiz-prev-eligible-tracks');
+      var previewSeq = ++_wizardPreviewSeq;
+      if (atEl) atEl.textContent = '…';
+      if (trEl) trEl.textContent = '…';
+      if (eatEl) eatEl.textContent = '…';
+      if (etrEl) etrEl.textContent = '…';
+      fetch(endpoint + '?' + params.toString())
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (previewSeq !== _wizardPreviewSeq) return;
+          var counts = isGlobal ? (data.forUser || data.average || { artistCount: 0, trackCount: 0 }) : data;
+          if (atEl) atEl.textContent = (counts.artistCount || 0).toLocaleString();
+          if (trEl) trEl.textContent = (counts.trackCount || 0).toLocaleString();
+          if (eatEl) eatEl.textContent = (counts.eligibleArtistCount || counts.artistCount || 0).toLocaleString();
+          if (etrEl) etrEl.textContent = (counts.eligibleTrackCount || counts.trackCount || 0).toLocaleString();
+        })
+        .catch(function() {
+          if (previewSeq !== _wizardPreviewSeq) return;
+          if (atEl) atEl.textContent = '?';
+          if (trEl) trEl.textContent = '?';
+          if (eatEl) eatEl.textContent = '?';
+          if (etrEl) etrEl.textContent = '?';
+        });
+    }
+
+    function clearWizardAutoloadParams(keys) {
+      var url = new URL(window.location.href);
+      var changed = false;
+      (keys || []).forEach(function(key) {
+        if (url.searchParams.has(key)) {
+          url.searchParams.delete(key);
+          changed = true;
+        }
+      });
+      if (!changed) return;
+      var next = url.pathname;
+      var query = url.searchParams.toString();
+      if (query) next += '?' + query;
+      if (url.hash) next += url.hash;
+      window.history.replaceState({}, document.title, next);
+    }
+
+    function wizardBindBlendPicker(stepNumber) {
+      var slotsEl = document.getElementById('wiz-blend-slots');
+      var addBtn  = document.getElementById('wiz-blend-add');
+      if (!slotsEl) return;
+      function escA(s) { return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+      function avSrc(u) { return (u && u.avatar) ? u.avatar : '/icons/user-profile.svg'; }
+      function updateWizBlendMode() {
+        var wrap = document.getElementById('wiz-blend-mode-wrap');
+        if (wrap) wrap.style.display = slotsEl.querySelectorAll('.blend-slot').length ? '' : 'none';
+      }
+      window._wizGetBlendUsers = function() {
+        return Array.from(slotsEl.querySelectorAll('.blend-slot')).map(function(s) { return s.dataset.uid; });
+      };
+      function makeWizSlot(uid) {
+        var user = WIZARD_BLEND_USERS.find(function(u) { return u.id === uid; }) || { id: uid, avatar: '' };
+        var slot = document.createElement('div');
+        slot.className = 'blend-slot';
+        slot.dataset.uid = uid;
+        slot.innerHTML = '<details class="blend-slot__menu"><summary class="blend-slot__summary"><img class="blend-slot__avatar" src="' + escA(avSrc(user)) + '" alt="" onerror="this.onerror=null;this.src=\'/icons/user-profile.svg\';" /><span class="blend-slot__name">' + escH(uid) + '</span><span class="blend-slot__chev"></span></summary><div class="blend-slot__list">' +
+          WIZARD_BLEND_USERS.map(function(u) { return '<button class="blend-slot__option' + (u.id===uid?' is-active':'') + '" type="button" data-uid="' + escA(u.id) + '"><img class="blend-slot__opt-avatar" src="' + escA(avSrc(u)) + '" alt="" onerror="this.onerror=null;this.src=\'/icons/user-profile.svg\';" /><span class="blend-slot__optname">' + escH(u.id) + '</span></button>'; }).join('') +
+          '</div></details><button class="blend-slot__remove" type="button" aria-label="Remove">×</button>';
+        slot.querySelectorAll('.blend-slot__option').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var u2 = WIZARD_BLEND_USERS.find(function(u) { return u.id === btn.dataset.uid; }) || { id: btn.dataset.uid, avatar: '' };
+            slot.dataset.uid = u2.id;
+            slot.querySelector('.blend-slot__avatar').src = avSrc(u2);
+            slot.querySelector('.blend-slot__name').textContent = u2.id;
+            slot.querySelectorAll('.blend-slot__option').forEach(function(b) { b.classList.toggle('is-active', b === btn); });
+            slot.querySelector('.blend-slot__menu').removeAttribute('open');
+            updateWizBlendMode();
+            wizardSaveStateFromStep(stepNumber);
+            setTimeout(wizardRunPreview, 300);
+          });
+        });
+        slot.querySelector('.blend-slot__remove').addEventListener('click', function() {
+          slot.remove();
+          updateWizBlendMode();
+          wizardSaveStateFromStep(stepNumber);
+          setTimeout(wizardRunPreview, 300);
+        });
+        return slot;
+      }
+      (_wizardState.blendUsers || []).forEach(function(uid) { slotsEl.appendChild(makeWizSlot(uid)); });
+      updateWizBlendMode();
+      document.querySelectorAll('input[name="wiz-blend-mode"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+          wizardSaveStateFromStep(stepNumber);
+          setTimeout(wizardRunPreview, 300);
+        });
+      });
+      if (addBtn && WIZARD_BLEND_USERS.length > 1) {
+        addBtn.addEventListener('click', function() {
+          var selected = new Set(window._wizGetBlendUsers ? window._wizGetBlendUsers() : []);
+          var first = WIZARD_BLEND_USERS.find(function(user) { return !selected.has(user.id); }) || WIZARD_BLEND_USERS[0];
+          if (first) {
+            slotsEl.appendChild(makeWizSlot(first.id));
+            updateWizBlendMode();
+            wizardSaveStateFromStep(stepNumber);
+            setTimeout(wizardRunPreview, 300);
+          }
+        });
+      }
+    }
+
+    function wizardBindStep(step) {
+      // Back button
+      var backBtn = document.getElementById('wiz-back-btn');
+      if (backBtn) backBtn.addEventListener('click', function() {
+        wizardSaveStateFromStep(step);
+        wizardRenderStep(step - 1);
+      });
+      // Next / create button
+      var nextBtn = document.getElementById('wiz-next-btn');
+      if (nextBtn) nextBtn.addEventListener('click', function() {
+        wizardSaveStateFromStep(step);
+        var msgEl = document.getElementById('wiz-msg');
+        if (step === 1) {
+          if (_wizardState.playlistTarget === 'blend' && !(_wizardState.blendUsers || []).length) {
+            if (msgEl) msgEl.textContent = 'Add at least one user to make this a blend playlist.';
+            return;
+          }
+        }
+        if (msgEl) msgEl.textContent = '';
+        wizardRenderStep(step + 1);
+      });
+      var createBtn = document.getElementById('wiz-create-btn');
+      if (createBtn) createBtn.addEventListener('click', function() {
+        wizardSaveStateFromStep(step);
+        var msgEl = document.getElementById('wiz-msg');
+        if (_wizardState.playlistTarget === 'blend' && !(_wizardState.blendUsers || []).length) {
+          if (msgEl) msgEl.textContent = 'Add at least one user to make this a blend playlist.';
+          return;
+        }
+        // Optionally save as template first
+        var tmplNameEl = document.getElementById('wiz-tmpl-name');
+        var tmplName = tmplNameEl ? tmplNameEl.value.trim() : '';
+        if (tmplName) {
+          fetch('/api/music/playlist-templates', {
+            method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
+            body: JSON.stringify({ name: tmplName, rules: wizardAssembleRules(_wizardState) }),
+          }).catch(function(){});
+        }
+        createSmartPlaylist(_wizardState.name, wizardAssembleRules(_wizardState), {
+          playlistTarget: _wizardState.playlistTarget || 'personal',
+          trackFilters: wizardAssembleTrackFilters(_wizardState),
+          editKind: _wizardEditKind,
+          editId: _wizardEditId,
+        });
+      });
+
+      // Step 1: basics
+      if (step === 1) {
+        document.querySelectorAll('#spm-wizard-body .spm-wizard-choice-card').forEach(function(card) {
+          card.addEventListener('click', function() {
+            wizardSaveStateFromStep(1);
+            _wizardState.playlistTarget = card.dataset.target || 'personal';
+            wizardRenderStep(1);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body .spm-wizard-template-card').forEach(function(card) {
+          if (card.dataset.audioPreset) return;
+          card.addEventListener('click', function() {
+            wizardSaveStateFromStep(1);
+            wizardApplyTemplate(card.dataset.tmplId);
+            wizardRenderStep(1);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body [data-audio-preset]').forEach(function(card) {
+          card.addEventListener('click', function() {
+            if (card.disabled) return;
+            var alreadySelected = card.classList.contains('is-selected');
+            wizardSaveStateFromStep(1);
+            var nextPreset = alreadySelected ? 'none' : card.dataset.audioPreset;
+            wizardReplaceAudioState(_wizardState, nextPreset);
+            wizardReplaceContentStateFromAudioProfile(_wizardState, nextPreset);
+            wizardRenderStep(1);
+          });
+        });
+        ['wiz-bpm-min', 'wiz-bpm-max', 'wiz-energy-min', 'wiz-energy-max', 'wiz-dance-min', 'wiz-dance-max', 'wiz-camelot-focus', 'wiz-camelot-mode'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          var handler = function() { wizardSaveStateFromStep(1); setTimeout(wizardRunPreview, 200); };
+          el.addEventListener('change', handler);
+          if (el.tagName === 'INPUT') el.addEventListener('input', handler);
+        });
+        if (_wizardState.playlistTarget === 'blend') wizardBindBlendPicker(1);
+      }
+
+      // Step 2: content
+      if (step === 2) {
+        document.querySelectorAll('#spm-wizard-body [data-accordion-toggle]').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            _wizardState.activeContentSection = btn.dataset.accordionToggle || 'genre';
+            wizardRenderStep(2);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body [data-match-mode-kind]').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var group = btn.closest('[data-match-mode-group]');
+            if (group) {
+              group.querySelectorAll('[data-match-mode-kind]').forEach(function(peer) {
+                peer.classList.toggle('is-selected', peer === btn);
+              });
+            }
+            wizardSaveStateFromStep(2);
+            setTimeout(wizardRunPreview, 200);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body .spm-chip').forEach(function(chip) {
+          chip.addEventListener('click', function() {
+            var s = chip.dataset.state || 'neutral';
+            if (s === 'neutral')  { chip.dataset.state = 'include'; chip.classList.add('is-include'); chip.classList.remove('is-exclude'); }
+            else if (s === 'include') { chip.dataset.state = 'exclude'; chip.classList.add('is-exclude'); chip.classList.remove('is-include'); }
+            else { chip.dataset.state = 'neutral'; chip.classList.remove('is-include','is-exclude'); }
+            wizardSaveStateFromStep(2);
+            setTimeout(wizardRunPreview, 300);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body .wiz-chip-search').forEach(function(inp) {
+          inp.addEventListener('input', function() {
+            var q = inp.value.toLowerCase();
+            var kind = inp.dataset.kind;
+            document.querySelectorAll('#wiz-chips-' + kind + ' .spm-chip').forEach(function(chip) {
+              chip.dataset.hidden = chip.dataset.value.toLowerCase().indexOf(q) === -1 ? 'true' : 'false';
+            });
+          });
+        });
+      }
+
+      // Step 3: output rules
+      if (step === 3) {
+        ['wiz-top-n','wiz-max-tracks','wiz-sort-by','wiz-dedupe-mbid'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };
+          el.addEventListener('change', handler);
+          if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', handler);
+        });
+      }
+
+      // Step 4: advanced settings (admin only)
+      if (step === 4 && IS_ACTUAL_ADMIN) {
+        document.querySelectorAll('#spm-wizard-body [data-advanced-toggle]').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            _wizardState.activeAdvancedSection = btn.dataset.advancedToggle || 'include';
+            wizardRenderStep(4);
+          });
+        });
+        ['include', 'exclude'].forEach(function(kind) {
+          var chips = document.getElementById('wiz-folder-' + kind + '-chips');
+          if (chips) {
+            chips.querySelectorAll('.spm-folder-chip-remove').forEach(function(btn) {
+              btn.onclick = function() {
+                var chip = btn.closest('.spm-folder-chip');
+                if (chip) chip.remove();
+                wizardSaveStateFromStep(4);
+                setTimeout(wizardRunPreview, 150);
+              };
+            });
+          }
+          document.querySelectorAll('[data-folder-root="' + kind + '"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              wizardSaveStateFromStep(4);
+              _wizardFolderBrowse[kind] = '';
+              wizardRenderStep(4);
+            });
+          });
+          document.querySelectorAll('[data-folder-up="' + kind + '"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              wizardSaveStateFromStep(4);
+              var current = _wizardFolderBrowse[kind] || '';
+              _wizardFolderBrowse[kind] = current.indexOf('/') === -1 ? '' : current.split('/').slice(0, -1).join('/');
+              wizardRenderStep(4);
+            });
+          });
+          document.querySelectorAll('[data-folder-browse="' + kind + '"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              wizardSaveStateFromStep(4);
+              _wizardFolderBrowse[kind] = btn.dataset.folderPath || '';
+              wizardRenderStep(4);
+            });
+          });
+          document.querySelectorAll('[data-folder-open="' + kind + '"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              wizardSaveStateFromStep(4);
+              _wizardFolderBrowse[kind] = btn.dataset.folderPath || '';
+              wizardRenderStep(4);
+            });
+          });
+          document.querySelectorAll('[data-folder-add="' + kind + '"]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              var value = btn.dataset.folderPath || '';
+              if (!chips || !value) return;
+              if (Array.from(chips.querySelectorAll('[data-folder]')).some(function(chip) { return chip.dataset.folder === value; })) return;
+              var chip = document.createElement('span');
+              chip.className = 'spm-folder-chip';
+              chip.dataset.folder = value;
+              chip.innerHTML = escH(value) + '<button type="button" class="spm-folder-chip-remove" aria-label="Remove">×</button>';
+              chips.appendChild(chip);
+              wizardSaveStateFromStep(4);
+              setTimeout(wizardRunPreview, 150);
+              chip.querySelector('.spm-folder-chip-remove').onclick = function() {
+                chip.remove();
+                wizardSaveStateFromStep(4);
+                setTimeout(wizardRunPreview, 150);
+              };
+            });
+          });
+        });
+        var regexAddBtn = document.getElementById('wiz-regex-add');
+        if (regexAddBtn) regexAddBtn.addEventListener('click', function() {
+          wizardSaveStateFromStep(4);
+          _wizardState.advancedRules = (_wizardState.advancedRules || []).concat([{ field: 'trackTitle', operator: 'regex', value: '', caseSensitive: false }]);
+          wizardRenderStep(4);
+        });
+        document.querySelectorAll('[data-regex-remove]').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            wizardSaveStateFromStep(4);
+            var idx = parseInt(btn.dataset.regexRemove || '', 10);
+            _wizardState.advancedRules = (_wizardState.advancedRules || []).filter(function(_, index) { return index !== idx; });
+            wizardRenderStep(4);
+          });
+        });
+        document.querySelectorAll('#wiz-regex-rules select, #wiz-regex-rules input').forEach(function(el) {
+          var handler = function() { wizardSaveStateFromStep(4); setTimeout(wizardRunPreview, 200); };
+          el.addEventListener('change', handler);
+          if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', handler);
+        });
+      }
+
+      // Finish step: save template + schedule
+      if (step === WIZARD_TOTAL_STEPS) {
+        var finishNameEl = document.getElementById('wiz-finish-name');
+        if (finishNameEl) {
+          finishNameEl.addEventListener('input', function() {
+            _wizardState.name = finishNameEl.value.trim();
+            _wizardState.nameManual = true;
+          });
+        }
+        var scheduleEl = document.getElementById('wiz-schedule');
+        if (scheduleEl) scheduleEl.addEventListener('change', function() { wizardSaveStateFromStep(WIZARD_TOTAL_STEPS); });
+        var saveTmplBtn = document.getElementById('wiz-save-tmpl-btn');
+        if (saveTmplBtn) saveTmplBtn.addEventListener('click', function() {
+          var nameEl = document.getElementById('wiz-tmpl-name');
+          var n = nameEl ? nameEl.value.trim() : '';
+          if (!n) { nameEl && nameEl.focus(); return; }
+          fetch('/api/music/playlist-templates', {
+            method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
+            body: JSON.stringify({ name: n, rules: wizardAssembleRules(_wizardState) }),
+          }).then(function() {
+            saveTmplBtn.textContent = 'Saved ✓';
+            saveTmplBtn.disabled = true;
+            setTimeout(function() { saveTmplBtn.textContent = 'Save template'; saveTmplBtn.disabled = false; }, 2000);
+          }).catch(function() {});
+        });
+      }
     }
 
     function initSmartPlaylistModal() {
@@ -1653,11 +3158,40 @@
         cb.addEventListener('change', spmSchedulePreview);
       });
 
-      document.querySelectorAll('.spm-genre-cb, .spm-mood-cb, .spm-tag-cb').forEach(function(cb) {
-        cb.addEventListener('change', spmSchedulePreview);
+      // Tri-state chip click cycling: neutral → include → exclude → neutral
+      document.querySelectorAll('#spm-flat-form .spm-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+          var state = chip.dataset.state || 'neutral';
+          if (state === 'neutral') {
+            chip.dataset.state = 'include';
+            chip.classList.add('is-include');
+            chip.classList.remove('is-exclude');
+          } else if (state === 'include') {
+            chip.dataset.state = 'exclude';
+            chip.classList.add('is-exclude');
+            chip.classList.remove('is-include');
+          } else {
+            chip.dataset.state = 'neutral';
+            chip.classList.remove('is-include', 'is-exclude');
+          }
+          spmSchedulePreview();
+        });
       });
 
-      ['spm-top-n', 'spm-max-tracks', 'spm-sort-by', 'spm-bpm-min', 'spm-bpm-max', 'spm-energy-min', 'spm-energy-max', 'spm-danceability-min', 'spm-danceability-max', 'spm-camelot-focus', 'spm-camelot-mode'].forEach(function(id) {
+      // Tri-state chip search filter
+      document.querySelectorAll('#spm-flat-form .spm-tristate-search').forEach(function(input) {
+        input.addEventListener('input', function() {
+          var q = this.value.toLowerCase();
+          var chipsId = this.getAttribute('data-chips');
+          var container = chipsId ? document.getElementById(chipsId) : null;
+          if (!container) return;
+          container.querySelectorAll('.spm-chip').forEach(function(chip) {
+            chip.dataset.hidden = chip.dataset.value.toLowerCase().indexOf(q) === -1 ? 'true' : 'false';
+          });
+        });
+      });
+
+      ['spm-top-n', 'spm-max-tracks', 'spm-sort-by', 'spm-rebuild-schedule', 'spm-bpm-min', 'spm-bpm-max', 'spm-energy-min', 'spm-energy-max', 'spm-danceability-min', 'spm-danceability-max', 'spm-camelot-focus', 'spm-camelot-mode'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('change', spmSchedulePreview);
         if (el && el.tagName === 'INPUT') el.addEventListener('input', spmSchedulePreview);
@@ -1665,18 +3199,6 @@
       document.querySelectorAll('#spm-preset-grid .playlist-preset-card').forEach(function(card) {
         card.addEventListener('click', function() {
           spmApplyPresetDefaults(card.dataset.preset || 'none');
-        });
-      });
-
-      document.querySelectorAll('#smartPlModal .gp-checklist-search').forEach(function(input) {
-        input.addEventListener('input', function() {
-          var q = this.value.toLowerCase();
-          var targetId = this.getAttribute('data-target');
-          var list = targetId ? document.getElementById(targetId) : null;
-          if (!list) return;
-          list.querySelectorAll('.gp-checklist-item').forEach(function(item) {
-            item.style.display = item.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
-          });
         });
       });
     }
@@ -1688,20 +3210,40 @@
     if (initialCard) selectPlaylist(initialCard);
     else loadTracks(0);
 
-    // Auto-open smart playlist modal with blend users if navigated from blend page
+    // Auto-open smart playlist modal with prefill params if navigated from elsewhere
     (function() {
       var params = new URLSearchParams(window.location.search);
+      var editPersonalId = params.get('editPersonal');
+      var editGlobalId = params.get('editGlobal');
+      var wizardTarget = params.get('wizardTarget');
       var blendParam = params.get('blend');
       var nameParam = params.get('name');
+      if (editPersonalId) {
+        clearWizardAutoloadParams(['editPersonal']);
+        openWizardEdit('personal', editPersonalId, '/api/music/playlists/personal/' + encodeURIComponent(editPersonalId));
+        return;
+      }
+      if (editGlobalId) {
+        clearWizardAutoloadParams(['editGlobal']);
+        openWizardEdit('global', editGlobalId, '/api/playlists/global/' + encodeURIComponent(editGlobalId));
+        return;
+      }
+      if (wizardTarget === 'global' && IS_ACTUAL_ADMIN) {
+        clearWizardAutoloadParams(['wizardTarget']);
+        openSmartPlaylistWizard({ playlistTarget: 'global' });
+        return;
+      }
       if (!blendParam) return;
       var otherUsers = blendParam.split(',').map(function(u) { return u.trim(); }).filter(Boolean);
       if (!otherUsers.length) return;
-      var currentUserId = <%- JSON.stringify(currentUserId || '') %>;
-      var blendUsers = currentUserId ? [currentUserId].concat(otherUsers) : otherUsers;
-      openSmartPlaylistModal();
-      if (window.spmSetBlendUsers) window.spmSetBlendUsers(blendUsers, 'average');
-      if (nameParam) document.getElementById('spm-name').value = nameParam;
-      spmRunPreview();
+      var blendUsers = CURRENT_USER_ID ? [CURRENT_USER_ID].concat(otherUsers) : otherUsers;
+      clearWizardAutoloadParams(['blend', 'name']);
+      openSmartPlaylistWizard({
+        name: nameParam || '',
+        playlistTarget: 'blend',
+        blendUsers: blendUsers,
+        blendMode: 'average',
+      });
     })();
 
     document.addEventListener('click', function(e) {

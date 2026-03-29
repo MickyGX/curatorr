@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.46 (2026-03-29)
+
+- Replaced the old smart-playlist editors with the new multi-step wizard for create and edit flows, including personal, blend, and global playlists from the same UI.
+- Added settings-derived starting points for `Curatorr`, `Crescive`, and `Curative`, plus a new `Wake Up` audio profile and broader audio/content preset seeding.
+- Added smarter wizard previewing and filter controls, including eligible-pool vs final-playlist counts, tri-state tier filters, per-section `Any/All` include matching, accordion sections, and admin-only advanced folder/regex settings.
+- Fixed analyzer batch processing so unreadable or broken tracks are skipped instead of aborting the whole chunk, and surfaced richer analyzer failure details in the app.
+
 ## v0.1.45 (2026-03-29)
 
 - Fixed the npm lockfile so GitHub Actions `checks` can run `npm ci` successfully against the committed dependency manifest.

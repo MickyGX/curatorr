@@ -1310,7 +1310,7 @@
 
             <%# ── Global Playlists ────────────────────────────────────────── %>
             <%# Builder card %>
-            <div class="settings-card gp-builder-card">
+            <div class="settings-card gp-builder-card" style="display:none">
               <div class="settings-card-title">Create Global Playlist</div>
               <div class="settings-card-sub">Filters are applied per user using their play/skip history. Preview shows live counts before saving.</div>
 
@@ -1667,8 +1667,12 @@
               </div>
               <% }); %>
               <% if (!(globalPlaylists || []).length) { %>
-              <div class="cur-empty" id="gp-empty">No global playlists yet. Create one below.</div>
+              <div class="cur-empty" id="gp-empty">No global playlists yet. Create one with the wizard below.</div>
               <% } %>
+            </div>
+            <div class="settings-card-actions settings-card-actions--full" style="margin-top:14px;justify-content:flex-start">
+              <a class="primary-button" href="/playlists?wizardTarget=global">Create Playlist</a>
+              <span class="settings-card-sub" style="margin:0">Create and edit global playlists in the main playlist wizard.</span>
             </div>
 
             <script>
@@ -2202,15 +2206,7 @@
 
               function attachCardListeners(card, id) {
                 card.querySelector('.gp-edit-btn').addEventListener('click', function() {
-                  var gp = GP_DATA.find(function(p) { return p.id === id; });
-                  if (!gp) return;
-                  _editingGpId = id;
-                  gpLoadIntoBuilder(gp);
-                  document.getElementById('gp-create-btn').textContent = 'Update Playlist';
-                  document.getElementById('gp-cancel-edit-btn').style.display = '';
-                  document.getElementById('gp-create-msg').textContent = '';
-                  document.getElementById('gp-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  document.getElementById('gp-name').focus();
+                  window.location.href = '/playlists?editGlobal=' + encodeURIComponent(id);
                 });
                 card.querySelector('.gp-delete-btn').addEventListener('click', function() {
                   if (!confirm('Delete this global playlist? It will no longer be synced to Plex.')) return;
@@ -2279,16 +2275,7 @@
                 var params = new URLSearchParams(window.location.search);
                 var editId = params.get('edit');
                 if (!editId) return;
-                var gp = GP_DATA.find(function(p) { return p.id === editId; });
-                if (!gp) return;
-                _editingGpId = editId;
-                gpLoadIntoBuilder(gp);
-                document.getElementById('gp-create-btn').textContent = 'Update Playlist';
-                document.getElementById('gp-cancel-edit-btn').style.display = '';
-                setTimeout(function() {
-                  document.getElementById('gp-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  document.getElementById('gp-name').focus();
-                }, 300);
+                window.location.replace('/playlists?editGlobal=' + encodeURIComponent(editId));
               })();
 
               runPreview();

@@ -16,8 +16,19 @@ const DEFAULT_ANALYSIS_RESULTS_PATH = '/app/data/track-features.results.json';
 const DEFAULT_ANALYSIS_SIDECAR_URL = 'http://127.0.0.1:8765';
 const LEGACY_ANALYSIS_FEATURES_PATH = '/data/track-features.json';
 const LEGACY_ANALYSIS_RESULTS_PATH = '/data/track-features.results.json';
-const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'downtempo'];
+const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
+
+function normaliseTriStateInput(value) {
+  if (!value) return { include: [], exclude: [], includeMode: 'any' };
+  if (Array.isArray(value)) return { include: value.filter(Boolean), exclude: [], includeMode: 'any' };
+  return {
+    include: Array.isArray(value.include) ? value.include.filter(Boolean) : [],
+    exclude: Array.isArray(value.exclude) ? value.exclude.filter(Boolean) : [],
+    includeMode: value.includeMode === 'all' ? 'all' : 'any',
+  };
+}
+
 const LASTFM_REGION_NAMES = [
   'afghanistan',
   'albania',
@@ -296,6 +307,12 @@ function buildPlaylistFeatureRuleConfig(input = {}) {
     danceabilityMax: parseNullableNumber(input.danceabilityMax),
     camelotFocus: String(input.camelotFocus || '').trim().toUpperCase(),
     camelotMode: CAMELOT_MODES.includes(String(input.camelotMode || '').trim()) ? String(input.camelotMode).trim() : 'exact',
+    seasonalGenres: Array.isArray(input.seasonalGenres) ? input.seasonalGenres.map(String).filter(Boolean) : [],
+    seasonalKeywords: Array.isArray(input.seasonalKeywords) ? input.seasonalKeywords.map(String).filter(Boolean) : [],
+    seasonalExcludeGenres: Array.isArray(input.seasonalExcludeGenres) ? input.seasonalExcludeGenres.map(String).filter(Boolean) : [],
+    seasonalExcludeKeywords: Array.isArray(input.seasonalExcludeKeywords) ? input.seasonalExcludeKeywords.map(String).filter(Boolean) : [],
+    seasonalGenresMode: String(input.seasonalGenresMode || '').trim() === 'all' ? 'all' : 'any',
+    seasonalKeywordsMode: String(input.seasonalKeywordsMode || '').trim() === 'all' ? 'all' : 'any',
   };
 }
 
@@ -1555,6 +1572,16 @@ export function registerSettings(app, ctx) {
     res.json({ ok: true, playlists: config.globalPlaylists || [] });
   });
 
+  // GET /api/playlists/global/:id — fetch one
+  app.get('/api/playlists/global/:id', requireAdmin, (req, res, next) => {
+    const id = String(req.params.id || '');
+    if (id === 'preview') return next();
+    const config = loadConfig();
+    const playlist = (config.globalPlaylists || []).find((entry) => String(entry?.id || '') === id);
+    if (!playlist) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, playlist });
+  });
+
   // POST /api/playlists/global — create
   app.post('/api/playlists/global', requireAdmin, (req, res) => {
     const name = String(req.body?.name || '').trim();
@@ -1562,11 +1589,11 @@ export function registerSettings(app, ctx) {
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {
-      artistTiers: Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : [],
-      trackTiers:  Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : [],
-      genres:      Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : [],
-      moods:       Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : [],
-      tags:        Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : [],
+      artistTiers: normaliseTriStateInput(req.body?.artistTiers),
+      trackTiers:  normaliseTriStateInput(req.body?.trackTiers),
+      genres:      normaliseTriStateInput(req.body?.genres),
+      moods:       normaliseTriStateInput(req.body?.moods),
+      tags:        normaliseTriStateInput(req.body?.tags),
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy: String(req.body?.sortBy || 'ratingCount'),
@@ -1617,11 +1644,11 @@ export function registerSettings(app, ctx) {
       name: req.body?.name !== undefined ? String(req.body.name).trim() || existing.name : existing.name,
       enabled: req.body?.enabled !== undefined ? Boolean(req.body.enabled) : existing.enabled,
       rules: {
-        artistTiers: Array.isArray(req.body?.artistTiers) ? req.body.artistTiers.filter(Boolean) : existing.rules?.artistTiers || [],
-        trackTiers:  Array.isArray(req.body?.trackTiers)  ? req.body.trackTiers.filter(Boolean)  : existing.rules?.trackTiers  || [],
-        genres:      Array.isArray(req.body?.genres)      ? req.body.genres.filter(Boolean)      : existing.rules?.genres      || [],
-        moods:       Array.isArray(req.body?.moods)       ? req.body.moods.filter(Boolean)       : existing.rules?.moods       || [],
-        tags:        Array.isArray(req.body?.tags)        ? req.body.tags.filter(Boolean)        : existing.rules?.tags        || [],
+        artistTiers: req.body?.artistTiers !== undefined ? normaliseTriStateInput(req.body?.artistTiers) : existing.rules?.artistTiers || [],
+        trackTiers:  req.body?.trackTiers  !== undefined ? normaliseTriStateInput(req.body?.trackTiers)  : existing.rules?.trackTiers  || [],
+        genres:      req.body?.genres      !== undefined ? normaliseTriStateInput(req.body?.genres)      : existing.rules?.genres      || [],
+        moods:       req.body?.moods       !== undefined ? normaliseTriStateInput(req.body?.moods)       : existing.rules?.moods       || [],
+        tags:        req.body?.tags        !== undefined ? normaliseTriStateInput(req.body?.tags)        : existing.rules?.tags        || [],
         topNPerArtist: req.body?.topNPerArtist !== undefined ? (req.body.topNPerArtist ? Number(req.body.topNPerArtist) : null) : existing.rules?.topNPerArtist,
         maxTracks:     req.body?.maxTracks     !== undefined ? (req.body.maxTracks     ? Number(req.body.maxTracks)     : null) : existing.rules?.maxTracks,
         sortBy: req.body?.sortBy !== undefined ? String(req.body.sortBy) : existing.rules?.sortBy || 'ratingCount',

@@ -17,7 +17,7 @@ import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
-import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists } from './db.js';
+import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists } from './db.js';
 import { createRecommendationService } from './services/recommendations.js';
 import { createLidarrService, DEFAULT_LIDARR_AUTOMATION_SETTINGS } from './services/lidarr.js';
 import { createPlaylistService } from './services/playlists.js';
@@ -1871,6 +1871,13 @@ export async function start() {
           }
           const personalPlaylists = listUserPersonalPlaylists(db, userId).filter((p) => p.enabled);
           for (const pp of personalPlaylists) {
+            const schedule = pp.rules?.rebuildSchedule || 'daily';
+            if (schedule === 'manual') continue;
+            if (schedule === 'weekly') {
+              const gen = listUserGeneratedPlaylists(db, userId).find((g) => g.playlistKey === `personal:${pp.id}`);
+              const age = Date.now() - Number(gen?.lastBuiltAt || 0);
+              if (age < 7 * 24 * 60 * 60 * 1000) continue;
+            }
             await _routeCtx.playlistService.syncPersonalPlaylist(userId, pp).catch(() => {});
           }
         }

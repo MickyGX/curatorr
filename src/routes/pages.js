@@ -30,6 +30,7 @@ import {
   getExcludedTrackKeys,
   getSkipTierArtists,
   getAllUserIds,
+  getDistinctPathSegments,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildFeaturePresetAvailability } from '../services/playlists.js';
@@ -1561,6 +1562,7 @@ export function registerPages(app, ctx) {
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
+      allPathSegments: (() => { try { return getDistinctPathSegments(db); } catch { return []; } })(),
       playlistFeatureCoverage: (() => { try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
       blendableUsers: await buildBlendableUsers(

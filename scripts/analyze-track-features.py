@@ -127,39 +127,45 @@ def analyze_track(track):
     import numpy as np
 
     file_path = str(track.get('filePath') or '').strip()
-    if not file_path or not os.path.exists(file_path):
+    if not file_path or not os.path.isfile(file_path):
         return None
+    try:
+        y, sr = librosa.load(file_path, sr=22050, mono=True)
+        if y.size == 0:
+            return None
 
-    y, sr = librosa.load(file_path, sr=22050, mono=True)
-    if y.size == 0:
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        tempo_value = coerce_float(tempo)
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        musical_key = detect_key(chroma)
+        camelot = camelot_key(musical_key)
+        rms = float(np.mean(librosa.feature.rms(y=y)))
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        onset_std = float(np.std(onset_env))
+        onset_mean = float(np.mean(onset_env)) or 1.0
+        onset_regularity = 1.0 - min(onset_std / onset_mean, 1.0)
+
+        result = {
+            'ratingKey': track.get('ratingKey', ''),
+            'recordingMbid': track.get('recordingMbid', ''),
+            'filePath': file_path,
+            'bpm': round(tempo_value, 2) if tempo_value > 0 else None,
+            'musicalKey': musical_key,
+            'camelotKey': camelot,
+            'energy': round(normalize_energy(rms), 4),
+            'danceability': round(normalize_danceability(tempo_value, onset_regularity), 4),
+            'analysisSource': 'curatorr-builtin',
+            'analysisConfidence': 0.65,
+        }
+        if result['bpm'] is None and not result['musicalKey'] and not result['camelotKey']:
+            return None
+        return result
+    except Exception as exc:
+        exc_type = exc.__class__.__name__
+        exc_message = str(exc).strip()
+        detail = f'{exc_type}: {exc_message}' if exc_message else exc_type
+        print(f'[curatorr-analyzer] skipping unreadable track: {file_path} ({detail})', file=sys.stderr, flush=True)
         return None
-
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    tempo_value = coerce_float(tempo)
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-    musical_key = detect_key(chroma)
-    camelot = camelot_key(musical_key)
-    rms = float(np.mean(librosa.feature.rms(y=y)))
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    onset_std = float(np.std(onset_env))
-    onset_mean = float(np.mean(onset_env)) or 1.0
-    onset_regularity = 1.0 - min(onset_std / onset_mean, 1.0)
-
-    result = {
-        'ratingKey': track.get('ratingKey', ''),
-        'recordingMbid': track.get('recordingMbid', ''),
-        'filePath': file_path,
-        'bpm': round(tempo_value, 2) if tempo_value > 0 else None,
-        'musicalKey': musical_key,
-        'camelotKey': camelot,
-        'energy': round(normalize_energy(rms), 4),
-        'danceability': round(normalize_danceability(tempo_value, onset_regularity), 4),
-        'analysisSource': 'curatorr-builtin',
-        'analysisConfidence': 0.65,
-    }
-    if result['bpm'] is None and not result['musicalKey'] and not result['camelotKey']:
-        return None
-    return result
 
 
 def main():
