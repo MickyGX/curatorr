@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.43 (2026-03-29)
+
+- Fixed Docker Hub publishing so `mickygx/curatorr-analyzer` is now released alongside the main app image instead of being skipped by the publish workflow.
+- Fixed analyzer sidecar image publishing to target both `linux/amd64` and `linux/arm64`, restoring sidecar support on x86_64 Docker hosts.
+- Split GitHub Actions build-cache scopes for the app and analyzer images so the two multi-arch builds do not overwrite each other's cached layers.
+
 ## v0.1.42 (2026-03-29)
 
 - Added analysis-based smart-playlist sort modes including BPM, energy, danceability, Camelot wheel, and DJ-flow ordering for global, personal, and blended playlist builders.
