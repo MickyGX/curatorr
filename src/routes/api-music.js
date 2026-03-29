@@ -46,6 +46,7 @@ import {
   listSuggestedAlbums,
   listUserPersonalPlaylists,
   getUserPersonalPlaylist,
+  findUserPersonalPlaylistByName,
   createUserPersonalPlaylist,
   updateUserPersonalPlaylist,
   deleteUserPersonalPlaylist,
@@ -3052,6 +3053,9 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveCanonicalUserId(req);
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (findUserPersonalPlaylistByName(db, userPlexId, name)) {
+      return res.status(409).json({ error: 'You already have a personal playlist with that name.' });
+    }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {
@@ -3088,6 +3092,9 @@ export function registerApiMusic(app, ctx) {
     if (!existing) return res.status(404).json({ error: 'Not found' });
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (findUserPersonalPlaylistByName(db, userPlexId, name, { excludeId: id })) {
+      return res.status(409).json({ error: 'You already have a personal playlist with that name.' });
+    }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {

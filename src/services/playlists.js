@@ -687,6 +687,123 @@ function buildCamelotSet(camelotKeys, mode = 'exact') {
   return result;
 }
 
+const ANALYSIS_SORT_MODES = new Set(['bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow']);
+
+function isAnalysisSortMode(sortBy = '') {
+  return ANALYSIS_SORT_MODES.has(String(sortBy || '').trim());
+}
+
+function compareNullableAsc(a, b) {
+  const aMissing = a == null || Number.isNaN(a);
+  const bMissing = b == null || Number.isNaN(b);
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  return a - b;
+}
+
+function compareNullableDesc(a, b) {
+  const aMissing = a == null || Number.isNaN(a);
+  const bMissing = b == null || Number.isNaN(b);
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  return b - a;
+}
+
+function compareCamelotSort(a = '', b = '') {
+  const aKey = normalizeCamelotKey(a);
+  const bKey = normalizeCamelotKey(b);
+  if (!aKey && !bKey) return 0;
+  if (!aKey) return 1;
+  if (!bKey) return -1;
+  const aNum = Number.parseInt(aKey, 10);
+  const bNum = Number.parseInt(bKey, 10);
+  if (aNum !== bNum) return aNum - bNum;
+  return aKey.localeCompare(bKey);
+}
+
+function baseRatingComparator(a, b) {
+  return (b.rc - a.rc)
+    || (b.tw - a.tw)
+    || (b.pc - a.pc)
+    || String(a.artistName || '').localeCompare(String(b.artistName || ''))
+    || String(a.trackTitle || '').localeCompare(String(b.trackTitle || ''));
+}
+
+function djFlowScore(current, candidate) {
+  let score = 0;
+  const currentCamelot = normalizeCamelotKey(current?.camelotKey || '');
+  const candidateCamelot = normalizeCamelotKey(candidate?.camelotKey || '');
+  if (!currentCamelot || !candidateCamelot) {
+    score += 2;
+  } else if (currentCamelot === candidateCamelot) {
+    score += 0;
+  } else if (buildCamelotSet(currentCamelot, 'harmonic').has(candidateCamelot)) {
+    score += 0.75;
+  } else {
+    score += 4;
+  }
+
+  if (current?.bpm == null || candidate?.bpm == null) {
+    score += 3;
+  } else {
+    score += Math.abs(candidate.bpm - current.bpm) / 8;
+    if (candidate.bpm < current.bpm) score += 0.5;
+  }
+
+  if (current?.energy != null && candidate?.energy != null) {
+    score += Math.abs(candidate.energy - current.energy) * 2;
+  } else {
+    score += 0.5;
+  }
+  return score;
+}
+
+export function sortPlaylistTracksByAnalysis(tracks = [], sortBy = 'bpmAsc') {
+  const items = Array.isArray(tracks) ? [...tracks] : [];
+  if (!items.length) return [];
+
+  if (sortBy === 'bpmAsc') {
+    return items.sort((a, b) => compareNullableAsc(a?.bpm, b?.bpm) || baseRatingComparator(a, b));
+  }
+  if (sortBy === 'bpmDesc') {
+    return items.sort((a, b) => compareNullableDesc(a?.bpm, b?.bpm) || baseRatingComparator(a, b));
+  }
+  if (sortBy === 'energyAsc') {
+    return items.sort((a, b) => compareNullableAsc(a?.energy, b?.energy) || compareNullableAsc(a?.bpm, b?.bpm) || baseRatingComparator(a, b));
+  }
+  if (sortBy === 'energyDesc') {
+    return items.sort((a, b) => compareNullableDesc(a?.energy, b?.energy) || compareNullableAsc(a?.bpm, b?.bpm) || baseRatingComparator(a, b));
+  }
+  if (sortBy === 'danceabilityDesc') {
+    return items.sort((a, b) => compareNullableDesc(a?.danceability, b?.danceability) || compareNullableDesc(a?.energy, b?.energy) || baseRatingComparator(a, b));
+  }
+  if (sortBy === 'camelot') {
+    return items.sort((a, b) => compareCamelotSort(a?.camelotKey, b?.camelotKey) || compareNullableAsc(a?.bpm, b?.bpm) || baseRatingComparator(a, b));
+  }
+  if (sortBy !== 'djFlow') return items;
+
+  const withAnalysis = [];
+  const withoutAnalysis = [];
+  for (const track of items) {
+    if (track?.bpm != null || normalizeCamelotKey(track?.camelotKey || '')) withAnalysis.push(track);
+    else withoutAnalysis.push(track);
+  }
+  if (withAnalysis.length < 2) {
+    return withAnalysis.sort(baseRatingComparator).concat(withoutAnalysis.sort(baseRatingComparator));
+  }
+
+  const remaining = [...withAnalysis].sort((a, b) => compareNullableAsc(a?.bpm, b?.bpm) || compareNullableAsc(a?.energy, b?.energy) || baseRatingComparator(a, b));
+  const ordered = [remaining.shift()];
+  while (remaining.length) {
+    const current = ordered[ordered.length - 1];
+    remaining.sort((a, b) => djFlowScore(current, a) - djFlowScore(current, b) || compareNullableAsc(a?.bpm, b?.bpm) || baseRatingComparator(a, b));
+    ordered.push(remaining.shift());
+  }
+  return ordered.concat(withoutAnalysis.sort(baseRatingComparator));
+}
+
 function parseOptionalFeatureNumber(value) {
   if (value === '' || value == null) return null;
   const num = Number(value);
@@ -1560,6 +1677,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
   const sortBy = rules.sortBy || 'ratingCount';
   const eligibleTracks = applyFeaturePresetFilters(masterTracks, rules);
+  const eligibleTrackMap = new Map(eligibleTracks.map((track) => [track.ratingKey, track]));
 
   const byArtist = new Map();
   for (const t of eligibleTracks) {
@@ -1584,6 +1702,29 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   }
 
   let ratingKeys = [];
+  if (isAnalysisSortMode(sortBy)) {
+    const selectedTracks = [];
+    for (const [, tracks] of byArtist) {
+      const qualitySorted = [...tracks].sort(baseRatingComparator);
+      const selected = topN ? qualitySorted.slice(0, topN) : qualitySorted;
+      for (const track of selected) {
+        const fullTrack = eligibleTrackMap.get(track.ratingKey) || {};
+        selectedTracks.push({
+          ...track,
+          artistName: fullTrack.artistName || '',
+          trackTitle: fullTrack.trackTitle || '',
+          bpm: fullTrack.bpm ?? null,
+          camelotKey: fullTrack.camelotKey || '',
+          energy: fullTrack.energy ?? null,
+          danceability: fullTrack.danceability ?? null,
+        });
+      }
+    }
+    const orderedTracks = sortPlaylistTracksByAnalysis(selectedTracks, sortBy);
+    const limitedTracks = maxT ? orderedTracks.slice(0, maxT) : orderedTracks;
+    return limitedTracks.map((track) => track.ratingKey);
+  }
+
   for (const [, tracks] of byArtist) {
     const sorted = [...tracks].sort((a, b) => {
       if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);

@@ -2043,6 +2043,27 @@ export function getUserPersonalPlaylist(db, id, userPlexId) {
   return row ? parsePersonalPlaylist(row) : null;
 }
 
+export function findUserPersonalPlaylistByName(db, userPlexId, name, { excludeId = '' } = {}) {
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) return null;
+  const excludedId = String(excludeId || '').trim();
+  const row = excludedId
+    ? db.prepare(`
+      SELECT * FROM user_personal_playlists
+      WHERE user_plex_id = ?
+        AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+        AND id != ?
+      LIMIT 1
+    `).get(userPlexId, normalizedName, excludedId)
+    : db.prepare(`
+      SELECT * FROM user_personal_playlists
+      WHERE user_plex_id = ?
+        AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+      LIMIT 1
+    `).get(userPlexId, normalizedName);
+  return row ? parsePersonalPlaylist(row) : null;
+}
+
 export function createUserPersonalPlaylist(db, userPlexId, { id, name, rules }) {
   db.prepare(`
     INSERT INTO user_personal_playlists (id, user_plex_id, name, rules, created_at, updated_at)

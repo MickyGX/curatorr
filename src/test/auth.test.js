@@ -20,6 +20,8 @@ const { start, stop, canUserAccessLidarrAutomation, completePlexLogin } = await 
 const {
   countTracksMissingEnrichment,
   countTracksMissingPlexLoudness,
+  createUserPersonalPlaylist,
+  findUserPersonalPlaylistByName,
   getMasterTracks,
   getTrackEnrichmentByRatingKeys,
   initDb,
@@ -32,7 +34,7 @@ const {
 } = await import('../db.js');
 const { createJobService } = await import('../services/jobs.js');
 const { createLidarrService } = await import('../services/lidarr.js');
-const { applyFeaturePresetFilters, applyTrackFilters, createPlaylistService } = await import('../services/playlists.js');
+const { applyFeaturePresetFilters, applyTrackFilters, createPlaylistService, sortPlaylistTracksByAnalysis } = await import('../services/playlists.js');
 const { createTrackEnrichmentService } = await import('../services/track-enrichment.js');
 const { runTautulliDailySync } = await import('../services/tautulli-sync.js');
 const {
@@ -3432,6 +3434,29 @@ describe('security guards', () => {
     }
   });
 
+  it('finds duplicate personal playlist names for the same user only', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-personal-dupes-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    try {
+      createUserPersonalPlaylist(db, 'MickyGX', {
+        id: 'pp_existing',
+        name: 'Britpop',
+        rules: { tags: ['britpop'] },
+      });
+
+      const duplicate = findUserPersonalPlaylistByName(db, 'MickyGX', 'britpop');
+      assert.equal(duplicate?.id, 'pp_existing');
+
+      const excluded = findUserPersonalPlaylistByName(db, 'MickyGX', 'Britpop', { excludeId: 'pp_existing' });
+      assert.equal(excluded, null);
+
+      const otherUser = findUserPersonalPlaylistByName(db, 'Emma', 'Britpop');
+      assert.equal(otherUser, null);
+    } finally {
+      db.close();
+    }
+  });
+
   it('applies playlist feature presets and harmonic Camelot focus to master tracks', async () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-feature-presets.db`);
     const manifestPath = join(testDir, `track-features-${Date.now()}-feature-presets.json`);
@@ -3511,6 +3536,24 @@ describe('security guards', () => {
     } finally {
       db.close();
     }
+  });
+
+  it('sorts playlist candidates by analysis data and pushes missing feature data to the end', async () => {
+    const bpmOrdered = sortPlaylistTracksByAnalysis([
+      { ratingKey: 'missing', bpm: null, camelotKey: '', energy: null, danceability: null, rc: 99, tw: 0, pc: 0, artistName: 'Missing', trackTitle: 'Missing' },
+      { ratingKey: 'mid', bpm: 118, camelotKey: '7A', energy: 0.58, danceability: 0.54, rc: 3, tw: 0, pc: 0, artistName: 'Mid', trackTitle: 'Mid' },
+      { ratingKey: 'low', bpm: 92, camelotKey: '8A', energy: 0.20, danceability: 0.30, rc: 2, tw: 0, pc: 0, artistName: 'Low', trackTitle: 'Low' },
+      { ratingKey: 'high', bpm: 128, camelotKey: '8B', energy: 0.82, danceability: 0.71, rc: 1, tw: 0, pc: 0, artistName: 'High', trackTitle: 'High' },
+    ], 'bpmAsc');
+    assert.deepEqual(bpmOrdered.map((track) => track.ratingKey), ['low', 'mid', 'high', 'missing']);
+
+    const djOrdered = sortPlaylistTracksByAnalysis([
+      { ratingKey: 'a', bpm: 120, camelotKey: '8A', energy: 0.60, rc: 3, tw: 0, pc: 0, artistName: 'A', trackTitle: 'A' },
+      { ratingKey: 'b', bpm: 123, camelotKey: '8B', energy: 0.63, rc: 2, tw: 0, pc: 0, artistName: 'B', trackTitle: 'B' },
+      { ratingKey: 'c', bpm: 126, camelotKey: '9A', energy: 0.66, rc: 1, tw: 0, pc: 0, artistName: 'C', trackTitle: 'C' },
+      { ratingKey: 'missing', bpm: null, camelotKey: '', energy: null, rc: 99, tw: 0, pc: 0, artistName: 'Missing', trackTitle: 'Missing' },
+    ], 'djFlow');
+    assert.deepEqual(djOrdered.map((track) => track.ratingKey), ['a', 'b', 'c', 'missing']);
   });
 
   it('treats legacy builtin analyzer mode as sidecar mode', async () => {

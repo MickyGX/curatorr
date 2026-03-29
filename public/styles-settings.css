@@ -6425,6 +6425,7 @@ html[data-square-corners="1"] .widget-card-customize-panel {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   background: var(--card-bg-2, #1a1a1a);
+  color: var(--text, #e6edf7);
   user-select: none;
   list-style: none;
 }
@@ -6467,6 +6468,16 @@ html[data-square-corners="1"] .widget-card-customize-panel {
   color: var(--text-muted, #888);
   font-style: italic;
   padding: 4px 0;
+}
+
+[data-theme="day"] .tf-summary {
+  background: linear-gradient(180deg, #eef2f7, #e4eaf2);
+  color: #223043;
+}
+
+[data-theme="day"] .tf-rule-count {
+  color: #5e6d80;
+  opacity: 1;
 }
 
 .gp-folder-browser {

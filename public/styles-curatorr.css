@@ -2453,6 +2453,62 @@ body.cur-modal-open {
   font-size: 12px;
 }
 
+[data-theme="day"] .local-admin-banner {
+  background: linear-gradient(180deg, rgba(110, 74, 255, 0.06), rgba(110, 74, 255, 0.03));
+  border-color: rgba(110, 74, 255, 0.16);
+}
+
+[data-theme="day"] .local-admin-banner__text {
+  color: #4f5f73;
+}
+
+[data-theme="day"] .local-admin-banner__link {
+  color: #6e4aff;
+}
+
+[data-theme="day"] .local-admin-preview__label {
+  color: #7b8799;
+}
+
+[data-theme="day"] .local-admin-preview__summary {
+  border-color: rgba(10,20,30,.10);
+  background: rgba(255,255,255,.62);
+}
+
+[data-theme="day"] .local-admin-preview__name {
+  color: #223043;
+}
+
+[data-theme="day"] .local-admin-preview__chev {
+  border-right-color: #7b8799;
+  border-bottom-color: #7b8799;
+}
+
+[data-theme="day"] .local-admin-preview__list {
+  border-color: rgba(10,20,30,.12);
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 14px 28px rgba(19,29,43,.16);
+}
+
+[data-theme="day"] .local-admin-preview__option {
+  color: #223043;
+}
+
+[data-theme="day"] .local-admin-preview__option:hover,
+[data-theme="day"] .local-admin-preview__option:focus-visible,
+[data-theme="day"] .local-admin-preview__option.is-active {
+  background: rgba(var(--brand-rgb), .08);
+}
+
+[data-theme="day"] .local-admin-preview__avatar {
+  background: rgba(10,20,30,.04);
+}
+
+[data-theme="day"] .local-admin-preview__avatar-curatorr,
+[data-theme="day"] .local-admin-preview__avatar-fallback {
+  border-color: rgba(10,20,30,.08);
+}
+
 .wizard-checklist {
   display: flex;
   flex-direction: column;
@@ -6680,8 +6736,8 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   background: var(--surface-0, #141414);
   border: 1px solid var(--border, rgba(255,255,255,0.12));
   border-radius: 14px;
-  width: min(680px, 94vw);
-  max-height: 88vh;
+  width: min(1120px, calc(100vw - 32px));
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 24px 64px rgba(0,0,0,0.6);
@@ -6711,7 +6767,7 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
 }
 .spm-close:hover { color: var(--text, #e0e0e0); background: rgba(255,255,255,0.07); }
 .spm-body {
-  padding: 18px 20px;
+  padding: 22px 26px;
   overflow-y: auto;
   flex: 1 1 auto;
 }
@@ -6744,6 +6800,8 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 180px;
+  flex: 1 1 180px;
 }
 .spm-filter-section--inline .field span {
   font-size: 11px;
@@ -6827,6 +6885,18 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   flex-shrink: 0;
 }
 .spm-footer .btn { min-width: 90px; }
+
+.playlist-inline-code {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.35;
+  background: rgba(255,255,255,.08);
+  color: inherit;
+  border: 1px solid rgba(255,255,255,.08);
+}
 
 /* Checklist — shared with settings page, duplicated here for playlists page */
 .gp-checklist-wrap {
@@ -6935,6 +7005,12 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   color: #6b7a8d;
 }
 
+[data-theme="day"] .playlist-inline-code {
+  background: rgba(var(--brand-rgb), .09);
+  border-color: rgba(var(--brand-rgb), .14);
+  color: #223043;
+}
+
 [data-theme="day"] .gp-checklist-search {
   background: linear-gradient(180deg, #ffffff, #f6f8fb);
   color: #223043;
@@ -6964,6 +7040,13 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
 }
 
 @media (max-width: 860px) {
+  .spm-dialog {
+    width: min(940px, calc(100vw - 20px));
+    max-height: 94vh;
+  }
+  .spm-body {
+    padding: 18px 18px 20px;
+  }
   .spm-tiers-row .spm-filter-section {
     width: 100%;
     gap: 8px;
@@ -6982,6 +7065,24 @@ html[data-square-corners="1"] .cur-discover-fallback-card{
   }
   .spm-tiers-row .gp-chip-label .cur-badge {
     width: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .spm-dialog {
+    width: calc(100vw - 14px);
+    border-radius: 12px;
+  }
+  .spm-header,
+  .spm-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .spm-body {
+    padding: 16px;
+  }
+  .spm-filter-section--inline .field {
+    min-width: 100%;
   }
 }
 

@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.42 (2026-03-29)
+
+- Added analysis-based smart-playlist sort modes including BPM, energy, danceability, Camelot wheel, and DJ-flow ordering for global, personal, and blended playlist builders.
+- Fixed the smart-playlist builders and preset cards so they render cleanly in both light and dark themes, with improved modal sizing, readable helper text, and better field spacing.
+- Fixed local-admin dashboard banners and builder notices in light theme so Plex sign-in guidance, preview labels, and other theme-sensitive text stay readable.
+- Fixed duplicate personal playlist records pointing at the same Plex playlist by deduplicating stale rows and preventing duplicate-name saves for the same user.
+- Fixed analyzer-sidecar workflows in production so the sidecar must see the exact media path Curatorr exports, preventing zero-row analysis runs caused by mismatched mounts.
+
 ## v0.1.41 (2026-03-28)
 
 - Added an optional analyzer sidecar and custom analysis pipeline workflow for automatic BPM, musical key, Camelot key, energy, and danceability enrichment, with chunked processing, progress updates, and Docker-friendly defaults.

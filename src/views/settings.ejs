@@ -46,21 +46,21 @@
         <% } %>
 
         <style>
-          .playlist-preset-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:10px; }
-          .playlist-preset-card { position:relative; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:linear-gradient(180deg,rgba(14,18,27,.92),rgba(11,15,24,.82)); color:inherit; padding:12px; text-align:left; cursor:pointer; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
+          .playlist-preset-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:10px; align-items:stretch; }
+          .playlist-preset-card { position:relative; overflow:hidden; display:flex; flex-direction:column; min-height:100%; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:linear-gradient(180deg,rgba(14,18,27,.92),rgba(11,15,24,.82)); color:#f8fafc; padding:12px; text-align:left; cursor:pointer; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; box-shadow:0 14px 34px rgba(15,23,42,.18); }
           .playlist-preset-card:hover { transform:translateY(-1px); border-color:rgba(255,255,255,.22); }
           .playlist-preset-card.is-active { border-color:rgba(245,158,11,.92); box-shadow:0 0 0 1px rgba(245,158,11,.28), 0 12px 30px rgba(0,0,0,.26); }
           .playlist-preset-card.is-disabled,
-          .playlist-preset-card:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:none; }
+          .playlist-preset-card:disabled { opacity:.48; cursor:not-allowed; transform:none; box-shadow:none; filter:saturate(.6); }
           .playlist-preset-card__art { display:block; position:relative; overflow:hidden; height:104px; border-radius:12px; margin-bottom:12px; border:1px solid rgba(255,255,255,.10); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), inset 0 -24px 36px rgba(15,23,42,.22); }
           .playlist-preset-card__art::before,
           .playlist-preset-card__art::after { content:""; position:absolute; pointer-events:none; }
           .playlist-preset-card__art::before { inset:0; background:linear-gradient(180deg,rgba(255,255,255,.14),transparent 26%,rgba(15,23,42,.26)); }
           .playlist-preset-card__art::after { right:-10%; bottom:-26%; width:72%; height:72%; border-radius:999px; border:1px solid rgba(255,255,255,.20); box-shadow:0 0 0 16px rgba(255,255,255,.05), 0 0 0 36px rgba(255,255,255,.03); opacity:.7; transform:rotate(-18deg); }
           .playlist-preset-card__eyebrow { display:block; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.5); margin-bottom:4px; }
-          .playlist-preset-card__title { display:block; font-weight:700; margin-bottom:4px; }
-          .playlist-preset-card__desc { display:block; font-size:12px; color:rgba(255,255,255,.68); line-height:1.45; }
-          .playlist-preset-card__meta { display:block; margin-top:7px; font-size:11px; color:rgba(255,255,255,.5); }
+          .playlist-preset-card__title { display:block; font-weight:700; margin-bottom:4px; color:#f8fafc; }
+          .playlist-preset-card__desc { display:block; font-size:12px; color:rgba(255,255,255,.74); line-height:1.45; }
+          .playlist-preset-card__meta { display:block; margin-top:7px; font-size:11px; color:rgba(255,255,255,.58); }
           .playlist-preset-card--none .playlist-preset-card__art { background:
             linear-gradient(135deg,rgba(255,255,255,.06) 0 12%,transparent 12% 100%),
             linear-gradient(135deg,#111827,#1f2937); }
@@ -87,8 +87,35 @@
           .playlist-preset-card--downtempo .playlist-preset-card__art { background:
             linear-gradient(135deg,#0f172a,#334155 45%,#475569); }
           .playlist-preset-card--downtempo .playlist-preset-card__art::after { right:-10%; bottom:-28%; width:72%; height:72%; border-color:rgba(226,232,240,.18); box-shadow:0 0 0 16px rgba(148,163,184,.08), 0 0 0 34px rgba(71,85,105,.06); }
-          .playlist-feature-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-top:14px; }
-          .playlist-feature-note { margin-top:10px; font-size:12px; color:rgba(255,255,255,.62); }
+          .playlist-feature-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:14px; align-items:end; }
+          .playlist-feature-grid .field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+          .playlist-feature-grid .field span { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted,#94a3b8); }
+          .playlist-feature-grid .field input,
+          .playlist-feature-grid .field select { width:100%; min-height:44px; box-sizing:border-box; border-radius:10px; border:1px solid var(--border, rgba(255,255,255,.15)); background:var(--surface-1,#1e1e1e); color:var(--text,#e5e7eb); padding:9px 12px; }
+          .playlist-feature-note { margin-top:10px; font-size:12px; line-height:1.55; color:var(--muted,#a0aec0); }
+          .playlist-feature-note strong { color:var(--text,#f8fafc); }
+          .settings-inline-code { display:inline-flex; align-items:center; padding:2px 6px; border-radius:5px; font-size:11px; line-height:1.35; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.08); color:inherit; }
+          [data-theme="day"] .playlist-preset-card { background:linear-gradient(180deg,#ffffff,#eef3f8); border-color:rgba(10,20,30,.12); color:#223043; box-shadow:0 16px 36px rgba(15,23,42,.10); }
+          [data-theme="day"] .playlist-preset-card:hover { border-color:rgba(var(--brand-rgb), .24); box-shadow:0 18px 40px rgba(15,23,42,.14); }
+          [data-theme="day"] .playlist-preset-card.is-active { border-color:rgba(245,158,11,.92); box-shadow:0 0 0 1px rgba(245,158,11,.18), 0 18px 42px rgba(245,158,11,.14); }
+          [data-theme="day"] .playlist-preset-card__art { border-color:rgba(10,20,30,.10); box-shadow:inset 0 1px 0 rgba(255,255,255,.18), inset 0 -24px 36px rgba(15,23,42,.12); }
+          [data-theme="day"] .playlist-preset-card__eyebrow { color:#738297; }
+          [data-theme="day"] .playlist-preset-card__title { color:#223043; }
+          [data-theme="day"] .playlist-preset-card__desc { color:#4f5f73; }
+          [data-theme="day"] .playlist-preset-card__meta { color:#6b7a8d; }
+          [data-theme="day"] .playlist-feature-grid .field span { color:#6b7a8d; }
+          [data-theme="day"] .playlist-feature-grid .field input,
+          [data-theme="day"] .playlist-feature-grid .field select { background:linear-gradient(180deg,#ffffff,#f6f8fb); color:#223043; border-color:rgba(10,20,30,.12); }
+          [data-theme="day"] .playlist-feature-note { color:#5e6d80; }
+          [data-theme="day"] .playlist-feature-note strong { color:#1f2d3d; }
+          [data-theme="day"] .settings-inline-code { background:rgba(var(--brand-rgb), .09); border-color:rgba(var(--brand-rgb), .14); color:#223043; }
+          @media (max-width: 860px) {
+            .playlist-feature-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+          }
+          @media (max-width: 560px) {
+            .playlist-preset-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .playlist-feature-grid { grid-template-columns:1fr; }
+          }
         </style>
 
         <div class="settings-tabs" role="tablist" aria-label="Settings tabs">
@@ -162,7 +189,7 @@
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <div class="settings-card">
                 <div class="settings-card-title">Server Identity</div>
-                <div class="settings-card-sub">Remote URL is used for external links and webhook callbacks. Local URL is preferred for LAN Plex SSO. Use Base URL Path when Curatorr is served behind a subpath (for example <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">/curatorr</code>).</div>
+                <div class="settings-card-sub">Remote URL is used for external links and webhook callbacks. Local URL is preferred for LAN Plex SSO. Use Base URL Path when Curatorr is served behind a subpath (for example <code class="settings-inline-code">/curatorr</code>).</div>
                 <label class="field">
                   <span>Server name</span>
                   <input type="text" name="serverName" value="<%= config.general?.serverName || 'Curatorr' %>" placeholder="Curatorr" />
@@ -198,7 +225,7 @@
               <div class="settings-card">
                 <div class="settings-card-title">Track Analysis Import</div>
                 <div class="settings-card-sub">Curatorr writes BPM, musical key, Camelot key, energy, and danceability into the shared track enrichment store. For Docker installs, <strong>Analyzer sidecar</strong> is the normal mode.</div>
-                <div class="settings-card-sub" style="margin-top:8px">Docker installs should normally keep the default paths in <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">/app/data</code>. Sidecar mode should normally use <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">http://127.0.0.1:8765</code>.</div>
+                <div class="settings-card-sub" style="margin-top:8px">Docker installs should normally keep the default paths in <code class="settings-inline-code">/app/data</code>. Sidecar mode should normally use <code class="settings-inline-code">http://127.0.0.1:8765</code>.</div>
                 <label class="field">
                   <span>Feature manifest path</span>
                   <input type="text" name="featuresImportPath" value="<%= config.analysis?.featuresImportPath || '/app/data/track-features.json' %>" placeholder="/app/data/track-features.json" />
@@ -240,7 +267,7 @@
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="settings-toggle-text">Allow analyzer results to overwrite existing imported feature values</span>
                 </label>
-                <div class="settings-card-sub" style="margin-top:8px">Accepted JSON formats: an array of track objects, a root object with <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">tracks</code>, or an object keyed by rating key. Matching uses <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">ratingKey</code>, then <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">recordingMbid</code>, then <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">filePath</code>.</div>
+                <div class="settings-card-sub" style="margin-top:8px">Accepted JSON formats: an array of track objects, a root object with <code class="settings-inline-code">tracks</code>, or an object keyed by rating key. Matching uses <code class="settings-inline-code">ratingKey</code>, then <code class="settings-inline-code">recordingMbid</code>, then <code class="settings-inline-code">filePath</code>.</div>
                 <div class="settings-card-sub" style="margin-top:8px">Custom command mode is optional and intended for advanced external pipelines. Most Docker installs should leave it unused and stay on the sidecar mode.</div>
               </div>
               <div class="settings-card-actions settings-card-actions--full">
@@ -300,7 +327,7 @@
                   </div>
                 </div>
                 <% if (canViewServiceSecrets && webhookUrls?.plex) { %>
-                  <div class="plex-settings-note">Curatorr can register the Plex account webhook automatically and will also enable Plex server webhooks. Current target: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.plex %></code>.</div>
+                  <div class="plex-settings-note">Curatorr can register the Plex account webhook automatically and will also enable Plex server webhooks. Current target: <code class="settings-inline-code"><%= webhookUrls.plex %></code>.</div>
                 <% } else { %>
                   <div class="plex-settings-note">Curatorr can register the Plex account webhook automatically. Credentials and webhook URLs are visible to admins only.</div>
                 <% } %>
@@ -371,7 +398,7 @@
                 <div class="settings-card-sub">
                   Tautulli is optional and works best as a daily gap-fill backup. Curatorr can register the webhook automatically, and the scheduled sync will fill in missed plays without overwriting Plex-recorded listens.<br />
                   <% if (canViewServiceSecrets && webhookUrls?.tautulli) { %>
-                    URL: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.tautulli %></code><br />
+                    URL: <code class="settings-inline-code"><%= webhookUrls.tautulli %></code><br />
                   <% } else { %>
                     URL: visible to admins only<br />
                   <% } %>
@@ -430,7 +457,7 @@
                 <% if (canViewServiceSecrets && webhookUrls?.jellyfin) { %>
                 <div class="plex-settings-note" style="margin-top:12px">
                   Webhook URL — configure this in your Jellyfin webhook plugin:<br />
-                  <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.jellyfin %></code>
+                  <code class="settings-inline-code"><%= webhookUrls.jellyfin %></code>
                 </div>
                 <% } %>
                 <div class="plex-settings-actions" style="margin-top:12px">
@@ -488,7 +515,7 @@
                 <% if (canViewServiceSecrets && webhookUrls?.emby) { %>
                 <div class="plex-settings-note" style="margin-top:12px">
                   Webhook URL — configure this in Emby → Notifications:<br />
-                  <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px"><%= webhookUrls.emby %></code>
+                  <code class="settings-inline-code"><%= webhookUrls.emby %></code>
                 </div>
                 <% } %>
                 <div class="plex-settings-actions" style="margin-top:12px">
@@ -564,7 +591,7 @@
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
                     <span class="settings-toggle-text">Auto trigger manual search after starter album is added</span>
                   </label>
-                  <div class="settings-card-sub" style="margin-top:2px">When enabled, Curatorr will immediately queue a Lidarr <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">AlbumSearch</code> for the starter album after it is monitored.</div>
+                  <div class="settings-card-sub" style="margin-top:2px">When enabled, Curatorr will immediately queue a Lidarr <code class="settings-inline-code">AlbumSearch</code> for the starter album after it is monitored.</div>
                   <label class="settings-toggle" style="margin-top:12px">
                     <input type="checkbox" name="autoAddArtists" value="1" <%= lidarrAutomation?.autoAddArtists ? 'checked' : '' %> />
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
@@ -638,7 +665,7 @@
                       <input type="number" min="-1" max="999" name="userWeeklyAlbums" value="<%= lidarrAutomation?.roleQuotas?.user?.weeklyAlbums ?? 0 %>" />
                     </label>
                   </div>
-                  <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">Use <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">-1</code> for unlimited quotas.</small>
+                  <small style="font-size:10px;color:var(--muted);text-transform:none;letter-spacing:0">Use <code class="settings-inline-code">-1</code> for unlimited quotas.</small>
                 </div>
                 <div class="settings-card-actions settings-card-actions--full">
                   <button class="primary-button" type="submit">Save Lidarr settings</button>
@@ -1379,7 +1406,7 @@
                     </select>
                   </label>
                 </div>
-                  <div class="playlist-feature-note">Presets fill these feature ranges for you. Camelot uses DJ wheel notation rather than classical names: <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A</code> is <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">A minor</code>, and <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8B</code> is <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">C major</code>. Camelot focus accepts one or more keys like <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A</code> or <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;font-size:11px">8A, 9A, 10A</code>. Exact uses only the listed keys. Adjacent adds neighboring numbers on the same letter. Relative adds the same number on the opposite letter. Full harmonic set combines both.</div>
+                  <div class="playlist-feature-note">Presets fill these feature ranges for you. Camelot uses DJ wheel notation rather than classical names: <code class="settings-inline-code">8A</code> is <code class="settings-inline-code">A minor</code>, and <code class="settings-inline-code">8B</code> is <code class="settings-inline-code">C major</code>. Camelot focus accepts one or more keys like <code class="settings-inline-code">8A</code> or <code class="settings-inline-code">8A, 9A, 10A</code>. Exact uses only the listed keys. Adjacent adds neighboring numbers on the same letter. Relative adds the same number on the opposite letter. Full harmonic set combines both.</div>
                   <div class="playlist-feature-note" id="gp-feature-match-note">Current feature match: <strong id="gp-feature-match-count">—</strong> tracks after your edits.</div>
               </div>
 
@@ -1482,6 +1509,13 @@
                       <option value="ratingCount">Global rating count</option>
                       <option value="tierWeight">Tier weight</option>
                       <option value="playCount">Play count</option>
+                      <option value="bpmAsc">BPM low to high</option>
+                      <option value="bpmDesc">BPM high to low</option>
+                      <option value="energyAsc">Energy low to high</option>
+                      <option value="energyDesc">Energy high to low</option>
+                      <option value="danceabilityDesc">Danceability high to low</option>
+                      <option value="camelot">Camelot wheel</option>
+                      <option value="djFlow">DJ flow (Camelot + BPM)</option>
                     </select>
                   </label>
                 </div>
