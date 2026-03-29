@@ -48,8 +48,8 @@ dev.md
 # Local maintenance binaries
 bfg.jar
 
-# Local helper scripts
-scripts/
+# Python cache
+scripts/__pycache__/
 
 # Local module development
 local-modules/

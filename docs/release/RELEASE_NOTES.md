@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.44 (2026-03-29)
+
+- Fixed release packaging so the analyzer worker scripts are tracked in Git and included in tagged source checkouts used by GitHub Actions.
+- Fixed analyzer Docker builds failing with missing `scripts/analyze-track-features.py` and `scripts/analyzer-sidecar.py` during `COPY`.
+- Keeps the `v0.1.43` Docker publish fix so `mickygx/curatorr-analyzer` continues to publish for both `linux/amd64` and `linux/arm64`.
+
 ## v0.1.43 (2026-03-29)
 
 - Fixed Docker Hub publishing so `mickygx/curatorr-analyzer` is now released alongside the main app image instead of being skipped by the publish workflow.
