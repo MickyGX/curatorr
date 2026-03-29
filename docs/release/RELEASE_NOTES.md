@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.45 (2026-03-29)
+
+- Fixed the npm lockfile so GitHub Actions `checks` can run `npm ci` successfully against the committed dependency manifest.
+- Keeps the analyzer release packaging and multi-arch Docker publish fixes from `v0.1.44`, including tracked analyzer worker scripts and `linux/amd64` plus `linux/arm64` analyzer images.
+
 ## v0.1.44 (2026-03-29)
 
 - Fixed release packaging so the analyzer worker scripts are tracked in Git and included in tagged source checkouts used by GitHub Actions.

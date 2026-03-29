@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing tag to publish/announce (for example v0.1.44)
+        required: true
 
 permissions:
   contents: write
+  discussions: write
 
 jobs:
   publish:
@@ -14,11 +20,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag_name || github.ref_name }}
+
+      - name: Resolve release context
+        id: release_context
+        run: |
+          TAG_NAME="${{ inputs.tag_name || github.ref_name }}"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve release notes file
         id: notes
         run: |
-          NOTES_FILE="docs/release/releases/${GITHUB_REF_NAME}.md"
+          NOTES_FILE="docs/release/releases/${{ steps.release_context.outputs.tag_name }}.md"
           if [[ -f "$NOTES_FILE" ]]; then
             echo "has_notes=true" >> "$GITHUB_OUTPUT"
             echo "notes_file=$NOTES_FILE" >> "$GITHUB_OUTPUT"
@@ -30,16 +45,36 @@ jobs:
         if: steps.notes.outputs.has_notes == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release_context.outputs.tag_name }}
+          name: ${{ steps.release_context.outputs.tag_name }}
           body_path: ${{ steps.notes.outputs.notes_file }}
+          discussion_category_name: Announcements
           make_latest: true
 
       - name: Create release with auto notes fallback
         if: steps.notes.outputs.has_notes != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.release_context.outputs.tag_name }}
+          name: ${{ steps.release_context.outputs.tag_name }}
           generate_release_notes: true
+          discussion_category_name: Announcements
           make_latest: true
+
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+        run: |
+          if [[ -z "${DISCORD_WEBHOOK_URL}" ]]; then
+            echo "DISCORD_RELEASE_WEBHOOK_URL not set; skipping Discord notification."
+            exit 0
+          fi
+
+          TAG_NAME="${{ steps.release_context.outputs.tag_name }}"
+          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG_NAME}"
+          MESSAGE="Curatorr ${TAG_NAME} released: ${RELEASE_URL}"
+
+          curl -sS \
+            -H "Content-Type: application/json" \
+            -d "{\"content\":\"${MESSAGE}\"}" \
+            "${DISCORD_WEBHOOK_URL}"
