@@ -3044,7 +3044,7 @@
         var value = String(rule?.value || '');
         var caseSensitive = Boolean(rule?.caseSensitive);
         return '<div class="spm-wizard-regex-row" data-regex-index="' + index + '">' +
-          '<label class="field"><span>Field</span><select class="wiz-regex-field"><option value="trackTitle"' + (field === 'trackTitle' ? ' selected' : '') + '>Track title</option><option value="albumName"' + (field === 'albumName' ? ' selected' : '') + '>Album</option><option value="artistName"' + (field === 'artistName' ? ' selected' : '') + '>Artist</option></select></label>' +
+          '<label class="field"><span>Field</span><select class="wiz-regex-field"><option value="trackTitle"' + (field === 'trackTitle' ? ' selected' : '') + '>Track title</option><option value="albumName"' + (field === 'albumName' ? ' selected' : '') + '>Album</option><option value="artistName"' + (field === 'artistName' ? ' selected' : '') + '>Artist</option><option value="filePath"' + (field === 'filePath' ? ' selected' : '') + '>File path</option></select></label>' +
           '<label class="field"><span>Match</span><select class="wiz-regex-operator"><option value="regex"' + (operator === 'regex' ? ' selected' : '') + '>Matches regex</option><option value="not_regex"' + (operator === 'not_regex' ? ' selected' : '') + '>Does not match</option></select></label>' +
           '<label class="field field--wide"><span>Pattern</span><input type="text" class="wiz-regex-value" placeholder="e.g. (christmas|xmas)" value="' + escH(value) + '" /></label>' +
           '<label class="spm-wizard-regex-case"><input type="checkbox" class="wiz-regex-case"' + (caseSensitive ? ' checked' : '') + ' /> <span>Case sensitive</span></label>' +
@@ -3058,11 +3058,11 @@
       var regexOpen = (_wizardState.activeAdvancedSection || 'include') === 'regex';
       html += '<div class="spm-filter-section spm-wizard-accordion' + (regexOpen ? ' is-open' : '') + '" data-advanced-kind="regex">' +
         '<button type="button" class="spm-wizard-accordion-toggle" data-advanced-toggle="regex">' +
-          '<span class="spm-filter-label">Regex rules</span>' +
+          '<span class="spm-filter-label">Regex exclusions</span>' +
           '<span class="spm-wizard-accordion-indicator">' + (regexOpen ? '−' : '+') + '</span>' +
         '</button>' +
         '<div class="spm-wizard-accordion-panel"' + (regexOpen ? '' : ' hidden') + ' data-advanced-panel="regex">' +
-        '<div class="spm-wizard-field-hint">Apply regex matches against track title, album, or artist. Leave this empty if you do not need advanced text matching.</div>' +
+        '<div class="spm-wizard-field-hint">Rules remove matching tracks. Use them against track title, album, artist, or full file path; "does not match" therefore keeps only matching items.</div>' +
         '<div id="wiz-regex-rules">' + (regexRules.length ? regexRules.map(renderRegexRule).join('') : '<div class="spm-wizard-folder-empty">No regex rules yet.</div>') + '</div>' +
         '<button type="button" class="btn btn-ghost" id="wiz-regex-add">+ Add regex rule</button>' +
         '</div>' +

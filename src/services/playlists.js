@@ -1282,6 +1282,7 @@ function trackMatchesRule(track, rule) {
     albumName:  track.albumName,
     trackTitle: track.trackTitle,
     artistName: track.artistName,
+    filePath:   String(track.filePath || '').replace(/\\/g, '/'),
     musicalKey: track.musicalKey,
     camelotKey: track.camelotKey,
   };

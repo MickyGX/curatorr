@@ -1295,7 +1295,7 @@
               return '<input type="text" name="' + prefix + '_rule_val" value="' + (value || '').replace(/"/g, '&quot;') + '" class="tf-val" placeholder="' + placeholder + '" />';
             }
             function tfAddRule(prefix, segments) {
-              var fields = _TF_FIELDS_CR_CU;
+              var fields = prefix === 'gp' ? _TF_FIELDS_GP : _TF_FIELDS_CR_CU;
               var row = document.createElement('div');
               row.className = 'tf-rule-row';
               var defaultField = fields[0].value;
@@ -1587,7 +1587,8 @@
                 </div>
                 <div class="tf-body">
                   <%# Pattern rules %>
-                  <div class="settings-field-label" style="margin-bottom:4px">Pattern rules (album / title / artist)</div>
+                  <div class="settings-field-label" style="margin-bottom:4px">Pattern exclusions (album / title / artist / path)</div>
+                  <div class="settings-card-sub" style="margin-bottom:6px">Rules remove matching tracks. For regex rules, <code class="settings-inline-code">does not match regex</code> keeps only items that do match the pattern.</div>
                   <div class="tf-rules-list" id="tf-list-gp"></div>
                   <button type="button" class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="tfAddRule('gp')">+ Add Rule</button>
 
@@ -1815,9 +1816,9 @@
                   var row = document.createElement('div');
                   row.className = 'tf-rule-row';
                   row.innerHTML =
-                    '<select name="gp_rule_field" class="tf-select" onchange="tfUpdateVal(this,\'gp\')">' + tfMakeFieldOpts(_TF_FIELDS_CR_CU, rule.field) + '</select>' +
+                    '<select name="gp_rule_field" class="tf-select" onchange="tfUpdateVal(this,\'gp\')">' + tfMakeFieldOpts(_TF_FIELDS_GP, rule.field) + '</select>' +
                     '<select name="gp_rule_op" class="tf-select" onchange="tfUpdateOp(this,\'gp\')">' + tfMakeOpOpts(rule.operator, rule.field) + '</select>' +
-                    tfMakeValInput('gp', rule.field, rule.value, [], rule.operator) +
+                    tfMakeValInput('gp', rule.field, rule.value, rule.field === 'filePath' ? _TF_PATH_SEGMENTS : [], rule.operator) +
                     '<label class="tf-cs-label"><input type="checkbox" name="gp_rule_cs" value="on"' + (rule.caseSensitive ? ' checked' : '') + ' /><span>Aa</span></label>' +
                     '<button type="button" class="tf-remove-btn" onclick="this.closest(\'.tf-rule-row\').remove()">×</button>';
                   tfList.appendChild(row);

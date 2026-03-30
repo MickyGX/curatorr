@@ -3782,6 +3782,37 @@ describe('security guards', () => {
     }
   });
 
+  it('applies file path regex exclusion filters against the full track path', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-path-filters-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('path-1', 'Artist Halloween', 'Track Halloween', 'Halloween', 'mbid-path-1', '[]', '1', '/music/Compilations/Halloween Party/track-1.flac', 180000, 0, 0, now);
+    insertMaster.run('path-2', 'Artist Normal', 'Track Normal', 'Regular Album', 'mbid-path-2', '[]', '1', '/music/Compilations/Regular Party/track-2.flac', 180000, 0, 0, now);
+
+    try {
+      const masterTracks = getMasterTracks(db);
+
+      const regexExcluded = applyTrackFilters(masterTracks, {
+        rules: [{ field: 'filePath', operator: 'regex', value: 'halloween party', caseSensitive: false }],
+      });
+      assert.deepEqual(regexExcluded.map((track) => track.ratingKey).sort(), ['path-2']);
+
+      const inverseRegexExcluded = applyTrackFilters(masterTracks, {
+        rules: [{ field: 'filePath', operator: 'not_regex', value: 'halloween party', caseSensitive: false }],
+      });
+      assert.deepEqual(inverseRegexExcluded.map((track) => track.ratingKey).sort(), ['path-1']);
+    } finally {
+      db.close();
+    }
+  });
+
   it('deduplicates release variants by artist and fuzzy song title when requested', async () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-release-dedupe-${Date.now()}.db`);
     const db = initDb(dbPath);
