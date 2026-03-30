@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.50 (2026-03-30)
+
+- Fixed the main Curatorr Docker image healthcheck regression by restoring `wget` in the runtime image after the move from Alpine to Debian slim.
+- Fixed repeated restarts on installs that use the existing compose healthcheck `wget -q -O /dev/null http://127.0.0.1:7676/`, including the default `/share/Docker` deployment.
+
 ## v0.1.49 (2026-03-30)
 
 - Fixed analyzer tag reuse in Docker publishes so release tags now fall back to the nearest existing analyzer image on Docker Hub instead of assuming the immediately previous git tag was published successfully.
