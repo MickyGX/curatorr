@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.48 (2026-03-30)
+
+- Fixed Docker release packaging for the main Curatorr image by moving the app container off Alpine/QEMU for native module installation and using a Debian-based Node image instead.
+- Fixed runtime user switching in the container entrypoint so the same image continues to support `PUID` and `PGID` overrides after the base-image change.
+- Restored a clean path for tagged multi-arch publishes after the `v0.1.47` app image failed during the ARM64 build stage.
+
 ## v0.1.47 (2026-03-30)
 
 - Added richer playlist management controls with per-card audience badges, Launcharr-style playlist filtering, status-aware ordering, and enable/disable actions for personal, external, blend, global, and system playlists.

@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 ARG APP_VERSION=""
 
@@ -6,11 +6,13 @@ WORKDIR /app
 ENV NODE_ENV=production \
     APP_VERSION=${APP_VERSION}
 
-# better-sqlite3 requires native compilation tools
-RUN apk add --no-cache python3 make g++ su-exec
+# better-sqlite3 requires native compilation tools, and gosu handles privilege drop.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ gosu \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY . .
 RUN mkdir -p /app/data /app/config /app/public/icons/custom && chown -R node:node /app
