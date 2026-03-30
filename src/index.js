@@ -2017,6 +2017,7 @@ export async function start() {
 
 export async function stop() {
   if (!server) return;
+  server.closeAllConnections();
   await new Promise((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });

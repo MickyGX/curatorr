@@ -1392,8 +1392,8 @@ export function registerWebhooks(app, ctx) {
   // then repeat every 15s.
   setTimeout(() => {
     pollMediaServerSessions().catch(() => {});
-    setInterval(() => { pollMediaServerSessions().catch(() => {}); }, 15_000);
-  }, 5_000);
+    setInterval(() => { pollMediaServerSessions().catch(() => {}); }, 15_000).unref();
+  }, 5_000).unref();
 
   // ── Status endpoint ───────────────────────────────────────────────────────
 

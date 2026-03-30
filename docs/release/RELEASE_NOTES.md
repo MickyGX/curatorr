@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.51 (2026-03-30)
+
+- Reverted Docker runtime base from Debian slim back to `node:20-alpine`; `wget` is now explicitly included so compose healthchecks work without changes.
+- Fixed CI hang: `server.close()` now calls `closeAllConnections()` first so keep-alive connections don't block test teardown.
+- Fixed CI hang: media server session polling timer in the webhook handler now calls `.unref()` so the Node.js process exits after tests complete instead of waiting for the next poll interval.
+
 ## v0.1.50 (2026-03-30)
 
 - Fixed the main Curatorr Docker image healthcheck regression by restoring `wget` in the runtime image after the move from Alpine to Debian slim.

@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:20-alpine
 
 ARG APP_VERSION=""
 
@@ -6,11 +6,9 @@ WORKDIR /app
 ENV NODE_ENV=production \
     APP_VERSION=${APP_VERSION}
 
-# better-sqlite3 requires native compilation tools, gosu handles privilege drop,
+# better-sqlite3 requires native compilation tools, su-exec handles privilege drop,
 # and wget keeps existing compose healthchecks working unchanged.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ gosu wget \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache python3 make g++ su-exec wget
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
