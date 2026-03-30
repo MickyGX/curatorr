@@ -128,12 +128,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=curatorr-analyzer
 
       - name: Reuse previous analyzer image for release tag
+        id: reuse-analyzer
         if: startsWith(github.ref, 'refs/tags/') && steps.analyzer-changes.outputs.changed != 'true' && steps.analyzer-changes.outputs.source_tag != ''
         shell: bash
         run: |
           set -euo pipefail
 
-          source_image="mickygx/curatorr-analyzer:${{ steps.analyzer-changes.outputs.source_tag }}"
           tag_args=()
           while IFS= read -r tag; do
             [[ -n "${tag}" ]] || continue
@@ -145,16 +145,35 @@ jobs:
             exit 1
           fi
 
-          docker buildx imagetools inspect "${source_image}" > /dev/null
+          source_tag=""
+          while IFS= read -r candidate_tag; do
+            [[ -n "${candidate_tag}" ]] || continue
+            if docker buildx imagetools inspect "mickygx/curatorr-analyzer:${candidate_tag}" > /dev/null 2>&1; then
+              source_tag="${candidate_tag}"
+              break
+            fi
+          done < <(git tag --list 'v*.*.*' --sort=-version:refname | grep -Fxv "${GITHUB_REF_NAME}")
+
+          if [[ -z "${source_tag}" ]]; then
+            if docker buildx imagetools inspect "mickygx/curatorr-analyzer:latest" > /dev/null 2>&1; then
+              source_tag="latest"
+            else
+              echo "No reusable analyzer image tag was found on Docker Hub."
+              exit 1
+            fi
+          fi
+
+          source_image="mickygx/curatorr-analyzer:${source_tag}"
           docker buildx imagetools create "${tag_args[@]}" "${source_image}"
+          echo "source_tag=${source_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Summarize analyzer publish strategy
         shell: bash
         run: |
           if [[ "${{ steps.analyzer-changes.outputs.changed }}" == "true" ]]; then
             echo "Analyzer image rebuilt from source changes." >> "$GITHUB_STEP_SUMMARY"
-          elif [[ -n "${{ steps.analyzer-changes.outputs.source_tag }}" && "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            echo "Analyzer image unchanged; reused mickygx/curatorr-analyzer:${{ steps.analyzer-changes.outputs.source_tag }} for this release tag." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -n "${{ steps.reuse-analyzer.outputs.source_tag }}" && "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            echo "Analyzer image unchanged; reused mickygx/curatorr-analyzer:${{ steps.reuse-analyzer.outputs.source_tag }} for this release tag." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Analyzer image unchanged; skipped rebuild for this push." >> "$GITHUB_STEP_SUMMARY"
           fi

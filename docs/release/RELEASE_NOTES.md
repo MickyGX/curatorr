@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.49 (2026-03-30)
+
+- Fixed analyzer tag reuse in Docker publishes so release tags now fall back to the nearest existing analyzer image on Docker Hub instead of assuming the immediately previous git tag was published successfully.
+- Restored complete aligned release tagging for `curatorr` and `curatorr-analyzer` after the `v0.1.48` analyzer retag step failed looking for a non-existent `v0.1.47` analyzer image.
+
 ## v0.1.48 (2026-03-30)
 
 - Fixed Docker release packaging for the main Curatorr image by moving the app container off Alpine/QEMU for native module installation and using a Debian-based Node image instead.
