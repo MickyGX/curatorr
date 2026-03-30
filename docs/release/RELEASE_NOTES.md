@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.52 (2026-03-30)
+
+- Clarified regex-based playlist filtering so the UI now labels those rules as exclusions, reducing confusion around `does not match regex` behavior.
+- Added full file-path matching support for regex exclusion rules so mixed compilation folders can be filtered without selecting each folder manually.
+- Fixed global playlist filter editing so existing file-path rules load and round-trip correctly in Settings.
+
 ## v0.1.51 (2026-03-30)
 
 - Reverted Docker runtime base from Debian slim back to `node:20-alpine`; `wget` is now explicitly included so compose healthchecks work without changes.
