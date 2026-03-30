@@ -40,6 +40,35 @@
           if (!ts) return '—';
           return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
+        function resolvePlaylistBadgeKind(audience, playlistType) {
+          const type = String(playlistType || '').trim().toLowerCase();
+          if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
+          return String(audience || 'personal').trim().toLowerCase();
+        }
+        function playlistAudienceIconMarkup(audience, playlistType) {
+          const kind = resolvePlaylistBadgeKind(audience, playlistType);
+          if (kind === 'global') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
+          }
+          if (kind === 'external') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M10 14 20 4"></path><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"></path></svg>';
+          }
+          if (kind === 'system') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 3.5v2.2"></path><path d="M12 18.3v2.2"></path><path d="m18.5 5.5-1.5 1.5"></path><path d="m7 17-1.5 1.5"></path><path d="M20.5 12h-2.2"></path><path d="M5.7 12H3.5"></path><path d="m18.5 18.5-1.5-1.5"></path><path d="M7 7 5.5 5.5"></path></svg>';
+          }
+          if (kind === 'blend') {
+            return '<img src="/icons/blend.svg" alt="" aria-hidden="true" />';
+          }
+          return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12"></path><path d="M4 10h9"></path><path d="M4 14h10"></path><path d="M4 18h7"></path><path d="M18.5 8.5 21 10l-2.5 1.5v-3z"></path></svg>';
+        }
+        function playlistAudienceTitle(audience, playlistType) {
+          const kind = resolvePlaylistBadgeKind(audience, playlistType);
+          if (kind === 'global') return 'Global playlist';
+          if (kind === 'blend') return 'Blend playlist';
+          if (kind === 'external') return 'External playlist';
+          if (kind === 'system') return 'System playlist';
+          return 'Personal playlist';
+        }
       %>
 
       <div class="dash-content">
@@ -49,11 +78,66 @@
             <h3 class="cur-panel-title">Playlists</h3>
             <div id="plSelectionBar" class="pl-selection-bar" style="display:none">
               <span id="plSelectionCount" class="pl-selection-count"></span>
-              <button class="btn btn-sm btn-ghost pl-selection-clear" type="button" onclick="clearCardSelection()">Clear</button>
-              <button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none" type="button" onclick="deleteSelectedPlaylists()">Delete Selected</button>
+              <button class="btn btn-sm pl-toolbar-button pl-selection-clear" type="button" onclick="clearCardSelection()">Clear</button>
+              <button class="btn btn-sm pl-toolbar-button" type="button" id="plSelectionEnableBtn" onclick="toggleSelectedPlaylists(true)">Enable Selected</button>
+              <button class="btn btn-sm pl-toolbar-button" type="button" id="plSelectionDisableBtn" onclick="toggleSelectedPlaylists(false)">Disable Selected</button>
+              <button class="btn btn-sm pl-toolbar-button pl-toolbar-button--danger" type="button" onclick="deleteSelectedPlaylists()">Delete Selected</button>
             </div>
             <div class="cur-panel-actions">
-              <button class="btn btn-sm btn-ghost" type="button" onclick="openSmartPlaylistModal()">+ Smart Playlist</button>
+              <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Create smart playlist" title="Create smart playlist" onclick="openSmartPlaylistModal()">
+                <span class="pl-header-plus" aria-hidden="true">+</span>
+              </button>
+              <div class="cur-filter-menu pl-filter-menu" data-cur-filter-menu>
+                <button class="cur-nav-button cur-nav-button--compact pl-filter-trigger" type="button" data-cur-filter-toggle aria-label="Open playlist filters" title="Filters" aria-haspopup="true" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M4 6.5c0-.83.67-1.5 1.5-1.5h13c.83 0 1.5.67 1.5 1.5 0 .35-.12.69-.35.96L14 13.88V18c0 .32-.15.62-.41.81l-2.4 1.8A1 1 0 0 1 9.6 19.8v-5.92L4.35 7.46A1.5 1.5 0 0 1 4 6.5Z" />
+                  </svg>
+                </button>
+                <div class="cur-filter-popover pl-filter-popover" data-cur-filter-popover hidden>
+                  <div class="cur-filter-popover-heading">Playlist type</div>
+                  <div class="cur-filter-popover-options" role="menu" aria-label="Playlist type filter">
+                    <button class="cur-filter-option is-active" type="button" data-playlist-type-filter="all" data-cur-filter-close>
+                      <span>All</span>
+                      <span class="cur-filter-option-note">Every playlist</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-type-filter="personal" data-cur-filter-close>
+                      <span>Personal</span>
+                      <span class="cur-filter-option-note">Your own smart playlists</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-type-filter="external" data-cur-filter-close>
+                      <span>External</span>
+                      <span class="cur-filter-option-note">Last.fm and ListenBrainz</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-type-filter="blend" data-cur-filter-close>
+                      <span>Blended</span>
+                      <span class="cur-filter-option-note">Shared taste mixes</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-type-filter="global" data-cur-filter-close>
+                      <span>Global</span>
+                      <span class="cur-filter-option-note">Shared across users</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-type-filter="system" data-cur-filter-close>
+                      <span>System</span>
+                      <span class="cur-filter-option-note">Curatorr-managed defaults</span>
+                    </button>
+                  </div>
+                  <div class="cur-filter-popover-heading">Enable status</div>
+                  <div class="cur-filter-popover-options" role="menu" aria-label="Playlist enabled status filter">
+                    <button class="cur-filter-option is-active" type="button" data-playlist-status-filter="all" data-cur-filter-close>
+                      <span>All</span>
+                      <span class="cur-filter-option-note">Enabled and disabled</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-status-filter="enabled" data-cur-filter-close>
+                      <span>Enabled</span>
+                      <span class="cur-filter-option-note">Active in <%= _msLabel %></span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-status-filter="disabled" data-cur-filter-close>
+                      <span>Disabled</span>
+                      <span class="cur-filter-option-note">Hidden from <%= _msLabel %></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
               <span class="cur-sync-status" id="syncStatus"></span>
               <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="playlistCarouselPrev" aria-label="Previous">
                 <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
@@ -68,7 +152,7 @@
               <div class="cur-playlist-carousel-viewport plex-carousel-viewport" id="playlistCarouselViewport">
                 <div class="cur-playlist-carousel-track plex-carousel-track" id="playlistCarouselTrack">
                   <% _playlistCards.forEach(function(p, idx) { %>
-                    <div class="plex-card cur-discover-result-card cur-playlist-carousel-card<%= idx === 0 ? ' is-active' : '' %>"
+                    <div class="plex-card cur-discover-result-card cur-playlist-carousel-card<%= idx === 0 ? ' is-active' : '' %><%= p.active === false ? ' is-disabled' : '' %>"
                       role="button"
                       tabindex="0"
                       data-pl-id="<%= p.plexPlaylistId || '' %>"
@@ -76,6 +160,8 @@
                       data-pl-title="<%= p.playlistTitle || 'Playlist' %>"
                       data-playlist-kind="<%= p.playlistKind || 'generated' %>"
                       data-playlist-type="<%= p.playlistType || '' %>"
+                      data-playlist-audience="<%= p.playlistAudience || 'personal' %>"
+                      data-playlist-active="<%= p.active === false ? 'false' : 'true' %>"
                       data-playlist-state="<%= p.state || 'pending' %>"
                       data-playlist-track-count="<%= Number(p.trackCount || 0) %>"
                       data-playlist-updated-at="<%= Number(p.curatorrUpdatedAt || 0) %>"
@@ -87,7 +173,7 @@
                           <% if (p.artPath) { %>
                             <img src="<%= (_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(p.artPath) + (p.artTag ? '&tag=' + encodeURIComponent(p.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
                           <% } %>
-                          <% if (['personal', 'global', 'custom'].includes(p.playlistType)) { %>
+                          <% if (p.playlistKey) { %>
                           <label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()">
                             <input type="checkbox" class="pl-card-checkbox" onchange="onCardCheckChange(this)" />
                             <span class="pl-card-checkbox-ui"></span>
@@ -96,6 +182,9 @@
                           <button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:9px" onclick="event.stopPropagation(); selectPlaylist(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" />
                           </button>
+                          <div class="pl-card-audience-badge" title="<%= playlistAudienceTitle(p.playlistAudience, p.playlistType) %>">
+                            <%- playlistAudienceIconMarkup(p.playlistAudience, p.playlistType) %>
+                          </div>
                           <% if (p.playlistType === 'personal') { %>
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
@@ -113,8 +202,11 @@
                               <% } else if (p.playlistType === 'global') { %>
                               <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                               <% } %>
-                              <button type="button" onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rebuild</button>
-                              <% if (['personal', 'global', 'custom'].includes(p.playlistType)) { %>
+                              <% if (p.playlistKey) { %>
+                              <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
+                              <% } %>
+                              <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rebuild</button>
+                              <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
                               <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
                               <% } %>
                             </div>
@@ -124,7 +216,7 @@
                       <div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">
                         <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= p.playlistTitle || 'Playlist' %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks</div>
-                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta">Curatorr updated <%= fmtDate(p.curatorrUpdatedAt) %></div>
+                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? 'Disabled in Plex' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt) %></div>
                       </div>
                     </div>
                   <% }) %>
@@ -133,6 +225,7 @@
             <% } else { %>
               <div class="cur-empty">No playlists available yet.</div>
             <% } %>
+            <div id="playlistFilterEmpty" class="cur-empty" style="display:none">No playlists match the current filters.</div>
 
             <div id="newPlaylistDialog" class="cur-inline-dialog" style="display:none">
               <div class="cur-inline-dialog-body">
@@ -454,6 +547,7 @@
           <label class="field" style="flex:1">
             <span>Sort tracks by</span>
             <select id="spm-sort-by">
+              <option value="default">Default playlist order</option>
               <option value="ratingCount">Global rating count</option>
               <option value="tierWeight">Tier weight</option>
               <option value="playCount">Play count</option>
@@ -464,6 +558,15 @@
               <option value="danceabilityDesc">Danceability high to low</option>
               <option value="camelot">Camelot wheel</option>
               <option value="djFlow">DJ flow (Camelot + BPM)</option>
+            </select>
+          </label>
+          <label class="field" style="flex:1">
+            <span>Final ordering</span>
+            <select id="spm-final-ordering">
+              <option value="none">None</option>
+              <option value="plexSonic">Plex sonic</option>
+              <option value="loudness">Loudness smoothing</option>
+              <option value="plexSonicLoudness">Plex sonic then loudness</option>
             </select>
           </label>
         </div>
@@ -536,6 +639,10 @@
     var CURRENT_USER_ID = <%- JSON.stringify(currentUserId || '') %>;
     var IS_ACTUAL_ADMIN = <%- JSON.stringify(actualRole === 'admin') %>;
     var ALL_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
+    var _playlistCardFilterState = {
+      type: 'all',
+      status: 'all',
+    };
 
     function fmtDuration(ms) {
       if (!ms) return '';
@@ -563,6 +670,149 @@
 
     function escAttr(s) {
       return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    }
+
+    function getPlaylistCardElements() {
+      return Array.from(document.querySelectorAll('#playlistCarouselTrack .cur-playlist-carousel-card'));
+    }
+
+    function isPlaylistCardVisible(card) {
+      return Boolean(card) && !card.classList.contains('plex-hidden');
+    }
+
+    function resetPlaylistCarouselViewport() {
+      var viewport = document.getElementById('playlistCarouselViewport');
+      if (!viewport) return;
+      try {
+        viewport.scrollTo({ left: 0, behavior: 'auto' });
+      } catch (_) {
+        viewport.scrollLeft = 0;
+      }
+      viewport.scrollLeft = 0;
+      requestAnimationFrame(function() {
+        try {
+          viewport.scrollTo({ left: 0, behavior: 'auto' });
+        } catch (_) {
+          viewport.scrollLeft = 0;
+        }
+        viewport.scrollLeft = 0;
+      });
+    }
+
+    function syncPlaylistCarouselViewportLayout() {
+      var viewport = document.getElementById('playlistCarouselViewport');
+      var track = document.getElementById('playlistCarouselTrack');
+      if (!viewport || !track) return;
+      var trackWidth = Math.ceil(track.getBoundingClientRect().width || 0);
+      var viewportWidth = Math.ceil(viewport.clientWidth || 0);
+      var fitsViewport = trackWidth > 0 && trackWidth <= viewportWidth;
+      viewport.classList.toggle('is-left-flush', fitsViewport);
+    }
+
+    function reorderPlaylistCards(visibleCards, hiddenCards) {
+      var carouselTrack = document.getElementById('playlistCarouselTrack');
+      if (!carouselTrack) return;
+      var orderedCards = visibleCards.concat(hiddenCards);
+      orderedCards.forEach(function(card) {
+        carouselTrack.appendChild(card);
+      });
+    }
+
+    function cardMatchesPlaylistFilters(card) {
+      if (!card) return false;
+      var audience = resolvePlaylistAudience({
+        playlistAudience: card.dataset.playlistAudience,
+        playlistType: card.dataset.playlistType,
+      });
+      var isActive = isPlaylistCardActive(card);
+      var typeMatch = _playlistCardFilterState.type === 'all' || audience === _playlistCardFilterState.type;
+      var statusMatch = _playlistCardFilterState.status === 'all'
+        || (_playlistCardFilterState.status === 'enabled' && isActive)
+        || (_playlistCardFilterState.status === 'disabled' && !isActive);
+      return typeMatch && statusMatch;
+    }
+
+    function updatePlaylistFilterButtons() {
+      document.querySelectorAll('[data-playlist-type-filter]').forEach(function(button) {
+        button.classList.toggle('is-active', String(button.getAttribute('data-playlist-type-filter') || 'all') === _playlistCardFilterState.type);
+      });
+      document.querySelectorAll('[data-playlist-status-filter]').forEach(function(button) {
+        button.classList.toggle('is-active', String(button.getAttribute('data-playlist-status-filter') || 'all') === _playlistCardFilterState.status);
+      });
+      var filterToggle = document.querySelector('.pl-filter-trigger');
+      if (filterToggle) {
+        var hasActiveFilters = _playlistCardFilterState.type !== 'all' || _playlistCardFilterState.status !== 'all';
+        filterToggle.classList.toggle('is-active', hasActiveFilters);
+      }
+    }
+
+    function showPlaylistFilterEmptyState() {
+      var emptyEl = document.getElementById('playlistFilterEmpty');
+      if (emptyEl) emptyEl.style.display = '';
+      document.getElementById('trackList').innerHTML = '';
+      document.getElementById('trackListLoading').style.display = 'none';
+      document.getElementById('loadMoreWrap').style.display = 'none';
+      document.getElementById('trackCountLabel').textContent = '0 tracks';
+      var trackEmpty = document.getElementById('trackListEmpty');
+      if (trackEmpty) {
+        trackEmpty.textContent = 'No playlists match the current filters.';
+        trackEmpty.style.display = '';
+      }
+      _currentPlexId = null;
+      _currentPlexKey = null;
+      _currentPlaylistKind = '';
+      _currentPlaylistType = '';
+      _allTracks = [];
+      updateSelectionButtons();
+    }
+
+    function applyPlaylistCardFilters(options) {
+      options = options || {};
+      var cards = getPlaylistCardElements();
+      var viewport = document.getElementById('playlistCarouselViewport');
+      var visibleCards = [];
+      var hiddenCards = [];
+      cards.forEach(function(card) {
+        var visible = cardMatchesPlaylistFilters(card);
+        card.hidden = !visible;
+        card.classList.toggle('plex-hidden', !visible);
+        if (!visible) {
+          hiddenCards.push(card);
+          var checkbox = card.querySelector('.pl-card-checkbox');
+          if (checkbox && checkbox.checked) {
+            checkbox.checked = false;
+            card.classList.remove('is-selected');
+          }
+        } else {
+          visibleCards.push(card);
+        }
+      });
+      reorderPlaylistCards(visibleCards, hiddenCards);
+      syncPlaylistCarouselViewportLayout();
+      updatePlaylistFilterButtons();
+      updateSelectionBar();
+      var emptyEl = document.getElementById('playlistFilterEmpty');
+      if (emptyEl) emptyEl.style.display = visibleCards.length ? 'none' : '';
+      var activeCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card.is-active');
+      if (viewport && (options.resetScroll || !activeCard || !isPlaylistCardVisible(activeCard))) {
+        resetPlaylistCarouselViewport();
+      }
+      if (!visibleCards.length) {
+        showPlaylistFilterEmptyState();
+        syncPlaylistCarouselViewportLayout();
+        if (typeof window.updatePlaylistCarouselNav === 'function') window.updatePlaylistCarouselNav();
+        return;
+      }
+      if (!activeCard || !isPlaylistCardVisible(activeCard)) {
+        if (options.preserveActive && activeCard && isPlaylistCardVisible(activeCard)) {
+          updateSelectionSummary(activeCard);
+        } else {
+          selectPlaylist(visibleCards[0]);
+        }
+      } else if (!options.skipReload) {
+        updateSelectionSummary(activeCard);
+      }
+      if (typeof window.updatePlaylistCarouselNav === 'function') window.updatePlaylistCarouselNav();
     }
 
     // ── Sort & filter ─────────────────────────────────────────────────────────
@@ -842,6 +1092,91 @@
       updateSelectionButtons();
     }
 
+    function resolvePlaylistAudience(data) {
+      var audience = String((data && data.playlistAudience) || '').trim().toLowerCase();
+      if (audience === 'global' || audience === 'external' || audience === 'blend' || audience === 'personal' || audience === 'system') return audience;
+      var type = String(data && data.playlistType || '').trim().toLowerCase();
+      if (type === 'global') return 'global';
+      if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
+      if (['legacy', 'curatorred', 'curatorr', 'curative', 'crescive', 'daily-mix'].indexOf(type) !== -1) return 'system';
+      return 'personal';
+    }
+
+    function playlistAudienceSortRank(audience) {
+      if (audience === 'external') return 1;
+      if (audience === 'blend') return 2;
+      if (audience === 'global') return 3;
+      if (audience === 'system') return 4;
+      return 0;
+    }
+
+    function isPlaylistCardActive(card) {
+      return String(card && card.dataset && card.dataset.playlistActive || 'true') !== 'false';
+    }
+
+    function getPlaylistCardSortMeta(source) {
+      var dataset = source && source.dataset ? source.dataset : null;
+      var playlistAudience = dataset ? resolvePlaylistAudience({ playlistAudience: dataset.playlistAudience, playlistType: dataset.playlistType }) : resolvePlaylistAudience(source);
+      var updatedAt = Number(dataset ? dataset.playlistUpdatedAt : source && source.updatedAt || 0);
+      var playlistTitle = String(dataset ? dataset.plTitle : source && source.playlistTitle || '').trim();
+      return {
+        playlistAudience: playlistAudience,
+        active: dataset ? String(dataset.playlistActive || 'true') !== 'false' : source && source.active !== false,
+        updatedAt: updatedAt,
+        playlistTitle: playlistTitle,
+      };
+    }
+
+    function comparePlaylistCardSortOrder(a, b) {
+      var aMeta = getPlaylistCardSortMeta(a);
+      var bMeta = getPlaylistCardSortMeta(b);
+      var activeDelta = Number(bMeta.active) - Number(aMeta.active);
+      if (activeDelta) return activeDelta;
+      var audienceDelta = playlistAudienceSortRank(aMeta.playlistAudience) - playlistAudienceSortRank(bMeta.playlistAudience);
+      if (audienceDelta) return audienceDelta;
+      var updatedDelta = bMeta.updatedAt - aMeta.updatedAt;
+      if (updatedDelta) return updatedDelta;
+      return aMeta.playlistTitle.localeCompare(bMeta.playlistTitle);
+    }
+
+    function insertPlaylistCardSorted(card) {
+      var carouselTrack = document.getElementById('playlistCarouselTrack');
+      if (!carouselTrack || !card) return;
+      var existingCards = carouselTrack.querySelectorAll('.cur-playlist-carousel-card');
+      for (var i = 0; i < existingCards.length; i += 1) {
+        if (comparePlaylistCardSortOrder(card, existingCards[i]) < 0) {
+          carouselTrack.insertBefore(card, existingCards[i]);
+          return;
+        }
+      }
+      carouselTrack.appendChild(card);
+      applyPlaylistCardFilters({ preserveActive: true, skipReload: true });
+    }
+
+    function playlistAudienceTitle(audience) {
+      if (audience === 'external') return 'External playlist';
+      if (audience === 'global') return 'Global playlist';
+      if (audience === 'blend') return 'Blend playlist';
+      if (audience === 'system') return 'System playlist';
+      return 'Personal playlist';
+    }
+
+    function buildPlaylistAudienceBadgeHtml(audience) {
+      var iconHtml = '';
+      if (audience === 'global') {
+        iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
+      } else if (audience === 'external') {
+        iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M10 14 20 4"></path><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"></path></svg>';
+      } else if (audience === 'system') {
+        iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 3.5v2.2"></path><path d="M12 18.3v2.2"></path><path d="m18.5 5.5-1.5 1.5"></path><path d="m7 17-1.5 1.5"></path><path d="M20.5 12h-2.2"></path><path d="M5.7 12H3.5"></path><path d="m18.5 18.5-1.5-1.5"></path><path d="M7 7 5.5 5.5"></path></svg>';
+      } else if (audience === 'blend') {
+        iconHtml = '<img src="/icons/blend.svg" alt="" aria-hidden="true" />';
+      } else {
+        iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12"></path><path d="M4 10h9"></path><path d="M4 14h10"></path><path d="M4 18h7"></path><path d="M18.5 8.5 21 10l-2.5 1.5v-3z"></path></svg>';
+      }
+      return '<div class="pl-card-audience-badge" title="' + escAttr(playlistAudienceTitle(audience)) + '">' + iconHtml + '</div>';
+    }
+
     function buildPlaylistCard(data) {
       var card = document.createElement('div');
       card.className = 'plex-card cur-discover-result-card cur-playlist-carousel-card';
@@ -852,13 +1187,18 @@
       card.dataset.plTitle = data.playlistTitle || 'Playlist';
       card.dataset.playlistKind = data.playlistKind || 'generated';
       card.dataset.playlistType = data.playlistType || 'custom';
-      card.dataset.playlistState = data.plexPlaylistId ? 'synced' : 'pending';
+      card.dataset.playlistAudience = resolvePlaylistAudience(data);
+      card.dataset.playlistActive = data.active === false ? 'false' : 'true';
+      card.dataset.playlistState = data.active === false ? 'disabled' : (data.plexPlaylistId ? 'synced' : 'pending');
       card.dataset.playlistTrackCount = String(Number(data.trackCount || 0));
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
+      if (data.active === false) card.classList.add('is-disabled');
       var isPersonal = data.playlistType === 'personal';
       var isGlobal = data.playlistType === 'global';
-      var isDeletable = ['personal', 'global', 'custom'].indexOf(data.playlistType || '') !== -1;
+      var isActive = data.active !== false;
+      var playlistAudience = resolvePlaylistAudience(data);
+      var isDeletable = ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(data.playlistType || '') !== -1;
       var editBtnHtml = isPersonal
         ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
         : (isGlobal ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-global" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '');
@@ -866,15 +1206,17 @@
         '<div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">' +
           '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artPath ? '' : ' is-empty') + '">' +
             (data.artPath ? '<img src="' + ((_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(data.artPath) + (data.artTag ? '&tag=' + encodeURIComponent(data.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(data.artPath)) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
-            (isDeletable ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
+            (data.playlistKey ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
             '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
+            buildPlaylistAudienceBadgeHtml(playlistAudience) +
             editBtnHtml +
             '<div class="pl-card-dots-wrap">' +
               '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options">⋯</button>' +
               '<div class="pl-card-menu" style="display:none">' +
                 (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
                 (isGlobal ? '<button type="button" class="pl-card-menu-edit-global">Edit</button>' : '') +
-                '<button type="button" class="pl-card-menu-rebuild">Rebuild</button>' +
+                (data.playlistKey ? '<button type="button" class="pl-card-menu-toggle-state">' + (isActive ? 'Disable' : 'Enable') + '</button>' : '') +
+                '<button type="button" class="pl-card-menu-rebuild"' + (isActive ? '' : ' disabled title="Enable this playlist first."') + '>Rebuild</button>' +
                 (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
               '</div>' +
             '</div>' +
@@ -883,7 +1225,7 @@
         '<div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">' +
           '<div class="plex-name cur-discover-result-name cur-playlist-carousel-title">' + escHtml(data.playlistTitle || 'Playlist') + '</div>' +
           '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta">' + Number(data.trackCount || 0).toLocaleString() + ' tracks</div>' +
-          '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta">Curatorr updated ' + escHtml(fmtShortDate(data.updatedAt || Date.now())) + '</div>' +
+          '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta' + (isActive ? '' : ' cur-playlist-carousel-meta--disabled') + '">' + (isActive ? ('Curatorr updated ' + escHtml(fmtShortDate(data.updatedAt || Date.now()))) : 'Disabled in Plex') + '</div>' +
         '</div>';
       card.addEventListener('click', function() { selectPlaylist(card); });
       card.addEventListener('keydown', function(event) {
@@ -901,6 +1243,8 @@
       if (editMenuBtn) editMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditPlaylistModal(card); });
       var editGlobalMenuBtn = card.querySelector('.pl-card-menu-edit-global');
       if (editGlobalMenuBtn) editGlobalMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditGlobalPlaylist(card); });
+      var toggleStateBtn = card.querySelector('.pl-card-menu-toggle-state');
+      if (toggleStateBtn) toggleStateBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleCardPlaylistActive(card, !isPlaylistCardActive(card)); });
       var rebuildMenuBtn = card.querySelector('.pl-card-menu-rebuild');
       if (rebuildMenuBtn) rebuildMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); rebuildCardPlaylist(card); });
       var deleteMenuBtn = card.querySelector('.pl-card-menu-delete');
@@ -929,14 +1273,16 @@
             playlistTitle: data.playlistTitle,
             playlistKind: 'generated',
             playlistType: data.playlistType || 'custom',
+            playlistAudience: 'personal',
+            active: true,
             trackCount: 0,
             updatedAt: Date.now(),
             artPath: '',
           });
-          document.getElementById('playlistCarouselTrack').appendChild(card);
+          insertPlaylistCardSorted(card);
           closeNewPlaylistDialog();
           document.getElementById('newPlaylistTitle').value = '';
-          selectPlaylist(card);
+          if (isPlaylistCardVisible(card)) selectPlaylist(card);
         })
         .catch(function(err) {
           status.textContent = 'Error: ' + (err.message || 'Unknown');
@@ -965,7 +1311,9 @@
         document.getElementById('trackListLoading').style.display = 'none';
         document.getElementById('loadMoreWrap').style.display = 'none';
         var emptyEl = document.getElementById('trackListEmpty');
-        emptyEl.textContent = 'Not yet synced to ' + MS_LABEL + '. It will be created automatically on the next scheduled run.';
+        emptyEl.textContent = isPlaylistCardActive(el)
+          ? ('Not yet synced to ' + MS_LABEL + '. It will be created automatically on the next scheduled run.')
+          : ('Disabled. Enable this playlist to rebuild and add it back to ' + MS_LABEL + '.');
         emptyEl.style.display = '';
         return;
       }
@@ -1114,6 +1462,10 @@
     function rebuildCardPlaylist(card) {
       if (!card) return;
       closeAllCardMenus();
+      if (!isPlaylistCardActive(card)) {
+        document.getElementById('syncStatus').textContent = 'Enable this playlist first.';
+        return;
+      }
       var status = document.getElementById('syncStatus');
       var kind = card.dataset.playlistKind || '';
       var key = card.dataset.plKey || '';
@@ -1139,6 +1491,28 @@
           else { status.textContent = 'Error: ' + (data.error || 'Unknown'); }
         })
         .catch(function() { status.textContent = 'Network error.'; });
+    }
+
+    function toggleCardPlaylistActive(card, shouldEnable) {
+      if (!card) return;
+      closeAllCardMenus();
+      var playlistKey = String(card.dataset.plKey || '').trim();
+      if (!playlistKey) return;
+      var status = document.getElementById('syncStatus');
+      status.textContent = shouldEnable ? 'Enabling…' : 'Disabling…';
+      fetch('/api/music/playlists/generated/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ playlistKey: playlistKey, active: Boolean(shouldEnable) }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Unknown error');
+          window.location.reload();
+        })
+        .catch(function(err) {
+          status.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
     }
 
     function deleteCardPlaylist(card) {
@@ -1180,15 +1554,23 @@
     }
 
     function updateSelectionBar() {
-      var selected = document.querySelectorAll('.pl-card-checkbox:checked');
+      var selected = Array.from(document.querySelectorAll('.pl-card-checkbox:checked')).map(function(cb) {
+        return cb.closest('.cur-playlist-carousel-card');
+      }).filter(Boolean);
       var bar = document.getElementById('plSelectionBar');
       var count = document.getElementById('plSelectionCount');
+      var enableBtn = document.getElementById('plSelectionEnableBtn');
+      var disableBtn = document.getElementById('plSelectionDisableBtn');
+      var activeSelected = selected.filter(function(card) { return isPlaylistCardActive(card); });
+      var inactiveSelected = selected.filter(function(card) { return !isPlaylistCardActive(card); });
       if (selected.length) {
         bar.style.display = '';
         count.textContent = selected.length + ' selected';
       } else {
         bar.style.display = 'none';
       }
+      if (enableBtn) enableBtn.disabled = !inactiveSelected.length;
+      if (disableBtn) disableBtn.disabled = !activeSelected.length;
     }
 
     function clearCardSelection() {
@@ -1204,7 +1586,7 @@
         .map(function(cb) { return cb.closest('.cur-playlist-carousel-card'); })
         .filter(function(card) {
           var t = card.dataset.playlistType || '';
-          return ['personal', 'global', 'custom'].indexOf(t) !== -1;
+          return ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(t) !== -1;
         });
       if (!cards.length) return;
       var titles = cards.map(function(c) { return '"' + (c.dataset.plTitle || 'Playlist') + '"'; }).join(', ');
@@ -1215,6 +1597,30 @@
           method: 'DELETE', headers: { 'X-CSRF-Token': CSRF },
         }).then(function(r) { return r.json(); });
       })).then(function() { window.location.reload(); }).catch(function() { alert('Error deleting playlists.'); });
+    }
+
+    function toggleSelectedPlaylists(shouldEnable) {
+      var cards = Array.from(document.querySelectorAll('.pl-card-checkbox:checked'))
+        .map(function(cb) { return cb.closest('.cur-playlist-carousel-card'); })
+        .filter(function(card) { return card && card.dataset.plKey; })
+        .filter(function(card) { return isPlaylistCardActive(card) !== Boolean(shouldEnable); });
+      if (!cards.length) return;
+      var keys = cards.map(function(card) { return card.dataset.plKey; });
+      var status = document.getElementById('syncStatus');
+      status.textContent = shouldEnable ? 'Enabling…' : 'Disabling…';
+      fetch('/api/music/playlists/generated/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ playlistKeys: keys, active: Boolean(shouldEnable) }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Unknown error');
+          window.location.reload();
+        })
+        .catch(function(err) {
+          status.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
     }
 
     function viewCurrentPlaylist() {
@@ -1234,10 +1640,12 @@
         return;
       }
       function updateNav() {
+        syncPlaylistCarouselViewportLayout();
         var maxLeft = Math.max(0, vp.scrollWidth - vp.clientWidth - 2);
         if (prev) prev.disabled = vp.scrollLeft <= 2;
         if (next) next.disabled = vp.scrollLeft >= maxLeft;
       }
+      window.updatePlaylistCarouselNav = updateNav;
       var down = false;
       var startX = 0;
       var startScroll = 0;
@@ -1276,6 +1684,7 @@
         }
       }, true);
       vp.addEventListener('scroll', updateNav, { passive: true });
+      window.addEventListener('resize', updateNav);
       if (prev) prev.addEventListener('click', function() {
         vp.scrollBy({ left: -Math.max(280, Math.floor(vp.clientWidth * 0.82)), behavior: 'smooth' });
         window.setTimeout(updateNav, 220);
@@ -1387,6 +1796,7 @@
         topNPerArtist: rules.topNPerArtist != null ? Number(rules.topNPerArtist) : null,
         maxTracks: rules.maxTracks != null ? Number(rules.maxTracks) : null,
         sortBy: String(rules.sortBy || 'ratingCount'),
+        finalOrdering: String(rules.finalOrdering || 'none'),
         blendUsers: Array.isArray(rules.blendUsers) ? rules.blendUsers.slice() : [],
         blendMode: String(rules.blendMode || 'average'),
         seasonalGenres: Array.isArray(rules.seasonalGenres) ? rules.seasonalGenres.slice() : [],
@@ -1399,6 +1809,7 @@
         excludeFolders: trackFilters.excludeFolders,
         advancedRules: trackFilters.rules,
         deduplicateByMbid: trackFilters.deduplicateByMbid,
+        deduplicateByArtistTitle: trackFilters.deduplicateByArtistTitle,
       };
     }
 
@@ -1456,6 +1867,8 @@
       if (maxT) maxT.value = '';
       var sortBy = document.getElementById('spm-sort-by');
       if (sortBy) sortBy.value = 'ratingCount';
+      var finalOrdering = document.getElementById('spm-final-ordering');
+      if (finalOrdering) finalOrdering.value = 'none';
       var rebSched = document.getElementById('spm-rebuild-schedule');
       if (rebSched) rebSched.value = 'daily';
       spmUpdateBlendVisibility();
@@ -1604,6 +2017,8 @@
       if (maxT) maxT.value = rules.maxTracks || '';
       var sortBy = document.getElementById('spm-sort-by');
       if (sortBy && rules.sortBy) sortBy.value = rules.sortBy;
+      var finalOrdering = document.getElementById('spm-final-ordering');
+      if (finalOrdering) finalOrdering.value = rules.finalOrdering || 'none';
       var rebSched = document.getElementById('spm-rebuild-schedule');
       if (rebSched && rules.rebuildSchedule) rebSched.value = rules.rebuildSchedule;
     }
@@ -1672,6 +2087,7 @@
       var maxTracks = parseInt(document.getElementById('spm-max-tracks').value, 10) || null;
       var rebuildSchedule = document.getElementById('spm-rebuild-schedule') ? document.getElementById('spm-rebuild-schedule').value : 'daily';
       var sortBy = document.getElementById('spm-sort-by').value || 'ratingCount';
+      var finalOrdering = document.getElementById('spm-final-ordering').value || 'none';
       var blendUsers = (window.spmGetBlendUsers ? window.spmGetBlendUsers() : []);
       var blendModeEl = document.querySelector('input[name="spm-blend-mode"]:checked');
       var blendMode = blendModeEl ? blendModeEl.value : 'average';
@@ -1684,6 +2100,7 @@
         topNPerArtist: topN,
         maxTracks: maxTracks,
         sortBy: sortBy,
+        finalOrdering: finalOrdering,
         rebuildSchedule: rebuildSchedule,
         blendUsers: blendUsers,
         blendMode: blendMode,
@@ -1749,7 +2166,7 @@
           : '/api/music/playlists/personal/' + encodeURIComponent(editId))
         : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
       var payload = Object.assign({ name: name }, rules);
-      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, rules: [] };
+      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, rules: [] };
       if (btn) btn.disabled = true;
       if (msg) msg.textContent = isEdit ? 'Saving…' : 'Creating…';
       fetch(endpoint, {
@@ -1773,12 +2190,13 @@
             playlistTitle: data.playlistTitle || playlist.name || name,
             playlistKind: 'generated',
             playlistType: isGlobal ? 'global' : 'personal',
+            playlistAudience: isGlobal ? 'global' : (playlistTarget === 'blend' ? 'blend' : 'personal'),
+            active: true,
             trackCount: 0,
             updatedAt: playlist.createdAt || Date.now(),
             artPath: '',
           });
-          var carouselTrack = document.getElementById('playlistCarouselTrack');
-          if (carouselTrack) carouselTrack.appendChild(card);
+          insertPlaylistCardSorted(card);
           closeSmartPlaylistModal();
           selectPlaylist(card);
         })
@@ -1871,12 +2289,13 @@
 
     function wizardStarterTrackFilters(trackFilters) {
       var tf = trackFilters && typeof trackFilters === 'object' ? trackFilters : null;
-      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false };
+      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false };
       return {
         includeFolders: Array.isArray(tf.includeFolders) ? tf.includeFolders.slice() : [],
         excludeFolders: Array.isArray(tf.excludeFolders) ? tf.excludeFolders.slice() : [],
         rules: Array.isArray(tf.rules) ? tf.rules.map(function(rule) { return cloneWizardValue(rule); }) : [],
         deduplicateByMbid: Boolean(tf.deduplicateByMbid),
+        deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
       };
     }
 
@@ -1908,6 +2327,14 @@
       return Math.round(num * 100) + '%';
     }
 
+    function wizardFinalOrderingLabel(value) {
+      var normalized = String(value || 'none');
+      if (normalized === 'plexSonic') return 'Plex sonic';
+      if (normalized === 'loudness') return 'Loudness smoothing';
+      if (normalized === 'plexSonicLoudness') return 'Plex sonic + loudness';
+      return 'No final ordering';
+    }
+
     function wizardManagedStarterTemplates() {
       var smart = WIZARD_SMART_SETTINGS || {};
       var curatorr = smart.curatorr || {};
@@ -1922,12 +2349,13 @@
           meta: [
             (Number(curatorr.targetTracks || 48) || 48) + ' track target',
             (Number(curatorr.maxTracksPerArtist || 2) || 2) + ' per artist',
-            (curatorr.useSonicOrdering ? 'DJ flow' : 'Rating order'),
+            wizardFinalOrderingLabel(curatorr.finalOrdering),
           ].join(' · '),
           rules: {
             maxTracks: Number(curatorr.targetTracks || 48) || 48,
             topNPerArtist: Number(curatorr.maxTracksPerArtist || 2) || 2,
-            sortBy: curatorr.useSonicOrdering ? 'djFlow' : 'ratingCount',
+            sortBy: String(curatorr.sortBy || 'ratingCount'),
+            finalOrdering: String(curatorr.finalOrdering || 'none'),
             featurePreset: wizardNormalizeStarterPreset(curatorr.featurePreset || curatorr.featureProfile),
             camelotFocus: String(curatorr.camelotFocus || ''),
             camelotMode: String(curatorr.camelotMode || 'exact'),
@@ -1948,7 +2376,8 @@
           ].join(' · '),
           rules: {
             maxTracks: wizardManagedStarterTrackCount('crescive', crescive.capMultiplier, 0.20),
-            sortBy: 'tierWeight',
+            sortBy: String(crescive.sortBy || 'tierWeight'),
+            finalOrdering: String(crescive.finalOrdering || 'none'),
           },
           trackFilters: wizardStarterTrackFilters(crescive.trackFilters),
         },
@@ -1966,7 +2395,8 @@
           ].join(' · '),
           rules: {
             maxTracks: wizardManagedStarterTrackCount('curative', curative.capMultiplier, 0.50),
-            sortBy: 'tierWeight',
+            sortBy: String(curative.sortBy || 'tierWeight'),
+            finalOrdering: String(curative.finalOrdering || 'none'),
           },
           trackFilters: wizardStarterTrackFilters(curative.trackFilters),
         },
@@ -2003,6 +2433,7 @@
         topNPerArtist: null,
         maxTracks: null,
         sortBy: 'ratingCount',
+        finalOrdering: 'none',
         blendUsers: [],
         blendMode: 'average',
         seasonalGenres: [],
@@ -2012,6 +2443,7 @@
         seasonalGenresMode: 'any',
         seasonalKeywordsMode: 'any',
         deduplicateByMbid: false,
+        deduplicateByArtistTitle: false,
       };
     }
 
@@ -2027,6 +2459,7 @@
         topNPerArtist: ws.topNPerArtist || null,
         maxTracks:     ws.maxTracks     || null,
         sortBy:        ws.sortBy        || 'ratingCount',
+        finalOrdering: ws.finalOrdering || 'none',
         blendUsers:    keepBlend ? (ws.blendUsers || []) : [],
         blendMode:     keepBlend ? (ws.blendMode || 'average') : 'average',
         seasonalGenres: Array.isArray(ws.seasonalGenres) ? ws.seasonalGenres : [],
@@ -2048,6 +2481,7 @@
       var includeFolders = Array.isArray(ws.includeFolders) ? ws.includeFolders.filter(Boolean) : [];
       var excludeFolders = Array.isArray(ws.excludeFolders) ? ws.excludeFolders.filter(Boolean) : [];
       var deduplicateByMbid = Boolean(ws.deduplicateByMbid);
+      var deduplicateByArtistTitle = Boolean(ws.deduplicateByArtistTitle);
       var rules = Array.isArray(ws.advancedRules) ? ws.advancedRules.filter(function(rule) {
         return rule && rule.field && rule.operator && rule.value != null && String(rule.value).trim() !== '';
       }).map(function(rule) {
@@ -2058,8 +2492,14 @@
           caseSensitive: Boolean(rule.caseSensitive),
         };
       }) : [];
-      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid) return null;
-      return { includeFolders: includeFolders, excludeFolders: excludeFolders, deduplicateByMbid: deduplicateByMbid, rules: rules };
+      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle) return null;
+      return {
+        includeFolders: includeFolders,
+        excludeFolders: excludeFolders,
+        deduplicateByMbid: deduplicateByMbid,
+        deduplicateByArtistTitle: deduplicateByArtistTitle,
+        rules: rules,
+      };
     }
 
     function wizardTargetLabel(target) {
@@ -2219,6 +2659,7 @@
         nextState.excludeFolders = templateTrackFilters.excludeFolders;
         nextState.advancedRules = templateTrackFilters.rules;
         nextState.deduplicateByMbid = templateTrackFilters.deduplicateByMbid;
+        nextState.deduplicateByArtistTitle = templateTrackFilters.deduplicateByArtistTitle;
       }
       if (nextState.featurePreset) wizardApplyPresetValues(nextState, nextState.featurePreset, false);
       if (nextState.featurePreset && nextState.featurePreset !== 'none') wizardReplaceContentStateFromAudioProfile(nextState, nextState.featurePreset);
@@ -2522,6 +2963,9 @@
         '<label class="field" style="flex:1"><span>Max total tracks</span><input type="number" id="wiz-max-tracks" min="1" placeholder="No limit" value="' + (_wizardState.maxTracks||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Sort tracks by</span><select id="wiz-sort-by">' +
         [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        '</select></label>' +
+        '<label class="field" style="flex:1"><span>Final ordering</span><select id="wiz-final-ordering">' +
+        [['none','No final ordering'],['plexSonic','Plex sonic'],['loudness','Loudness smoothing'],['plexSonicLoudness','Plex sonic then loudness']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.finalOrdering===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
         '</select></label></div>';
       html += '<div class="spm-wizard-toggle-block">' +
         '<label class="spm-wizard-toggle-row" for="wiz-dedupe-mbid">' +
@@ -2531,6 +2975,16 @@
           '</span>' +
           '<span class="spm-wizard-toggle-switch">' +
             '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-dedupe-mbid"' + (_wizardState.deduplicateByMbid ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
+        '<label class="spm-wizard-toggle-row" for="wiz-dedupe-artist-title">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Deduplicate release variants by artist and song title</span>' +
+            '<span class="spm-wizard-field-hint">Ignores release tags like live, radio edit, remaster, mono, or mix and keeps the highest rated copy.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-dedupe-artist-title"' + (_wizardState.deduplicateByArtistTitle ? ' checked' : '') + ' />' +
             '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
           '</span>' +
         '</label>' +
@@ -2673,7 +3127,9 @@
       if (ws.topNPerArtist) html += row('Top N / artist', escH(String(ws.topNPerArtist)));
       if (ws.maxTracks)     html += row('Max tracks', escH(String(ws.maxTracks)));
       if (ws.deduplicateByMbid) html += row('Deduplicate releases', 'MusicBrainz recording ID');
+      if (ws.deduplicateByArtistTitle) html += row('Deduplicate release variants', 'Artist + fuzzy song title');
       html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
+      if (ws.finalOrdering && ws.finalOrdering !== 'none') html += row('Final ordering', escH(wizardFinalOrderingLabel(ws.finalOrdering)));
       html += '</div>';
       // Save as template row
       html += '<div class="spm-wizard-save-tmpl-row">' +
@@ -2755,7 +3211,9 @@
         _wizardState.topNPerArtist = parseInt(document.getElementById('wiz-top-n') ? document.getElementById('wiz-top-n').value : '', 10) || null;
         _wizardState.maxTracks     = parseInt(document.getElementById('wiz-max-tracks') ? document.getElementById('wiz-max-tracks').value : '', 10) || null;
         _wizardState.sortBy        = document.getElementById('wiz-sort-by') ? document.getElementById('wiz-sort-by').value : 'ratingCount';
+        _wizardState.finalOrdering = document.getElementById('wiz-final-ordering') ? document.getElementById('wiz-final-ordering').value : 'none';
         _wizardState.deduplicateByMbid = !!(document.getElementById('wiz-dedupe-mbid') && document.getElementById('wiz-dedupe-mbid').checked);
+        _wizardState.deduplicateByArtistTitle = !!(document.getElementById('wiz-dedupe-artist-title') && document.getElementById('wiz-dedupe-artist-title').checked);
       } else if (step === 4 && IS_ACTUAL_ADMIN) {
         ['include', 'exclude'].forEach(function(kind) {
           var container = document.getElementById('wiz-folder-' + kind + '-chips');
@@ -3026,7 +3484,7 @@
 
       // Step 3: output rules
       if (step === 3) {
-        ['wiz-top-n','wiz-max-tracks','wiz-sort-by','wiz-dedupe-mbid'].forEach(function(id) {
+        ['wiz-top-n','wiz-max-tracks','wiz-sort-by','wiz-dedupe-mbid','wiz-dedupe-artist-title'].forEach(function(id) {
           var el = document.getElementById(id);
           if (!el) return;
           var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };
@@ -3206,8 +3664,21 @@
     initSmartPlaylistModal();
 
     bindPlaylistCarousel();
+    document.querySelectorAll('[data-playlist-type-filter]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        _playlistCardFilterState.type = String(button.getAttribute('data-playlist-type-filter') || 'all');
+        applyPlaylistCardFilters({ resetScroll: true });
+      });
+    });
+    document.querySelectorAll('[data-playlist-status-filter]').forEach(function(button) {
+      button.addEventListener('click', function() {
+        _playlistCardFilterState.status = String(button.getAttribute('data-playlist-status-filter') || 'all');
+        applyPlaylistCardFilters({ resetScroll: true });
+      });
+    });
+    updatePlaylistFilterButtons();
     var initialCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card');
-    if (initialCard) selectPlaylist(initialCard);
+    if (initialCard) applyPlaylistCardFilters();
     else loadTracks(0);
 
     // Auto-open smart playlist modal with prefill params if navigated from elsewhere

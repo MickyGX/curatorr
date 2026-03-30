@@ -74,6 +74,9 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
                 'message': str(exc),
             })
 
+        if result.stderr:
+            print(result.stderr, end='', file=sys.stderr, flush=True)
+
         if result.returncode != 0:
             return write_json(self, 500, {
                 'ok': False,

@@ -18,6 +18,8 @@ const LEGACY_ANALYSIS_FEATURES_PATH = '/data/track-features.json';
 const LEGACY_ANALYSIS_RESULTS_PATH = '/data/track-features.results.json';
 const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
+const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
+const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 
 function normaliseTriStateInput(value) {
   if (!value) return { include: [], exclude: [], includeMode: 'any' };
@@ -883,7 +885,8 @@ export function registerSettings(app, ctx) {
       }
       const excludeLibraryKeys = [].concat(req.body?.[`${prefix}_excludeLibraryKeys`] || []).map(String).filter(Boolean);
       const deduplicateByMbid = req.body?.[`${prefix}_deduplicateByMbid`] === 'on';
-      return { rules, excludeLibraryKeys, deduplicateByMbid };
+      const deduplicateByArtistTitle = req.body?.[`${prefix}_deduplicateByArtistTitle`] === 'on';
+      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle };
     };
     const crescive = {
       capMultiplier:           pct('cr_capMultiplier',        100),
@@ -892,6 +895,8 @@ export function registerSettings(app, ctx) {
       favouriteGenreTrackPct:  pct('cr_favGenreTrackPct',     20),
       otherGenreArtistPct:     pct('cr_otherArtistPct',       20),
       otherGenreTrackPct:      pct('cr_otherTrackPct',        20),
+      sortBy:                  oneOf('cr_sortBy', PLAYLIST_SORT_VALUES, 'default'),
+      finalOrdering:           oneOf('cr_finalOrdering', PLAYLIST_FINAL_ORDERING_VALUES, 'none'),
       trackFilters:            parseFilters('cr'),
     };
     const curative = {
@@ -901,9 +906,26 @@ export function registerSettings(app, ctx) {
       favouriteGenreTrackPct:  pct('cu_favGenreTrackPct',     80),
       otherGenreArtistPct:     pct('cu_otherArtistPct',       50),
       otherGenreTrackPct:      pct('cu_otherTrackPct',        50),
+      sortBy:                  oneOf('cu_sortBy', PLAYLIST_SORT_VALUES, 'default'),
+      finalOrdering:           oneOf('cu_finalOrdering', PLAYLIST_FINAL_ORDERING_VALUES, 'none'),
       trackFilters:            parseFilters('cu'),
     };
+    const dailyMixFinalOrdering = oneOf(
+      'dm_finalOrdering',
+      PLAYLIST_FINAL_ORDERING_VALUES,
+      req.body?.dm_useSonicOrdering === 'on'
+        ? (req.body?.dm_useLoudnessOrdering === 'on' ? 'plexSonicLoudness' : 'plexSonic')
+        : (req.body?.dm_useLoudnessOrdering === 'on' ? 'loudness' : 'none'),
+    );
+    const curatorrFinalOrdering = oneOf(
+      'ct_finalOrdering',
+      PLAYLIST_FINAL_ORDERING_VALUES,
+      req.body?.ct_useSonicOrdering === 'on'
+        ? (req.body?.ct_useLoudnessOrdering === 'on' ? 'plexSonicLoudness' : 'plexSonic')
+        : (req.body?.ct_useLoudnessOrdering === 'on' ? 'loudness' : 'none'),
+    );
     const dailyMix = {
+      sortBy: oneOf('dm_sortBy', PLAYLIST_SORT_VALUES, 'default'),
       favoriteLimit: int('dm_favoriteLimit', 1, 100, 12),
       suggestedLimit: int('dm_suggestedLimit', 0, 100, 8),
       freshLimit: int('dm_freshLimit', 0, 100, 10),
@@ -913,17 +935,19 @@ export function registerSettings(app, ctx) {
       featureProfile: oneOf('dm_featureProfile', FEATURE_PROFILES, 'none'),
       camelotFocus: String(req.body?.dm_camelotFocus || '').trim().toUpperCase(),
       camelotMode: oneOf('dm_camelotMode', CAMELOT_MODES, 'exact'),
-      useSonicOrdering: req.body?.dm_useSonicOrdering === 'on',
-      useLoudnessOrdering: req.body?.dm_useLoudnessOrdering === 'on',
+      useSonicOrdering: dailyMixFinalOrdering === 'plexSonic' || dailyMixFinalOrdering === 'plexSonicLoudness',
+      useLoudnessOrdering: dailyMixFinalOrdering === 'loudness' || dailyMixFinalOrdering === 'plexSonicLoudness',
       loudnessLookahead: int('dm_loudnessLookahead', 2, 10, 4),
       maxLoudnessStepDb: int('dm_maxLoudnessStepDb', 1, 20, 6),
       sonicSeedCount: int('dm_sonicSeedCount', 1, 10, 3),
       sonicExpansionLimit: int('dm_sonicExpansionLimit', 1, 50, 12),
       sonicMaxDistance: pct('dm_sonicMaxDistance', 35),
+      finalOrdering: dailyMixFinalOrdering,
       sonicStrategy: oneOf('dm_sonicStrategy', SONIC_STRATEGIES, 'balanced'),
       trackFilters: parseFilters('dm'),
     };
     const curatorr = {
+      sortBy: oneOf('ct_sortBy', PLAYLIST_SORT_VALUES, 'default'),
       targetTracks: int('ct_targetTracks', 1, 200, 48),
       discoveryRatio: pct('ct_discoveryRatio', 35),
       maxTracksPerArtist: int('ct_maxTracksPerArtist', 1, 5, 2),
@@ -931,13 +955,14 @@ export function registerSettings(app, ctx) {
       featureProfile: oneOf('ct_featureProfile', FEATURE_PROFILES, 'none'),
       camelotFocus: String(req.body?.ct_camelotFocus || '').trim().toUpperCase(),
       camelotMode: oneOf('ct_camelotMode', CAMELOT_MODES, 'exact'),
-      useSonicOrdering: req.body?.ct_useSonicOrdering === 'on',
-      useLoudnessOrdering: req.body?.ct_useLoudnessOrdering === 'on',
+      useSonicOrdering: curatorrFinalOrdering === 'plexSonic' || curatorrFinalOrdering === 'plexSonicLoudness',
+      useLoudnessOrdering: curatorrFinalOrdering === 'loudness' || curatorrFinalOrdering === 'plexSonicLoudness',
       loudnessLookahead: int('ct_loudnessLookahead', 2, 10, 4),
       maxLoudnessStepDb: int('ct_maxLoudnessStepDb', 1, 20, 6),
       sonicSeedCount: int('ct_sonicSeedCount', 1, 10, 4),
       sonicExpansionLimit: int('ct_sonicExpansionLimit', 1, 50, 16),
       sonicMaxDistance: pct('ct_sonicMaxDistance', 35),
+      finalOrdering: curatorrFinalOrdering,
       sonicStrategy: oneOf('ct_sonicStrategy', SONIC_STRATEGIES, 'balanced'),
       trackFilters: parseFilters('ct'),
     };
@@ -1476,7 +1501,22 @@ export function registerSettings(app, ctx) {
     const lastfmStrictMatchStations = (Array.isArray(rawStrictStations) ? rawStrictStations : rawStrictStations ? [rawStrictStations] : [])
       .filter((s) => VALID_UNDOCUMENTED.includes(s) || (s.startsWith('topTracks:') && VALID_PERIODS.includes(s.slice('topTracks:'.length))));
     const prefs = getUserPreferences(db, userPlexId);
-    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations, lastfmStrictMatchStations });
+    const lastfmStationSorts = { ...(prefs.lastfmStationSorts || {}) };
+    const lastfmStationFinalOrderings = { ...(prefs.lastfmStationFinalOrderings || {}) };
+    for (const key of VALID_UNDOCUMENTED) {
+      const sortValue = String(req.body?.[`lastfmSort_${key}`] || '').trim();
+      const finalOrderingValue = String(req.body?.[`lastfmFinalOrdering_${key}`] || '').trim();
+      lastfmStationSorts[key] = PLAYLIST_SORT_VALUES.includes(sortValue) ? sortValue : 'source';
+      lastfmStationFinalOrderings[key] = PLAYLIST_FINAL_ORDERING_VALUES.includes(finalOrderingValue) ? finalOrderingValue : 'none';
+    }
+    if (topTracksPeriod && VALID_PERIODS.includes(topTracksPeriod)) {
+      const topTracksKey = `topTracks:${topTracksPeriod}`;
+      const topTracksSort = String(req.body?.lastfmTopTracksSort || '').trim();
+      const topTracksFinalOrdering = String(req.body?.lastfmTopTracksFinalOrdering || '').trim();
+      lastfmStationSorts[topTracksKey] = PLAYLIST_SORT_VALUES.includes(topTracksSort) ? topTracksSort : 'source';
+      lastfmStationFinalOrderings[topTracksKey] = PLAYLIST_FINAL_ORDERING_VALUES.includes(topTracksFinalOrdering) ? topTracksFinalOrdering : 'none';
+    }
+    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations, lastfmStrictMatchStations, lastfmStationSorts, lastfmStationFinalOrderings });
     return res.redirect('/user-settings?success=lastfm-updated');
   });
 
@@ -1492,6 +1532,8 @@ export function registerSettings(app, ctx) {
     const rawStrictPlaylists = req.body?.listenbrainzStrictMatchPlaylists;
     const listenbrainzStrictMatchPlaylists = (Array.isArray(rawStrictPlaylists) ? rawStrictPlaylists : rawStrictPlaylists ? [rawStrictPlaylists] : [])
       .filter((playlistKey) => VALID_PLAYLISTS.includes(String(playlistKey || '').trim()));
+    const listenbrainzPlaylistSorts = Object.fromEntries(VALID_PLAYLISTS.map((key) => [key, PLAYLIST_SORT_VALUES.includes(String(req.body?.[`listenbrainzSort_${key}`] || '').trim()) ? String(req.body[`listenbrainzSort_${key}`]).trim() : 'source']));
+    const listenbrainzPlaylistFinalOrderings = Object.fromEntries(VALID_PLAYLISTS.map((key) => [key, PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.[`listenbrainzFinalOrdering_${key}`] || '').trim()) ? String(req.body[`listenbrainzFinalOrdering_${key}`]).trim() : 'none']));
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, {
       ...prefs,
@@ -1499,6 +1541,8 @@ export function registerSettings(app, ctx) {
       listenbrainzToken,
       listenbrainzEnabledPlaylists,
       listenbrainzStrictMatchPlaylists,
+      listenbrainzPlaylistSorts,
+      listenbrainzPlaylistFinalOrderings,
     });
     pushLog({
       level: 'info',
@@ -1596,7 +1640,8 @@ export function registerSettings(app, ctx) {
       tags:        normaliseTriStateInput(req.body?.tags),
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
-      sortBy: String(req.body?.sortBy || 'ratingCount'),
+      sortBy: PLAYLIST_SORT_VALUES.includes(String(req.body?.sortBy || '').trim()) ? String(req.body.sortBy).trim() : 'ratingCount',
+      finalOrdering: PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',
       blendUsers,
       blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
       ...buildPlaylistFeatureRuleConfig(req.body || {}),
@@ -1608,7 +1653,13 @@ export function registerSettings(app, ctx) {
         .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
       const includeFolders = Array.isArray(tf.includeFolders) ? tf.includeFolders.map(String).filter(Boolean) : [];
       const excludeFolders = Array.isArray(tf.excludeFolders) ? tf.excludeFolders.map(String).filter(Boolean) : [];
-      return { rules: tfRules, includeFolders, excludeFolders, deduplicateByMbid: Boolean(tf.deduplicateByMbid) };
+      return {
+        rules: tfRules,
+        includeFolders,
+        excludeFolders,
+        deduplicateByMbid: Boolean(tf.deduplicateByMbid),
+        deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
+      };
     })() : undefined;
     const entry = { id: makeGlobalPlaylistId(), name, rules, trackFilters: gpFilters, enabled: true, createdAt: Date.now() };
     const config = loadConfig();
@@ -1651,7 +1702,8 @@ export function registerSettings(app, ctx) {
         tags:        req.body?.tags        !== undefined ? normaliseTriStateInput(req.body?.tags)        : existing.rules?.tags        || [],
         topNPerArtist: req.body?.topNPerArtist !== undefined ? (req.body.topNPerArtist ? Number(req.body.topNPerArtist) : null) : existing.rules?.topNPerArtist,
         maxTracks:     req.body?.maxTracks     !== undefined ? (req.body.maxTracks     ? Number(req.body.maxTracks)     : null) : existing.rules?.maxTracks,
-        sortBy: req.body?.sortBy !== undefined ? String(req.body.sortBy) : existing.rules?.sortBy || 'ratingCount',
+        sortBy: req.body?.sortBy !== undefined ? (PLAYLIST_SORT_VALUES.includes(String(req.body.sortBy).trim()) ? String(req.body.sortBy).trim() : 'ratingCount') : existing.rules?.sortBy || 'ratingCount',
+        finalOrdering: req.body?.finalOrdering !== undefined ? (PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body.finalOrdering).trim()) ? String(req.body.finalOrdering).trim() : 'none') : existing.rules?.finalOrdering || 'none',
         blendUsers: updBlendUsers,
         blendMode: req.body?.blendMode !== undefined
           ? (BLEND_MODES.includes(req.body.blendMode) ? req.body.blendMode : 'average')
@@ -1675,7 +1727,13 @@ export function registerSettings(app, ctx) {
           .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
         const includeFolders = Array.isArray(tf.includeFolders) ? tf.includeFolders.map(String).filter(Boolean) : [];
         const excludeFolders = Array.isArray(tf.excludeFolders) ? tf.excludeFolders.map(String).filter(Boolean) : [];
-        return { rules: tfRules, includeFolders, excludeFolders, deduplicateByMbid: Boolean(tf.deduplicateByMbid) };
+        return {
+          rules: tfRules,
+          includeFolders,
+          excludeFolders,
+          deduplicateByMbid: Boolean(tf.deduplicateByMbid),
+          deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
+        };
       })() : existing.trackFilters,
       updatedAt: Date.now(),
     };

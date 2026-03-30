@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.47 (2026-03-30)
+
+- Added richer playlist management controls with per-card audience badges, Launcharr-style playlist filtering, status-aware ordering, and enable/disable actions for personal, external, blend, global, and system playlists.
+- Added broader smart-playlist deduplication and ordering controls, including release-variant title dedupe plus shared base/final ordering support across personal, external, and system playlists.
+- Fixed disabled and external playlists so they can be deleted cleanly, external toggles now stay in sync with user-profile source settings, and filtered playlist carousels no longer leave a shifted gap after narrowing the visible set.
+- Improved analyzer-side release readiness with clearer unreadable-track error handling and release workflow support for optional shared announcements plus analyzer image reuse when the sidecar has not changed.
+
 ## v0.1.46 (2026-03-29)
 
 - Replaced the old smart-playlist editors with the new multi-step wizard for create and edit flows, including personal, blend, and global playlists from the same UI.

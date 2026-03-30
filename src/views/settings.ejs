@@ -931,6 +931,32 @@
                 function _tfOpOpts(current, field) {
                   return _tfOpsForField(field).map(o => `<option value="${o.value}"${current === o.value ? ' selected' : ''}>${o.label}</option>`).join('');
                 }
+                function _renderPlaylistSortOptions(current, includeSource) {
+                  const options = [
+                    { value: 'default', label: 'Default playlist order' },
+                    ...(includeSource ? [{ value: 'source', label: 'Source order' }] : []),
+                    { value: 'ratingCount', label: 'Global rating count' },
+                    { value: 'tierWeight', label: 'Tier weight' },
+                    { value: 'playCount', label: 'Play count' },
+                    { value: 'bpmAsc', label: 'BPM low to high' },
+                    { value: 'bpmDesc', label: 'BPM high to low' },
+                    { value: 'energyAsc', label: 'Energy low to high' },
+                    { value: 'energyDesc', label: 'Energy high to low' },
+                    { value: 'danceabilityDesc', label: 'Danceability high to low' },
+                    { value: 'camelot', label: 'Camelot wheel' },
+                    { value: 'djFlow', label: 'DJ flow (Camelot + BPM)' },
+                  ];
+                  return options.map((opt) => `<option value="${opt.value}"${(current || 'default') === opt.value ? ' selected' : ''}>${opt.label}</option>`).join('');
+                }
+                function _renderPlaylistFinalOrderingOptions(current) {
+                  const options = [
+                    { value: 'none', label: 'None' },
+                    { value: 'plexSonic', label: 'Plex sonic' },
+                    { value: 'loudness', label: 'Loudness smoothing' },
+                    { value: 'plexSonicLoudness', label: 'Plex sonic then loudness' },
+                  ];
+                  return options.map((opt) => `<option value="${opt.value}"${(current || 'none') === opt.value ? ' selected' : ''}>${opt.label}</option>`).join('');
+                }
                 function _tfValInput(rule, prefix, segments) {
                   if (rule.field === 'filePath' && segments && segments.length) {
                     const opts = segments.map(s => `<option value="${s}"${rule.value === s ? ' selected' : ''}>${s}</option>`).join('');
@@ -954,7 +980,8 @@
                   const rules = Array.isArray(filterCfg?.rules) ? filterCfg.rules : [];
                   const exclude = Array.isArray(filterCfg?.excludeLibraryKeys) ? filterCfg.excludeLibraryKeys : [];
                   const dedupe = Boolean(filterCfg?.deduplicateByMbid);
-                  const hasRules = rules.length > 0 || exclude.some(k => k);
+                  const dedupeByArtistTitle = Boolean(filterCfg?.deduplicateByArtistTitle);
+                  const hasRules = rules.length > 0 || exclude.some(k => k) || dedupe || dedupeByArtistTitle;
                   let html = `<details class="tf-details"${hasRules ? ' open' : ''}><summary class="tf-summary">Exclusion Filters<span class="tf-rule-count">${rules.length ? ` (${rules.length} rule${rules.length > 1 ? 's' : ''})` : ''}</span></summary><div class="tf-body">`;
                   // Rule rows
                   html += `<div class="tf-rules-list" id="tf-list-${prefix}">`;
@@ -980,6 +1007,7 @@
                   }
                   // MBID dedup
                   html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByMbid" value="on"${dedupe ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Deduplicate by MusicBrainz recording ID</span></label></div>`;
+                  html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByArtistTitle" value="on"${dedupeByArtistTitle ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Deduplicate release variants by artist and song title</span></label></div>`;
                   html += `</div></details>`;
                   return html;
                 }
@@ -1018,23 +1046,19 @@
                   <label class="field"><span>Max tracks per artist</span><input type="number" name="dm_maxTracksPerArtist" value="<%= Number(_dm.maxTracksPerArtist ?? 1) %>" min="1" max="5" /></label>
                   <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="dm_repeatCooldownDays" value="<%= Number(_dm.repeatCooldownDays ?? 5) %>" min="0" max="60" /></label>
                 </div>
-                <div class="settings-card-sub" style="margin-top:14px">Optional Plex sonic ordering can reshuffle the selected tracks for smoother transitions. It only applies on Plex servers with sonic analysis available and falls back automatically otherwise.</div>
+                <div class="settings-type-grid" style="margin-top:14px">
+                  <label class="field"><span>Base sort</span><select name="dm_sortBy"><%- _renderPlaylistSortOptions(_dm.sortBy || 'default', false) %></select></label>
+                  <label class="field"><span>Final ordering</span><select name="dm_finalOrdering"><%- _renderPlaylistFinalOrderingOptions(_dm.finalOrdering || (_dm.useSonicOrdering ? (_dm.useLoudnessOrdering ? 'plexSonicLoudness' : 'plexSonic') : (_dm.useLoudnessOrdering ? 'loudness' : 'none'))) %></select></label>
+                </div>
+                <div class="settings-card-sub" style="margin-top:14px">Plex sonic settings below are used when Final ordering is set to Plex sonic or Plex sonic then loudness. They only apply on Plex servers with sonic analysis available and fall back automatically otherwise.</div>
                 <div class="settings-type-grid">
-                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-                    <span>Use Plex sonic ordering</span>
-                    <input type="checkbox" name="dm_useSonicOrdering" value="on" <%= _dm.useSonicOrdering ? 'checked' : '' %> />
-                  </label>
                   <label class="field"><span>Sonic seed count</span><input type="number" name="dm_sonicSeedCount" value="<%= Number(_dm.sonicSeedCount ?? 3) %>" min="1" max="10" /></label>
                   <label class="field"><span>Sonic expansion limit</span><input type="number" name="dm_sonicExpansionLimit" value="<%= Number(_dm.sonicExpansionLimit ?? 12) %>" min="1" max="50" /></label>
                   <label class="field"><span>Max sonic distance</span><div class="settings-pct-row"><input type="number" name="dm_sonicMaxDistance" value="<%= _capPct(_dm.sonicMaxDistance, 0.35) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
                   <label class="field"><span>Sonic strategy</span><select name="dm_sonicStrategy"><option value="balanced" <%= (_dm.sonicStrategy || 'balanced') === 'balanced' ? 'selected' : '' %>>Balanced</option><option value="favor-favorites" <%= _dm.sonicStrategy === 'favor-favorites' ? 'selected' : '' %>>Favor favourites</option><option value="favor-discovery" <%= _dm.sonicStrategy === 'favor-discovery' ? 'selected' : '' %>>Favor discovery</option></select></label>
                 </div>
-                <div class="settings-card-sub" style="margin-top:14px">Optional loudness smoothing uses Plex loudness data to reduce abrupt jumps between adjacent tracks. It only applies after selection, and after sonic ordering when both are enabled.</div>
+                <div class="settings-card-sub" style="margin-top:14px">Loudness settings below are used when Final ordering is set to Loudness smoothing or Plex sonic then loudness.</div>
                 <div class="settings-type-grid">
-                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-                    <span>Use loudness smoothing</span>
-                    <input type="checkbox" name="dm_useLoudnessOrdering" value="on" <%= _dm.useLoudnessOrdering ? 'checked' : '' %> />
-                  </label>
                   <label class="field"><span>Loudness lookahead</span><input type="number" name="dm_loudnessLookahead" value="<%= Number(_dm.loudnessLookahead ?? 4) %>" min="2" max="10" /></label>
                   <label class="field"><span>Max loudness step</span><div class="settings-pct-row"><input type="number" name="dm_maxLoudnessStepDb" value="<%= Number(_dm.maxLoudnessStepDb ?? 6) %>" min="1" max="20" /><span class="settings-pct-sym">dB</span></div></label>
                 </div>
@@ -1058,23 +1082,19 @@
                   <label class="field"><span>Max tracks per artist</span><input type="number" name="ct_maxTracksPerArtist" value="<%= Number(_ct.maxTracksPerArtist ?? 2) %>" min="1" max="5" /></label>
                   <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="ct_repeatCooldownDays" value="<%= Number(_ct.repeatCooldownDays ?? 14) %>" min="0" max="90" /></label>
                 </div>
-                <div class="settings-card-sub" style="margin-top:14px">Optional Plex sonic ordering can reshuffle the selected tracks for smoother transitions. It only applies on Plex servers with sonic analysis available and falls back automatically otherwise.</div>
+                <div class="settings-type-grid" style="margin-top:14px">
+                  <label class="field"><span>Base sort</span><select name="ct_sortBy"><%- _renderPlaylistSortOptions(_ct.sortBy || 'default', false) %></select></label>
+                  <label class="field"><span>Final ordering</span><select name="ct_finalOrdering"><%- _renderPlaylistFinalOrderingOptions(_ct.finalOrdering || (_ct.useSonicOrdering ? (_ct.useLoudnessOrdering ? 'plexSonicLoudness' : 'plexSonic') : (_ct.useLoudnessOrdering ? 'loudness' : 'none'))) %></select></label>
+                </div>
+                <div class="settings-card-sub" style="margin-top:14px">Plex sonic settings below are used when Final ordering is set to Plex sonic or Plex sonic then loudness. They only apply on Plex servers with sonic analysis available and fall back automatically otherwise.</div>
                 <div class="settings-type-grid">
-                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-                    <span>Use Plex sonic ordering</span>
-                    <input type="checkbox" name="ct_useSonicOrdering" value="on" <%= _ct.useSonicOrdering ? 'checked' : '' %> />
-                  </label>
                   <label class="field"><span>Sonic seed count</span><input type="number" name="ct_sonicSeedCount" value="<%= Number(_ct.sonicSeedCount ?? 4) %>" min="1" max="10" /></label>
                   <label class="field"><span>Sonic expansion limit</span><input type="number" name="ct_sonicExpansionLimit" value="<%= Number(_ct.sonicExpansionLimit ?? 16) %>" min="1" max="50" /></label>
                   <label class="field"><span>Max sonic distance</span><div class="settings-pct-row"><input type="number" name="ct_sonicMaxDistance" value="<%= _capPct(_ct.sonicMaxDistance, 0.35) %>" min="0" max="100" /><span class="settings-pct-sym">%</span></div></label>
                   <label class="field"><span>Sonic strategy</span><select name="ct_sonicStrategy"><option value="balanced" <%= (_ct.sonicStrategy || 'balanced') === 'balanced' ? 'selected' : '' %>>Balanced</option><option value="favor-favorites" <%= _ct.sonicStrategy === 'favor-favorites' ? 'selected' : '' %>>Favor favourites</option><option value="favor-discovery" <%= _ct.sonicStrategy === 'favor-discovery' ? 'selected' : '' %>>Favor discovery</option></select></label>
                 </div>
-                <div class="settings-card-sub" style="margin-top:14px">Optional loudness smoothing uses Plex loudness data to reduce abrupt jumps between adjacent tracks. It only applies after selection, and after sonic ordering when both are enabled.</div>
+                <div class="settings-card-sub" style="margin-top:14px">Loudness settings below are used when Final ordering is set to Loudness smoothing or Plex sonic then loudness.</div>
                 <div class="settings-type-grid">
-                  <label class="field" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-                    <span>Use loudness smoothing</span>
-                    <input type="checkbox" name="ct_useLoudnessOrdering" value="on" <%= _ct.useLoudnessOrdering ? 'checked' : '' %> />
-                  </label>
                   <label class="field"><span>Loudness lookahead</span><input type="number" name="ct_loudnessLookahead" value="<%= Number(_ct.loudnessLookahead ?? 4) %>" min="2" max="10" /></label>
                   <label class="field"><span>Max loudness step</span><div class="settings-pct-row"><input type="number" name="ct_maxLoudnessStepDb" value="<%= Number(_ct.maxLoudnessStepDb ?? 6) %>" min="1" max="20" /><span class="settings-pct-sym">dB</span></div></label>
                 </div>
@@ -1110,6 +1130,10 @@
                     <span class="gp-preview-num" id="cr-prev-tracks">—</span> <span class="gp-preview-unit">tracks</span>
                   </span>
                 </div>
+                <div class="settings-type-grid" style="margin-top:14px">
+                  <label class="field"><span>Base sort</span><select name="cr_sortBy"><%- _renderPlaylistSortOptions(_cr.sortBy || 'default', false) %></select></label>
+                  <label class="field"><span>Final ordering</span><select name="cr_finalOrdering"><%- _renderPlaylistFinalOrderingOptions(_cr.finalOrdering || 'none') %></select></label>
+                </div>
                 <%- _renderTrackFilters('cr', config.smartPlaylist?.crescive?.trackFilters, allLibraryKeys, null) %>
               </div>
 
@@ -1141,6 +1165,10 @@
                     <span class="gp-preview-sep">·</span>
                     <span class="gp-preview-num" id="cu-prev-tracks">—</span> <span class="gp-preview-unit">tracks</span>
                   </span>
+                </div>
+                <div class="settings-type-grid" style="margin-top:14px">
+                  <label class="field"><span>Base sort</span><select name="cu_sortBy"><%- _renderPlaylistSortOptions(_cu.sortBy || 'default', false) %></select></label>
+                  <label class="field"><span>Final ordering</span><select name="cu_finalOrdering"><%- _renderPlaylistFinalOrderingOptions(_cu.finalOrdering || 'none') %></select></label>
                 </div>
                 <%- _renderTrackFilters('cu', config.smartPlaylist?.curative?.trackFilters, allLibraryKeys, null) %>
               </div>
@@ -1505,18 +1533,11 @@
                   </label>
                   <label class="field" style="flex:1">
                     <span>Sort tracks by</span>
-                    <select id="gp-sort-by">
-                      <option value="ratingCount">Global rating count</option>
-                      <option value="tierWeight">Tier weight</option>
-                      <option value="playCount">Play count</option>
-                      <option value="bpmAsc">BPM low to high</option>
-                      <option value="bpmDesc">BPM high to low</option>
-                      <option value="energyAsc">Energy low to high</option>
-                      <option value="energyDesc">Energy high to low</option>
-                      <option value="danceabilityDesc">Danceability high to low</option>
-                      <option value="camelot">Camelot wheel</option>
-                      <option value="djFlow">DJ flow (Camelot + BPM)</option>
-                    </select>
+                    <select id="gp-sort-by"><%- _renderPlaylistSortOptions('ratingCount', false) %></select>
+                  </label>
+                  <label class="field" style="flex:1">
+                    <span>Final ordering</span>
+                    <select id="gp-final-ordering"><%- _renderPlaylistFinalOrderingOptions('none') %></select>
                   </label>
                 </div>
               </div>
@@ -1600,6 +1621,14 @@
                       <span class="settings-toggle-text">Deduplicate by MusicBrainz recording ID</span>
                     </label>
                   </div>
+                  <div style="margin-top:12px">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="gp-dedup-artist-title" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Deduplicate release variants by artist and song title</span>
+                    </label>
+                    <div class="settings-help" style="margin-top:6px">Ignores tags like live, radio edit, remaster, mono, or mix and keeps the highest rated copy.</div>
+                  </div>
                 </div>
               </div>
 
@@ -1660,6 +1689,7 @@
                   <% if (gp.rules?.camelotFocus) { %><span class="gp-rule-chip">Camelot: <%= gp.rules.camelotFocus %> (<%= gp.rules.camelotMode || 'exact' %>)</span><% } %>
                   <% if (gp.rules?.topNPerArtist) { %><span class="gp-rule-chip">Top <%= gp.rules.topNPerArtist %>/artist</span><% } %>
                   <% if (gp.rules?.maxTracks) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracks %> tracks</span><% } %>
+                  <% if (gp.rules?.finalOrdering && gp.rules.finalOrdering !== 'none') { %><span class="gp-rule-chip">Final: <%= gp.rules.finalOrdering %></span><% } %>
                   <% if ((gp.rules?.blendUsers || []).length) { %>
                   <span class="gp-rule-chip gp-rule-chip--blend">Blend (<%= gp.rules.blendMode || 'average' %>): <%= gp.rules.blendUsers.join(', ') %></span>
                   <% } %>
@@ -1774,6 +1804,7 @@
                 document.getElementById('gp-top-n').value = rules.topNPerArtist || '';
                 document.getElementById('gp-max-tracks').value = rules.maxTracks || '';
                 document.getElementById('gp-sort-by').value = rules.sortBy || 'ratingCount';
+                document.getElementById('gp-final-ordering').value = rules.finalOrdering || 'none';
                 if (window.gpSetBlendUsers) window.gpSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
                 gpLoadFeatureRules(rules);
                 // Populate track filters
@@ -1792,6 +1823,7 @@
                   tfList.appendChild(row);
                 });
                 document.getElementById('gp-dedup-mbid').checked = !!(tf.deduplicateByMbid);
+                document.getElementById('gp-dedup-artist-title').checked = !!(tf.deduplicateByArtistTitle);
                 // Populate folder filters
                 var incChips = document.getElementById('gp-include-chips');
                 var excChips = document.getElementById('gp-exclude-chips');
@@ -1814,6 +1846,7 @@
                 document.getElementById('gp-top-n').value = '';
                 document.getElementById('gp-max-tracks').value = '';
                 document.getElementById('gp-sort-by').value = 'ratingCount';
+                document.getElementById('gp-final-ordering').value = 'none';
                 if (window.gpSetBlendUsers) window.gpSetBlendUsers([], 'average');
                 gpApplyPresetDefaults('none');
                 document.getElementById('tf-list-gp').innerHTML = '';
@@ -1823,6 +1856,7 @@
                 gpRenderFolderBrowser('include');
                 gpRenderFolderBrowser('exclude');
                 document.getElementById('gp-dedup-mbid').checked = false;
+                document.getElementById('gp-dedup-artist-title').checked = false;
                 updateBlendModeVisibility();
                 schedulePreview();
               }
@@ -1839,6 +1873,7 @@
                   + gpFeatureSummaryHtml(r)
                   + (r.topNPerArtist ? '<span class="gp-rule-chip">Top ' + r.topNPerArtist + '/artist</span>' : '')
                   + (r.maxTracks ? '<span class="gp-rule-chip">Max ' + r.maxTracks + ' tracks</span>' : '')
+                  + (r.finalOrdering && r.finalOrdering !== 'none' ? '<span class="gp-rule-chip">Final: ' + r.finalOrdering + '</span>' : '')
                   + (bu.length ? '<span class="gp-rule-chip gp-rule-chip--blend">Blend (' + bm + '): ' + bu.join(', ') + '</span>' : '');
               }
 
@@ -1867,6 +1902,7 @@
                   topNPerArtist: document.getElementById('gp-top-n').value ? parseInt(document.getElementById('gp-top-n').value) : null,
                   maxTracks: document.getElementById('gp-max-tracks').value ? parseInt(document.getElementById('gp-max-tracks').value) : null,
                   sortBy: document.getElementById('gp-sort-by').value,
+                  finalOrdering: document.getElementById('gp-final-ordering').value || 'none',
                   blendUsers: window.gpGetBlendUsers ? window.gpGetBlendUsers() : [],
                   blendMode: blendModeEl ? blendModeEl.value : 'average',
                   featurePreset: document.getElementById('gp-feature-preset').value || 'none',
@@ -2022,7 +2058,14 @@
                 var excludeFolders = [];
                 document.querySelectorAll('#gp-exclude-chips [data-folder]').forEach(function(c) { excludeFolders.push(c.dataset.folder); });
                 var dedupe = !!(document.getElementById('gp-dedup-mbid') || {}).checked;
-                return { rules: rules, includeFolders: includeFolders, excludeFolders: excludeFolders, deduplicateByMbid: dedupe };
+                var dedupeByArtistTitle = !!(document.getElementById('gp-dedup-artist-title') || {}).checked;
+                return {
+                  rules: rules,
+                  includeFolders: includeFolders,
+                  excludeFolders: excludeFolders,
+                  deduplicateByMbid: dedupe,
+                  deduplicateByArtistTitle: dedupeByArtistTitle,
+                };
               }
 
               // Show/hide blend mode selector and preview user dropdown based on blend slots
@@ -2166,7 +2209,7 @@
                   schedulePreview();
                 });
               });
-              ['gp-top-n','gp-max-tracks','gp-sort-by','gp-preview-user'].forEach(function(id) {
+              ['gp-top-n','gp-max-tracks','gp-sort-by','gp-final-ordering','gp-preview-user'].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('change', schedulePreview);
                 if (el && el.tagName === 'INPUT') el.addEventListener('input', schedulePreview);
@@ -2187,6 +2230,8 @@
               });
               var _dedupEl = document.getElementById('gp-dedup-mbid');
               if (_dedupEl) _dedupEl.addEventListener('change', schedulePreview);
+              var _dedupTitleEl = document.getElementById('gp-dedup-artist-title');
+              if (_dedupTitleEl) _dedupTitleEl.addEventListener('change', schedulePreview);
               document.querySelectorAll('.gp-checklist-search').forEach(function(input) {
                 input.addEventListener('input', function() {
                   var q = input.value.toLowerCase();
@@ -2230,7 +2275,7 @@
                   fetch('/api/playlists/global/' + editId, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
+                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                   }).then(function(r) { return r.json(); }).then(function(d) {
                     if (!d.ok) { msg.textContent = d.error || 'Error updating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                     var card = document.querySelector('.gp-card[data-gp-id="' + editId + '"]');
@@ -2249,7 +2294,7 @@
                 fetch('/api/playlists/global', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
+                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                 }).then(function(r) { return r.json(); }).then(function(d) {
                   if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                   msg.textContent = 'Created! It will sync on the next job run.';
@@ -2632,6 +2677,10 @@
                 <div class="settings-about-link-row">
                   <span>Discord</span>
                   <a href="https://discord.gg/TvrxJWD4PK" target="_blank" rel="noreferrer noopener">https://discord.gg/TvrxJWD4PK</a>
+                </div>
+                <div class="settings-about-link-row">
+                  <span>Reddit</span>
+                  <a href="https://www.reddit.com/r/curatorr/" target="_blank" rel="noreferrer noopener">https://www.reddit.com/r/curatorr/</a>
                 </div>
               </div>
             </div>

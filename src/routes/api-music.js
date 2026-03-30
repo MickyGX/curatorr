@@ -50,6 +50,7 @@ import {
   createUserPersonalPlaylist,
   updateUserPersonalPlaylist,
   deleteUserPersonalPlaylist,
+  deleteUserGeneratedPlaylist,
   previewGlobalPlaylist,
   getArtistTagMap,
   listRuleTemplates,
@@ -70,6 +71,8 @@ const THUMB_CACHE_MAX = 600;
 const thumbCache = new Map();
 const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
+const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
+const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 // Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
 const msUserIdCache = new Map();
 const MS_USERID_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -96,11 +99,12 @@ function normaliseTrackFiltersInput(value) {
   const includeFolders = Array.isArray(value.includeFolders) ? value.includeFolders.map(String).filter(Boolean) : [];
   const excludeFolders = Array.isArray(value.excludeFolders) ? value.excludeFolders.map(String).filter(Boolean) : [];
   const deduplicateByMbid = Boolean(value.deduplicateByMbid);
+  const deduplicateByArtistTitle = Boolean(value.deduplicateByArtistTitle);
   const rules = (Array.isArray(value.rules) ? value.rules : [])
     .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
     .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
-  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !rules.length) return null;
-  return { includeFolders, excludeFolders, deduplicateByMbid, rules };
+  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !rules.length) return null;
+  return { includeFolders, excludeFolders, deduplicateByMbid, deduplicateByArtistTitle, rules };
 }
 
 function buildPlaylistFeatureRules(payload = {}) {
@@ -2181,6 +2185,7 @@ export function registerApiMusic(app, ctx) {
 
       const generated = playlistService?.getGeneratedByKey(userPlexId, playlistKey);
       if (!generated) return res.status(404).json({ error: 'Playlist not found.' });
+      if (generated.active === false) return res.status(409).json({ error: 'Playlist is disabled. Enable it first.' });
 
       const playlistType = String(generated.playlistType || '').trim().toLowerCase();
       if (playlistType === 'curatorred') {
@@ -2221,6 +2226,39 @@ export function registerApiMusic(app, ctx) {
         return res.status(400).json({ error: 'Custom playlists do not have an automatic rebuild.' });
       }
       return res.status(400).json({ error: 'This playlist does not support rebuilding.' });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/playlists/generated/state', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKeys = Array.isArray(req.body?.playlistKeys)
+      ? req.body.playlistKeys.map((value) => String(value || '').trim()).filter(Boolean)
+      : [String(req.body?.playlistKey || '').trim()].filter(Boolean);
+    const active = Boolean(req.body?.active);
+    if (!playlistKeys.length) return res.status(400).json({ error: 'playlistKey is required' });
+
+    try {
+      const updated = [];
+      for (const playlistKey of [...new Set(playlistKeys)]) {
+        const playlist = await playlistService?.setGeneratedActive(userPlexId, playlistKey, active);
+        if (playlist) {
+          updated.push({
+            playlistKey: playlist.playlistKey,
+            plexPlaylistId: playlist.plexPlaylistId,
+            active: Boolean(playlist.active),
+            trackCount: Number(playlist.trackCount || 0),
+          });
+        }
+      }
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: active ? 'generated.enable' : 'generated.disable',
+        message: `${active ? 'Enabled' : 'Disabled'} ${updated.length} playlist(s) for ${userPlexId}`,
+      });
+      return res.json({ ok: true, playlists: updated });
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
     }
@@ -2305,7 +2343,7 @@ export function registerApiMusic(app, ctx) {
       if (!r.ok) return res.status(502).json({ error: `Plex returned ${r.status}` });
 
       // Remove from playlist_tracks so sync doesn't re-add it
-      if (ratingKey && playlistKey && ['crescive', 'curative', 'curatorr', 'daily-mix'].includes(String(playlistKey))) {
+      if (ratingKey && playlistKey && generated && (['crescive', 'curative', 'curatorr', 'daily-mix'].includes(String(playlistKey)) || generated.playlistType === 'custom')) {
         removePlaylistTracks(db, userPlexId, playlistKey, [String(ratingKey)]);
       }
       return res.json({ ok: true });
@@ -2369,7 +2407,7 @@ export function registerApiMusic(app, ctx) {
         });
       }
 
-      if (playlistKey && ['crescive', 'curative', 'curatorr', 'daily-mix'].includes(String(playlistKey))) {
+      if (playlistKey && generated && (['crescive', 'curative', 'curatorr', 'daily-mix'].includes(String(playlistKey)) || generated.playlistType === 'custom')) {
         addPlaylistTracks(db, userPlexId, playlistKey, artistTracks.map((t) => ({ ratingKey: t.ratingKey, artistName: t.artistName })));
       }
       return res.json({ ok: true, added: ratingKeys.length });
@@ -3110,7 +3148,8 @@ export function registerApiMusic(app, ctx) {
       tags:            normaliseTriStateInput(req.body?.tags),
       topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:       req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
-      sortBy:          String(req.body?.sortBy || 'ratingCount'),
+      sortBy:          PLAYLIST_SORT_VALUES.includes(String(req.body?.sortBy || '').trim()) ? String(req.body.sortBy).trim() : 'ratingCount',
+      finalOrdering:   PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',
       blendUsers,
       blendMode:       blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
       rebuildSchedule: REBUILD_SCHEDULES.includes(req.body?.rebuildSchedule) ? req.body.rebuildSchedule : 'daily',
@@ -3152,7 +3191,8 @@ export function registerApiMusic(app, ctx) {
       tags:            normaliseTriStateInput(req.body?.tags),
       topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
       maxTracks:       req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
-      sortBy:          String(req.body?.sortBy || 'ratingCount'),
+      sortBy:          PLAYLIST_SORT_VALUES.includes(String(req.body?.sortBy || '').trim()) ? String(req.body.sortBy).trim() : 'ratingCount',
+      finalOrdering:   PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',
       blendUsers,
       blendMode:       blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
       rebuildSchedule: REBUILD_SCHEDULES.includes(req.body?.rebuildSchedule) ? req.body.rebuildSchedule : 'daily',
@@ -3207,7 +3247,9 @@ export function registerApiMusic(app, ctx) {
     const existing = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
       .find((p) => p.playlistKey === playlistKey);
     if (!existing) return res.status(404).json({ error: 'Playlist not found' });
-    if (!['personal', 'global', 'custom'].includes(existing.playlistType)) return res.status(403).json({ error: 'Only user-created playlists can be deleted.' });
+    if (!['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(existing.playlistType)) {
+      return res.status(403).json({ error: 'This playlist type cannot be deleted.' });
+    }
 
     const config = loadConfig();
     const { url } = config.plex || {};
@@ -3223,7 +3265,11 @@ export function registerApiMusic(app, ctx) {
       } catch (_err) { /* best-effort */ }
     }
 
-    saveUserGeneratedPlaylist(db, userPlexId, { ...existing, active: false, plexPlaylistId: '', updatedAt: Date.now() });
+    if (existing.playlistType === 'personal') {
+      const personalId = playlistKey.replace(/^personal:/, '');
+      if (personalId) deleteUserPersonalPlaylist(db, personalId, userPlexId);
+    }
+    deleteUserGeneratedPlaylist(db, userPlexId, playlistKey);
     pushLog({ level: 'info', app: 'playlist', action: 'generated.delete', message: `Generated playlist deleted: ${playlistKey} for ${userPlexId}` });
     res.json({ ok: true });
   });
@@ -3252,7 +3298,7 @@ export function registerApiMusic(app, ctx) {
           });
         } catch (_err) { /* best-effort */ }
       }
-      saveUserGeneratedPlaylist(db, userPlexId, { ...generatedEntry, active: false, plexPlaylistId: '', updatedAt: Date.now() });
+      deleteUserGeneratedPlaylist(db, userPlexId, playlistKey);
     }
 
     deleteUserPersonalPlaylist(db, id, userPlexId);

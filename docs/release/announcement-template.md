@@ -10,6 +10,7 @@ Curatorr `{{VERSION}}` is out.
 
 ## Links
 
-- Docker Hub: `mickygx/curatorr`
+- GitHub release: {{RELEASE_URL}}
+- Docker Hub app image: `{{APP_IMAGE}}`
+- Docker Hub analyzer image: `{{ANALYZER_IMAGE}}`
 - Release notes: `docs/release/releases/{{TAG}}.md`
-

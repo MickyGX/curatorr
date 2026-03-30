@@ -23,6 +23,7 @@ const {
   createUserPersonalPlaylist,
   findUserPersonalPlaylistByName,
   getMasterTracks,
+  getPlaylistTracks,
   getTrackEnrichmentByRatingKeys,
   initDb,
   listLidarrRequests,
@@ -515,6 +516,10 @@ describe('user settings integrations', () => {
     form.set('listenbrainzToken', 'lb-token');
     form.append('listenbrainzPlaylists', 'daily-jams');
     form.append('listenbrainzPlaylists', 'weekly-exploration');
+    form.set('listenbrainzSort_daily-jams', 'djFlow');
+    form.set('listenbrainzFinalOrdering_daily-jams', 'plexSonic');
+    form.set('listenbrainzSort_weekly-exploration', 'playCount');
+    form.set('listenbrainzFinalOrdering_weekly-exploration', 'loudness');
 
     const res = await client.request('/user-settings/listenbrainz', {
       method: 'POST',
@@ -531,6 +536,51 @@ describe('user settings integrations', () => {
       assert.equal(prefs.listenbrainzUsername, 'lb-user');
       assert.equal(prefs.listenbrainzToken, 'lb-token');
       assert.deepEqual(prefs.listenbrainzEnabledPlaylists, ['daily-jams', 'weekly-exploration']);
+      assert.equal(prefs.listenbrainzPlaylistSorts['daily-jams'], 'djFlow');
+      assert.equal(prefs.listenbrainzPlaylistFinalOrderings['daily-jams'], 'plexSonic');
+      assert.equal(prefs.listenbrainzPlaylistSorts['weekly-exploration'], 'playCount');
+      assert.equal(prefs.listenbrainzPlaylistFinalOrderings['weekly-exploration'], 'loudness');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('saves Last.fm station ordering preferences', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const page = await client.request('/user-settings');
+    const csrfToken = extractCsrfToken(page.text);
+    assert.ok(csrfToken, 'Expected CSRF token on /user-settings');
+
+    const form = new URLSearchParams();
+    form.set('_csrf', csrfToken);
+    form.set('lastfmUsername', 'last-user');
+    form.append('lastfmStations', 'mix');
+    form.set('lastfmTopTracks', '1month');
+    form.set('lastfmSort_mix', 'tierWeight');
+    form.set('lastfmFinalOrdering_mix', 'plexSonicLoudness');
+    form.set('lastfmTopTracksSort', 'djFlow');
+    form.set('lastfmTopTracksFinalOrdering', 'loudness');
+
+    const res = await client.request('/user-settings/lastfm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form,
+    });
+    assert.equal(res.status, 302);
+    assert.equal(res.location, '/user-settings?success=lastfm-updated');
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const prefs = getUserPreferences(db, 'testadmin');
+      assert.equal(prefs.lastfmUsername, 'last-user');
+      assert.deepEqual(prefs.lastfmEnabledStations, ['mix', 'topTracks:1month']);
+      assert.equal(prefs.lastfmStationSorts.mix, 'tierWeight');
+      assert.equal(prefs.lastfmStationFinalOrderings.mix, 'plexSonicLoudness');
+      assert.equal(prefs.lastfmStationSorts['topTracks:1month'], 'djFlow');
+      assert.equal(prefs.lastfmStationFinalOrderings['topTracks:1month'], 'loudness');
     } finally {
       db.close();
     }
@@ -2792,6 +2842,304 @@ describe('security guards', () => {
     }
   });
 
+  it('disables and re-enables custom playlists by removing and restoring the Plex playlist', async () => {
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const userId = `custom-toggle-${Date.now()}`;
+    const playlistKey = 'custom-plex-custom-1';
+
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'custom',
+      playlistKey,
+      plexPlaylistId: 'plex-custom-1',
+      playlistTitle: 'Road Test',
+      trackCount: 2,
+      active: true,
+      updatedAt: Date.now(),
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: () => {},
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      const method = String(options.method || 'GET').toUpperCase();
+      if (target === 'http://plex.local/playlists/plex-custom-1/items?X-Plex-Container-Start=0&X-Plex-Container-Size=1000') {
+        return new Response(JSON.stringify({
+          MediaContainer: {
+            Metadata: [
+              { ratingKey: 'rk-custom-1', originalTitle: 'Artist A' },
+              { ratingKey: 'rk-custom-2', originalTitle: 'Artist B' },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-custom-1' && method === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=Road+Test')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-custom-2' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-custom-2/items' && method === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-custom-2/items?uri=')) {
+        const decoded = decodeURIComponent(target);
+        assert.match(decoded, /library\/metadata\/rk-custom-1,rk-custom-2/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in custom playlist toggle test: ${target}`);
+    };
+
+    try {
+      const disabled = await service.setGeneratedActive(userId, playlistKey, false);
+      assert.equal(disabled.active, false);
+      assert.equal(disabled.plexPlaylistId, '');
+      assert.deepEqual(getPlaylistTracks(db, userId, playlistKey).map((track) => track.ratingKey), ['rk-custom-1', 'rk-custom-2']);
+
+      const enabled = await service.setGeneratedActive(userId, playlistKey, true);
+      assert.equal(enabled.active, true);
+      assert.equal(enabled.plexPlaylistId, 'plex-custom-2');
+      assert.equal(enabled.trackCount, 2);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const playlist = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false }).find((entry) => entry.playlistKey === playlistKey);
+      assert.ok(playlist);
+      assert.equal(playlist.active, true);
+      assert.equal(playlist.plexPlaylistId, 'plex-custom-2');
+      assert.equal(playlist.trackCount, 2);
+    } finally {
+      dbVerify.close();
+    }
+  });
+
+  it('keeps external playlist toggles in sync with user preference settings', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-external-toggle-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `external-toggle-${Date.now()}`;
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'rk-external-1',
+      'Artist Match',
+      'Track Match',
+      'Matched Album',
+      'mbid-external-1',
+      '[]',
+      '1',
+      180000,
+      0,
+      0,
+      now,
+    );
+
+    saveUserPreferences(db, userId, {
+      ...getUserPreferences(db, userId),
+      lastfmUsername: 'last-user',
+      lastfmEnabledStations: [],
+      listenbrainzUsername: 'lb-user',
+      listenbrainzToken: 'lb-token',
+      listenbrainzEnabledPlaylists: [],
+      userWizardCompleted: true,
+    });
+
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'lastfm-station',
+      playlistKey: 'lastfm:mix',
+      plexPlaylistId: '',
+      playlistTitle: 'Last.fm Mix',
+      algorithmVersion: 'lastfm-station-v1',
+      trackCount: 0,
+      active: false,
+      updatedAt: now,
+    });
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'listenbrainz-playlist',
+      playlistKey: 'listenbrainz:weekly-jams',
+      plexPlaylistId: '',
+      playlistTitle: 'ListenBrainz Weekly Jams',
+      algorithmVersion: 'listenbrainz-playlist-v2',
+      trackCount: 0,
+      active: false,
+      updatedAt: now,
+    });
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        discovery: {},
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildAppApiUrl: (base, path = '') => new URL(path, `${String(base).replace(/\/?$/, '/')}`),
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: () => {},
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      const method = String(options.method || 'GET').toUpperCase();
+
+      if (target === 'https://www.last.fm/player/station/user/last-user/mix') {
+        return new Response(JSON.stringify({
+          playlist: [
+            {
+              artists: [{ _name: 'Artist Match' }],
+              _name: 'Track Match',
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://api.listenbrainz.org/1/user/lb-user/playlists/createdfor') {
+        return new Response(JSON.stringify({
+          playlists: [
+            {
+              playlist: {
+                identifier: 'https://listenbrainz.org/playlist/12345678-1234-1234-1234-1234567890ab',
+                title: 'Weekly Jams',
+                extension: {
+                  'https://musicbrainz.org/doc/jspf#playlist': {
+                    additional_metadata: {
+                      algorithm_metadata: {
+                        source_patch: 'weekly-jams',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://api.listenbrainz.org/1/playlist/12345678-1234-1234-1234-1234567890ab') {
+        return new Response(JSON.stringify({
+          playlist: {
+            track: [
+              {
+                title: 'Track Match',
+                creator: 'Artist Match',
+              },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists?playlistType=audio') {
+        return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=Last.fm+Mix')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-lastfm-1' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=ListenBrainz+Weekly+Jams')) {
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-lb-1' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if ((target === 'http://plex.local/playlists/plex-lastfm-1/items' || target === 'http://plex.local/playlists/plex-lb-1/items') && method === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if ((target.startsWith('http://plex.local/playlists/plex-lastfm-1/items?uri=') || target.startsWith('http://plex.local/playlists/plex-lb-1/items?uri=')) && method === 'PUT') {
+        assert.match(decodeURIComponent(target), /library\/metadata\/rk-external-1/);
+        return new Response('', { status: 200 });
+      }
+      if ((target === 'http://plex.local/playlists/plex-lastfm-1' || target === 'http://plex.local/playlists/plex-lb-1') && method === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in external playlist toggle test: ${target}`);
+    };
+
+    try {
+      const enabledLastfm = await service.setGeneratedActive(userId, 'lastfm:mix', true);
+      assert.equal(enabledLastfm.active, true);
+      assert.equal(enabledLastfm.plexPlaylistId, 'plex-lastfm-1');
+      assert.deepEqual(getUserPreferences(db, userId).lastfmEnabledStations, ['mix']);
+
+      const enabledListenbrainz = await service.setGeneratedActive(userId, 'listenbrainz:weekly-jams', true);
+      assert.equal(enabledListenbrainz.active, true);
+      assert.equal(enabledListenbrainz.plexPlaylistId, 'plex-lb-1');
+      assert.deepEqual(getUserPreferences(db, userId).listenbrainzEnabledPlaylists, ['weekly-jams']);
+
+      const disabledLastfm = await service.setGeneratedActive(userId, 'lastfm:mix', false);
+      assert.equal(disabledLastfm.active, false);
+      assert.deepEqual(getUserPreferences(db, userId).lastfmEnabledStations, []);
+
+      const disabledListenbrainz = await service.setGeneratedActive(userId, 'listenbrainz:weekly-jams', false);
+      assert.equal(disabledListenbrainz.active, false);
+      assert.deepEqual(getUserPreferences(db, userId).listenbrainzEnabledPlaylists, []);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+  });
+
   it('applies Plex sonic ordering to Daily Mix during sync when enabled', async () => {
     const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
     const db = initDb(dbPath);
@@ -3429,6 +3777,39 @@ describe('security guards', () => {
         rules: [{ field: 'camelotKey', operator: 'equals', value: '8B' }],
       });
       assert.deepEqual(keyFiltered.map((track) => track.ratingKey).sort(), ['feat-1']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('deduplicates release variants by artist and fuzzy song title when requested', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-release-dedupe-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('rel-1', 'The Beatles', 'Penny Lane', 'Anthology 2', 'mbid-anthology', '[]', '1', '/music/anthology/penny-lane.flac', 193000, 120, 40, now);
+    insertMaster.run('rel-2', 'The Beatles', 'Penny Lane - Radio Edit', 'Magical Mystery Tour', 'mbid-mmt', '[]', '1', '/music/mmt/penny-lane.flac', 198000, 180, 55, now);
+    insertMaster.run('rel-3', 'The Beatles', 'Penny Lane (Live)', 'Live Bootleg', 'mbid-live', '[]', '1', '/music/live/penny-lane.flac', 254000, 250, 80, now);
+    insertMaster.run('rel-4', 'The Beatles', 'Hello Goodbye', '1', 'mbid-hello', '[]', '1', '/music/1/hello-goodbye.flac', 207000, 140, 60, now);
+    insertMaster.run('rel-5', 'The Beatles', 'Penny Lane', 'Duplicate MBID Release', 'mbid-anthology', '[]', '1', '/music/duplicate/penny-lane.flac', 193500, 90, 20, now);
+
+    try {
+      const masterTracks = getMasterTracks(db);
+
+      const unfiltered = applyTrackFilters(masterTracks, { deduplicateByMbid: false });
+      assert.deepEqual(unfiltered.map((track) => track.ratingKey).sort(), ['rel-1', 'rel-2', 'rel-3', 'rel-4', 'rel-5']);
+
+      const mbidOnly = applyTrackFilters(masterTracks, { deduplicateByMbid: true });
+      assert.deepEqual(mbidOnly.map((track) => track.ratingKey).sort(), ['rel-1', 'rel-2', 'rel-3', 'rel-4']);
+
+      const dedupedByTitle = applyTrackFilters(masterTracks, { deduplicateByArtistTitle: true });
+      assert.deepEqual(dedupedByTitle.map((track) => track.ratingKey).sort(), ['rel-3', 'rel-4']);
     } finally {
       db.close();
     }

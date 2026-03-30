@@ -41,6 +41,21 @@ jobs:
             echo "has_notes=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Render release announcement
+        id: announcement
+        run: |
+          BODY_FILE="${RUNNER_TEMP}/release-announcement.md"
+          TITLE="$(node .github/scripts/render-release-announcement.mjs \
+            "${{ steps.release_context.outputs.tag_name }}" \
+            "${GITHUB_REPOSITORY}" \
+            "${BODY_FILE}")"
+          {
+            echo "title<<EOF"
+            echo "${TITLE}"
+            echo "EOF"
+            echo "body_file=${BODY_FILE}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create release from curated notes
         if: steps.notes.outputs.has_notes == 'true'
         uses: softprops/action-gh-release@v2
@@ -78,3 +93,15 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"content\":\"${MESSAGE}\"}" \
             "${DISCORD_WEBHOOK_URL}"
+
+      - name: Post Reddit release announcement
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          REDDIT_SUBREDDIT: ${{ secrets.REDDIT_RELEASE_SUBREDDIT }}
+          REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+          ANNOUNCEMENT_TITLE: ${{ steps.announcement.outputs.title }}
+          ANNOUNCEMENT_BODY_FILE: ${{ steps.announcement.outputs.body_file }}
+        run: node .github/scripts/post-reddit-release.mjs

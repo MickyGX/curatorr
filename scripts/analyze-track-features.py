@@ -178,10 +178,45 @@ def main():
     manifest = load_manifest(args.input)
     tracks = manifest.get('tracks') or []
     results = []
+    not_found = []
     for track in tracks:
+        file_path = str(track.get('filePath') or '').strip()
+        if file_path and not os.path.isfile(file_path):
+            not_found.append(file_path)
         analyzed = analyze_track(track)
         if analyzed:
             results.append(analyzed)
+
+    if not_found:
+        print(
+            f'[curatorr-analyzer] {len(not_found)}/{len(tracks)} track file(s) not found in the analyzer container.',
+            file=sys.stderr, flush=True,
+        )
+        print(
+            f'[curatorr-analyzer] Example missing path: {not_found[0]}',
+            file=sys.stderr, flush=True,
+        )
+        if len(not_found) == len(tracks):
+            try:
+                common = os.path.commonpath(not_found) if len(not_found) > 1 else os.path.dirname(not_found[0])
+                if common in ('/', ''):
+                    parts = not_found[0].split('/')
+                    common = '/'.join(parts[:3]) or '/'
+            except ValueError:
+                parts = not_found[0].split('/')
+                common = '/'.join(parts[:3]) or '/'
+            print(
+                '[curatorr-analyzer] All track files are missing — this almost certainly means '
+                'the music library is not mounted in the analyzer container, or is mounted at a '
+                'different path than Plex reports. Add this volume to curatorr_analyzer in your '
+                f'docker-compose.yml (replace /host/path/to/music with the actual path to your music library on the host):\n'
+                f'  - /host/path/to/music:{common}:ro',
+                file=sys.stderr, flush=True,
+            )
+            with open(args.output, 'w', encoding='utf-8') as handle:
+                json.dump({'tracks': []}, handle, indent=2)
+                handle.write('\n')
+            return 1
 
     with open(args.output, 'w', encoding='utf-8') as handle:
         json.dump({'tracks': results}, handle, indent=2)

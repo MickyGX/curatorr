@@ -58,6 +58,39 @@ function stripArtistSuffix(title, artist) {
   return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title;
 }
 
+function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map()) {
+  const type = String(playlistType || '').trim().toLowerCase();
+  if (type === 'global') return 'global';
+  if (['lastfm-station', 'listenbrainz-playlist'].includes(type)) return 'external';
+  if (['legacy', 'curatorred', 'curatorr', 'curative', 'crescive', 'daily-mix'].includes(type)) return 'system';
+  if (type === 'personal') {
+    const personalId = String(playlistKey || '').replace(/^personal:/, '').trim();
+    const personalDef = personalId ? personalPlaylistMap.get(personalId) : null;
+    const blendUsers = Array.isArray(personalDef?.rules?.blendUsers) ? personalDef.rules.blendUsers.filter(Boolean) : [];
+    return blendUsers.length ? 'blend' : 'personal';
+  }
+  return 'personal';
+}
+
+function getPlaylistAudienceSortRank(audience) {
+  const kind = String(audience || '').trim().toLowerCase();
+  if (kind === 'external') return 1;
+  if (kind === 'blend') return 2;
+  if (kind === 'global') return 3;
+  if (kind === 'system') return 4;
+  return 0;
+}
+
+function comparePlaylistCards(a, b) {
+  const activeDelta = Number(Boolean(b?.active !== false)) - Number(Boolean(a?.active !== false));
+  if (activeDelta) return activeDelta;
+  const audienceDelta = getPlaylistAudienceSortRank(a?.playlistAudience) - getPlaylistAudienceSortRank(b?.playlistAudience);
+  if (audienceDelta) return audienceDelta;
+  const updatedDelta = Number(b?.curatorrUpdatedAt || 0) - Number(a?.curatorrUpdatedAt || 0);
+  if (updatedDelta) return updatedDelta;
+  return String(a?.playlistTitle || '').localeCompare(String(b?.playlistTitle || ''));
+}
+
 function enrichDiscoverRequests(db, userPlexId, requests = []) {
   const libraryArtistSet = new Set(
     db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
@@ -1509,7 +1542,9 @@ export function registerPages(app, ctx) {
     const user = req.session.user;
     const { adminPreview, role, personalUserId: userPlexId } = await buildPageScope(req, config);
     const lastSync = getLastPlaylistSync(db, userPlexId);
-    const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: true }) || [];
+    const userPersonalPlaylists = (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })();
+    const personalPlaylistMap = new Map(userPersonalPlaylists.map((playlist) => [String(playlist?.id || '').trim(), playlist]));
+    const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: false }) || [];
     const canonicalPlaylists = playlistService?.getCanonicalPlaylist(userPlexId) || { legacy: null, generated: [], curatorred: null };
     const generatedCards = generatedPlaylists
       .map((playlist) => ({
@@ -1520,13 +1555,15 @@ export function registerPages(app, ctx) {
         playlistTitle: String(playlist.playlistTitle || playlist.playlistKey || 'Playlist'),
         trackCount: Number(playlist.trackCount || 0),
         curatorrUpdatedAt: Number(playlist.lastBuiltAt || playlist.lastSyncedAt || playlist.updatedAt || playlist.createdAt || 0),
-        state: playlist.plexPlaylistId ? 'synced' : 'pending',
+        state: playlist.active === false ? 'disabled' : (playlist.plexPlaylistId ? 'synced' : 'pending'),
+        active: playlist.active !== false,
         description: String(playlist.playlistType || 'generated'),
+        playlistAudience: resolvePlaylistAudience(playlist.playlistType, playlist.playlistKey, personalPlaylistMap),
         artPath: '',
         tracksAdded: Number(lastSync?.tracks_added || 0),
         tracksRemoved: Number(lastSync?.tracks_removed || 0),
       }))
-      .sort((a, b) => Number(b.curatorrUpdatedAt || 0) - Number(a.curatorrUpdatedAt || 0) || a.playlistTitle.localeCompare(b.playlistTitle));
+      .sort(comparePlaylistCards);
     const playlistCards = [];
     if (canonicalPlaylists.legacy) {
       playlistCards.push({
@@ -1538,13 +1575,16 @@ export function registerPages(app, ctx) {
         trackCount: Number(lastSync?.track_count || 0),
         curatorrUpdatedAt: Number(lastSync?.synced_at || 0),
         state: canonicalPlaylists.legacy.playlist_id ? 'synced' : 'pending',
+        active: true,
         description: 'Current Curatorr playlist',
+        playlistAudience: 'system',
         artPath: '',
         tracksAdded: Number(lastSync?.tracks_added || 0),
         tracksRemoved: Number(lastSync?.tracks_removed || 0),
       });
     }
     playlistCards.push(...generatedCards);
+    playlistCards.sort(comparePlaylistCards);
     const userPlexToken = ctx.resolveUserPlexServerToken(config, userPlexId);
     await attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken, userPlexToken);
 
@@ -1575,7 +1615,7 @@ export function registerPages(app, ctx) {
         fetchPlexHomeUsers,
         parsePlexUsers,
       ),
-      userPersonalPlaylists: (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })(),
+      userPersonalPlaylists,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });
@@ -1639,10 +1679,14 @@ export function registerPages(app, ctx) {
     const userPreset = userPrefs?.smartConfig?.preset || null;
     const lastfmUsername = userPrefs?.lastfmUsername || '';
     const lastfmEnabledStations = userPrefs?.lastfmEnabledStations || [];
+    const lastfmStationSorts = userPrefs?.lastfmStationSorts || {};
+    const lastfmStationFinalOrderings = userPrefs?.lastfmStationFinalOrderings || {};
     const lastfmBackfillCursor = userPrefs?.lastfmBackfillCursor ?? 0;
     const listenbrainzUsername = userPrefs?.listenbrainzUsername || '';
     const listenbrainzToken = userPrefs?.listenbrainzToken || '';
     const listenbrainzEnabledPlaylists = userPrefs?.listenbrainzEnabledPlaylists || [];
+    const listenbrainzPlaylistSorts = userPrefs?.listenbrainzPlaylistSorts || {};
+    const listenbrainzPlaylistFinalOrderings = userPrefs?.listenbrainzPlaylistFinalOrderings || {};
     res.render('user-settings', {
       title: 'My Settings — Curatorr',
       user: req.session.user,
@@ -1655,10 +1699,14 @@ export function registerPages(app, ctx) {
       userPreset,
       lastfmUsername,
       lastfmEnabledStations,
+      lastfmStationSorts,
+      lastfmStationFinalOrderings,
       lastfmBackfillCursor,
       listenbrainzUsername,
       listenbrainzToken,
       listenbrainzEnabledPlaylists,
+      listenbrainzPlaylistSorts,
+      listenbrainzPlaylistFinalOrderings,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

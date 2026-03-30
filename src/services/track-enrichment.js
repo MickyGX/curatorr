@@ -1013,6 +1013,27 @@ export function createTrackEnrichmentService(ctx) {
     const mergedManifest = mergeAnalyzerResultsIntoManifest(manifest, aggregateRows, { overwriteExisting });
     fs.writeFileSync(manifestPath, JSON.stringify(mergedManifest, null, 2));
 
+    const sidecarStderr = String(sidecarResult?.stderr || '').trim();
+    if (sidecarStderr) {
+      pushLog?.({
+        level: 'warn',
+        app: 'enrichment',
+        action: 'track-analysis.analyzer-stderr',
+        message: `Analyzer reported warnings or errors:\n${sidecarStderr}`,
+        meta: { analyzerMode: execution.mode },
+      });
+    }
+
+    if (aggregateRows.length === 0 && manifest.trackCount > 0) {
+      pushLog?.({
+        level: 'warn',
+        app: 'enrichment',
+        action: 'track-analysis.no-results',
+        message: `Analyzer returned 0 results for ${manifest.trackCount} track${manifest.trackCount === 1 ? '' : 's'}. Check that the music library is mounted in the analyzer container at the same path Plex reports for track files.`,
+        meta: { manifestPath, resultsPath, analyzerMode: execution.mode, trackCount: manifest.trackCount },
+      });
+    }
+
     pushLog?.({
       level: 'info',
       app: 'enrichment',
@@ -1030,7 +1051,7 @@ export function createTrackEnrichmentService(ctx) {
 
     const message = `Automated track analysis completed: ${aggregateImport.imported} imported from ${aggregateRows.length} analyzer row${aggregateRows.length === 1 ? '' : 's'} across ${totalChunks} chunk${totalChunks === 1 ? '' : 's'}.`;
     pushLog?.({
-      level: 'info',
+      level: aggregateRows.length === 0 && manifest.trackCount > 0 ? 'warn' : 'info',
       app: 'enrichment',
       action: 'track-analysis.finish',
       message,

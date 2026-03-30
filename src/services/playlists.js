@@ -7,6 +7,7 @@ import {
   recordPlaylistSync,
   saveUserGeneratedPlaylist,
   getUserPreferences,
+  saveUserPreferences,
   getMasterTracks,
   setPlaylistTracks,
   getPlaylistTracks,
@@ -62,6 +63,8 @@ const TOP_TRACKS_PERIOD_LABELS = {
   '6month': 'Last 6 Months',
   '12month': 'Last Year',
 };
+const PLAYLIST_BASE_SORT_MODES = new Set(['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow']);
+const PLAYLIST_FINAL_ORDERING_MODES = new Set(['none', 'plexSonic', 'loudness', 'plexSonicLoudness']);
 
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -437,6 +440,21 @@ function buildGeneratedPlaylistSearchTitles(config, playlistType, playlistKey, u
   return [...titles].map((title) => String(title || '').trim()).filter(Boolean);
 }
 
+function canOverrideDisabledPlaylist(options = {}, playlistKey = '') {
+  if (options?.forceEnable || options?.ignoreDisabled) return true;
+  const allowed = options?.allowPlaylistKeys;
+  if (allowed instanceof Set) return allowed.has(playlistKey);
+  if (Array.isArray(allowed)) return allowed.includes(playlistKey);
+  return false;
+}
+
+function shouldSkipGeneratedPlaylistSync(db, userPlexId, playlistKey, options = {}) {
+  if (!playlistKey || canOverrideDisabledPlaylist(options, playlistKey)) return false;
+  const existing = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+    .find((entry) => entry.playlistKey === playlistKey);
+  return Boolean(existing && existing.active === false);
+}
+
 function dedupeByRatingKey(items) {
   const seen = new Set();
   return items.filter((item) => {
@@ -547,6 +565,7 @@ function scoreSelectionTrack(track, extras = {}) {
 
 function normalizeDailyMixOptions(rawOptions = {}) {
   return {
+    sortBy: normalizePlaylistBaseSort(rawOptions.sortBy, 'default'),
     favoriteLimit: clampNumber(rawOptions.favoriteLimit, 1, 100, 12),
     suggestedLimit: clampNumber(rawOptions.suggestedLimit, 0, 100, 8),
     freshLimit: clampNumber(rawOptions.freshLimit, 0, 100, 10),
@@ -563,6 +582,7 @@ function normalizeDailyMixOptions(rawOptions = {}) {
     sonicSeedCount: clampNumber(rawOptions.sonicSeedCount, 1, 10, 3),
     sonicExpansionLimit: clampNumber(rawOptions.sonicExpansionLimit, 1, 50, 12),
     sonicMaxDistance: clampNumber(rawOptions.sonicMaxDistance, 0, 1, 0.35),
+    finalOrdering: resolvePlaylistFinalOrdering(rawOptions),
     sonicStrategy: ['balanced', 'favor-favorites', 'favor-discovery'].includes(rawOptions.sonicStrategy)
       ? rawOptions.sonicStrategy
       : 'balanced',
@@ -572,6 +592,7 @@ function normalizeDailyMixOptions(rawOptions = {}) {
 
 function normalizeCuratorrOptions(rawOptions = {}) {
   return {
+    sortBy: normalizePlaylistBaseSort(rawOptions.sortBy, 'default'),
     targetTracks: clampNumber(rawOptions.targetTracks, 1, 200, 48),
     discoveryRatio: clampNumber(rawOptions.discoveryRatio, 0, 0.8, 0.35),
     maxTracksPerArtist: clampNumber(rawOptions.maxTracksPerArtist, 1, 5, 2),
@@ -586,6 +607,7 @@ function normalizeCuratorrOptions(rawOptions = {}) {
     sonicSeedCount: clampNumber(rawOptions.sonicSeedCount, 1, 10, 4),
     sonicExpansionLimit: clampNumber(rawOptions.sonicExpansionLimit, 1, 50, 16),
     sonicMaxDistance: clampNumber(rawOptions.sonicMaxDistance, 0, 1, 0.35),
+    finalOrdering: resolvePlaylistFinalOrdering(rawOptions),
     sonicStrategy: ['balanced', 'favor-favorites', 'favor-discovery'].includes(rawOptions.sonicStrategy)
       ? rawOptions.sonicStrategy
       : 'balanced',
@@ -662,6 +684,25 @@ function parseCamelotKeys(value) {
 
 function normalizeCamelotFocusInput(value) {
   return parseCamelotKeys(value).join(', ');
+}
+
+function normalizePlaylistBaseSort(value, fallback = 'default') {
+  const raw = String(value || '').trim();
+  return PLAYLIST_BASE_SORT_MODES.has(raw) ? raw : fallback;
+}
+
+function normalizePlaylistFinalOrdering(value, fallback = 'none') {
+  const raw = String(value || '').trim();
+  return PLAYLIST_FINAL_ORDERING_MODES.has(raw) ? raw : fallback;
+}
+
+function resolvePlaylistFinalOrdering(options = {}) {
+  const explicit = normalizePlaylistFinalOrdering(options.finalOrdering, '');
+  if (explicit) return explicit;
+  if (options.useSonicOrdering && options.useLoudnessOrdering) return 'plexSonicLoudness';
+  if (options.useSonicOrdering) return 'plexSonic';
+  if (options.useLoudnessOrdering) return 'loudness';
+  return 'none';
 }
 
 function normalizeFeaturePreset(value) {
@@ -808,6 +849,42 @@ export function sortPlaylistTracksByAnalysis(tracks = [], sortBy = 'bpmAsc') {
     ordered.push(remaining.shift());
   }
   return ordered.concat(withoutAnalysis.sort(baseRatingComparator));
+}
+
+function hydratePlaylistTracks(masterTracks, tracks = [], fallbackTrackKeys = []) {
+  const masterTrackMap = new Map((masterTracks || []).map((track) => [String(track?.ratingKey || '').trim(), track]));
+  const sourceTracks = Array.isArray(tracks) && tracks.length
+    ? tracks
+    : fallbackTrackKeys.map((ratingKey) => ({ ratingKey }));
+  return sourceTracks
+    .map((track) => {
+      const ratingKey = String(track?.ratingKey || '').trim();
+      if (!ratingKey) return null;
+      const masterTrack = masterTrackMap.get(ratingKey) || {};
+      return { ...masterTrack, ...track, ratingKey };
+    })
+    .filter(Boolean);
+}
+
+function sortPlaylistTracksByMode(db, userPlexId, tracks = [], sortBy = 'default') {
+  const mode = normalizePlaylistBaseSort(sortBy, 'default');
+  if (mode === 'default' || mode === 'source') return Array.isArray(tracks) ? [...tracks] : [];
+  const trackStats = buildTrackStatMap(db, userPlexId);
+  const items = (Array.isArray(tracks) ? tracks : []).map((track) => {
+    const stat = trackStats.get(String(track?.ratingKey || '').trim()) || {};
+    return {
+      ...track,
+      rc: Number(track?.ratingCount || 0),
+      tw: Number(stat?.tierWeight || 0),
+      pc: Number(stat?.playCount || 0),
+    };
+  });
+  if (isAnalysisSortMode(mode)) return sortPlaylistTracksByAnalysis(items, mode);
+  return items.sort((a, b) => {
+    if (mode === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc) || (b.pc - a.pc);
+    if (mode === 'playCount') return (b.pc - a.pc) || (b.rc - a.rc) || (b.tw - a.tw);
+    return (b.rc - a.rc) || (b.tw - a.tw) || (b.pc - a.pc);
+  });
 }
 
 function parseOptionalFeatureNumber(value) {
@@ -1361,9 +1438,43 @@ function compareTrackDateRule(track, operator, value) {
   }
 }
 
+function compareTrackPreferenceForDedupe(a, b) {
+  return (Number(b?.ratingCount || 0) - Number(a?.ratingCount || 0))
+    || (Number(b?.viewCount || 0) - Number(a?.viewCount || 0))
+    || (Number(b?.durationMs || 0) - Number(a?.durationMs || 0))
+    || String(a?.albumName || '').localeCompare(String(b?.albumName || ''))
+    || String(a?.ratingKey || '').localeCompare(String(b?.ratingKey || ''));
+}
+
+function buildReleaseDedupeTitleKey(track) {
+  const artistKey = primaryArtistKey(track?.artistName || '');
+  let titleKey = normalizeMatchTitleExact(track?.trackTitle || '');
+  const releaseTagPattern = /(?:live(?:\s+at.*)?|radio edit|single edit|single version|album version|remaster(?:ed)?(?:\s+\d{4})?|mono|stereo|acoustic|demo|instrumental|mix|remix|version|edit|session(?:\s+version)?)/i;
+  let previous = '';
+  while (titleKey && titleKey !== previous) {
+    previous = titleKey;
+    titleKey = titleKey
+      .replace(/\s*\([^)]*\)\s*$/g, '')
+      .replace(/\s*\[[^\]]*\]\s*$/g, '')
+      .trim();
+    titleKey = titleKey
+      .replace(new RegExp(`\\s+[-:–]\\s+${releaseTagPattern.source}.*$`, 'i'), '')
+      .replace(new RegExp(`\\s+${releaseTagPattern.source}\\s*$`, 'i'), '')
+      .trim();
+  }
+  return artistKey && titleKey ? `${artistKey}|${titleKey}` : '';
+}
+
 export function applyTrackFilters(tracks, filterConfig) {
   if (!filterConfig) return tracks;
-  const { rules = [], excludeLibraryKeys = [], deduplicateByMbid = false, includeFolders = [], excludeFolders = [] } = filterConfig;
+  const {
+    rules = [],
+    excludeLibraryKeys = [],
+    deduplicateByMbid = false,
+    deduplicateByArtistTitle = false,
+    includeFolders = [],
+    excludeFolders = [],
+  } = filterConfig;
 
   let result = tracks;
 
@@ -1397,17 +1508,25 @@ export function applyTrackFilters(tracks, filterConfig) {
     });
   }
 
-  if (deduplicateByMbid) {
-    // For tracks sharing the same recording MBID, keep the one with the highest Plex ratingCount.
-    const mbidBest = new Map();
-    for (const t of result) {
-      if (!t.recordingMbid) continue;
-      const existing = mbidBest.get(t.recordingMbid);
-      if (!existing || (t.ratingCount || 0) > (existing.ratingCount || 0)) {
-        mbidBest.set(t.recordingMbid, t);
-      }
+  if (deduplicateByMbid || deduplicateByArtistTitle) {
+    const keepKeys = new Set();
+    const keptByRecordingMbid = new Set();
+    const keptByTitle = new Set();
+
+    // Prefer the strongest library copy first, then suppress the duplicate keys the
+    // caller has asked for.
+    for (const track of [...result].sort(compareTrackPreferenceForDedupe)) {
+      const recordingMbid = String(track?.recordingMbid || '').trim().toLowerCase();
+      if (deduplicateByMbid && recordingMbid && keptByRecordingMbid.has(recordingMbid)) continue;
+
+      const titleKey = deduplicateByArtistTitle ? buildReleaseDedupeTitleKey(track) : '';
+      if (titleKey && keptByTitle.has(titleKey)) continue;
+
+      if (deduplicateByMbid && recordingMbid) keptByRecordingMbid.add(recordingMbid);
+      if (titleKey) keptByTitle.add(titleKey);
+      keepKeys.add(String(track?.ratingKey || ''));
     }
-    result = result.filter((t) => !t.recordingMbid || mbidBest.get(t.recordingMbid)?.ratingKey === t.ratingKey);
+    result = result.filter((track) => keepKeys.has(String(track?.ratingKey || '')));
   }
 
   return result;
@@ -1837,6 +1956,9 @@ function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
 
 async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, options = {}) {
   const { db, loadConfig, pushLog } = ctx;
+  if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) {
+    return listUserGeneratedPlaylists(db, userId, { activeOnly: false }).find((entry) => entry.playlistKey === playlistKey) || null;
+  }
   const config = loadConfig();
   const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
 
@@ -1901,6 +2023,9 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
 
 async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playlistKey, playlistCfg, smartConfig, _options = {}) {
   const { db, loadConfig, pushLog } = ctx;
+  if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, _options)) {
+    return listUserGeneratedPlaylists(db, userId, { activeOnly: false }).find((entry) => entry.playlistKey === playlistKey) || null;
+  }
   const config = loadConfig();
   const msType = String(config?.mediaServer?.type || 'jellyfin').toLowerCase();
 
@@ -1967,6 +2092,36 @@ export function createPlaylistService(ctx) {
     return listGenerated(userPlexId, { activeOnly: false }).find((entry) => entry.playlistKey === playlistKey) || null;
   }
 
+  function syncExternalPlaylistPreference(userPlexId, playlistType, playlistKey, shouldEnable) {
+    const type = String(playlistType || '').trim().toLowerCase();
+    const rawKey = String(playlistKey || '').trim();
+    if (!rawKey) return;
+    const prefs = getUserPreferences(db, userPlexId);
+
+    if (type === 'lastfm-station') {
+      const stationKey = rawKey.replace(/^lastfm:/, '').trim();
+      if (!stationKey) return;
+      const current = Array.isArray(prefs.lastfmEnabledStations) ? prefs.lastfmEnabledStations.map((value) => String(value || '').trim()).filter(Boolean) : [];
+      const next = shouldEnable
+        ? [...current.filter((value) => value !== stationKey), stationKey]
+        : current.filter((value) => value !== stationKey);
+      if (next.length === current.length && next.every((value, idx) => value === current[idx])) return;
+      saveUserPreferences(db, userPlexId, { ...prefs, lastfmEnabledStations: next });
+      return;
+    }
+
+    if (type === 'listenbrainz-playlist') {
+      const sourceKey = rawKey.replace(/^listenbrainz:/, '').trim();
+      if (!sourceKey) return;
+      const current = Array.isArray(prefs.listenbrainzEnabledPlaylists) ? prefs.listenbrainzEnabledPlaylists.map((value) => String(value || '').trim()).filter(Boolean) : [];
+      const next = shouldEnable
+        ? [...current.filter((value) => value !== sourceKey), sourceKey]
+        : current.filter((value) => value !== sourceKey);
+      if (next.length === current.length && next.every((value, idx) => value === current[idx])) return;
+      saveUserPreferences(db, userPlexId, { ...prefs, listenbrainzEnabledPlaylists: next });
+    }
+  }
+
   function upsertGenerated(userPlexId, playlist) {
     saveUserGeneratedPlaylist(db, userPlexId, playlist);
     return getGeneratedByKey(userPlexId, playlist.playlistKey);
@@ -1982,6 +2137,258 @@ export function createPlaylistService(ctx) {
       generated,
       curatorred: generated.find((entry) => entry.playlistType === 'curatorred') || null,
     };
+  }
+
+  async function fetchPlexPlaylistTrackRefs(userPlexId, plexPlaylistId) {
+    const config = ctx.loadConfig();
+    const { url } = config.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    const base = String(url || '').replace(/\/$/, '');
+    if (!base || !token || !plexPlaylistId) return [];
+
+    const tracks = [];
+    let offset = 0;
+    const pageSize = 1000;
+    while (true) {
+      const playlistUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
+      playlistUrl.searchParams.set('X-Plex-Container-Start', String(offset));
+      playlistUrl.searchParams.set('X-Plex-Container-Size', String(pageSize));
+      const response = await fetch(playlistUrl.toString(), {
+        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+      if (!response.ok) break;
+      const json = await response.json();
+      const batch = (json?.MediaContainer?.Metadata || [])
+        .map((track) => ({
+          ratingKey: String(track?.ratingKey || '').trim(),
+          artistName: String(track?.originalTitle || track?.grandparentTitle || '').trim(),
+        }))
+        .filter((track) => track.ratingKey);
+      tracks.push(...batch);
+      if (batch.length < pageSize) break;
+      offset += batch.length;
+    }
+    return tracks;
+  }
+
+  async function fetchJellyfinPlaylistTrackRefs(userPlexId, playlistId, msType) {
+    const { getAdapter } = await import('./media-servers/index.js');
+    const adapter = getAdapter(msType);
+    const config = ctx.loadConfig();
+    const { url, apiKey } = config[msType] || {};
+    if (!url || !apiKey || !playlistId) return [];
+
+    const remoteUserId = await adapter.getUserIdByName(url, apiKey, userPlexId);
+    const tracks = [];
+    let offset = 0;
+    const pageSize = 1000;
+    while (true) {
+      const playlistUrl = new URL(`/Playlists/${encodeURIComponent(playlistId)}/Items`, url);
+      playlistUrl.searchParams.set('UserId', remoteUserId);
+      playlistUrl.searchParams.set('Fields', 'AlbumArtist,Artists');
+      playlistUrl.searchParams.set('StartIndex', String(offset));
+      playlistUrl.searchParams.set('Limit', String(pageSize));
+      const response = await fetch(playlistUrl.toString(), {
+        headers: { 'X-Emby-Token': apiKey, Accept: 'application/json' },
+      });
+      if (!response.ok) break;
+      const json = await response.json();
+      const batch = (json?.Items || [])
+        .map((track) => ({
+          ratingKey: String(track?.Id || '').trim(),
+          artistName: String(track?.AlbumArtist || (Array.isArray(track?.Artists) ? track.Artists[0] : '') || '').trim(),
+        }))
+        .filter((track) => track.ratingKey);
+      tracks.push(...batch);
+      if (batch.length < pageSize) break;
+      offset += batch.length;
+    }
+    return tracks;
+  }
+
+  async function snapshotCustomPlaylistTracks(userPlexId, playlist) {
+    if (!playlist?.plexPlaylistId || playlist.playlistType !== 'custom') return;
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    let tracks = [];
+    if (msType === 'jellyfin' || msType === 'emby') {
+      tracks = await fetchJellyfinPlaylistTrackRefs(userPlexId, playlist.plexPlaylistId, msType).catch(() => []);
+    } else {
+      tracks = await fetchPlexPlaylistTrackRefs(userPlexId, playlist.plexPlaylistId).catch(() => []);
+    }
+    setPlaylistTracks(db, userPlexId, playlist.playlistKey, tracks);
+  }
+
+  async function deleteGeneratedPlaylistFromMediaServer(userPlexId, playlist) {
+    if (!playlist?.plexPlaylistId) return;
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { getAdapter } = await import('./media-servers/index.js');
+      const adapter = getAdapter(msType);
+      const { url, apiKey } = config[msType] || {};
+      if (!url || !apiKey) return;
+      const remoteUserId = await adapter.getUserIdByName(url, apiKey, userPlexId).catch(() => '');
+      const deleteUrl = new URL(`/Items/${encodeURIComponent(playlist.plexPlaylistId)}`, url);
+      if (remoteUserId) deleteUrl.searchParams.set('UserId', remoteUserId);
+      await fetch(deleteUrl.toString(), {
+        method: 'DELETE',
+        headers: { 'X-Emby-Token': apiKey, Accept: 'application/json' },
+      }).catch(() => {});
+      return;
+    }
+
+    const { url } = config.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    const base = String(url || '').replace(/\/$/, '');
+    if (!base || !token) return;
+    await fetch(`${base}/playlists/${playlist.plexPlaylistId}`, {
+      method: 'DELETE',
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    }).catch(() => {});
+  }
+
+  async function syncCustomPlaylist(userPlexId, playlist) {
+    if (!playlist) throw new Error('Playlist not found.');
+    const trackRefs = getPlaylistTracks(db, userPlexId, playlist.playlistKey);
+    const ratingKeys = trackRefs.map((track) => String(track.ratingKey || '').trim()).filter(Boolean);
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    const now = Date.now();
+
+    if (msType === 'jellyfin' || msType === 'emby') {
+      const { getAdapter } = await import('./media-servers/index.js');
+      const adapter = getAdapter(msType);
+      const { url, apiKey } = config[msType] || {};
+      if (!url || !apiKey) throw new Error(`${msType} is not configured`);
+      const remoteUserId = await adapter.getUserIdByName(url, apiKey, userPlexId);
+      const { playlistId } = await adapter.ensurePlaylist(url, apiKey, remoteUserId, String(playlist.playlistTitle || 'Playlist'));
+      await adapter.replacePlaylistItems(url, apiKey, playlistId, ratingKeys, remoteUserId);
+      saveUserGeneratedPlaylist(db, userPlexId, {
+        ...playlist,
+        plexPlaylistId: playlistId,
+        trackCount: ratingKeys.length,
+        active: true,
+        lastSyncedAt: now,
+        updatedAt: now,
+      });
+      return getGeneratedByKey(userPlexId, playlist.playlistKey);
+    }
+
+    if (!ctx.userHasOwnPlexToken(config, userPlexId)) {
+      throw new Error('User has no Plex account — playlist sync is not available for local-only users.');
+    }
+    const machineId = await resolveMachineId(ctx, config);
+    if (!machineId) throw new Error('Could not determine Plex machine ID');
+    const playlistRow = await ensureGeneratedPlaylist(
+      ctx,
+      userPlexId,
+      'custom',
+      playlist.playlistKey,
+      String(playlist.playlistTitle || 'Playlist'),
+      machineId,
+    );
+    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+    saveUserGeneratedPlaylist(db, userPlexId, {
+      ...playlist,
+      plexPlaylistId: playlistRow.plexPlaylistId,
+      trackCount: ratingKeys.length,
+      active: true,
+      lastSyncedAt: now,
+      updatedAt: now,
+    });
+    return getGeneratedByKey(userPlexId, playlist.playlistKey);
+  }
+
+  async function syncRuleBasedSystemPlaylist(userPlexId, playlistType, playlistKey, playlistCfg, options = {}) {
+    if (shouldSkipGeneratedPlaylistSync(db, userPlexId, playlistKey, options)) {
+      return getGeneratedByKey(userPlexId, playlistKey);
+    }
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'plex' && !ctx.userHasOwnPlexToken(config, userPlexId)) return;
+    const masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
+    if (!masterTracks.length) return;
+    const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userPlexId, playlistCfg, masterTracks);
+    const builtPlaylist = {
+      playlistKey,
+      playlistType,
+      playlistTitle: buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userPlexId),
+      algorithmVersion: ALGORITHM_VERSION,
+      trackCount: ratingKeys.length,
+      trackKeys: ratingKeys,
+      tracks: hydratePlaylistTracks(masterTracks, trackList, ratingKeys),
+      options: {
+        sortBy: normalizePlaylistBaseSort(playlistCfg.sortBy, 'default'),
+        finalOrdering: normalizePlaylistFinalOrdering(playlistCfg.finalOrdering, 'none'),
+      },
+      builtAt: Date.now(),
+    };
+    ctx.pushLog?.({
+      level: 'info',
+      app: 'playlist',
+      action: `${playlistKey}.build`,
+      message: `${playlistType} rebuilt: ${ratingKeys.length} tracks for ${userPlexId}`,
+    });
+    return syncBuiltSelectionPlaylist(userPlexId, builtPlaylist, options);
+  }
+
+  async function setGeneratedActive(userPlexId, playlistKey, active) {
+    const existing = getGeneratedByKey(userPlexId, playlistKey);
+    if (!existing) throw new Error('Playlist not found.');
+    const playlistType = String(existing.playlistType || '').trim().toLowerCase();
+    const shouldEnable = Boolean(active);
+    if (shouldEnable && existing.active) return existing;
+    if (!shouldEnable && !existing.active) return existing;
+
+    if (!shouldEnable) {
+      syncExternalPlaylistPreference(userPlexId, playlistType, playlistKey, false);
+      if (existing.playlistType === 'custom') await snapshotCustomPlaylistTracks(userPlexId, existing).catch(() => {});
+      await deleteGeneratedPlaylistFromMediaServer(userPlexId, existing).catch(() => {});
+      saveUserGeneratedPlaylist(db, userPlexId, {
+        ...existing,
+        plexPlaylistId: '',
+        active: false,
+        updatedAt: Date.now(),
+      });
+      ctx.pushLog?.({
+        level: 'info',
+        app: 'playlist',
+        action: 'generated.disable',
+        message: `Generated playlist disabled: ${playlistKey} for ${userPlexId}`,
+      });
+      return getGeneratedByKey(userPlexId, playlistKey);
+    }
+
+    if (playlistType === 'daily-mix') return syncDailyMix(userPlexId, { forceEnable: true });
+    if (playlistType === 'curatorr') return syncCuratorr(userPlexId, { forceEnable: true });
+    if (playlistType === 'crescive') return syncCrescive(userPlexId, { forceFullRebuild: true, forceEnable: true });
+    if (playlistType === 'curative') return syncCurative(userPlexId, { forceFullRebuild: true, forceEnable: true });
+    if (playlistType === 'global') {
+      const globalId = String(playlistKey || '').replace(/^global:/, '');
+      const playlistDef = (ctx.loadConfig().globalPlaylists || []).find((entry) => String(entry?.id || '') === globalId);
+      if (!playlistDef) throw new Error('Global playlist definition not found.');
+      return syncGlobalPlaylist(userPlexId, playlistDef, { forceEnable: true });
+    }
+    if (playlistType === 'personal') {
+      const personalId = String(playlistKey || '').replace(/^personal:/, '');
+      const playlistDef = getUserPersonalPlaylist(db, personalId, userPlexId);
+      if (!playlistDef) throw new Error('Personal playlist definition not found.');
+      return syncPersonalPlaylist(userPlexId, playlistDef, { forceEnable: true });
+    }
+    if (playlistType === 'lastfm-station') {
+      syncExternalPlaylistPreference(userPlexId, playlistType, playlistKey, true);
+      await syncLastfmStations(userPlexId, { allowPlaylistKeys: [playlistKey] });
+      return getGeneratedByKey(userPlexId, playlistKey);
+    }
+    if (playlistType === 'listenbrainz-playlist') {
+      syncExternalPlaylistPreference(userPlexId, playlistType, playlistKey, true);
+      await syncListenbrainzPlaylists(userPlexId, { allowPlaylistKeys: [playlistKey] });
+      return getGeneratedByKey(userPlexId, playlistKey);
+    }
+    if (playlistType === 'custom') return syncCustomPlaylist(userPlexId, existing);
+    if (playlistType === 'curatorred') throw new Error('Legacy Curatorred playlists cannot be toggled here.');
+    throw new Error('This playlist cannot be enabled.');
   }
 
   function resolveDailyMixOptions(options = {}) {
@@ -2432,12 +2839,32 @@ export function createPlaylistService(ctx) {
     };
   }
 
+  async function finalizeBuiltPlaylistOrdering(userPlexId, builtPlaylist, options = {}) {
+    const masterTracks = getMasterTracks(db);
+    const hydratedTracks = hydratePlaylistTracks(masterTracks, builtPlaylist?.tracks, builtPlaylist?.trackKeys);
+    const baseSort = normalizePlaylistBaseSort(options.sortBy, 'default');
+    let orderedPlaylist = {
+      ...builtPlaylist,
+      tracks: sortPlaylistTracksByMode(db, userPlexId, hydratedTracks, baseSort),
+    };
+    orderedPlaylist.trackKeys = orderedPlaylist.tracks.map((track) => track.ratingKey);
+    orderedPlaylist.trackCount = orderedPlaylist.trackKeys.length;
+
+    const finalOrdering = resolvePlaylistFinalOrdering(options);
+    if (finalOrdering === 'plexSonic' || finalOrdering === 'plexSonicLoudness') {
+      orderedPlaylist = await applyOptionalSonicOrdering(userPlexId, orderedPlaylist, { ...options, useSonicOrdering: true });
+    }
+    if (finalOrdering === 'loudness' || finalOrdering === 'plexSonicLoudness') {
+      orderedPlaylist = applyOptionalLoudnessOrdering(userPlexId, orderedPlaylist, { ...options, useLoudnessOrdering: true });
+    }
+    return orderedPlaylist;
+  }
+
   async function syncBuiltSelectionPlaylist(userPlexId, builtPlaylist, options = {}) {
     const config = ctx.loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const trigger = String(options.trigger || 'manual');
-    const sonicOrdered = await applyOptionalSonicOrdering(userPlexId, builtPlaylist, builtPlaylist?.options || {});
-    const playlistToSync = applyOptionalLoudnessOrdering(userPlexId, sonicOrdered, builtPlaylist?.options || {});
+    const playlistToSync = await finalizeBuiltPlaylistOrdering(userPlexId, builtPlaylist, builtPlaylist?.options || {});
     if (!playlistToSync?.trackKeys?.length) {
       throw new Error(`No ${builtPlaylist?.playlistTitle || 'playlist'} tracks are available yet`);
     }
@@ -2524,63 +2951,56 @@ export function createPlaylistService(ctx) {
   }
 
   async function syncDailyMix(userPlexId, options = {}) {
+    if (shouldSkipGeneratedPlaylistSync(db, userPlexId, DAILY_MIX_PLAYLIST_KEY, options)) {
+      return getGeneratedByKey(userPlexId, DAILY_MIX_PLAYLIST_KEY);
+    }
     return syncBuiltSelectionPlaylist(userPlexId, buildDailyMix(userPlexId, options), options);
   }
 
   async function syncCuratorr(userPlexId, options = {}) {
+    if (shouldSkipGeneratedPlaylistSync(db, userPlexId, CURATORR_PLAYLIST_KEY, options)) {
+      return getGeneratedByKey(userPlexId, CURATORR_PLAYLIST_KEY);
+    }
     return syncBuiltSelectionPlaylist(userPlexId, buildCuratorr(userPlexId, options), options);
   }
 
-  async function syncGlobalPlaylist(userId, playlistDef) {
+  async function syncGlobalPlaylist(userId, playlistDef, options = {}) {
     const config = ctx.loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    const playlistKey = `global:${playlistDef.id}`;
+    if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) return getGeneratedByKey(userId, playlistKey);
     // Jellyfin/Emby: use the generic adapter path
-    if (msType === 'jellyfin' || msType === 'emby') return syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType);
+    if (msType === 'jellyfin' || msType === 'emby') return syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType, options);
     // Blend playlists only sync for users listed in blendUsers
     const blendUsersList = Array.isArray(playlistDef.rules?.blendUsers) ? playlistDef.rules.blendUsers : null;
     if (blendUsersList?.length && !blendUsersList.includes(userId)) return;
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
-    const { url, machineId: storedMid = '' } = config.plex || {};
-    const token = ctx.resolveUserPlexServerToken(config, userId);
-    if (!url || !token) return;
-
     const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
     if (!ratingKeys.length) return;
-
-    const adminToken = String(config.plex?.token || '').trim() || token;
-    let machineId = storedMid;
-    if (!machineId) {
-      try {
-        const r = await fetch(url.replace(/\/$/, ''), {
-          headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }),
-        });
-        if (r.ok) machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
-      } catch { /* non-fatal */ }
-    }
-    if (!machineId) throw new Error('Could not determine Plex machine ID');
-
-    const playlistKey   = `global:${playlistDef.id}`;
-    const playlistTitle = buildGeneratedPlaylistTitle(config, 'global', playlistKey, userId, playlistDef.name);
-    const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'global', playlistKey, playlistTitle, machineId);
-    await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
-
-    const now = Date.now();
-    saveUserGeneratedPlaylist(db, userId, {
-      playlistType: 'global', playlistKey,
-      plexPlaylistId: playlistRow.plexPlaylistId,
-      playlistTitle,
+    const builtPlaylist = {
+      playlistKey,
+      playlistType: 'global',
+      playlistTitle: buildGeneratedPlaylistTitle(config, 'global', playlistKey, userId, playlistDef.name),
       algorithmVersion: 'global-playlist-v1',
-      lastBuiltAt: now, lastSyncedAt: now,
       trackCount: ratingKeys.length,
-      active: true, updatedAt: now,
-    });
+      trackKeys: ratingKeys,
+      tracks: hydratePlaylistTracks(getMasterTracks(db), [], ratingKeys),
+      options: {
+        sortBy: 'default',
+        finalOrdering: normalizePlaylistFinalOrdering(playlistDef.rules?.finalOrdering, 'none'),
+      },
+      builtAt: Date.now(),
+    };
+    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
-  async function syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType) {
+  async function syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType, options = {}) {
     // Blend playlists only sync for users listed in blendUsers
     const blendUsersList = Array.isArray(playlistDef.rules?.blendUsers) ? playlistDef.rules.blendUsers : null;
     if (blendUsersList?.length && !blendUsersList.includes(userId)) return;
+    const playlistKey = `global:${playlistDef.id}`;
+    if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) return getGeneratedByKey(userId, playlistKey);
     const { getAdapter } = await import('./media-servers/index.js');
     const adapter = getAdapter(msType);
     const { url, apiKey } = config[msType] || {};
@@ -2588,91 +3008,80 @@ export function createPlaylistService(ctx) {
 
     const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
     if (!ratingKeys.length) return;
-
-    let jellyfinUserId;
-    try { jellyfinUserId = await adapter.getUserIdByName(url, apiKey, userId); }
-    catch { return; }
-
-    const playlistKey   = `global:${playlistDef.id}`;
-    const playlistTitle = buildGeneratedPlaylistTitle(config, 'global', playlistKey, userId, playlistDef.name);
-    // Always resolve via ensurePlaylist to handle externally-deleted playlists.
-    const { playlistId } = await adapter.ensurePlaylist(url, apiKey, jellyfinUserId, playlistTitle);
-    await adapter.replacePlaylistItems(url, apiKey, playlistId, ratingKeys, jellyfinUserId);
-
-    const now = Date.now();
-    saveUserGeneratedPlaylist(db, userId, { playlistType: 'global', playlistKey, plexPlaylistId: playlistId, playlistTitle, algorithmVersion: 'global-playlist-v1', lastBuiltAt: now, lastSyncedAt: now, trackCount: ratingKeys.length, active: true, updatedAt: now });
+    const builtPlaylist = {
+      playlistKey,
+      playlistType: 'global',
+      playlistTitle: buildGeneratedPlaylistTitle(config, 'global', playlistKey, userId, playlistDef.name),
+      algorithmVersion: 'global-playlist-v1',
+      trackCount: ratingKeys.length,
+      trackKeys: ratingKeys,
+      tracks: hydratePlaylistTracks(getMasterTracks(db), [], ratingKeys),
+      options: {
+        sortBy: 'default',
+        finalOrdering: normalizePlaylistFinalOrdering(playlistDef.rules?.finalOrdering, 'none'),
+      },
+      builtAt: Date.now(),
+    };
+    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced (${msType}): ${ratingKeys.length} tracks for ${userId}` });
   }
 
-  async function syncPersonalPlaylist(userId, playlistDef) {
+  async function syncPersonalPlaylist(userId, playlistDef, options = {}) {
     const config = ctx.loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
-    if (msType === 'jellyfin' || msType === 'emby') return syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType);
+    const playlistKey = `personal:${playlistDef.id}`;
+    if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) return getGeneratedByKey(userId, playlistKey);
+    if (msType === 'jellyfin' || msType === 'emby') return syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType, options);
     if (!ctx.userHasOwnPlexToken(config, userId)) return;
-    const { url, machineId: storedMid = '' } = config.plex || {};
-    const token = ctx.resolveUserPlexServerToken(config, userId);
-    if (!url || !token) return;
-
     const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
     if (!ratingKeys.length) return;
-
-    const adminToken = String(config.plex?.token || '').trim() || token;
-    let machineId = storedMid;
-    if (!machineId) {
-      try {
-        const r = await fetch(url.replace(/\/$/, ''), { headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }) });
-        if (r.ok) machineId = (await r.json())?.MediaContainer?.machineIdentifier || '';
-      } catch { /* non-fatal */ }
-    }
-    if (!machineId) throw new Error('Could not determine Plex machine ID');
-
-    const playlistKey   = `personal:${playlistDef.id}`;
-    const playlistTitle = buildGeneratedPlaylistTitle(config, 'personal', playlistKey, userId, playlistDef.name);
-    const playlistRow   = await ensureGeneratedPlaylist(ctx, userId, 'personal', playlistKey, playlistTitle, machineId);
-    await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
-
-    const now = Date.now();
-    saveUserGeneratedPlaylist(db, userId, {
-      playlistType: 'personal', playlistKey,
-      plexPlaylistId: playlistRow.plexPlaylistId,
-      playlistTitle,
+    const builtPlaylist = {
+      playlistKey,
+      playlistType: 'personal',
+      playlistTitle: buildGeneratedPlaylistTitle(config, 'personal', playlistKey, userId, playlistDef.name),
       algorithmVersion: 'personal-playlist-v1',
-      lastBuiltAt: now, lastSyncedAt: now,
       trackCount: ratingKeys.length,
-      active: true, updatedAt: now,
-    });
+      trackKeys: ratingKeys,
+      tracks: hydratePlaylistTracks(getMasterTracks(db), [], ratingKeys),
+      options: {
+        sortBy: 'default',
+        finalOrdering: normalizePlaylistFinalOrdering(playlistDef.rules?.finalOrdering, 'none'),
+      },
+      builtAt: Date.now(),
+    };
+    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
   }
 
-  async function syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType) {
+  async function syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType, options = {}) {
     const { getAdapter } = await import('./media-servers/index.js');
     const adapter = getAdapter(msType);
     const { url, apiKey } = config[msType] || {};
     if (!url || !apiKey) return;
+    const playlistKey = `personal:${playlistDef.id}`;
+    if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) return getGeneratedByKey(userId, playlistKey);
 
     const ratingKeys = buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config);
     if (!ratingKeys.length) return;
-
-    let jellyfinUserId;
-    try { jellyfinUserId = await adapter.getUserIdByName(url, apiKey, userId); }
-    catch { return; }
-
-    const playlistKey   = `personal:${playlistDef.id}`;
-    const playlistTitle = buildGeneratedPlaylistTitle(config, 'personal', playlistKey, userId, playlistDef.name);
-    const existing_row  = listGenerated(userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
-    let playlistId = existing_row?.plexPlaylistId || '';
-    if (!playlistId) {
-      const { playlistId: newId } = await adapter.ensurePlaylist(url, apiKey, jellyfinUserId, playlistTitle);
-      playlistId = newId;
-    }
-    await adapter.replacePlaylistItems(url, apiKey, playlistId, ratingKeys, jellyfinUserId);
-
-    const now = Date.now();
-    saveUserGeneratedPlaylist(db, userId, { playlistType: 'personal', playlistKey, plexPlaylistId: playlistId, playlistTitle, algorithmVersion: 'personal-playlist-v1', lastBuiltAt: now, lastSyncedAt: now, trackCount: ratingKeys.length, active: true, updatedAt: now });
+    const builtPlaylist = {
+      playlistKey,
+      playlistType: 'personal',
+      playlistTitle: buildGeneratedPlaylistTitle(config, 'personal', playlistKey, userId, playlistDef.name),
+      algorithmVersion: 'personal-playlist-v1',
+      trackCount: ratingKeys.length,
+      trackKeys: ratingKeys,
+      tracks: hydratePlaylistTracks(getMasterTracks(db), [], ratingKeys),
+      options: {
+        sortBy: 'default',
+        finalOrdering: normalizePlaylistFinalOrdering(playlistDef.rules?.finalOrdering, 'none'),
+      },
+      builtAt: Date.now(),
+    };
+    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
     ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced (${msType}): ${ratingKeys.length} tracks for ${userId}` });
   }
 
-  async function syncLastfmStations(userId) {
+  async function syncLastfmStations(userId, options = {}) {
     const prefs = getUserPreferences(db, userId);
     if (!prefs.lastfmUsername) return;
     const config = ctx.loadConfig();
@@ -2708,8 +3117,8 @@ export function createPlaylistService(ctx) {
     if (!enabledSet.size) return;
 
     const apiKey = String(config.discovery?.lastfmApiKey || '').trim();
-    const machineId = await resolveMachineId(ctx, config);
-    const masterTrackLookup = buildPlaylistTrackLookup(getMasterTracks(db));
+    const masterTracks = getMasterTracks(db);
+    const masterTrackLookup = buildPlaylistTrackLookup(masterTracks);
 
     for (const stationKey of prefs.lastfmEnabledStations) {
       // ── Official Last.fm API: Loved tracks and Top Tracks ─────────────────
@@ -2728,6 +3137,7 @@ export function createPlaylistService(ctx) {
           apiUrl = `https://ws.audioscrobbler.com/2.0/?method=user.getTopTracks&user=${encodeURIComponent(prefs.lastfmUsername)}&period=${encodeURIComponent(period)}&api_key=${encodeURIComponent(apiKey)}&format=json&limit=500`;
         }
         const playlistKey = `lastfm:${stationKey}`;
+        if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) continue;
         const playlistTitle = buildGeneratedPlaylistTitle(config, 'lastfm-station', playlistKey, userId, `Last.fm ${label}`);
         try {
           const res = await fetch(apiUrl);
@@ -2745,17 +3155,20 @@ export function createPlaylistService(ctx) {
             { strictMatch: strictMatchSet.has(stationKey) },
           );
 
-          const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
-          await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
-
-          const now = Date.now();
-          saveUserGeneratedPlaylist(db, userId, {
-            playlistType: 'lastfm-station', playlistKey,
-            plexPlaylistId: playlistRow.plexPlaylistId,
-            playlistTitle, algorithmVersion: 'lastfm-station-v1',
-            lastBuiltAt: now, lastSyncedAt: now,
-            trackCount: ratingKeys.length, active: true, updatedAt: now,
-          });
+          await syncBuiltSelectionPlaylist(userId, {
+            playlistKey,
+            playlistType: 'lastfm-station',
+            playlistTitle,
+            algorithmVersion: 'lastfm-station-v1',
+            trackCount: ratingKeys.length,
+            trackKeys: ratingKeys,
+            tracks: hydratePlaylistTracks(masterTracks, [], ratingKeys),
+            options: {
+              sortBy: normalizePlaylistBaseSort(prefs.lastfmStationSorts?.[stationKey], 'source'),
+              finalOrdering: normalizePlaylistFinalOrdering(prefs.lastfmStationFinalOrderings?.[stationKey], 'none'),
+            },
+            builtAt: Date.now(),
+          }, options);
           ctx.pushLog({ level: 'info', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} synced: ${ratingKeys.length}/${rawTracks.length} matched for ${userId}` });
         } catch (err) {
           ctx.pushLog({ level: 'warn', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} sync failed for ${userId}: ${err.message}` });
@@ -2767,6 +3180,7 @@ export function createPlaylistService(ctx) {
       const label = LASTFM_STATION_LABELS[stationKey];
       if (!label) continue;
       const playlistKey = `lastfm:${stationKey}`;
+      if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) continue;
       const playlistTitle = buildGeneratedPlaylistTitle(config, 'lastfm-station', playlistKey, userId, `Last.fm ${label}`);
       try {
         const res = await fetch(`https://www.last.fm/player/station/user/${encodeURIComponent(prefs.lastfmUsername)}/${stationKey}`);
@@ -2782,17 +3196,20 @@ export function createPlaylistService(ctx) {
           { strictMatch: strictMatchSet.has(stationKey) },
         );
 
-        const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'lastfm-station', playlistKey, playlistTitle, machineId);
-        await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
-
-        const now = Date.now();
-        saveUserGeneratedPlaylist(db, userId, {
-          playlistType: 'lastfm-station', playlistKey,
-          plexPlaylistId: playlistRow.plexPlaylistId,
-          playlistTitle, algorithmVersion: 'lastfm-station-v1',
-          lastBuiltAt: now, lastSyncedAt: now,
-          trackCount: ratingKeys.length, active: true, updatedAt: now,
-        });
+        await syncBuiltSelectionPlaylist(userId, {
+          playlistKey,
+          playlistType: 'lastfm-station',
+          playlistTitle,
+          algorithmVersion: 'lastfm-station-v1',
+          trackCount: ratingKeys.length,
+          trackKeys: ratingKeys,
+          tracks: hydratePlaylistTracks(masterTracks, [], ratingKeys),
+          options: {
+            sortBy: normalizePlaylistBaseSort(prefs.lastfmStationSorts?.[stationKey], 'source'),
+            finalOrdering: normalizePlaylistFinalOrdering(prefs.lastfmStationFinalOrderings?.[stationKey], 'none'),
+          },
+          builtAt: Date.now(),
+        }, options);
         ctx.pushLog({ level: 'info', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} synced: ${ratingKeys.length}/${tracks.length} matched for ${userId}` });
       } catch (err) {
         ctx.pushLog({ level: 'warn', app: 'playlist', action: 'lastfm.station', message: `Last.fm ${label} sync failed for ${userId}: ${err.message}` });
@@ -2800,7 +3217,7 @@ export function createPlaylistService(ctx) {
     }
   }
 
-  async function syncListenbrainzPlaylists(userId) {
+  async function syncListenbrainzPlaylists(userId, options = {}) {
     const prefs = getUserPreferences(db, userId);
     if (!prefs.listenbrainzUsername) {
       ctx.pushLog({
@@ -2864,7 +3281,6 @@ export function createPlaylistService(ctx) {
       return;
     }
 
-    const machineId = await resolveMachineId(ctx, config);
     const listenbrainzToken = String(prefs.listenbrainzToken || '').trim();
     ctx.pushLog({
       level: 'info',
@@ -2930,6 +3346,7 @@ export function createPlaylistService(ctx) {
         continue;
       }
       const playlistKey = `listenbrainz:${playlistType}`;
+      if (shouldSkipGeneratedPlaylistSync(db, userId, playlistKey, options)) continue;
       const playlistTitle = buildGeneratedPlaylistTitle(
         config,
         'listenbrainz-playlist',
@@ -2976,22 +3393,20 @@ export function createPlaylistService(ctx) {
           });
         }
 
-        const playlistRow = await ensureGeneratedPlaylist(ctx, userId, 'listenbrainz-playlist', playlistKey, playlistTitle, machineId);
-        await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
-
-        const now = Date.now();
-        saveUserGeneratedPlaylist(db, userId, {
-          playlistType: 'listenbrainz-playlist',
+        await syncBuiltSelectionPlaylist(userId, {
           playlistKey,
-          plexPlaylistId: playlistRow.plexPlaylistId,
+          playlistType: 'listenbrainz-playlist',
           playlistTitle,
           algorithmVersion: 'listenbrainz-playlist-v2',
-          lastBuiltAt: now,
-          lastSyncedAt: now,
           trackCount: ratingKeys.length,
-          active: true,
-          updatedAt: now,
-        });
+          trackKeys: ratingKeys,
+          tracks: hydratePlaylistTracks(getMasterTracks(db), [], ratingKeys),
+          options: {
+            sortBy: normalizePlaylistBaseSort(prefs.listenbrainzPlaylistSorts?.[playlistType], 'source'),
+            finalOrdering: normalizePlaylistFinalOrdering(prefs.listenbrainzPlaylistFinalOrderings?.[playlistType], 'none'),
+          },
+          builtAt: Date.now(),
+        }, options);
         ctx.pushLog({
           level: 'info',
           app: 'listenbrainz',
@@ -3020,9 +3435,11 @@ export function createPlaylistService(ctx) {
       favouriteGenreTrackPct:  smartConfig.crescive?.favouriteGenreTrackPct  ?? 0.20,
       otherGenreArtistPct:     smartConfig.crescive?.otherGenreArtistPct     ?? 0.20,
       otherGenreTrackPct:      smartConfig.crescive?.otherGenreTrackPct      ?? 0.20,
+      sortBy:                  smartConfig.crescive?.sortBy                  ?? 'default',
+      finalOrdering:           smartConfig.crescive?.finalOrdering           ?? 'none',
       trackFilters:            smartConfig.crescive?.trackFilters,
     };
-    return syncSmartPlaylistForUser(ctx, userId, CRESCIVE_PLAYLIST_TYPE, CRESCIVE_PLAYLIST_KEY, playlistCfg, smartConfig, options);
+    return syncRuleBasedSystemPlaylist(userId, CRESCIVE_PLAYLIST_TYPE, CRESCIVE_PLAYLIST_KEY, playlistCfg, options);
   }
 
   async function syncCurative(userId, options = {}) {
@@ -3034,9 +3451,11 @@ export function createPlaylistService(ctx) {
       favouriteGenreTrackPct:  smartConfig.curative?.favouriteGenreTrackPct  ?? 0.80,
       otherGenreArtistPct:     smartConfig.curative?.otherGenreArtistPct     ?? 0.50,
       otherGenreTrackPct:      smartConfig.curative?.otherGenreTrackPct      ?? 0.50,
+      sortBy:                  smartConfig.curative?.sortBy                  ?? 'default',
+      finalOrdering:           smartConfig.curative?.finalOrdering           ?? 'none',
       trackFilters:            smartConfig.curative?.trackFilters,
     };
-    return syncSmartPlaylistForUser(ctx, userId, CURATIVE_PLAYLIST_TYPE, CURATIVE_PLAYLIST_KEY, playlistCfg, smartConfig, options);
+    return syncRuleBasedSystemPlaylist(userId, CURATIVE_PLAYLIST_TYPE, CURATIVE_PLAYLIST_KEY, playlistCfg, options);
   }
 
   async function syncBothForUser(userId) {
@@ -3164,6 +3583,7 @@ export function createPlaylistService(ctx) {
     syncCrescive,
     syncCurative,
     syncBothForUser,
+    setGeneratedActive,
     removeSmartPlaylistType,
     renameGeneratedPlaylistTitle,
     renameAllGeneratedPlaylistTitles,
