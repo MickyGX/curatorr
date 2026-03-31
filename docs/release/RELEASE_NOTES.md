@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.54 (2026-03-31)
+
+- Hardened database migration to re-verify column existence before creating partial indexes, preventing `SqliteError: no such column` crashes when upgrading from older installs.
+- Fixed Electron desktop wrapper so fatal curatorr startup errors show a dialog instead of silently killing the process.
+
 ## v0.1.53 (2026-03-31)
 
 - Fixed Windows desktop startup crash where upgrading from an older install caused a fatal `SqliteError: no such column` due to partial indexes being created before the columns they reference were migrated.

@@ -442,8 +442,9 @@ export function initDb(dbPath) {
   const playCols = db.prepare('PRAGMA table_info(play_events)').all().map((c) => c.name);
   if (!playCols.includes('session_key'))
     db.exec("ALTER TABLE play_events ADD COLUMN session_key TEXT DEFAULT ''");
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_play_events_session
-    ON play_events(session_key) WHERE session_key != ''`);
+  const playColsNow = db.prepare('PRAGMA table_info(play_events)').all().map((c) => c.name);
+  if (playColsNow.includes('session_key'))
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_play_events_session ON play_events(session_key) WHERE session_key != ''`);
 
   const trackCols = db.prepare('PRAGMA table_info(track_stats)').all().map((c) => c.name);
   if (!trackCols.includes('tier'))
@@ -496,8 +497,9 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
   if (!masterCols.includes('recording_mbid'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid
-    ON master_tracks(recording_mbid) WHERE recording_mbid != ''`);
+  const masterColsNow = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
+  if (masterColsNow.includes('recording_mbid'))
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid ON master_tracks(recording_mbid) WHERE recording_mbid != ''`);
   if (!masterCols.includes('file_path'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('duration_ms'))
@@ -510,8 +512,9 @@ export function initDb(dbPath) {
   const enrichmentCols = db.prepare('PRAGMA table_info(track_enrichment)').all().map((c) => c.name);
   if (!enrichmentCols.includes('recording_mbid'))
     db.exec("ALTER TABLE track_enrichment ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_track_enrichment_recording_mbid
-    ON track_enrichment(recording_mbid) WHERE recording_mbid != ''`);
+  const enrichmentColsNow = db.prepare('PRAGMA table_info(track_enrichment)').all().map((c) => c.name);
+  if (enrichmentColsNow.includes('recording_mbid'))
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_track_enrichment_recording_mbid ON track_enrichment(recording_mbid) WHERE recording_mbid != ''`);
   if (!enrichmentCols.includes('track_year'))
     db.exec('ALTER TABLE track_enrichment ADD COLUMN track_year INTEGER');
   if (!enrichmentCols.includes('original_release_date'))

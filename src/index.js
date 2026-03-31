@@ -2027,6 +2027,9 @@ export async function stop() {
 if (process.env.CURATORR_DISABLE_AUTOSTART !== '1') {
   start().catch((err) => {
     console.error('[curatorr] Fatal startup error:', err);
+    // In Electron context, process.exit() kills the whole app before the tray
+    // is created. Throw instead so the desktop wrapper can catch and show a dialog.
+    if (process.versions.electron) throw err;
     process.exit(1);
   });
 }
