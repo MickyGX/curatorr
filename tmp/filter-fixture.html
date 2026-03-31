@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en" data-carousel-free-scroll="1">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playlist Filter Fixture</title>
+  <style>
+    :root {
+      --brand-rgb: 139, 92, 246;
+      --teal: rgb(var(--brand-rgb));
+      --plex-gap: 10;
+      --plex-cardW: 203;
+      --plex-cardH: 350;
+    }
+    body {
+      margin: 0;
+      background: #141a23;
+      color: #fff;
+      font: 14px/1.4 sans-serif;
+    }
+    .wrap {
+      width: 1400px;
+      margin: 24px auto;
+      border: 1px solid rgba(255,255,255,.08);
+      background: #313844;
+      padding: 0;
+    }
+    .plex-carousel-viewport {
+      padding: 5px;
+      overflow: hidden;
+      touch-action: pan-y;
+      min-width: 0;
+      width: 100%;
+      max-width: 100%;
+      -webkit-overflow-scrolling: touch;
+    }
+    .plex-carousel-track {
+      display: flex;
+      gap: calc(var(--plex-gap, 10) * 1px);
+      align-items: stretch;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+      transition: transform 420ms cubic-bezier(.22, .9, .24, 1);
+      min-width: 0;
+      padding: 0;
+    }
+    .plex-card {
+      width: calc(var(--plex-cardW, 203) * 1px);
+      height: calc(var(--plex-cardH, 350) * 1px);
+      background: var(--teal, #8b5cf6);
+      border: 3px solid #0b0e15;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: none;
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .cur-playlist-carousel-viewport {
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-behavior: smooth;
+      scroll-snap-type: x proximity;
+      touch-action: pan-x pan-y;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+      cursor: grab;
+      scrollbar-width: none;
+      padding: 12px 24px 12px 24px;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    .cur-playlist-carousel-track {
+      display: flex;
+      width: max-content;
+      min-width: max-content;
+    }
+    .cur-playlist-carousel-card {
+      scroll-snap-align: start;
+    }
+    html[data-carousel-free-scroll="1"] .cur-playlist-carousel-viewport {
+      scroll-snap-type: none;
+      scroll-behavior: auto;
+    }
+    html[data-carousel-free-scroll="1"] .cur-playlist-carousel-card {
+      scroll-snap-align: unset;
+    }
+    .plex-hidden {
+      display: none !important;
+    }
+    .card-body {
+      padding: 12px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    pre {
+      margin: 0;
+      padding: 16px 24px;
+      background: #0f141c;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="cur-playlist-carousel-viewport plex-carousel-viewport" id="playlistCarouselViewport">
+      <div class="cur-playlist-carousel-track plex-carousel-track" id="playlistCarouselTrack">
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="external"><div class="card-body">External A</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="external"><div class="card-body">External B</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="external"><div class="card-body">External C</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="personal"><div class="card-body">Personal A</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="personal"><div class="card-body">Personal B</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="personal"><div class="card-body">Personal C</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="personal"><div class="card-body">Personal D</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="personal"><div class="card-body">Personal E</div></div>
+        <div class="plex-card cur-playlist-carousel-card" data-playlist-audience="personal"><div class="card-body">Personal F</div></div>
+      </div>
+    </div>
+    <pre id="out"></pre>
+  </div>
+  <script>
+    var _playlistCardFilterState = { type: 'all', status: 'all' };
+
+    function getPlaylistCardElements() {
+      return Array.from(document.querySelectorAll('#playlistCarouselTrack .cur-playlist-carousel-card'));
+    }
+
+    function isPlaylistCardVisible(card) {
+      return Boolean(card) && !card.classList.contains('plex-hidden');
+    }
+
+    function resetPlaylistCarouselViewport() {
+      var viewport = document.getElementById('playlistCarouselViewport');
+      if (!viewport) return;
+      try {
+        viewport.scrollTo({ left: 0, behavior: 'auto' });
+      } catch (_) {
+        viewport.scrollLeft = 0;
+      }
+      viewport.scrollLeft = 0;
+      requestAnimationFrame(function() {
+        try {
+          viewport.scrollTo({ left: 0, behavior: 'auto' });
+        } catch (_) {
+          viewport.scrollLeft = 0;
+        }
+        viewport.scrollLeft = 0;
+      });
+    }
+
+    function reorderPlaylistCards(visibleCards, hiddenCards) {
+      var carouselTrack = document.getElementById('playlistCarouselTrack');
+      if (!carouselTrack) return;
+      visibleCards.concat(hiddenCards).forEach(function(card) {
+        carouselTrack.appendChild(card);
+      });
+    }
+
+    function cardMatchesPlaylistFilters(card) {
+      return _playlistCardFilterState.type === 'all'
+        || String(card.dataset.playlistAudience || '') === _playlistCardFilterState.type;
+    }
+
+    function applyPlaylistCardFilters(options) {
+      options = options || {};
+      var cards = getPlaylistCardElements();
+      var viewport = document.getElementById('playlistCarouselViewport');
+      var visibleCards = [];
+      var hiddenCards = [];
+      cards.forEach(function(card) {
+        var visible = cardMatchesPlaylistFilters(card);
+        card.hidden = !visible;
+        card.classList.toggle('plex-hidden', !visible);
+        if (visible) visibleCards.push(card);
+        else hiddenCards.push(card);
+      });
+      reorderPlaylistCards(visibleCards, hiddenCards);
+      if (viewport && options.resetScroll) resetPlaylistCarouselViewport();
+    }
+
+    function capture(label) {
+      var viewport = document.getElementById('playlistCarouselViewport');
+      var track = document.getElementById('playlistCarouselTrack');
+      var cards = getPlaylistCardElements();
+      var firstVisible = cards.find(isPlaylistCardVisible);
+      var viewportRect = viewport.getBoundingClientRect();
+      var firstRect = firstVisible ? firstVisible.getBoundingClientRect() : null;
+      var out = document.getElementById('out');
+      out.textContent += [
+        label,
+        'scrollLeft=' + viewport.scrollLeft,
+        'viewportLeft=' + Math.round(viewportRect.left),
+        'firstLeft=' + (firstRect ? Math.round(firstRect.left) : 'none'),
+        'leftGap=' + (firstRect ? Math.round(firstRect.left - viewportRect.left) : 'none'),
+        'trackChildren=' + Array.from(track.children).map(function(card) {
+          return (isPlaylistCardVisible(card) ? 'V:' : 'H:') + card.textContent.trim();
+        }).join(', ')
+      ].join(' | ') + '\n';
+    }
+
+    window.addEventListener('load', function() {
+      var viewport = document.getElementById('playlistCarouselViewport');
+      capture('initial');
+      viewport.scrollLeft = 347;
+      capture('after manual scroll');
+      _playlistCardFilterState.type = 'personal';
+      applyPlaylistCardFilters({ resetScroll: true });
+      capture('after filter sync');
+      requestAnimationFrame(function() {
+        capture('after filter rAF1');
+        requestAnimationFrame(function() {
+          capture('after filter rAF2');
+        });
+      });
+    });
+  </script>
+</body>
+</html>
