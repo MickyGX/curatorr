@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.57 (2026-03-31)
+
+- Fixed the root cause of slow startup and general app sluggishness: every log entry was synchronously writing and renaming a 239 KB file to NAS storage, blocking the Node.js event loop. Log writes are now debounced to at most one disk write per second.
+
 ## v0.1.56 (2026-03-31)
 
 - Added a server-side in-memory cache for the Plex/Jellyfin/Emby art proxy routes (`/api/plex/art`, `/api/ms/art`), eliminating redundant upstream image fetches on the playlist page and across the app.

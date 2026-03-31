@@ -529,14 +529,23 @@ function applyLogRetention(entries, settings) {
   return filtered.length <= maxEntries ? filtered : filtered.slice(filtered.length - maxEntries);
 }
 
-function persistLogsToDisk(settings) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const pruned = applyLogRetention(LOG_BUFFER, settings);
-    const tmpPath = LOG_PATH + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify({ items: pruned }, null, 2));
-    fs.renameSync(tmpPath, LOG_PATH);
-  } catch (err) { /* avoid crash on disk errors */ }
+let _persistLogTimer = null;
+function persistLogsToDisk(_settings) {
+  // Debounce: coalesce rapid bursts of log entries into a single disk write (max once per second).
+  // Without this, every pushLog() call triggers a synchronous 239KB write — during startup with
+  // jobs firing immediately, dozens of writes per second block the event loop for 30+ seconds.
+  if (_persistLogTimer) return;
+  _persistLogTimer = setTimeout(() => {
+    _persistLogTimer = null;
+    try {
+      const settings = resolveLogSettings(loadConfig());
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      const pruned = applyLogRetention(LOG_BUFFER, settings);
+      const tmpPath = LOG_PATH + '.tmp';
+      fs.writeFileSync(tmpPath, JSON.stringify({ items: pruned }, null, 2));
+      fs.renameSync(tmpPath, LOG_PATH);
+    } catch (err) { /* avoid crash on disk errors */ }
+  }, 1000).unref();
 }
 
 function loadLogsFromDisk(settings) {
