@@ -1343,10 +1343,10 @@ export function registerPages(app, ctx) {
     const masterTrackCount = getMasterTrackCount(db);
     const masterArtistCount = getMasterArtistCount(db);
     const lastPlaylistSync = getLastPlaylistSync(db, suggestionUserId);
-    const excludedTrackCount = getExcludedTrackKeys(db, suggestionUserId).length;
-    const skipTierArtistCount = getSkipTierArtists(db, suggestionUserId).length;
-    const belterTrackCount = db.prepare("SELECT COUNT(*) AS n FROM track_stats WHERE user_plex_id = ? AND tier = 'belter'").get(suggestionUserId)?.n || 0;
-    const heardTrackCount = db.prepare("SELECT COUNT(*) AS n FROM track_stats WHERE user_plex_id = ? AND tier != 'curatorr'").get(suggestionUserId)?.n || 0;
+    const excludedTrackCount = getExcludedTrackKeys(db, userPlexId).length;
+    const skipTierArtistCount = getSkipTierArtists(db, userPlexId).length;
+    const belterTrackCount = db.prepare("SELECT COUNT(*) AS n FROM track_stats WHERE user_plex_id = ? AND tier = 'belter'").get(userPlexId)?.n || 0;
+    const heardTrackCount = db.prepare("SELECT COUNT(*) AS n FROM track_stats WHERE user_plex_id = ? AND tier != 'curatorr'").get(userPlexId)?.n || 0;
 
     res.render('dashboard', {
       title: 'Dashboard — Curatorr',

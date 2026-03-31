@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.53 (2026-03-31)
+
+- Fixed Windows desktop startup crash where upgrading from an older install caused a fatal `SqliteError: no such column` due to partial indexes being created before the columns they reference were migrated.
+- Fixed dashboard stat counts (excluded tracks, skip-tier artists, belter tracks, heard tracks) showing incorrect values by using the correct user ID in queries.
+
 ## v0.1.52 (2026-03-30)
 
 - Clarified regex-based playlist filtering so the UI now labels those rules as exclusions, reducing confusion around `does not match regex` behavior.

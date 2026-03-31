@@ -28,8 +28,6 @@ CREATE INDEX IF NOT EXISTS idx_play_events_user       ON play_events(user_plex_i
 CREATE INDEX IF NOT EXISTS idx_play_events_artist     ON play_events(artist_name);
 CREATE INDEX IF NOT EXISTS idx_play_events_rating_key ON play_events(plex_rating_key);
 CREATE INDEX IF NOT EXISTS idx_play_events_started_at ON play_events(started_at);
-CREATE INDEX IF NOT EXISTS idx_play_events_session    ON play_events(session_key) WHERE session_key != '';
-
 -- Per-user per-track aggregated counters (rebuilt from play_events)
 CREATE TABLE IF NOT EXISTS track_stats (
   plex_rating_key       TEXT NOT NULL,
@@ -137,10 +135,6 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   updated_at    INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
 );
 
-CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid
-  ON master_tracks(recording_mbid)
-  WHERE recording_mbid != '';
-
 CREATE TABLE IF NOT EXISTS track_enrichment (
   rating_key             TEXT NOT NULL PRIMARY KEY,
   recording_mbid         TEXT NOT NULL DEFAULT '',
@@ -163,10 +157,6 @@ CREATE TABLE IF NOT EXISTS track_enrichment (
   payload_json           TEXT NOT NULL DEFAULT '{}',
   updated_at             INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
 );
-
-CREATE INDEX IF NOT EXISTS idx_track_enrichment_recording_mbid
-  ON track_enrichment(recording_mbid)
-  WHERE recording_mbid != '';
 
 CREATE INDEX IF NOT EXISTS idx_track_enrichment_track_year
   ON track_enrichment(track_year)
@@ -449,6 +439,12 @@ export function initDb(dbPath) {
   db.exec(SCHEMA);
 
   // ── Migrations (idempotent) ──────────────────────────────────────────────
+  const playCols = db.prepare('PRAGMA table_info(play_events)').all().map((c) => c.name);
+  if (!playCols.includes('session_key'))
+    db.exec("ALTER TABLE play_events ADD COLUMN session_key TEXT DEFAULT ''");
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_play_events_session
+    ON play_events(session_key) WHERE session_key != ''`);
+
   const trackCols = db.prepare('PRAGMA table_info(track_stats)').all().map((c) => c.name);
   if (!trackCols.includes('tier'))
     db.exec("ALTER TABLE track_stats ADD COLUMN tier TEXT NOT NULL DEFAULT 'curatorr'");
@@ -500,6 +496,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
   if (!masterCols.includes('recording_mbid'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid
+    ON master_tracks(recording_mbid) WHERE recording_mbid != ''`);
   if (!masterCols.includes('file_path'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('duration_ms'))
@@ -512,6 +510,8 @@ export function initDb(dbPath) {
   const enrichmentCols = db.prepare('PRAGMA table_info(track_enrichment)').all().map((c) => c.name);
   if (!enrichmentCols.includes('recording_mbid'))
     db.exec("ALTER TABLE track_enrichment ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_track_enrichment_recording_mbid
+    ON track_enrichment(recording_mbid) WHERE recording_mbid != ''`);
   if (!enrichmentCols.includes('track_year'))
     db.exec('ALTER TABLE track_enrichment ADD COLUMN track_year INTEGER');
   if (!enrichmentCols.includes('original_release_date'))
