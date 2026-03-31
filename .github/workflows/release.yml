@@ -61,7 +61,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_context.outputs.tag_name }}
-          name: ${{ steps.release_context.outputs.tag_name }}
+          name: Curatorr ${{ steps.release_context.outputs.tag_name }}
           body_path: ${{ steps.notes.outputs.notes_file }}
           discussion_category_name: Announcements
           make_latest: true
@@ -71,7 +71,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_context.outputs.tag_name }}
-          name: ${{ steps.release_context.outputs.tag_name }}
+          name: Curatorr ${{ steps.release_context.outputs.tag_name }}
           generate_release_notes: true
           discussion_category_name: Announcements
           make_latest: true
