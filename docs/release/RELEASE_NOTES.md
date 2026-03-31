@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.57 (2026-03-31)
+
+- Fixed admin users table showing 0 plays and "No play history yet" for users whose Tautulli-stored identity differed from their Plex API username — the table now queries stats using the exact identifier stored in the database rather than deriving it from the Plex API response.
+- Fixed admin users table Lidarr stats showing incorrect counts for users who have never used Lidarr automation — caused by the same identity mismatch above.
+- Added Lidarr track count tracking — albums added via Lidarr now record the track count so the admin users table can display total tracks added (previously always shown as "—").
+- Added retry button on failed "Added for you" items in the Discover page — clicking the inline icon re-queues the request and immediately triggers processing.
+
 ## v0.1.56 (2026-03-31)
 
 - Fixed the root cause of slow startup and general app sluggishness on NAS hardware: every log entry was synchronously writing and renaming a 239 KB file to disk, blocking the Node.js event loop. Log writes are now debounced to at most one disk write per second.

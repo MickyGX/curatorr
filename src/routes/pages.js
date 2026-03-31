@@ -370,7 +370,8 @@ async function buildAdminUsersPageData({
   const lidarrUsageTotalsStmt = db.prepare(`
     SELECT
       COALESCE(SUM(CASE WHEN usage_key = 'artists' THEN amount ELSE 0 END), 0) AS artists_added,
-      COALESCE(SUM(CASE WHEN usage_key = 'albums' THEN amount ELSE 0 END), 0) AS albums_added
+      COALESCE(SUM(CASE WHEN usage_key = 'albums' THEN amount ELSE 0 END), 0) AS albums_added,
+      COALESCE(SUM(CASE WHEN usage_key = 'tracks' THEN amount ELSE 0 END), 0) AS tracks_added
     FROM lidarr_usage
     WHERE user_plex_id = ?
   `);
@@ -392,10 +393,11 @@ async function buildAdminUsersPageData({
   const resolveLidarrStats = (userId) => {
     const usage = lidarrUsageTotalsStmt.get(userId) || {};
     const progress = lidarrProgressTotalsStmt.get(userId) || {};
+    const tracksAdded = Number(usage.tracks_added || 0);
     return {
       artistsAdded: Math.max(Number(usage.artists_added || 0), Number(progress.artists_added || 0)),
       albumsAdded: Math.max(Number(usage.albums_added || 0), Number(progress.albums_added || 0)),
-      tracksAdded: null,
+      tracksAdded: tracksAdded > 0 ? tracksAdded : null,
     };
   };
   const livePlexUsers = [];
@@ -498,7 +500,18 @@ async function buildAdminUsersPageData({
     }
   }
 
-  const livePlexRows = livePlexUsers.map((user) => {
+  // Build lookup: lowercased Plex identity → live Plex user object.
+  // Iterate observed DB IDs (not live Plex users) so that the exact stored identifier
+  // is used for all stat queries — the same approach as buildLocalAdminPreviewData.
+  const liveUserByKey = buildPlexIdentityLookup(livePlexUsers, normalizeIdentityList);
+  const seenLiveUserUuids = new Set();
+  const livePlexRows = observedPlexUserIds.map((dbId) => {
+    const user = liveUserByKey.get(dbId.toLowerCase());
+    if (!user) return null;
+    // Deduplicate: same Plex user may appear under multiple DB IDs (e.g. username + title)
+    const dedupeKey = String(user?.uuid || user?.id || '').trim().toLowerCase() || dbId.toLowerCase();
+    if (seenLiveUserUuids.has(dedupeKey)) return null;
+    seenLiveUserUuids.add(dedupeKey);
     const ids = normalizeIdentityList([
       user?.email,
       user?.username,
@@ -506,17 +519,16 @@ async function buildAdminUsersPageData({
       String(user?.id || ''),
       String(user?.uuid || ''),
     ]).map((value) => value.toLowerCase());
-    const userId = String(user?.username || user?.title || user?.email || user?.id || user?.uuid || '').trim();
-    if (!userId) return null;
-    const stats7d = getPlayStats(db, userId, since7d) || {};
-    const stats30d = getPlayStats(db, userId, since30d) || {};
-    const statsAll = getPlayStats(db, userId, 0) || {};
-    const playlistCount = Number(playlistCountStmt.get(userId)?.n || 0);
-    const personalPlaylistCount = Number(personalPlaylistCountStmt.get(userId)?.n || 0);
-    const topArtist = getTopArtists(db, userId, 1)[0]?.artist_name || '';
-    const lastSync = getLastPlaylistSync(db, userId);
-    const lastPlayAt = Number(lastPlayStmt.get(userId)?.last_play_at || 0);
-    const lidarrStats = resolveLidarrStats(userId);
+    // dbId is the exact value stored in the DB — use it for all stat queries (correct case/format)
+    const stats7d = getPlayStats(db, dbId, since7d) || {};
+    const stats30d = getPlayStats(db, dbId, since30d) || {};
+    const statsAll = getPlayStats(db, dbId, 0) || {};
+    const playlistCount = Number(playlistCountStmt.get(dbId)?.n || 0);
+    const personalPlaylistCount = Number(personalPlaylistCountStmt.get(dbId)?.n || 0);
+    const topArtist = getTopArtists(db, dbId, 1)[0]?.artist_name || '';
+    const lastSync = getLastPlaylistSync(db, dbId);
+    const lastPlayAt = Number(lastPlayStmt.get(dbId)?.last_play_at || 0);
+    const lidarrStats = resolveLidarrStats(dbId);
     const plays7d = Number(stats7d.total_plays || 0);
     const plays30d = Number(stats30d.total_plays || 0);
     const playsAll = Number(statsAll.total_plays || 0);
@@ -530,11 +542,12 @@ async function buildAdminUsersPageData({
     else if (hasRoleMatch(roleSets.coAdmin, ids)) role = 'co-admin';
     else if (hasRoleMatch(roleSets.powerUser, ids)) role = 'power-user';
     else if (hasRoleMatch(roleSets.guest, ids)) role = 'guest';
+    const displayName = String(user?.title || user?.username || user?.email || dbId).trim();
     return {
-      id: userId,
-      name: String(user?.title || user?.username || user?.email || userId).trim(),
+      id: dbId,
+      name: displayName,
       avatarUrl: String(user?.thumb || '').trim(),
-      avatarLabel: String(user?.title || user?.username || userId).trim().charAt(0).toUpperCase() || 'P',
+      avatarLabel: displayName.charAt(0).toUpperCase() || 'P',
       isHomeUser: ids.some((id) => homeUserKeySet.has(id)),
       role,
       plays7d,

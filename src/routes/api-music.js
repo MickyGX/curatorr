@@ -1284,6 +1284,31 @@ export function registerApiMusic(app, ctx) {
     return res.json({ ok: true, request: removed });
   });
 
+  app.post('/api/music/lidarr/requests/:id/retry', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+    const existing = getLidarrRequest(db, req.params.id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Request not found.' });
+    if (existing.status !== 'failed') return res.status(400).json({ error: 'Only failed requests can be retried.' });
+    updateLidarrRequest(db, existing.id, {
+      status: 'queued',
+      processedAt: null,
+      updatedAt: Date.now(),
+      detail: {
+        ...(existing.detail || {}),
+        retried: true,
+        retriedAt: Date.now(),
+      },
+    }, existing.userPlexId);
+    lidarrService.processQueuedRequests({ userPlexId: existing.userPlexId, limit: 1 }).catch(() => {});
+    return res.json({ ok: true, request: getLidarrRequest(db, existing.id, existing.userPlexId) });
+  });
+
   app.post('/api/music/lidarr/requests/reorder', requireUser, (req, res) => {
     const userPlexId = resolveQueryUserId(req);
     const ids = Array.isArray(req.body?.requestIds) ? req.body.requestIds : [];
@@ -1814,6 +1839,8 @@ export function registerApiMusic(app, ctx) {
               albumQuota = lidarrService.assertQuotaAvailable(role, latestUsage, { albums: 1 });
               await lidarrService.setAlbumMonitored(albumId, true);
               recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1 });
+              const _albumTrackCount3 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
+              if (_albumTrackCount3 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount3 });
               latestUsage = getCurrentLidarrUsage(db, userPlexId).usage || {};
               albumQuota = lidarrService.getRoleQuota(role, latestUsage);
               if (autoTriggerManualSearch) {

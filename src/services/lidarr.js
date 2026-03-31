@@ -1810,6 +1810,8 @@ export function createLidarrService(ctx) {
         tagAlbum: true,
       });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: now });
+      const _albumTrackCount1 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
+      if (_albumTrackCount1 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount1, createdAt: now });
       quota = getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
       if (settings.autoTriggerManualSearch) {
         searchCommand = await triggerAlbumSearch([albumId]);
@@ -2177,6 +2179,8 @@ export function createLidarrService(ctx) {
       if (autoAdd) assertAutoAddQuotaAvailable(getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
       await setAlbumMonitored(albumId, true);
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: Date.now() });
+      const _albumTrackCount2 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
+      if (_albumTrackCount2 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount2, createdAt: Date.now() });
       if (autoAdd) {
         recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'auto_albums', amount: 1, createdAt: Date.now() });
       }
