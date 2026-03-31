@@ -551,9 +551,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE track_enrichment ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'");
   if (!enrichmentCols.includes('updated_at'))
     db.exec('ALTER TABLE track_enrichment ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
-  db.exec(`UPDATE track_enrichment
-    SET updated_at = COALESCE(NULLIF(updated_at, 0), unixepoch('now') * 1000)
-    WHERE updated_at = 0`);
+  if (db.prepare('SELECT 1 FROM track_enrichment WHERE updated_at = 0 LIMIT 1').get())
+    db.exec(`UPDATE track_enrichment SET updated_at = COALESCE(NULLIF(updated_at, 0), unixepoch('now') * 1000) WHERE updated_at = 0`);
 
   const openSessionCols = db.prepare('PRAGMA table_info(open_sessions)').all().map((c) => c.name);
   if (!openSessionCols.includes('player_scope'))
@@ -570,7 +569,8 @@ export function initDb(dbPath) {
     db.exec('ALTER TABLE open_sessions ADD COLUMN playing_since INTEGER');
   if (!openSessionCols.includes('last_event_at'))
     db.exec('ALTER TABLE open_sessions ADD COLUMN last_event_at INTEGER NOT NULL DEFAULT 0');
-  db.exec('UPDATE open_sessions SET last_event_at = COALESCE(NULLIF(last_event_at, 0), created_at, started_at) WHERE last_event_at = 0');
+  if (db.prepare('SELECT 1 FROM open_sessions WHERE last_event_at = 0 LIMIT 1').get())
+    db.exec('UPDATE open_sessions SET last_event_at = COALESCE(NULLIF(last_event_at, 0), created_at, started_at) WHERE last_event_at = 0');
 
   // system_job_runs has no migrations needed — created fresh via SCHEMA above
 

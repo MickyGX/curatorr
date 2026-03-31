@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.56 (2026-03-31)
+
+- Added a server-side in-memory cache for the Plex/Jellyfin/Emby art proxy routes (`/api/plex/art`, `/api/ms/art`), eliminating redundant upstream image fetches on the playlist page and across the app.
+- Fixed two unconditional full-table-scan UPDATE statements in the startup migration that ran on every container restart even when no rows needed updating, reducing startup time on large databases.
+- Added an 8-second timeout to the Docker Hub version check so a slow or unreachable connection does not hang the `/api/version` response.
+
 ## v0.1.55 (2026-03-31)
 
 - Fixed track analysis crashing entire chunks when DSF/DFF (DSD) files are encountered — the analyzer now skips these unsupported formats rather than attempting ffmpeg conversion that can exhaust memory on low-spec NAS hardware.

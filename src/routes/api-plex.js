@@ -1,5 +1,21 @@
 // Plex API proxy routes — library browsing, playlist management, user list
 
+const ART_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ART_CACHE_MAX = 500;               // ~500 album/artist thumbnails at most
+const artCache = new Map();              // path → { ct, buf, expiresAt }
+
+function artCacheGet(key) {
+  const entry = artCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { artCache.delete(key); return null; }
+  return entry;
+}
+
+function artCacheSet(key, ct, buf) {
+  if (artCache.size >= ART_CACHE_MAX) artCache.delete(artCache.keys().next().value);
+  artCache.set(key, { ct, buf, expiresAt: Date.now() + ART_CACHE_TTL_MS });
+}
+
 export function registerApiPlex(app, ctx) {
   const {
     requireUser,
@@ -109,19 +125,27 @@ export function registerApiPlex(app, ctx) {
   // ── Art proxy (forwards Plex image with token, avoids exposing token to browser) ──
 
   app.get('/api/plex/art', requireUser, async (req, res) => {
+    const path = String(req.query?.path || '').trim();
+    if (!path || !path.startsWith('/')) return res.status(400).end();
+    const cached = artCacheGet(path);
+    if (cached) {
+      res.set('Content-Type', cached.ct);
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.end(cached.buf);
+    }
     const config = loadConfig();
     const { url, token } = config.plex || {};
     if (!url || !token) return res.status(400).end();
-    const path = String(req.query?.path || '').trim();
-    if (!path || !path.startsWith('/')) return res.status(400).end();
     try {
       const artUrl = buildAppApiUrl(url, path.replace(/^\//, ''));
       const upstream = await fetch(artUrl.toString(), {
         headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+        signal: AbortSignal.timeout(8000),
       });
       if (!upstream.ok) return res.status(upstream.status).end();
       const ct = upstream.headers.get('content-type') || 'image/jpeg';
       const buf = Buffer.from(await upstream.arrayBuffer());
+      artCacheSet(path, ct, buf);
       res.set('Content-Type', ct);
       res.set('Cache-Control', 'public, max-age=3600');
       res.end(buf);
@@ -140,10 +164,17 @@ export function registerApiPlex(app, ctx) {
       if (!url || !apiKey) return res.status(404).end();
       const id = String(req.query?.id || '').trim();
       if (!id) return res.status(400).end();
+      const tag = String(req.query?.tag || '').trim();
+      const cacheKey = `ms:${id}:${tag}`;
+      const cached = artCacheGet(cacheKey);
+      if (cached) {
+        res.set('Content-Type', cached.ct);
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.end(cached.buf);
+      }
       try {
         const imgUrl = new URL(`/Items/${encodeURIComponent(id)}/Images/Primary`, url);
         imgUrl.searchParams.set('maxWidth', '600');
-        const tag = String(req.query?.tag || '').trim();
         if (tag) imgUrl.searchParams.set('tag', tag);
         const upstream = await fetch(imgUrl.toString(), {
           headers: { 'X-Emby-Token': apiKey },
@@ -152,6 +183,7 @@ export function registerApiPlex(app, ctx) {
         if (!upstream.ok) return res.status(404).end();
         const ct = upstream.headers.get('content-type') || 'image/jpeg';
         const buf = Buffer.from(await upstream.arrayBuffer());
+        artCacheSet(cacheKey, ct, buf);
         res.set('Content-Type', ct);
         res.set('Cache-Control', 'public, max-age=86400');
         return res.end(buf);
@@ -164,14 +196,22 @@ export function registerApiPlex(app, ctx) {
     if (!url || !token) return res.status(400).end();
     const path = String(req.query?.path || '').trim();
     if (!path || !path.startsWith('/')) return res.status(400).end();
+    const cached = artCacheGet(path);
+    if (cached) {
+      res.set('Content-Type', cached.ct);
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.end(cached.buf);
+    }
     try {
       const artUrl = buildAppApiUrl(url, path.replace(/^\//, ''));
       const upstream = await fetch(artUrl.toString(), {
         headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
+        signal: AbortSignal.timeout(8000),
       });
       if (!upstream.ok) return res.status(upstream.status).end();
       const ct = upstream.headers.get('content-type') || 'image/jpeg';
       const buf = Buffer.from(await upstream.arrayBuffer());
+      artCacheSet(path, ct, buf);
       res.set('Content-Type', ct);
       res.set('Cache-Control', 'public, max-age=3600');
       return res.end(buf);

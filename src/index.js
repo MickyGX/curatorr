@@ -487,7 +487,30 @@ function loadSettingsReleases(options = {}) {
     }));
 }
 
-async function fetchLatestDockerTag() { return ''; }
+async function fetchLatestDockerTag() {
+  const res = await fetch('https://registry.hub.docker.com/v2/repositories/mickygx/curatorr/tags?page_size=50', {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Docker Hub tag lookup failed (${res.status}): ${text.slice(0, 180)}`);
+  }
+  const payload = await res.json();
+  const tags = Array.isArray(payload?.results) ? payload.results : [];
+  const parsed = tags
+    .map((tag) => {
+      const name = String(tag?.name || '').trim();
+      const semver = parseSemver(name);
+      if (!semver) return null;
+      return { name: normalizeVersionTag(name), semver };
+    })
+    .filter(Boolean);
+  if (!parsed.length) return '';
+  parsed.sort((a, b) => compareSemver(b.semver, a.semver));
+  return parsed[0].name;
+}
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
