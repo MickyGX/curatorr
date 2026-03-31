@@ -44,6 +44,7 @@ private/
 
 # Local dev shortcuts
 dev.md
+tmp/
 
 # Local maintenance binaries
 bfg.jar
