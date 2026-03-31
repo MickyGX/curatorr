@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.55 (2026-03-31)
+
+- Fixed track analysis crashing entire chunks when DSF/DFF (DSD) files are encountered — the analyzer now skips these unsupported formats rather than attempting ffmpeg conversion that can exhaust memory on low-spec NAS hardware.
+
 ## v0.1.54 (2026-03-31)
 
 - Hardened database migration to re-verify column existence before creating partial indexes, preventing `SqliteError: no such column` crashes when upgrading from older installs.

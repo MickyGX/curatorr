@@ -7,6 +7,10 @@ import os
 import sys
 
 
+# DSD formats (DSF, DFF) are not reliably supported by librosa/audioread and can exhaust
+# memory during ffmpeg conversion on low-spec hardware, crashing the entire analysis chunk.
+UNSUPPORTED_EXTENSIONS = {'.dsf', '.dff'}
+
 KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
 MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
@@ -128,6 +132,10 @@ def analyze_track(track):
 
     file_path = str(track.get('filePath') or '').strip()
     if not file_path or not os.path.isfile(file_path):
+        return None
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in UNSUPPORTED_EXTENSIONS:
+        print(f'[curatorr-analyzer] skipping unsupported format: {file_path} ({ext})', file=sys.stderr, flush=True)
         return None
     try:
         y, sr = librosa.load(file_path, sr=22050, mono=True)
