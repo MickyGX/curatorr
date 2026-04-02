@@ -284,6 +284,9 @@ function normalizeAnalysisSettings(rawAnalysis = {}) {
       ? String(rawAnalysis?.analyzerInputFormat || '').trim().toLowerCase()
       : 'auto',
     analyzerOverwriteExisting: Boolean(rawAnalysis?.analyzerOverwriteExisting),
+    analyzerChunkSize: Math.max(0, Math.floor(Number(rawAnalysis?.analyzerChunkSize) || 0)),
+    analyzerChunkDelayMs: Math.max(0, Math.floor(Number(rawAnalysis?.analyzerChunkDelayMs) || 0)),
+    analyzerTrackDelayMs: Math.max(0, Math.floor(Number(rawAnalysis?.analyzerTrackDelayMs) || 0)),
   };
 }
 
@@ -588,6 +591,9 @@ export function registerSettings(app, ctx) {
       analyzerSidecarUrl: req.body?.analyzerSidecarUrl,
       analyzerInputFormat: req.body?.analyzerInputFormat,
       analyzerOverwriteExisting: Boolean(req.body?.analyzerOverwriteExisting),
+      analyzerChunkSize: req.body?.analyzerChunkSize,
+      analyzerChunkDelayMs: req.body?.analyzerChunkDelayMs,
+      analyzerTrackDelayMs: req.body?.analyzerTrackDelayMs,
     });
     const playbackSource = String(req.body?.playbackSource || config.general?.playbackSource || 'plex').trim().toLowerCase() === 'tautulli'
       ? 'tautulli'

@@ -845,6 +845,8 @@ export function createTrackEnrichmentService(ctx) {
     const overwriteExisting = options.overwriteExisting === true;
     const defaultChunkSize = execution.mode === 'sidecar' ? 100 : 250;
     const chunkSize = clampNumber(options.chunkSize, 1, 5000, defaultChunkSize);
+    const chunkDelayMs = clampNumber(options.chunkDelayMs, 0, 300000, 0);
+    const trackDelayMs = clampNumber(options.trackDelayMs, 0, 5000, 0);
 
     if (!manifestPath) {
       return { ok: false, message: 'No feature manifest path is configured.' };
@@ -951,6 +953,7 @@ export function createTrackEnrichmentService(ctx) {
           sidecarResult = await invokeAnalyzerSidecar(execution.sidecarUrl, {
             inputPath: chunkManifestPath,
             outputPath: chunkResultsPath,
+            ...(trackDelayMs > 0 ? { trackDelayMs } : {}),
           }, {
             timeoutMs: execution.timeoutMs,
           });
@@ -998,6 +1001,9 @@ export function createTrackEnrichmentService(ctx) {
               imported: aggregateImport.imported,
             },
           });
+        }
+        if (chunkDelayMs > 0 && chunkIndex < totalChunks - 1) {
+          await new Promise((resolve) => { setTimeout(resolve, chunkDelayMs); });
         }
       } catch (err) {
         err.message = `Chunk ${chunkIndex + 1}/${totalChunks} failed: ${err.message}`;

@@ -269,6 +269,20 @@
                 </label>
                 <div class="settings-card-sub" style="margin-top:8px">Accepted JSON formats: an array of track objects, a root object with <code class="settings-inline-code">tracks</code>, or an object keyed by rating key. Matching uses <code class="settings-inline-code">ratingKey</code>, then <code class="settings-inline-code">recordingMbid</code>, then <code class="settings-inline-code">filePath</code>.</div>
                 <div class="settings-card-sub" style="margin-top:8px">Custom command mode is optional and intended for advanced external pipelines. Most Docker installs should leave it unused and stay on the sidecar mode.</div>
+                <div class="settings-card-title" style="margin-top:18px">Analyzer Throttling</div>
+                <div class="settings-card-sub">Use these to limit how hard the analyzer works, especially on low-spec or shared hardware. Defaults (0) use the built-in values with no added delays.</div>
+                <label class="field">
+                  <span>Chunk size <span class="settings-card-sub" style="display:inline">(0 = default: 100 for sidecar, 250 for custom)</span></span>
+                  <input type="number" name="analyzerChunkSize" min="0" max="5000" step="1" value="<%= config.analysis?.analyzerChunkSize || 0 %>" placeholder="0" />
+                </label>
+                <label class="field">
+                  <span>Delay between chunks (ms) <span class="settings-card-sub" style="display:inline">(0 = no delay)</span></span>
+                  <input type="number" name="analyzerChunkDelayMs" min="0" max="300000" step="100" value="<%= config.analysis?.analyzerChunkDelayMs || 0 %>" placeholder="0" />
+                </label>
+                <label class="field">
+                  <span>Delay between tracks (ms) <span class="settings-card-sub" style="display:inline">(0 = no delay, sidecar mode only)</span></span>
+                  <input type="number" name="analyzerTrackDelayMs" min="0" max="5000" step="50" value="<%= config.analysis?.analyzerTrackDelayMs || 0 %>" placeholder="0" />
+                </label>
               </div>
               <div class="settings-card-actions settings-card-actions--full">
                 <button class="primary-button" type="submit">Save general settings</button>

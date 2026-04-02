@@ -57,6 +57,11 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
         if not input_path or not output_path:
           return write_json(self, 400, { 'ok': False, 'error': 'input-output-required' })
 
+        try:
+            track_delay_ms = max(0, int(payload.get('trackDelayMs') or 0))
+        except (TypeError, ValueError):
+            track_delay_ms = 0
+
         command = [
             PYTHON_BIN,
             SCRIPT_PATH,
@@ -65,6 +70,8 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
             '--output',
             output_path,
         ]
+        if track_delay_ms > 0:
+            command += ['--track-delay-ms', str(track_delay_ms)]
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=False)
         except Exception as exc:

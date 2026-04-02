@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sys
+import time
 
 
 # DSD formats (DSF, DFF) are not reliably supported by librosa/audioread and can exhaust
@@ -180,20 +181,30 @@ def main():
     parser = argparse.ArgumentParser(description='Curatorr built-in track feature analyzer.')
     parser.add_argument('--input', required=True, help='Path to the Curatorr feature template JSON file.')
     parser.add_argument('--output', required=True, help='Where to write the analyzer output JSON file.')
+    parser.add_argument('--track-delay-ms', type=int, default=0, help='Milliseconds to sleep between tracks (default: 0).')
     args = parser.parse_args()
+
+    try:
+        os.nice(10)
+    except (AttributeError, OSError):
+        pass
+
+    track_delay_s = max(0, args.track_delay_ms) / 1000.0
 
     ensure_dependencies()
     manifest = load_manifest(args.input)
     tracks = manifest.get('tracks') or []
     results = []
     not_found = []
-    for track in tracks:
+    for index, track in enumerate(tracks):
         file_path = str(track.get('filePath') or '').strip()
         if file_path and not os.path.isfile(file_path):
             not_found.append(file_path)
         analyzed = analyze_track(track)
         if analyzed:
             results.append(analyzed)
+        if track_delay_s > 0 and index < len(tracks) - 1:
+            time.sleep(track_delay_s)
 
     if not_found:
         print(

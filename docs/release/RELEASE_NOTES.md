@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.58 (2026-04-02)
+
+- Added analyzer throttling controls — chunk size, delay between chunks (ms), and delay between tracks (ms) are now configurable in Settings under Analyzer Throttling. Useful for low-spec or shared NAS hardware where the analyzer can monopolise CPU or memory.
+- Added `--track-delay-ms` flag to the built-in analyzer script; the analyzer sidecar now forwards the configured per-track delay to the script.
+- The built-in analyzer now calls `os.nice(10)` at startup to lower its CPU scheduling priority, reducing impact on other processes.
+- Added commented-out `cpus` and `mem_limit` resource limit examples to `docker-compose.yml` for users who want hard caps on analyzer resource usage.
+
 ## v0.1.57 (2026-03-31)
 
 - Fixed admin users table showing 0 plays and "No play history yet" for users whose Tautulli-stored identity differed from their Plex API username — the table now queries stats using the exact identifier stored in the database rather than deriving it from the Plex API response.
