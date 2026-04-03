@@ -68,8 +68,10 @@ function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField
   });
 }
 
-function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map()) {
+function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map(), sourceType = '') {
   const type = String(playlistType || '').trim().toLowerCase();
+  const source = String(sourceType || '').trim().toLowerCase();
+  if (source === 'spotify-playlist' || source.startsWith('plex-')) return 'imported';
   if (type === 'global') return 'global';
   if (['lastfm-station', 'listenbrainz-playlist'].includes(type)) return 'external';
   if (['legacy', 'curatorred', 'curatorr', 'curative', 'crescive', 'daily-mix'].includes(type)) return 'system';
@@ -84,10 +86,11 @@ function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylis
 
 function getPlaylistAudienceSortRank(audience) {
   const kind = String(audience || '').trim().toLowerCase();
-  if (kind === 'external') return 1;
-  if (kind === 'blend') return 2;
-  if (kind === 'global') return 3;
-  if (kind === 'system') return 4;
+  if (kind === 'imported') return 1;
+  if (kind === 'external') return 2;
+  if (kind === 'blend') return 3;
+  if (kind === 'global') return 4;
+  if (kind === 'system') return 5;
   return 0;
 }
 
@@ -1198,6 +1201,7 @@ export function registerPages(app, ctx) {
     playlistService,
     lidarrService,
     fetchPlexPlaylistsForToken,
+    spotifyService,
     fetchPlexUser,
     fetchPlexHomeUsers,
     parsePlexUsers,
@@ -1570,6 +1574,9 @@ export function registerPages(app, ctx) {
     const config = loadConfig();
     const user = req.session.user;
     const { adminPreview, role, personalUserId: userPlexId } = await buildPageScope(req, config);
+    const userPrefs = userPlexId ? getUserPreferences(db, userPlexId) : null;
+    const lidarrAutomationEligible = canUserAccessLidarrAutomation(loadConfig(), { ...req.session.user, role });
+    const lidarrConfigured = Boolean(lidarrService?.isConfigured?.());
     const lastSync = getLastPlaylistSync(db, userPlexId);
     const userPersonalPlaylists = (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })();
     const personalPlaylistMap = new Map(userPersonalPlaylists.map((playlist) => [String(playlist?.id || '').trim(), playlist]));
@@ -1582,12 +1589,16 @@ export function registerPages(app, ctx) {
         playlistType: String(playlist.playlistType || ''),
         plexPlaylistId: String(playlist.plexPlaylistId || ''),
         playlistTitle: String(playlist.playlistTitle || playlist.playlistKey || 'Playlist'),
+        sourceType: String(playlist.sourceType || ''),
+        sourceTitle: String(playlist.sourceTitle || ''),
+        sourceOwner: String(playlist.sourceOwner || ''),
         trackCount: Number(playlist.trackCount || 0),
+        missingCount: Number(playlist.missingCount || 0),
         curatorrUpdatedAt: Number(playlist.lastBuiltAt || playlist.lastSyncedAt || playlist.updatedAt || playlist.createdAt || 0),
         state: playlist.active === false ? 'disabled' : (playlist.plexPlaylistId ? 'synced' : 'pending'),
         active: playlist.active !== false,
         description: String(playlist.playlistType || 'generated'),
-        playlistAudience: resolvePlaylistAudience(playlist.playlistType, playlist.playlistKey, personalPlaylistMap),
+        playlistAudience: resolvePlaylistAudience(playlist.playlistType, playlist.playlistKey, personalPlaylistMap, playlist.sourceType),
         artPath: '',
         tracksAdded: Number(lastSync?.tracks_added || 0),
         tracksRemoved: Number(lastSync?.tracks_removed || 0),
@@ -1634,6 +1645,12 @@ export function registerPages(app, ctx) {
       allPathSegments: (() => { try { return getDistinctPathSegments(db); } catch { return []; } })(),
       playlistFeatureCoverage: (() => { try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
+      spotifyUserId: String(userPrefs?.spotifyUserId || ''),
+      spotifyConnected: Boolean(userPrefs?.spotifyRefreshToken || userPrefs?.spotifyAccessToken),
+      spotifyConfigured: Boolean(spotifyService?.isConfigured?.()),
+      spotifyDisplayName: String(userPrefs?.spotifyDisplayName || ''),
+      lidarrAutomationEligible,
+      lidarrConfigured,
       blendableUsers: await buildBlendableUsers(
         db,
         config,
@@ -1716,6 +1733,9 @@ export function registerPages(app, ctx) {
     const listenbrainzEnabledPlaylists = userPrefs?.listenbrainzEnabledPlaylists || [];
     const listenbrainzPlaylistSorts = userPrefs?.listenbrainzPlaylistSorts || {};
     const listenbrainzPlaylistFinalOrderings = userPrefs?.listenbrainzPlaylistFinalOrderings || {};
+    const spotifyUserId = userPrefs?.spotifyUserId || '';
+    const spotifyDisplayName = userPrefs?.spotifyDisplayName || '';
+    const spotifyConnected = Boolean(userPrefs?.spotifyRefreshToken || userPrefs?.spotifyAccessToken);
     res.render('user-settings', {
       title: 'My Settings — Curatorr',
       user: req.session.user,
@@ -1736,6 +1756,9 @@ export function registerPages(app, ctx) {
       listenbrainzEnabledPlaylists,
       listenbrainzPlaylistSorts,
       listenbrainzPlaylistFinalOrderings,
+      spotifyUserId,
+      spotifyDisplayName,
+      spotifyConnected,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

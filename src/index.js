@@ -27,6 +27,7 @@ import { runTautulliDailySync } from './services/tautulli-sync.js';
 import { runLastfmHistorySync } from './services/lastfm-sync.js';
 import { runLastfmHistoryBackfill } from './services/lastfm-backfill.js';
 import { createTrackEnrichmentService } from './services/track-enrichment.js';
+import { createSpotifyService } from './services/spotify.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1870,6 +1871,7 @@ export async function start() {
     _routeCtx.lidarrService = createLidarrService(_routeCtx);
     _routeCtx.playlistService = createPlaylistService(_routeCtx);
     _routeCtx.trackEnrichmentService = createTrackEnrichmentService(_routeCtx);
+    _routeCtx.spotifyService = createSpotifyService(_routeCtx);
 
     // Middleware: redirect Plex users who haven't completed the personal wizard.
     // Locally created Curatorr users can still launch it manually if they want.

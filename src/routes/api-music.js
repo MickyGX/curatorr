@@ -19,10 +19,13 @@ import {
   resetTrackSkipStreak,
   resetArtistSkipStreak,
   getSuggestedArtist,
+  upsertSuggestedArtist,
   setSuggestedArtistStatus,
   getUserPlaylist,
+  getUserPreferences,
   listUserGeneratedPlaylists,
   saveUserGeneratedPlaylist,
+  saveUserPreferences,
   getResolvedUserArtistFilters,
   cleanMasterArtistName,
   getMasterTracks,
@@ -41,6 +44,10 @@ import {
   updateLidarrRequest,
   removePlaylistTracks,
   addPlaylistTracks,
+  setPlaylistTracks,
+  listImportedPlaylistUnmatched,
+  setImportedPlaylistUnmatched,
+  setImportedPlaylistUnmatchedSelection,
   listAllGeneratedPlaylists,
   clearGeneratedPlaylistPlexId,
   listSuggestedAlbums,
@@ -714,6 +721,7 @@ export function registerApiMusic(app, ctx) {
     safeMessage,
     recommendationService,
     playlistService,
+    spotifyService,
     lidarrService,
     canUserAccessLidarrAutomation,
     getPreviewUserId,
@@ -731,6 +739,466 @@ export function registerApiMusic(app, ctx) {
     const role = String(user.role || '').trim().toLowerCase();
     if (role === 'admin') return String(req.query?.user || '').trim();
     return String(user.username || '').trim();
+  }
+
+  function normalizeImportMatchText(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/\[[^\]]*\]/g, ' ')
+      .replace(/\b(feat|featuring|ft)\.? .+$/i, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function buildSpotifyTrackLookups(masterTracks) {
+    const byArtistTitle = new Map();
+    const byTitle = new Map();
+    for (const track of Array.isArray(masterTracks) ? masterTracks : []) {
+      const ratingKey = String(track?.ratingKey || '').trim();
+      if (!ratingKey) continue;
+      const artistKey = normalizeImportMatchText(track?.artistName);
+      const titleKey = normalizeImportMatchText(track?.trackTitle);
+      if (!titleKey) continue;
+      const artistTitleKey = `${artistKey}::${titleKey}`;
+      const entry = {
+        ratingKey,
+        artistName: String(track?.artistName || '').trim(),
+        trackTitle: String(track?.trackTitle || '').trim(),
+        albumName: String(track?.albumName || '').trim(),
+        durationMs: Number(track?.durationMs || 0),
+      };
+      if (!byArtistTitle.has(artistTitleKey)) byArtistTitle.set(artistTitleKey, []);
+      byArtistTitle.get(artistTitleKey).push(entry);
+      if (!byTitle.has(titleKey)) byTitle.set(titleKey, []);
+      byTitle.get(titleKey).push(entry);
+    }
+    return { byArtistTitle, byTitle };
+  }
+
+  function pickSpotifyTrackMatch(trackLookups, spotifyItem) {
+    const artists = Array.isArray(spotifyItem?.artists) ? spotifyItem.artists : [];
+    const primaryArtist = artists.length ? artists[0].name : '';
+    const titleKey = normalizeImportMatchText(spotifyItem?.title);
+    const artistKey = normalizeImportMatchText(primaryArtist);
+    const durationMs = Number(spotifyItem?.durationMs || 0);
+    if (!titleKey) return { method: 'unmatched', match: null, candidates: [] };
+
+    const artistTitleCandidates = trackLookups.byArtistTitle.get(`${artistKey}::${titleKey}`) || [];
+    const titleCandidates = trackLookups.byTitle.get(titleKey) || [];
+    const candidates = artistTitleCandidates.length ? artistTitleCandidates : titleCandidates;
+    if (!candidates.length) return { method: 'unmatched', match: null, candidates: [] };
+
+    let best = null;
+    let bestScore = -Infinity;
+    candidates.forEach((candidate) => {
+      let score = 0;
+      if (normalizeImportMatchText(candidate.artistName) === artistKey) score += 100;
+      if (normalizeImportMatchText(candidate.trackTitle) === titleKey) score += 100;
+      if (durationMs > 0 && Number(candidate.durationMs || 0) > 0) {
+        const durationDelta = Math.abs(Number(candidate.durationMs || 0) - durationMs);
+        if (durationDelta <= 1500) score += 40;
+        else if (durationDelta <= 4000) score += 24;
+        else if (durationDelta <= 8000) score += 8;
+        else score -= Math.min(30, Math.floor(durationDelta / 1000));
+      }
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    });
+    if (!best) return { method: 'unmatched', match: null, candidates };
+    return {
+      method: artistTitleCandidates.length ? 'artistTitle' : 'title',
+      match: best,
+      candidates,
+    };
+  }
+
+  function buildSpotifyUnmatchedArtistGroups(unmatchedTracks, options = {}) {
+    const groupLimit = Math.max(1, Number(options.groupLimit || 100));
+    const sampleLimit = Math.max(1, Number(options.sampleLimit || 3));
+    const groups = new Map();
+    (Array.isArray(unmatchedTracks) ? unmatchedTracks : []).forEach((track) => {
+      const artists = (Array.isArray(track?.artists) ? track.artists : [])
+        .map((artist) => String(artist || '').trim())
+        .filter(Boolean);
+      const artistName = artists[0] || 'Unknown artist';
+      if (!groups.has(artistName)) {
+        groups.set(artistName, {
+          artistName,
+          trackCount: 0,
+          sampleTracks: [],
+          albumTitles: new Set(),
+          albumTypes: new Set(),
+        });
+      }
+      const group = groups.get(artistName);
+      group.trackCount += 1;
+      if (group.sampleTracks.length < sampleLimit) {
+        group.sampleTracks.push({
+          title: String(track?.title || '').trim(),
+          albumTitle: String(track?.albumTitle || '').trim(),
+        });
+      }
+      const albumTitle = String(track?.albumTitle || '').trim();
+      const albumType = String(track?.albumType || '').trim();
+      if (albumTitle) group.albumTitles.add(albumTitle);
+      if (albumType) group.albumTypes.add(albumType);
+    });
+    return Array.from(groups.values())
+      .sort((a, b) => {
+        if (b.trackCount !== a.trackCount) return b.trackCount - a.trackCount;
+        return a.artistName.localeCompare(b.artistName);
+      })
+      .slice(0, groupLimit)
+      .map((group) => ({
+        artistName: group.artistName,
+        trackCount: group.trackCount,
+        sampleTracks: group.sampleTracks,
+        albumTitles: Array.from(group.albumTitles).slice(0, sampleLimit),
+        albumTypes: Array.from(group.albumTypes),
+      }));
+  }
+
+  async function getSpotifyAuthForUser(userPlexId) {
+    if (!spotifyService?.isConfigured?.()) {
+      const err = new Error('Spotify integration is not configured.');
+      err.status = 400;
+      throw err;
+    }
+    const prefs = getUserPreferences(db, userPlexId);
+    const refreshToken = String(prefs?.spotifyRefreshToken || '').trim();
+    const accessToken = String(prefs?.spotifyAccessToken || '').trim();
+    if (!refreshToken && !accessToken) {
+      const err = new Error('Connect Spotify in User Settings first.');
+      err.status = 400;
+      throw err;
+    }
+    const auth = await spotifyService.ensureAccessToken({
+      accessToken,
+      refreshToken,
+      expiresAt: Number(prefs?.spotifyTokenExpiresAt || 0),
+    });
+    if (auth.refreshed) {
+      saveUserPreferences(db, userPlexId, {
+        ...prefs,
+        spotifyAccessToken: auth.accessToken,
+        spotifyRefreshToken: auth.refreshToken,
+        spotifyTokenExpiresAt: auth.expiresAt,
+      });
+    }
+    return auth;
+  }
+
+  function makeImportedCustomPlaylistKey() {
+    return 'custom-import-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function normaliseImportedPlaylistTitle(value, fallback) {
+    const title = String(value || '').trim();
+    if (title) return title.slice(0, 120);
+    return String(fallback || 'Imported Playlist').trim().slice(0, 120) || 'Imported Playlist';
+  }
+
+  async function fetchPlexMusicLibrariesForUser(userPlexId, tokenOverride = '') {
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = tokenOverride || resolveUserPlexServerToken(config, userPlexId);
+    if (!url || !token) return [];
+    const target = buildAppApiUrl(url, 'library/sections');
+    const response = await fetch(target.toString(), {
+      headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    if (!response.ok) throw new Error(`Plex library fetch failed (${response.status})`);
+    const json = await response.json();
+    return (json?.MediaContainer?.Directory || [])
+      .filter((entry) => String(entry?.type || '').trim().toLowerCase() === 'artist')
+      .map((entry) => ({
+        key: String(entry?.key || '').trim(),
+        title: String(entry?.title || '').trim(),
+      }))
+      .filter((entry) => entry.key);
+  }
+
+  async function fetchPlexImportPlaylists(userPlexId) {
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = resolveUserPlexServerToken(config, userPlexId);
+    if (!url || !token) return [];
+    const blockedIds = new Set(
+      listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+        .map((entry) => String(entry?.plexPlaylistId || '').trim())
+        .filter(Boolean),
+    );
+    const legacyPlaylistId = String(getUserPlaylist(db, userPlexId)?.playlist_id || '').trim();
+    if (legacyPlaylistId) blockedIds.add(legacyPlaylistId);
+    const target = buildAppApiUrl(url, 'playlists?playlistType=audio');
+    const response = await fetch(target.toString(), {
+      headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    if (!response.ok) throw new Error(`Plex playlist fetch failed (${response.status})`);
+    const json = await response.json();
+    return (json?.MediaContainer?.Metadata || [])
+      .map((entry) => ({
+        sourceType: 'plex-playlist',
+        id: String(entry?.ratingKey || '').trim(),
+        title: String(entry?.title || '').trim(),
+        trackCount: Number(entry?.leafCount || 0),
+        updatedAt: Number(entry?.updatedAt || 0),
+      }))
+      .filter((entry) => entry.id && entry.title && !blockedIds.has(entry.id));
+  }
+
+  async function fetchPlexImportCollections(userPlexId) {
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = resolveUserPlexServerToken(config, userPlexId);
+    if (!url || !token) return [];
+    const libraries = await fetchPlexMusicLibrariesForUser(userPlexId);
+    const collections = [];
+    for (const library of libraries) {
+      const target = buildAppApiUrl(url, `library/sections/${encodeURIComponent(library.key)}/collections`);
+      const response = await fetch(target.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+      if (!response.ok) continue;
+      const json = await response.json();
+      const items = Array.isArray(json?.MediaContainer?.Metadata)
+        ? json.MediaContainer.Metadata
+        : (Array.isArray(json?.MediaContainer?.Directory) ? json.MediaContainer.Directory : []);
+      items.forEach((entry) => {
+        const id = String(entry?.ratingKey || entry?.key || '').trim();
+        const title = String(entry?.title || '').trim();
+        if (!id || !title) return;
+        collections.push({
+          sourceType: 'plex-collection',
+          id,
+          title,
+          libraryKey: library.key,
+          libraryTitle: library.title,
+          trackCount: Number(entry?.childCount || entry?.leafCount || 0),
+          updatedAt: Number(entry?.updatedAt || 0),
+        });
+      });
+    }
+    collections.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+    return collections;
+  }
+
+  async function fetchPlexPlaylistImportTracks(userPlexId, plexPlaylistId) {
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = resolveUserPlexServerToken(config, userPlexId);
+    if (!url || !token || !plexPlaylistId) return [];
+    const tracks = [];
+    let offset = 0;
+    const pageSize = 1000;
+    while (true) {
+      const target = buildAppApiUrl(url, `playlists/${encodeURIComponent(plexPlaylistId)}/items`);
+      target.searchParams.set('X-Plex-Container-Start', String(offset));
+      target.searchParams.set('X-Plex-Container-Size', String(pageSize));
+      const response = await fetch(target.toString(), {
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+      if (!response.ok) throw new Error(`Plex playlist track fetch failed (${response.status})`);
+      const json = await response.json();
+      const batch = (json?.MediaContainer?.Metadata || [])
+        .map((track) => ({
+          ratingKey: String(track?.ratingKey || '').trim(),
+          artistName: String(track?.originalTitle || track?.grandparentTitle || '').trim(),
+        }))
+        .filter((track) => track.ratingKey);
+      tracks.push(...batch);
+      if (batch.length < pageSize) break;
+      offset += batch.length;
+    }
+    return tracks;
+  }
+
+  async function fetchPlexCollectionImportTracks(userPlexId, collectionId) {
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = resolveUserPlexServerToken(config, userPlexId);
+    if (!url || !token || !collectionId) return [];
+    const attempts = [
+      buildAppApiUrl(url, `library/metadata/${encodeURIComponent(collectionId)}/children`),
+      buildAppApiUrl(url, `library/collections/${encodeURIComponent(collectionId)}/children`),
+    ];
+    for (const target of attempts) {
+      const tracks = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        target.searchParams.set('X-Plex-Container-Start', String(offset));
+        target.searchParams.set('X-Plex-Container-Size', String(pageSize));
+        const response = await fetch(target.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        });
+        if (!response.ok) break;
+        const json = await response.json();
+        const batch = (json?.MediaContainer?.Metadata || [])
+          .map((track) => ({
+            ratingKey: String(track?.ratingKey || '').trim(),
+            artistName: String(track?.originalTitle || track?.grandparentTitle || '').trim(),
+          }))
+          .filter((track) => track.ratingKey);
+        tracks.push(...batch);
+        if (batch.length < pageSize) break;
+        offset += batch.length;
+      }
+      if (tracks.length) return tracks;
+    }
+    return [];
+  }
+
+  async function createImportedCustomPlaylist(userPlexId, playlistTitle, trackRefs, sourceMeta = {}) {
+    const playlistKey = makeImportedCustomPlaylistKey();
+    const now = Date.now();
+    const unmatchedTracks = Array.isArray(sourceMeta?.unmatchedTracks) ? sourceMeta.unmatchedTracks : [];
+    saveUserGeneratedPlaylist(db, userPlexId, {
+      playlistKey,
+      playlistTitle,
+      playlistType: 'custom',
+      plexPlaylistId: '',
+      sourceType: String(sourceMeta?.sourceType || '').trim(),
+      sourceRef: String(sourceMeta?.sourceRef || '').trim(),
+      sourceTitle: String(sourceMeta?.sourceTitle || playlistTitle).trim(),
+      sourceOwner: String(sourceMeta?.sourceOwner || '').trim(),
+      active: false,
+      trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
+      missingCount: unmatchedTracks.length,
+      lastBuiltAt: now,
+      lastSyncedAt: 0,
+      updatedAt: now,
+    });
+    setPlaylistTracks(db, userPlexId, playlistKey, Array.isArray(trackRefs) ? trackRefs : []);
+    setImportedPlaylistUnmatched(db, userPlexId, playlistKey, unmatchedTracks);
+    const synced = await playlistService?.setGeneratedActive(userPlexId, playlistKey, true);
+    pushLog({
+      level: 'info',
+      app: 'playlist',
+      action: 'import.playlist',
+      message: `Imported ${sourceMeta.sourceType || 'source'} "${sourceMeta.sourceTitle || playlistTitle}" as ${playlistTitle} for ${userPlexId}`,
+    });
+    return synced || listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === playlistKey) || null;
+  }
+
+  function buildSpotifyImportMatchResult() {
+    const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+    return function mapPlaylistItems(playlistItems = []) {
+      const trackRefs = [];
+      const unmatched = [];
+      const seenRatingKeys = new Set();
+      (playlistItems || []).forEach((item) => {
+        const result = pickSpotifyTrackMatch(trackLookups, item);
+        const ratingKey = String(result?.match?.ratingKey || '').trim();
+        if (ratingKey && !seenRatingKeys.has(ratingKey)) {
+          seenRatingKeys.add(ratingKey);
+          trackRefs.push({
+            ratingKey,
+            artistName: String(result.match.artistName || '').trim(),
+          });
+          return;
+        }
+        if (result.match?.ratingKey) return;
+        unmatched.push({
+          sourceTrackId: String(item?.id || '').trim(),
+          position: Number(item.position || 0),
+          title: String(item.title || '').trim(),
+          artistName: String((Array.isArray(item.artists) && item.artists[0]?.name) || '').trim(),
+          artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+          albumTitle: String(item?.album?.title || '').trim(),
+          albumType: String(item?.album?.albumType || '').trim(),
+          durationMs: Number(item.durationMs || 0),
+        });
+      });
+      return { trackRefs, unmatched };
+    };
+  }
+
+  async function resolveImportedPlexSourceId(userPlexId, playlist) {
+    const sourceRef = String(playlist?.sourceRef || '').trim();
+    if (sourceRef) return sourceRef;
+    const sourceTitle = String(playlist?.sourceTitle || '').trim().toLowerCase();
+    const sourceType = String(playlist?.sourceType || '').trim().toLowerCase();
+    if (!sourceTitle || !sourceType.startsWith('plex-')) return '';
+    const kind = sourceType.replace(/^plex-/, '');
+    const sources = kind === 'collection'
+      ? await fetchPlexImportCollections(userPlexId)
+      : await fetchPlexImportPlaylists(userPlexId);
+    const matches = (sources || []).filter((entry) => String(entry?.title || '').trim().toLowerCase() === sourceTitle);
+    return matches.length === 1 ? String(matches[0]?.id || '').trim() : '';
+  }
+
+  async function resolveImportedSpotifySourceId(userPlexId, playlist, auth) {
+    const sourceRef = String(playlist?.sourceRef || '').trim();
+    if (sourceRef) return sourceRef;
+    const sourceTitle = String(playlist?.sourceTitle || '').trim().toLowerCase();
+    const sourceOwner = String(playlist?.sourceOwner || '').trim().toLowerCase();
+    if (!sourceTitle) return '';
+    const playlists = await spotifyService.listCurrentUserPlaylists(auth.accessToken, { limit: 50 });
+    const matches = (playlists || []).filter((entry) => {
+      const titleMatch = String(entry?.name || '').trim().toLowerCase() === sourceTitle;
+      const ownerMatch = !sourceOwner || String(entry?.ownerName || '').trim().toLowerCase() === sourceOwner;
+      return titleMatch && ownerMatch;
+    });
+    return matches.length === 1 ? String(matches[0]?.id || '').trim() : '';
+  }
+
+  async function refreshImportedCustomPlaylist(userPlexId, playlist) {
+    const sourceType = String(playlist?.sourceType || '').trim().toLowerCase();
+    const now = Date.now();
+    let trackRefs = [];
+    let unmatched = [];
+    let sourceRef = String(playlist?.sourceRef || '').trim();
+    let sourceTitle = String(playlist?.sourceTitle || '').trim();
+    let sourceOwner = String(playlist?.sourceOwner || '').trim();
+
+    if (sourceType === 'plex-playlist' || sourceType === 'plex-collection') {
+      sourceRef = await resolveImportedPlexSourceId(userPlexId, playlist);
+      if (!sourceRef) throw new Error('Original Plex source could not be resolved.');
+      trackRefs = sourceType === 'plex-playlist'
+        ? await fetchPlexPlaylistImportTracks(userPlexId, sourceRef)
+        : await fetchPlexCollectionImportTracks(userPlexId, sourceRef);
+    } else if (sourceType === 'spotify-playlist') {
+      const auth = await getSpotifyAuthForUser(userPlexId);
+      sourceRef = await resolveImportedSpotifySourceId(userPlexId, playlist, auth);
+      if (!sourceRef) throw new Error('Original Spotify playlist could not be resolved.');
+      const [playlistMeta, playlistItems] = await Promise.all([
+        spotifyService.getPlaylist(auth.accessToken, sourceRef),
+        spotifyService.getPlaylistItems(auth.accessToken, sourceRef, { limit: 100 }),
+      ]);
+      sourceTitle = String(playlistMeta?.name || sourceTitle || playlist.playlistTitle || '').trim();
+      sourceOwner = String(playlistMeta?.ownerName || sourceOwner || '').trim();
+      const mapSpotifyPlaylistItems = buildSpotifyImportMatchResult();
+      const matchResult = mapSpotifyPlaylistItems(playlistItems.items || []);
+      trackRefs = matchResult.trackRefs;
+      unmatched = matchResult.unmatched;
+    } else {
+      throw new Error('This imported playlist source cannot be refreshed.');
+    }
+
+    saveUserGeneratedPlaylist(db, userPlexId, {
+      ...playlist,
+      sourceRef,
+      sourceTitle,
+      sourceOwner,
+      trackCount: trackRefs.length,
+      missingCount: unmatched.length,
+      lastBuiltAt: now,
+      updatedAt: now,
+    });
+    setPlaylistTracks(db, userPlexId, playlist.playlistKey, trackRefs);
+    setImportedPlaylistUnmatched(db, userPlexId, playlist.playlistKey, unmatched);
+    const updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === String(playlist?.playlistKey || ''));
+    if (!updated) return null;
+    if (updated.active === false) return updated;
+    return playlistService?.syncCustomPlaylist(userPlexId, updated);
   }
 
   function isLookupArtistAlreadyAdded(item) {
@@ -2280,6 +2748,78 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
+  app.post('/api/music/playlists/imported-refresh', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (String(playlist.playlistType || '').trim().toLowerCase() !== 'custom') {
+      return res.status(400).json({ error: 'Only imported custom playlists can be refreshed.' });
+    }
+    const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
+    if (!['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(sourceType)) {
+      return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
+    }
+
+    try {
+      const updated = await refreshImportedCustomPlaylist(userPlexId, playlist);
+      if (!updated) throw new Error('Could not refresh imported playlist.');
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'import.refresh',
+        message: `Refreshed imported playlist ${playlistKey} for ${userPlexId}`,
+      });
+      return res.json({
+        ok: true,
+        playlistKey: updated.playlistKey,
+        trackCount: Number(updated.trackCount || 0),
+        missingCount: Number(updated.missingCount || 0),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/playlists/generated/rename', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required' });
+
+    const existing = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((playlist) => playlist.playlistKey === playlistKey);
+    if (!existing) return res.status(404).json({ error: 'Playlist not found.' });
+
+    const playlistType = String(existing.playlistType || '').trim().toLowerCase();
+    if (!['daily-mix', 'curatorr', 'crescive', 'curative'].includes(playlistType)) {
+      return res.status(403).json({ error: 'This playlist type cannot be renamed here.' });
+    }
+
+    const nextTitle = String(req.body?.title || '').trim();
+
+    try {
+      const updated = await playlistService?.renameGeneratedPlaylistTitle(userPlexId, playlistKey, nextTitle);
+      if (!updated) return res.status(500).json({ error: 'Could not update playlist title.' });
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'generated.rename',
+        message: `${playlistKey} renamed to "${updated.playlistTitle}" for ${userPlexId}`,
+      });
+      return res.json({
+        ok: true,
+        playlistKey: updated.playlistKey,
+        playlistTitle: updated.playlistTitle,
+        titleOverride: updated.titleOverride || '',
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
   app.post('/api/music/playlists/generated/state', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     const playlistKeys = Array.isArray(req.body?.playlistKeys)
@@ -2463,6 +3003,446 @@ export function registerApiMusic(app, ctx) {
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
     }
+  });
+
+  // ── Import existing Plex playlists / collections ─────────────────────────
+
+  app.get('/api/music/import/plex/sources', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+    if (msType !== 'plex') return res.status(400).json({ error: 'Plex import is only available when Plex is the active media server.' });
+    try {
+      const [playlists, collections] = await Promise.all([
+        fetchPlexImportPlaylists(userPlexId),
+        fetchPlexImportCollections(userPlexId),
+      ]);
+      return res.json({ ok: true, playlists, collections });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/plex', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const config = loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').trim().toLowerCase();
+    if (msType !== 'plex') return res.status(400).json({ error: 'Plex import is only available when Plex is the active media server.' });
+
+    const sourceType = String(req.body?.sourceType || '').trim().toLowerCase();
+    const sourceId = String(req.body?.sourceId || '').trim();
+    const sourceTitle = String(req.body?.sourceTitle || '').trim();
+    const title = normaliseImportedPlaylistTitle(req.body?.title, sourceTitle || 'Imported Playlist');
+    if (!['playlist', 'collection'].includes(sourceType)) return res.status(400).json({ error: 'sourceType must be playlist or collection.' });
+    if (!sourceId) return res.status(400).json({ error: 'sourceId is required.' });
+
+    try {
+      const trackRefs = sourceType === 'playlist'
+        ? await fetchPlexPlaylistImportTracks(userPlexId, sourceId)
+        : await fetchPlexCollectionImportTracks(userPlexId, sourceId);
+      if (!trackRefs.length) {
+        return res.status(404).json({ error: `No tracks were found in that Plex ${sourceType}.` });
+      }
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, trackRefs, {
+        sourceType: `plex-${sourceType}`,
+        sourceRef: sourceId,
+        sourceTitle: sourceTitle || title,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: trackRefs.length,
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/import/spotify/playlists', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    try {
+      const auth = await getSpotifyAuthForUser(userPlexId);
+      const playlists = await spotifyService.listCurrentUserPlaylists(auth.accessToken, { limit: 50 });
+      return res.json({ ok: true, playlists });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/import/spotify/preview', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistId = String(req.query?.playlistId || '').trim();
+    if (!playlistId) return res.status(400).json({ error: 'playlistId is required.' });
+    try {
+      const auth = await getSpotifyAuthForUser(userPlexId);
+      const [playlistMeta, playlistItems] = await Promise.all([
+        spotifyService.getPlaylist(auth.accessToken, playlistId),
+        spotifyService.getPlaylistItems(auth.accessToken, playlistId, { limit: 100 }),
+      ]);
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const matched = [];
+      const unmatched = [];
+      const duplicateMatches = [];
+      const seenRatingKeys = new Set();
+      for (const item of playlistItems.items || []) {
+        const result = pickSpotifyTrackMatch(trackLookups, item);
+        if (result.match?.ratingKey) {
+          const summary = {
+            position: Number(item.position || 0),
+            ratingKey: String(result.match.ratingKey || ''),
+            artistName: String(result.match.artistName || ''),
+            trackTitle: String(result.match.trackTitle || item.title || ''),
+            albumName: String(result.match.albumName || ''),
+            spotifyTitle: String(item.title || ''),
+            spotifyArtists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+            durationMs: Number(item.durationMs || 0),
+            matchMethod: result.method,
+          };
+          if (seenRatingKeys.has(summary.ratingKey)) duplicateMatches.push(summary);
+          else {
+            seenRatingKeys.add(summary.ratingKey);
+            matched.push(summary);
+          }
+        } else {
+          unmatched.push({
+            sourceTrackId: String(item?.id || '').trim(),
+            position: Number(item.position || 0),
+            title: String(item.title || ''),
+            artistName: String((Array.isArray(item.artists) && item.artists[0]?.name) || '').trim(),
+            artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+            albumTitle: String(item?.album?.title || '').trim(),
+            albumType: String(item?.album?.albumType || '').trim(),
+            durationMs: Number(item.durationMs || 0),
+          });
+        }
+      }
+      const unmatchedArtists = buildSpotifyUnmatchedArtistGroups(unmatched, {
+        groupLimit: 100,
+        sampleLimit: 3,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlistMeta,
+        totalSourceTracks: Number(playlistItems.total || (playlistItems.items || []).length || 0),
+        matchedCount: matched.length,
+        unmatchedCount: unmatched.length,
+        unmatchedArtistCount: unmatchedArtists.length,
+        duplicateCount: duplicateMatches.length,
+        matched: matched.slice(0, 100),
+        unmatchedArtists,
+        unmatched: unmatched.slice(0, 100),
+        duplicateMatches: duplicateMatches.slice(0, 100),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/spotify', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistId = String(req.body?.playlistId || '').trim();
+    const title = normaliseImportedPlaylistTitle(req.body?.title, 'Imported Spotify Playlist');
+    if (!playlistId) return res.status(400).json({ error: 'playlistId is required.' });
+    try {
+      const auth = await getSpotifyAuthForUser(userPlexId);
+      const [playlistMeta, playlistItems] = await Promise.all([
+        spotifyService.getPlaylist(auth.accessToken, playlistId),
+        spotifyService.getPlaylistItems(auth.accessToken, playlistId, { limit: 100 }),
+      ]);
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const trackRefs = [];
+      const unmatched = [];
+      const seenRatingKeys = new Set();
+      (playlistItems.items || []).forEach((item) => {
+        const result = pickSpotifyTrackMatch(trackLookups, item);
+        const ratingKey = String(result?.match?.ratingKey || '').trim();
+        if (ratingKey && !seenRatingKeys.has(ratingKey)) {
+          seenRatingKeys.add(ratingKey);
+          trackRefs.push({
+            ratingKey,
+            artistName: String(result.match.artistName || '').trim(),
+          });
+          return;
+        }
+        if (result.match?.ratingKey) return;
+        unmatched.push({
+          sourceTrackId: String(item?.id || '').trim(),
+          position: Number(item.position || 0),
+          title: String(item.title || '').trim(),
+          artistName: String((Array.isArray(item.artists) && item.artists[0]?.name) || '').trim(),
+          artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+          albumTitle: String(item?.album?.title || '').trim(),
+          albumType: String(item?.album?.albumType || '').trim(),
+          durationMs: Number(item.durationMs || 0),
+        });
+      });
+      if (!trackRefs.length) return res.status(404).json({ error: 'No Spotify tracks matched your local library.' });
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, trackRefs, {
+        sourceType: 'spotify-playlist',
+        sourceRef: playlistId,
+        sourceTitle: String(playlistMeta?.name || title).trim(),
+        sourceOwner: String(playlistMeta?.ownerName || '').trim(),
+        unmatchedTracks: unmatched,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: trackRefs.length,
+        unmatchedCount: unmatched.length,
+        importedMissingCount: unmatched.length,
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/playlists/imported-unmatched', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.query?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    const rows = listImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+    return res.json({
+      ok: true,
+      playlistKey,
+      sourceType: String(playlist.sourceType || '').trim(),
+      sourceTitle: String(playlist.sourceTitle || '').trim(),
+      missingCount: Number(playlist.missingCount || rows.length || 0),
+      selectedCount: rows.filter((row) => row.selected).length,
+      rows,
+    });
+  });
+
+  app.post('/api/music/playlists/imported-unmatched/selection', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    setImportedPlaylistUnmatchedSelection(db, userPlexId, playlistKey, {
+      ids: Array.isArray(req.body?.ids) ? req.body.ids : [],
+      selected: req.body?.selected !== false,
+      artistName: String(req.body?.artistName || '').trim(),
+      selectAll: req.body?.selectAll === true,
+    });
+    const rows = listImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+    return res.json({
+      ok: true,
+      playlistKey,
+      missingCount: rows.length,
+      selectedCount: rows.filter((row) => row.selected).length,
+      rows,
+    });
+  });
+
+  app.post('/api/music/playlists/imported-unmatched/lidarr-seed', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+
+    const rows = listImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+    const selectedRows = rows.filter((row) => row.selected);
+    if (!selectedRows.length) return res.status(400).json({ error: 'No selected missing tracks to send to Lidarr.' });
+
+    const artistGroups = new Map();
+    selectedRows.forEach((row) => {
+      const artistName = String(row.artistName || (Array.isArray(row.artists) ? row.artists[0] : '') || '').trim();
+      if (!artistName) return;
+      if (!artistGroups.has(artistName)) artistGroups.set(artistName, []);
+      artistGroups.get(artistName).push(row);
+    });
+
+    const now = Date.now();
+    let queuedArtists = 0;
+    let preservedArtists = 0;
+    for (const [artistName, artistRows] of artistGroups.entries()) {
+      const existing = getSuggestedArtist(db, userPlexId, artistName);
+      const selectedTrackCount = artistRows.length;
+      const sampleTracks = artistRows
+        .map((row) => String(row.title || '').trim())
+        .filter(Boolean)
+        .slice(0, 5);
+      const preservedStatus = new Set(['queued_for_lidarr', 'added_to_lidarr', 'already_monitored']).has(String(existing?.status || '').trim())
+        ? String(existing.status).trim()
+        : 'suggested';
+
+      upsertSuggestedArtist(db, userPlexId, {
+        artistName,
+        source: 'imported_playlist_missing',
+        similarityScore: Number(existing?.similarityScore || 0),
+        behaviorScore: Number(existing?.behaviorScore || 0),
+        editorialScore: Math.max(Number(existing?.editorialScore || 0), 2),
+        totalScore: Math.max(Number(existing?.totalScore || 0), Math.min(10, 7 + Math.min(2, selectedTrackCount * 0.25))),
+        status: preservedStatus,
+        lidarrArtistId: existing?.lidarrArtistId ?? null,
+        firstSuggestedAt: Number(existing?.firstSuggestedAt || now),
+        lastEvaluatedAt: now,
+        acceptedAt: existing?.acceptedAt ?? null,
+        dismissedAt: preservedStatus === 'suggested' ? null : (existing?.dismissedAt ?? null),
+        reason: {
+          type: 'imported_playlist_missing',
+          playlistKey,
+          playlistTitle: String(playlist.playlistTitle || playlist.playlistKey || '').trim(),
+          sourceType: String(playlist.sourceType || '').trim(),
+          sourceTitle: String(playlist.sourceTitle || '').trim(),
+          sourceOwner: String(playlist.sourceOwner || '').trim(),
+          selectedTrackCount,
+          sampleTracks,
+        },
+      });
+
+      if (preservedStatus === 'suggested') queuedArtists += 1;
+      else preservedArtists += 1;
+    }
+
+    setImportedPlaylistUnmatchedSelection(db, userPlexId, playlistKey, {
+      ids: selectedRows.map((row) => Number(row.id || 0)).filter(Boolean),
+      selected: false,
+    });
+    const updatedRows = listImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+
+    return res.json({
+      ok: true,
+      playlistKey,
+      missingCount: updatedRows.length,
+      selectedCount: updatedRows.filter((row) => row.selected).length,
+      rows: updatedRows,
+      queuedArtists,
+      preservedArtists,
+      message: queuedArtists
+        ? `Queued ${queuedArtists.toLocaleString()} artist${queuedArtists === 1 ? '' : 's'} for Lidarr review.`
+        : `Updated ${preservedArtists.toLocaleString()} artist${preservedArtists === 1 ? '' : 's'} already in the Lidarr pipeline.`,
+    });
+  });
+
+  app.post('/api/music/playlists/imported-unmatched/lidarr-queue', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+
+    const rows = listImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+    const selectedRows = rows.filter((row) => row.selected);
+    if (!selectedRows.length) return res.status(400).json({ error: 'No selected missing tracks to add to the Lidarr queue.' });
+
+    const artistGroups = new Map();
+    selectedRows.forEach((row) => {
+      const artistName = String(row.artistName || (Array.isArray(row.artists) ? row.artists[0] : '') || '').trim();
+      if (!artistName) return;
+      if (!artistGroups.has(artistName)) artistGroups.set(artistName, []);
+      artistGroups.get(artistName).push(row);
+    });
+
+    const now = Date.now();
+    const requests = [];
+    let queuedAlbumRequests = 0;
+    let queuedArtistFallbacks = 0;
+    for (const [artistName, artistRows] of artistGroups.entries()) {
+      const existing = getSuggestedArtist(db, userPlexId, artistName);
+      const selectedTrackCount = artistRows.length;
+      const sampleTracks = artistRows
+        .map((row) => String(row.title || '').trim())
+        .filter(Boolean)
+        .slice(0, 5);
+
+      upsertSuggestedArtist(db, userPlexId, {
+        artistName,
+        source: 'imported_playlist_missing',
+        similarityScore: Number(existing?.similarityScore || 0),
+        behaviorScore: Number(existing?.behaviorScore || 0),
+        editorialScore: Math.max(Number(existing?.editorialScore || 0), 2),
+        totalScore: Math.max(Number(existing?.totalScore || 0), Math.min(10, 7 + Math.min(2, selectedTrackCount * 0.25))),
+        status: 'suggested',
+        lidarrArtistId: existing?.lidarrArtistId ?? null,
+        firstSuggestedAt: Number(existing?.firstSuggestedAt || now),
+        lastEvaluatedAt: now,
+        acceptedAt: existing?.acceptedAt ?? null,
+        dismissedAt: null,
+        reason: {
+          type: 'imported_playlist_missing',
+          playlistKey,
+          playlistTitle: String(playlist.playlistTitle || playlist.playlistKey || '').trim(),
+          sourceType: String(playlist.sourceType || '').trim(),
+          sourceTitle: String(playlist.sourceTitle || '').trim(),
+          sourceOwner: String(playlist.sourceOwner || '').trim(),
+          selectedTrackCount,
+          sampleTracks,
+        },
+      });
+
+      const albumGroups = new Map();
+      artistRows.forEach((row) => {
+        const albumTitle = String(row.albumTitle || '').trim();
+        const key = albumTitle.toLowerCase();
+        if (!albumGroups.has(key)) {
+          albumGroups.set(key, {
+            albumTitle,
+            rows: [],
+          });
+        }
+        albumGroups.get(key).rows.push(row);
+      });
+
+      for (const group of albumGroups.values()) {
+        const preferredAlbumTitle = String(group.albumTitle || '').trim();
+        const request = await lidarrService.queueArtistAlbumRequest({
+          userPlexId,
+          artistName,
+          preferredAlbumTitle,
+          sourceKind: 'manual',
+          allowCuratorrFallback: true,
+          note: `Queued from imported playlist missing tracks: ${String(playlist.playlistTitle || playlist.playlistKey || '').trim()}`,
+        });
+        requests.push(request);
+        if (preferredAlbumTitle) queuedAlbumRequests += 1;
+        else queuedArtistFallbacks += 1;
+      }
+    }
+
+    setImportedPlaylistUnmatchedSelection(db, userPlexId, playlistKey, {
+      ids: selectedRows.map((row) => Number(row.id || 0)).filter(Boolean),
+      selected: false,
+    });
+    const updatedRows = listImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+
+    return res.json({
+      ok: true,
+      playlistKey,
+      missingCount: updatedRows.length,
+      selectedCount: updatedRows.filter((row) => row.selected).length,
+      rows: updatedRows,
+      queuedArtists: requests.length,
+      queuedAlbumRequests,
+      queuedArtistFallbacks,
+      requestIds: requests.map((request) => request?.id).filter(Boolean),
+      message: queuedAlbumRequests > 0 && queuedArtistFallbacks > 0
+        ? `Queued ${queuedAlbumRequests.toLocaleString()} album request${queuedAlbumRequests === 1 ? '' : 's'} and ${queuedArtistFallbacks.toLocaleString()} artist fallback${queuedArtistFallbacks === 1 ? '' : 's'} in Lidarr.`
+        : (queuedAlbumRequests > 0
+          ? `Queued ${queuedAlbumRequests.toLocaleString()} album request${queuedAlbumRequests === 1 ? '' : 's'} in Lidarr.`
+          : `Queued ${queuedArtistFallbacks.toLocaleString()} artist fallback${queuedArtistFallbacks === 1 ? '' : 's'} in Lidarr.`),
+    });
   });
 
   // ── Create a custom playlist ──────────────────────────────────────────────

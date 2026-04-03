@@ -620,6 +620,34 @@
             </form>
           </div>
 
+          <div class="settings-card settings-integration-card">
+            <div class="settings-integration-head">
+              <div>
+                <div class="settings-card-title">Spotify Import</div>
+                <div class="settings-card-sub">Connect Spotify so Curatorr can browse your playlists and prepare imports into your local library.</div>
+              </div>
+              <span class="settings-integration-tag"><%= spotifyConnected ? 'Connected' : 'Optional' %></span>
+            </div>
+            <div class="settings-form">
+              <div class="settings-card-sub" style="margin-bottom:0.75rem">
+                <% if (spotifyConnected) { %>
+                  Connected as <strong><%= spotifyDisplayName || spotifyUserId %></strong><% if (spotifyUserId) { %> (<code><%= spotifyUserId %></code>)<% } %>.
+                <% } else { %>
+                  Spotify is not connected yet. Once connected, the Playlists page will be able to list your Spotify playlists for import.
+                <% } %>
+              </div>
+              <div class="settings-access-row" style="justify-content:flex-start;gap:0.75rem;">
+                <a class="primary-button" href="/user-settings/spotify/connect">Connect Spotify</a>
+                <% if (spotifyConnected) { %>
+                  <form method="post" action="/user-settings/spotify/disconnect" style="margin:0">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                    <button class="primary-button secondary-button" type="submit">Disconnect</button>
+                  </form>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </section>

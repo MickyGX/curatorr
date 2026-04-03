@@ -184,6 +184,11 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   listenbrainz_strict_match_playlists TEXT NOT NULL DEFAULT '[]',
   listenbrainz_playlist_sorts TEXT NOT NULL DEFAULT '{}',
   listenbrainz_playlist_final_orderings TEXT NOT NULL DEFAULT '{}',
+  spotify_user_id     TEXT NOT NULL DEFAULT '',
+  spotify_display_name TEXT NOT NULL DEFAULT '',
+  spotify_access_token TEXT NOT NULL DEFAULT '',
+  spotify_refresh_token TEXT NOT NULL DEFAULT '',
+  spotify_token_expires_at INTEGER NOT NULL DEFAULT 0,
   updated_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
 );
 
@@ -283,10 +288,16 @@ CREATE TABLE IF NOT EXISTS user_generated_playlists (
   playlist_key        TEXT NOT NULL,
   plex_playlist_id    TEXT NOT NULL DEFAULT '',
   playlist_title      TEXT NOT NULL DEFAULT '',
+  title_override      TEXT NOT NULL DEFAULT '',
+  source_type         TEXT NOT NULL DEFAULT '',
+  source_ref          TEXT NOT NULL DEFAULT '',
+  source_title        TEXT NOT NULL DEFAULT '',
+  source_owner        TEXT NOT NULL DEFAULT '',
   algorithm_version   TEXT NOT NULL DEFAULT 'phase2a',
   last_built_at       INTEGER,
   last_synced_at      INTEGER,
   track_count         INTEGER NOT NULL DEFAULT 0,
+  missing_count       INTEGER NOT NULL DEFAULT 0,
   active              INTEGER NOT NULL DEFAULT 1,
   created_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
   updated_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
@@ -307,6 +318,26 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
 
 CREATE INDEX IF NOT EXISTS idx_playlist_tracks_user_playlist
   ON playlist_tracks(user_plex_id, playlist_key);
+
+CREATE TABLE IF NOT EXISTS imported_playlist_unmatched (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  playlist_key    TEXT NOT NULL,
+  user_plex_id    TEXT NOT NULL,
+  source_track_id TEXT NOT NULL DEFAULT '',
+  position        INTEGER NOT NULL DEFAULT 0,
+  track_title     TEXT NOT NULL DEFAULT '',
+  artist_name     TEXT NOT NULL DEFAULT '',
+  artists_json    TEXT NOT NULL DEFAULT '[]',
+  album_title     TEXT NOT NULL DEFAULT '',
+  album_type      TEXT NOT NULL DEFAULT '',
+  duration_ms     INTEGER NOT NULL DEFAULT 0,
+  selected        INTEGER NOT NULL DEFAULT 1,
+  created_at      INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
+  updated_at      INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_imported_playlist_unmatched_user_playlist
+  ON imported_playlist_unmatched(user_plex_id, playlist_key, position);
 
 CREATE TABLE IF NOT EXISTS playlist_artist_state (
   playlist_key      TEXT NOT NULL,
@@ -490,6 +521,29 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN listenbrainz_playlist_sorts TEXT NOT NULL DEFAULT '{}'");
   if (!prefCols.includes('listenbrainz_playlist_final_orderings'))
     db.exec("ALTER TABLE user_preferences ADD COLUMN listenbrainz_playlist_final_orderings TEXT NOT NULL DEFAULT '{}'");
+  if (!prefCols.includes('spotify_user_id'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN spotify_user_id TEXT NOT NULL DEFAULT ''");
+  if (!prefCols.includes('spotify_display_name'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN spotify_display_name TEXT NOT NULL DEFAULT ''");
+  if (!prefCols.includes('spotify_access_token'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN spotify_access_token TEXT NOT NULL DEFAULT ''");
+  if (!prefCols.includes('spotify_refresh_token'))
+    db.exec("ALTER TABLE user_preferences ADD COLUMN spotify_refresh_token TEXT NOT NULL DEFAULT ''");
+  if (!prefCols.includes('spotify_token_expires_at'))
+    db.exec('ALTER TABLE user_preferences ADD COLUMN spotify_token_expires_at INTEGER NOT NULL DEFAULT 0');
+  const generatedCols = db.prepare('PRAGMA table_info(user_generated_playlists)').all().map((c) => c.name);
+  if (!generatedCols.includes('title_override'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN title_override TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('source_type'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_type TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('source_ref'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_ref TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('source_title'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_title TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('source_owner'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_owner TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('missing_count'))
+    db.exec('ALTER TABLE user_generated_playlists ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0');
 
   const masterCols = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (!masterCols.includes('rating_count'))
@@ -1605,6 +1659,11 @@ export function getUserPreferences(db, userPlexId) {
     listenbrainzStrictMatchPlaylists: [],
     listenbrainzPlaylistSorts: {},
     listenbrainzPlaylistFinalOrderings: {},
+    spotifyUserId: '',
+    spotifyDisplayName: '',
+    spotifyAccessToken: '',
+    spotifyRefreshToken: '',
+    spotifyTokenExpiresAt: 0,
   };
   return {
     likedGenres: JSON.parse(row.liked_genres || '[]'),
@@ -1626,6 +1685,11 @@ export function getUserPreferences(db, userPlexId) {
     listenbrainzStrictMatchPlaylists: JSON.parse(row.listenbrainz_strict_match_playlists || '[]'),
     listenbrainzPlaylistSorts: JSON.parse(row.listenbrainz_playlist_sorts || '{}'),
     listenbrainzPlaylistFinalOrderings: JSON.parse(row.listenbrainz_playlist_final_orderings || '{}'),
+    spotifyUserId: String(row.spotify_user_id || ''),
+    spotifyDisplayName: String(row.spotify_display_name || ''),
+    spotifyAccessToken: String(row.spotify_access_token || ''),
+    spotifyRefreshToken: String(row.spotify_refresh_token || ''),
+    spotifyTokenExpiresAt: Number(row.spotify_token_expires_at || 0),
   };
 }
 
@@ -1648,6 +1712,11 @@ export function saveUserPreferences(db, userPlexId, {
   listenbrainzStrictMatchPlaylists = undefined,
   listenbrainzPlaylistSorts = undefined,
   listenbrainzPlaylistFinalOrderings = undefined,
+  spotifyUserId = undefined,
+  spotifyDisplayName = undefined,
+  spotifyAccessToken = undefined,
+  spotifyRefreshToken = undefined,
+  spotifyTokenExpiresAt = undefined,
 }) {
   const existing = getUserPreferences(db, userPlexId);
   const resolvedSmartConfig = smartConfig !== undefined ? smartConfig : existing.smartConfig;
@@ -1663,15 +1732,22 @@ export function saveUserPreferences(db, userPlexId, {
   const resolvedStrictPlaylists = listenbrainzStrictMatchPlaylists !== undefined ? listenbrainzStrictMatchPlaylists : existing.listenbrainzStrictMatchPlaylists;
   const resolvedListenbrainzPlaylistSorts = listenbrainzPlaylistSorts !== undefined ? listenbrainzPlaylistSorts : existing.listenbrainzPlaylistSorts;
   const resolvedListenbrainzPlaylistFinalOrderings = listenbrainzPlaylistFinalOrderings !== undefined ? listenbrainzPlaylistFinalOrderings : existing.listenbrainzPlaylistFinalOrderings;
+  const resolvedSpotifyUserId = spotifyUserId !== undefined ? String(spotifyUserId).trim() : existing.spotifyUserId;
+  const resolvedSpotifyDisplayName = spotifyDisplayName !== undefined ? String(spotifyDisplayName).trim() : existing.spotifyDisplayName;
+  const resolvedSpotifyAccessToken = spotifyAccessToken !== undefined ? String(spotifyAccessToken).trim() : existing.spotifyAccessToken;
+  const resolvedSpotifyRefreshToken = spotifyRefreshToken !== undefined ? String(spotifyRefreshToken).trim() : existing.spotifyRefreshToken;
+  const resolvedSpotifyTokenExpiresAt = spotifyTokenExpiresAt !== undefined ? Number(spotifyTokenExpiresAt || 0) : existing.spotifyTokenExpiresAt;
   db.prepare(`
     INSERT INTO user_preferences (
       user_plex_id, liked_genres, ignored_genres, liked_artists, ignored_artists, user_wizard_completed,
       smart_config, lastfm_username, lastfm_sync_watermark, lastfm_enabled_stations, lastfm_strict_match_stations,
       lastfm_station_sorts, lastfm_station_final_orderings,
       listenbrainz_username, listenbrainz_token, listenbrainz_enabled_playlists, listenbrainz_strict_match_playlists,
-      listenbrainz_playlist_sorts, listenbrainz_playlist_final_orderings, updated_at
+      listenbrainz_playlist_sorts, listenbrainz_playlist_final_orderings,
+      spotify_user_id, spotify_display_name, spotify_access_token, spotify_refresh_token, spotify_token_expires_at,
+      updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id) DO UPDATE SET
       liked_genres = excluded.liked_genres,
       ignored_genres = excluded.ignored_genres,
@@ -1691,6 +1767,11 @@ export function saveUserPreferences(db, userPlexId, {
       listenbrainz_strict_match_playlists = excluded.listenbrainz_strict_match_playlists,
       listenbrainz_playlist_sorts = excluded.listenbrainz_playlist_sorts,
       listenbrainz_playlist_final_orderings = excluded.listenbrainz_playlist_final_orderings,
+      spotify_user_id = excluded.spotify_user_id,
+      spotify_display_name = excluded.spotify_display_name,
+      spotify_access_token = excluded.spotify_access_token,
+      spotify_refresh_token = excluded.spotify_refresh_token,
+      spotify_token_expires_at = excluded.spotify_token_expires_at,
       updated_at = excluded.updated_at
   `).run(
     userPlexId,
@@ -1712,6 +1793,11 @@ export function saveUserPreferences(db, userPlexId, {
     JSON.stringify(resolvedStrictPlaylists),
     JSON.stringify(resolvedListenbrainzPlaylistSorts || {}),
     JSON.stringify(resolvedListenbrainzPlaylistFinalOrderings || {}),
+    resolvedSpotifyUserId,
+    resolvedSpotifyDisplayName,
+    resolvedSpotifyAccessToken,
+    resolvedSpotifyRefreshToken,
+    resolvedSpotifyTokenExpiresAt,
     Date.now(),
   );
 }
@@ -2210,6 +2296,83 @@ export function removePlaylistTracks(db, userId, playlistKey, ratingKeys) {
   })();
 }
 
+export function listImportedPlaylistUnmatched(db, userId, playlistKey) {
+  return db.prepare(`
+    SELECT id, source_track_id, position, track_title, artist_name, artists_json, album_title, album_type, duration_ms, selected
+    FROM imported_playlist_unmatched
+    WHERE user_plex_id = ? AND playlist_key = ?
+    ORDER BY position ASC, artist_name COLLATE NOCASE ASC, track_title COLLATE NOCASE ASC, id ASC
+  `).all(userId, playlistKey).map((row) => {
+    let artists = [];
+    try { artists = JSON.parse(row.artists_json || '[]'); } catch { artists = []; }
+    return {
+      id: Number(row.id || 0),
+      sourceTrackId: String(row.source_track_id || '').trim(),
+      position: Number(row.position || 0),
+      title: String(row.track_title || '').trim(),
+      artistName: String(row.artist_name || '').trim(),
+      artists: Array.isArray(artists) ? artists.map((artist) => String(artist || '').trim()).filter(Boolean) : [],
+      albumTitle: String(row.album_title || '').trim(),
+      albumType: String(row.album_type || '').trim(),
+      durationMs: Number(row.duration_ms || 0),
+      selected: Boolean(row.selected),
+    };
+  });
+}
+
+export function setImportedPlaylistUnmatched(db, userId, playlistKey, rows) {
+  const del = db.prepare('DELETE FROM imported_playlist_unmatched WHERE user_plex_id = ? AND playlist_key = ?');
+  const ins = db.prepare(`
+    INSERT INTO imported_playlist_unmatched (
+      playlist_key, user_plex_id, source_track_id, position, track_title,
+      artist_name, artists_json, album_title, album_type, duration_ms,
+      selected, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const now = Date.now();
+  db.transaction(() => {
+    del.run(userId, playlistKey);
+    for (const row of (Array.isArray(rows) ? rows : [])) {
+      const artists = Array.isArray(row?.artists) ? row.artists.map((artist) => String(artist || '').trim()).filter(Boolean) : [];
+      ins.run(
+        playlistKey,
+        userId,
+        String(row?.sourceTrackId || '').trim(),
+        Number(row?.position || 0),
+        String(row?.title || '').trim(),
+        String(row?.artistName || artists[0] || '').trim(),
+        JSON.stringify(artists),
+        String(row?.albumTitle || '').trim(),
+        String(row?.albumType || '').trim(),
+        Number(row?.durationMs || 0),
+        row?.selected === false ? 0 : 1,
+        now,
+        now,
+      );
+    }
+  })();
+}
+
+export function setImportedPlaylistUnmatchedSelection(db, userId, playlistKey, { ids = [], selected = true, artistName = '', selectAll = false } = {}) {
+  const now = Date.now();
+  if (selectAll) {
+    db.prepare('UPDATE imported_playlist_unmatched SET selected = ?, updated_at = ? WHERE user_plex_id = ? AND playlist_key = ?')
+      .run(selected ? 1 : 0, now, userId, playlistKey);
+    return;
+  }
+  const safeArtistName = String(artistName || '').trim();
+  if (safeArtistName) {
+    db.prepare('UPDATE imported_playlist_unmatched SET selected = ?, updated_at = ? WHERE user_plex_id = ? AND playlist_key = ? AND artist_name = ?')
+      .run(selected ? 1 : 0, now, userId, playlistKey, safeArtistName);
+    return;
+  }
+  const safeIds = Array.isArray(ids) ? ids.map((value) => Number(value || 0)).filter((value) => Number.isFinite(value) && value > 0) : [];
+  if (!safeIds.length) return;
+  const placeholders = safeIds.map(() => '?').join(',');
+  db.prepare(`UPDATE imported_playlist_unmatched SET selected = ?, updated_at = ? WHERE user_plex_id = ? AND playlist_key = ? AND id IN (${placeholders})`)
+    .run(selected ? 1 : 0, now, userId, playlistKey, ...safeIds);
+}
+
 // ─── Playlist artist state (fired thresholds) ─────────────────────────────────
 
 export function getPlaylistArtistState(db, userId, playlistKey, artistName) {
@@ -2346,9 +2509,11 @@ export function deleteUserPersonalPlaylist(db, id, userPlexId) {
 export function deleteUserGeneratedPlaylist(db, userPlexId, playlistKey) {
   const deleteGenerated = db.prepare('DELETE FROM user_generated_playlists WHERE user_plex_id = ? AND playlist_key = ?');
   const deleteTracks = db.prepare('DELETE FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?');
+  const deleteImportedUnmatched = db.prepare('DELETE FROM imported_playlist_unmatched WHERE user_plex_id = ? AND playlist_key = ?');
   const deleteArtistState = db.prepare('DELETE FROM playlist_artist_state WHERE user_plex_id = ? AND playlist_key = ?');
   db.transaction(() => {
     deleteTracks.run(userPlexId, playlistKey);
+    deleteImportedUnmatched.run(userPlexId, playlistKey);
     deleteArtistState.run(userPlexId, playlistKey);
     deleteGenerated.run(userPlexId, playlistKey);
   })();
@@ -2708,10 +2873,16 @@ export function listUserGeneratedPlaylists(db, userPlexId, { activeOnly = true }
     playlistKey: row.playlist_key,
     plexPlaylistId: row.plex_playlist_id,
     playlistTitle: row.playlist_title,
+    titleOverride: row.title_override,
+    sourceType: row.source_type,
+    sourceRef: row.source_ref,
+    sourceTitle: row.source_title,
+    sourceOwner: row.source_owner,
     algorithmVersion: row.algorithm_version,
     lastBuiltAt: row.last_built_at,
     lastSyncedAt: row.last_synced_at,
     trackCount: Number(row.track_count || 0),
+    missingCount: Number(row.missing_count || 0),
     active: Boolean(row.active),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2735,17 +2906,24 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
   db.prepare(`
     INSERT INTO user_generated_playlists (
       user_plex_id, playlist_type, playlist_key, plex_playlist_id,
-      playlist_title, algorithm_version, last_built_at, last_synced_at,
-      track_count, active, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      playlist_title, title_override, source_type, source_ref, source_title, source_owner,
+      algorithm_version, last_built_at, last_synced_at,
+      track_count, missing_count, active, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id, playlist_key) DO UPDATE SET
       playlist_type = excluded.playlist_type,
       plex_playlist_id = excluded.plex_playlist_id,
       playlist_title = excluded.playlist_title,
+      title_override = excluded.title_override,
+      source_type = excluded.source_type,
+      source_ref = excluded.source_ref,
+      source_title = excluded.source_title,
+      source_owner = excluded.source_owner,
       algorithm_version = excluded.algorithm_version,
       last_built_at = COALESCE(excluded.last_built_at, user_generated_playlists.last_built_at),
       last_synced_at = COALESCE(excluded.last_synced_at, user_generated_playlists.last_synced_at),
       track_count = excluded.track_count,
+      missing_count = excluded.missing_count,
       active = excluded.active,
       updated_at = excluded.updated_at
   `).run(
@@ -2754,10 +2932,16 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     playlistKey,
     String(playlist?.plexPlaylistId || ''),
     String(playlist?.playlistTitle || ''),
+    String(playlist?.titleOverride || ''),
+    String(playlist?.sourceType || ''),
+    String(playlist?.sourceRef || ''),
+    String(playlist?.sourceTitle || ''),
+    String(playlist?.sourceOwner || ''),
     String(playlist?.algorithmVersion || 'phase2a'),
     playlist?.lastBuiltAt ?? null,
     playlist?.lastSyncedAt ?? null,
     Number(playlist?.trackCount || 0),
+    Number(playlist?.missingCount || 0),
     playlist?.active === false ? 0 : 1,
     Number(playlist?.createdAt || now),
     Number(playlist?.updatedAt || now),

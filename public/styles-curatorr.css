@@ -3093,6 +3093,39 @@ body.cur-modal-open {
   box-sizing: border-box;
 }
 
+.cur-panel--playlists-page-carousel > .cur-panel-body {
+  display: block;
+  overflow: hidden;
+  max-height: 420px;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height .28s ease,
+    opacity .22s ease,
+    transform .24s ease,
+    padding-top .22s ease,
+    padding-bottom .22s ease;
+  will-change: max-height, opacity, transform;
+}
+
+.cur-panel--playlists-page-carousel.is-collapsed {
+  margin-bottom: 10px;
+}
+
+.cur-panel--playlists-page-carousel.is-collapsed .cur-panel-header {
+  border-bottom: 0;
+}
+
+.cur-panel--playlists-page-carousel.is-collapsed > .cur-panel-body {
+  display: block;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-10px);
+  padding-top: 0;
+  padding-bottom: 0;
+  pointer-events: none;
+}
+
 html[data-launcharr-embed="1"] .cur-panel--playlist-carousel {
   position: static;
   top: auto;
@@ -4373,18 +4406,20 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 }
 
 .cur-playlists-page .dash-main {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow-y: hidden;
 }
 
 .cur-playlists-page .dash-content {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
+
 
 .cur-playlists-page .cur-panel--playlist-tracks {
   height: 100%;
@@ -4404,6 +4439,7 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-playlists-page .cur-pl-table {
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -4575,6 +4611,92 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-pl-cell-empty {
   color: rgba(255,255,255,.3);
+}
+
+.imported-missing-inline {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.imported-missing-inline__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 12px;
+}
+
+.imported-missing-inline__title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.imported-missing-inline__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.82);
+}
+
+.imported-missing-inline__meta,
+.imported-missing-inline__status,
+.imported-missing-inline__group-meta {
+  font-size: 12px;
+  color: rgba(255,255,255,.56);
+}
+
+.imported-missing-inline__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.imported-missing-inline__status {
+  padding: 0 12px;
+}
+
+.imported-missing-inline__empty {
+  margin: 0 12px;
+}
+
+.imported-missing-inline__group {
+  display: grid;
+  gap: 6px;
+}
+
+.imported-missing-inline__group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+.imported-missing-inline__group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-weight: 700;
+  color: rgba(255,255,255,.92);
+}
+
+.imported-missing-inline__rows {
+  display: grid;
+  gap: 0;
+}
+
+.imported-missing-row {
+  opacity: .94;
 }
 
 /* Day mode */
@@ -4774,6 +4896,24 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 [data-theme="day"] .cur-pl-col-artist,
 [data-theme="day"] .cur-pl-col-dur {
   color: rgba(11,21,30,.45);
+}
+
+[data-theme="day"] .imported-missing-inline {
+  border-top-color: rgba(0,0,0,.1);
+}
+
+[data-theme="day"] .imported-missing-inline__title {
+  color: rgba(11,21,30,.82);
+}
+
+[data-theme="day"] .imported-missing-inline__meta,
+[data-theme="day"] .imported-missing-inline__status,
+[data-theme="day"] .imported-missing-inline__group-meta {
+  color: rgba(11,21,30,.5);
+}
+
+[data-theme="day"] .imported-missing-inline__group-title {
+  color: rgba(11,21,30,.9);
 }
 
 /* ── Playlist action column ──────────────────────────────────────────────── */

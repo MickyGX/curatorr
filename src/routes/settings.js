@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
 import { applyFeaturePresetFilters, applyTrackFilters, buildFeaturePresetAvailability } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
@@ -387,7 +386,14 @@ export function registerSettings(app, ctx) {
     DEFAULT_SMART_PLAYLIST_SETTINGS,
     playlistService,
     resolvePublicBaseUrl,
+    spotifyService,
   } = ctx;
+
+  function sanitizeRelativeReturnPath(value, fallback = '/user-settings') {
+    const raw = String(value || '').trim();
+    if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
+    return raw;
+  }
 
   function buildReachableWebhookUrl(config, req, webhookPath) {
     const configuredBase = normalizeBaseUrl(
@@ -1571,6 +1577,81 @@ export function registerSettings(app, ctx) {
       },
     });
     return res.redirect('/user-settings?success=listenbrainz-updated');
+  });
+
+  app.get('/user-settings/spotify/connect', requireUser, (req, res) => {
+    if (!spotifyService?.isConfigured()) return res.redirect('/user-settings?error=spotify-not-configured');
+    const state = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const returnTo = sanitizeRelativeReturnPath(req.query?.returnTo, '/user-settings');
+    try {
+      const requestBase = resolvePublicBaseUrl(req);
+      const auth = spotifyService.getAuthorizationUrl({
+        baseUrl: requestBase,
+        state,
+      });
+      req.session.spotifyAuth = {
+        state,
+        returnTo,
+        redirectUri: auth.redirectUri,
+        createdAt: Date.now(),
+      };
+      return res.redirect(auth.url);
+    } catch (err) {
+      return res.redirect(`/user-settings?error=${encodeURIComponent(String(err?.message || 'spotify-connect-failed'))}`);
+    }
+  });
+
+  app.get('/user-settings/spotify/callback', requireUser, async (req, res) => {
+    const pending = req.session?.spotifyAuth || null;
+    req.session.spotifyAuth = null;
+    if (!spotifyService?.isConfigured()) return res.redirect('/user-settings?error=spotify-not-configured');
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    const error = String(req.query?.error || '').trim();
+    if (error) {
+      return res.redirect(`${sanitizeRelativeReturnPath(pending?.returnTo, '/user-settings')}?error=${encodeURIComponent(`spotify-${error}`)}`);
+    }
+    const code = String(req.query?.code || '').trim();
+    const state = String(req.query?.state || '').trim();
+    if (!pending || !pending.state || state !== pending.state || !code) {
+      return res.redirect('/user-settings?error=spotify-auth-invalid');
+    }
+    try {
+      const token = await spotifyService.exchangeCode({
+        code,
+        redirectUri: String(pending.redirectUri || '').trim(),
+      });
+      const profile = await spotifyService.getCurrentUserProfile(token.accessToken);
+      const prefs = getUserPreferences(db, userPlexId);
+      saveUserPreferences(db, userPlexId, {
+        ...prefs,
+        spotifyUserId: String(profile?.id || '').trim(),
+        spotifyDisplayName: String(profile?.display_name || profile?.id || '').trim(),
+        spotifyAccessToken: token.accessToken,
+        spotifyRefreshToken: token.refreshToken,
+        spotifyTokenExpiresAt: token.expiresAt,
+      });
+      const target = sanitizeRelativeReturnPath(pending.returnTo, '/user-settings');
+      const sep = target.includes('?') ? '&' : '?';
+      return res.redirect(`${target}${sep}success=spotify-connected`);
+    } catch (err) {
+      return res.redirect(`/user-settings?error=${encodeURIComponent(`spotify-auth-failed:${safeMessage(err)}`)}`);
+    }
+  });
+
+  app.post('/user-settings/spotify/disconnect', requireUser, (req, res) => {
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    const prefs = getUserPreferences(db, userPlexId);
+    saveUserPreferences(db, userPlexId, {
+      ...prefs,
+      spotifyUserId: '',
+      spotifyDisplayName: '',
+      spotifyAccessToken: '',
+      spotifyRefreshToken: '',
+      spotifyTokenExpiresAt: 0,
+    });
+    return res.redirect('/user-settings?success=spotify-disconnected');
   });
 
   app.post('/user-settings/lastfm/run-backfill', requireUser, (req, res) => {

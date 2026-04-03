@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.61 (2026-04-03)
+
+- Added playlist import workflows for both Plex and Spotify, including Spotify account connection, owned-playlist filtering, previewing matched tracks, and one-click import into Curatorr-managed custom playlists.
+- Added imported-playlist review tools directly on the Playlists page: imported cards now show missing counts, imported playlists sort/filter separately, missing source tracks stay attached to the imported playlist, and selected missing rows can be queued for Lidarr review or added straight to the Lidarr queue.
+- Improved the playlists page UX for larger imported lists by merging missing rows into the main table, adding imported-playlist refresh support, and auto-collapsing the playlist carousel while you browse the track list.
+
 ## v0.1.60 (2026-04-03)
 
 - Added first-class smart-playlist popularity controls powered by Plex `ratingCount`, including album-level Top 3 filtering and absolute popularity slicing (Top 50/25/10/5 percent or custom percentile) directly in the wizard.

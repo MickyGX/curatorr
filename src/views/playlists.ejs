@@ -40,13 +40,19 @@
           if (!ts) return '—';
           return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
-        function resolvePlaylistBadgeKind(audience, playlistType) {
+        function resolvePlaylistBadgeKind(audience, playlistType, sourceType) {
+          const source = String(sourceType || '').trim().toLowerCase();
+          if (source === 'spotify-playlist') return 'imported-spotify';
+          if (source.startsWith('plex-')) return 'imported-plex';
           const type = String(playlistType || '').trim().toLowerCase();
           if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
           return String(audience || 'personal').trim().toLowerCase();
         }
-        function playlistAudienceIconMarkup(audience, playlistType) {
-          const kind = resolvePlaylistBadgeKind(audience, playlistType);
+        function playlistAudienceIconMarkup(audience, playlistType, sourceType) {
+          const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
+          if (kind === 'imported-spotify' || kind === 'imported-plex') {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
+          }
           if (kind === 'global') {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
           }
@@ -61,8 +67,10 @@
           }
           return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12"></path><path d="M4 10h9"></path><path d="M4 14h10"></path><path d="M4 18h7"></path><path d="M18.5 8.5 21 10l-2.5 1.5v-3z"></path></svg>';
         }
-        function playlistAudienceTitle(audience, playlistType) {
-          const kind = resolvePlaylistBadgeKind(audience, playlistType);
+        function playlistAudienceTitle(audience, playlistType, sourceType) {
+          const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
+          if (kind === 'imported-spotify') return 'Imported Spotify playlist';
+          if (kind === 'imported-plex') return 'Imported Plex playlist';
           if (kind === 'global') return 'Global playlist';
           if (kind === 'blend') return 'Blend playlist';
           if (kind === 'external') return 'External playlist';
@@ -73,7 +81,7 @@
 
       <div class="dash-content">
         <%- include('partials/plex-banner') %>
-        <div class="cur-panel cur-panel--playlist-carousel cur-panel--playlists-page-carousel">
+        <div class="cur-panel cur-panel--playlist-carousel cur-panel--playlists-page-carousel" id="playlistCarouselPanel">
           <div class="cur-panel-header cur-panel-header--playlist-carousel">
             <h3 class="cur-panel-title">Playlists</h3>
             <div id="plSelectionBar" class="pl-selection-bar" style="display:none">
@@ -85,6 +93,11 @@
             </div>
             <div class="cur-panel-actions">
               <span class="cur-sync-status" id="syncStatus"></span>
+              <% if (_msType === 'plex' || spotifyConfigured) { %>
+              <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Import playlist" title="Import playlist" onclick="openImportPlaylistModal()">
+                <span class="pl-header-import" aria-hidden="true">⇣</span>
+              </button>
+              <% } %>
               <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Create smart playlist" title="Create smart playlist" onclick="openSmartPlaylistModal()">
                 <span class="pl-header-plus" aria-hidden="true">+</span>
               </button>
@@ -104,6 +117,10 @@
                     <button class="cur-filter-option" type="button" data-playlist-type-filter="personal" data-cur-filter-close>
                       <span>Personal</span>
                       <span class="cur-filter-option-note">Your own smart playlists</span>
+                    </button>
+                    <button class="cur-filter-option" type="button" data-playlist-type-filter="imported" data-cur-filter-close>
+                      <span>Imported</span>
+                      <span class="cur-filter-option-note">Imported Plex and Spotify playlists</span>
                     </button>
                     <button class="cur-filter-option" type="button" data-playlist-type-filter="external" data-cur-filter-close>
                       <span>External</span>
@@ -164,6 +181,8 @@
                       data-playlist-active="<%= p.active === false ? 'false' : 'true' %>"
                       data-playlist-state="<%= p.state || 'pending' %>"
                       data-playlist-track-count="<%= Number(p.trackCount || 0) %>"
+                      data-playlist-missing-count="<%= Number(p.missingCount || 0) %>"
+                      data-playlist-source-type="<%= p.sourceType || '' %>"
                       data-playlist-updated-at="<%= Number(p.curatorrUpdatedAt || 0) %>"
                       data-playlist-art="<%= p.artPath || '' %>"
                       onclick="selectPlaylist(this)"
@@ -182,8 +201,8 @@
                           <button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);padding:9px" onclick="event.stopPropagation(); selectPlaylist(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" />
                           </button>
-                          <div class="pl-card-audience-badge" title="<%= playlistAudienceTitle(p.playlistAudience, p.playlistType) %>">
-                            <%- playlistAudienceIconMarkup(p.playlistAudience, p.playlistType) %>
+                          <div class="pl-card-audience-badge" title="<%= playlistAudienceTitle(p.playlistAudience, p.playlistType, p.sourceType) %>">
+                            <%- playlistAudienceIconMarkup(p.playlistAudience, p.playlistType, p.sourceType) %>
                           </div>
                           <% if (p.playlistType === 'personal') { %>
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card'))">
@@ -202,10 +221,13 @@
                               <% } else if (p.playlistType === 'global') { %>
                               <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                               <% } %>
+                              <% if (['daily-mix', 'curatorr', 'crescive', 'curative'].includes(p.playlistType)) { %>
+                              <button type="button" onclick="event.stopPropagation(); renameCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rename</button>
+                              <% } %>
                               <% if (p.playlistKey) { %>
                               <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
                               <% } %>
-                              <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rebuild</button>
+                              <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
                               <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
                               <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
                               <% } %>
@@ -215,7 +237,7 @@
                       </div>
                       <div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">
                         <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= p.playlistTitle || 'Playlist' %></div>
-                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks</div>
+                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks<% if (Number(p.missingCount || 0) > 0) { %> • <%= Number(p.missingCount || 0).toLocaleString() %> missing<% } %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? 'Disabled in Plex' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt) %></div>
                       </div>
                     </div>
@@ -237,11 +259,93 @@
                 <div id="newPlaylistStatus" class="cur-panel-meta" style="margin-top:6px"></div>
               </div>
             </div>
+
+            <% if (_msType === 'plex' || spotifyConfigured) { %>
+            <div id="importPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeImportPlaylistModal()">
+              <div id="importPlDialog" class="spm-dialog spm-dialog--import" role="dialog" aria-modal="true" aria-label="Import Plex playlist or collection">
+                <div id="importPlHeader" class="spm-header">
+                  <span class="spm-title">Import Existing Playlist</span>
+                  <button class="spm-close" type="button" onclick="closeImportPlaylistModal()" aria-label="Close">✕</button>
+                </div>
+                <div class="spm-body">
+                  <div class="playlist-feature-note">Import an existing Plex or Spotify playlist as a managed custom playlist in Curatorr.</div>
+                  <div class="import-pl-tabs" role="tablist" aria-label="Import source">
+                    <% if (_msType === 'plex') { %>
+                    <button type="button" class="import-pl-tab is-active" id="importPlexTabBtn" onclick="setImportSourceTab('plex')" role="tab" aria-selected="true">Plex</button>
+                    <% } %>
+                    <% if (spotifyConfigured) { %>
+                    <button type="button" class="import-pl-tab<%= _msType === 'plex' ? '' : ' is-active' %>" id="importSpotifyTabBtn" onclick="setImportSourceTab('spotify')" role="tab" aria-selected="<%= _msType === 'plex' ? 'false' : 'true' %>">Spotify</button>
+                    <% } %>
+                  </div>
+                  <% if (_msType === 'plex') { %>
+                  <div id="importPlexPanel" class="import-pl-panel">
+                    <label class="field import-pl-field">
+                      <span>Find a source</span>
+                      <input id="importPlexSearch" class="cur-input" type="search" placeholder="Filter playlists or collections…" oninput="renderImportPlexSources()" />
+                    </label>
+                    <div id="importPlexStatus" class="cur-panel-meta import-pl-status">Loading sources…</div>
+                    <div id="importPlexList" class="import-pl-list" aria-live="polite"></div>
+                    <div id="importPlexEmpty" class="cur-empty" style="display:none">No Plex playlists or collections match that search.</div>
+                  </div>
+                  <% } %>
+                  <% if (spotifyConfigured) { %>
+                  <div id="importSpotifyPanel" class="import-pl-panel" style="display:<%= _msType === 'plex' ? 'none' : 'block' %>">
+                    <% if (spotifyConnected) { %>
+                    <label class="field import-pl-field">
+                      <span>Find a Spotify playlist</span>
+                      <input id="importSpotifySearch" class="cur-input" type="search" placeholder="Filter Spotify playlists…" oninput="renderImportSpotifySources()" />
+                    </label>
+                    <div class="import-pl-owner-toggle" role="tablist" aria-label="Spotify ownership filter">
+                      <button type="button" class="import-pl-owner-btn is-active" id="importSpotifyMineBtn" onclick="setImportSpotifyOwnerFilter('mine')">Mine</button>
+                      <button type="button" class="import-pl-owner-btn" id="importSpotifyAllBtn" onclick="setImportSpotifyOwnerFilter('all')">All</button>
+                    </div>
+                    <div id="importSpotifyStatus" class="cur-panel-meta import-pl-status">Loading Spotify playlists…</div>
+                    <div id="importSpotifyList" class="import-pl-list" aria-live="polite"></div>
+                    <div id="importSpotifyEmpty" class="cur-empty" style="display:none">No Spotify playlists match that search.</div>
+                    <div id="importSpotifyPreview" class="import-spotify-preview" style="display:none">
+                      <div class="import-spotify-preview__summary" id="importSpotifyPreviewSummary"></div>
+                      <div class="import-spotify-preview__stats" id="importSpotifyPreviewStats"></div>
+                      <div id="importSpotifyPreviewSections" class="import-spotify-preview__sections" style="display:none">
+                        <div class="import-spotify-preview__section" id="importSpotifyMatchedSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Matched locally</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyMatchedList"></div>
+                        </div>
+                        <div class="import-spotify-preview__section" id="importSpotifyUnmatchedArtistsSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Unmatched artists</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyUnmatchedArtistsList"></div>
+                        </div>
+                        <div class="import-spotify-preview__section" id="importSpotifyUnmatchedSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Unmatched track examples</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyUnmatchedList"></div>
+                        </div>
+                        <div class="import-spotify-preview__section" id="importSpotifyDuplicateSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Duplicates skipped</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyDuplicateList"></div>
+                        </div>
+                      </div>
+                    </div>
+                    <% } else { %>
+                    <div class="cur-empty" style="display:block">Connect Spotify in <a href="/user-settings">User Settings</a> first.</div>
+                    <% } %>
+                  </div>
+                  <% } %>
+                  <label class="field import-pl-field">
+                    <span>New playlist name</span>
+                    <input id="importPlexTitle" class="cur-input" type="text" maxlength="120" placeholder="Imported playlist name" oninput="onImportPlexTitleInput()" />
+                  </label>
+                </div>
+                <div class="spm-footer">
+                  <button class="btn btn-ghost" type="button" onclick="closeImportPlaylistModal()">Cancel</button>
+                  <button class="btn btn-primary" type="button" id="importPlexSubmitBtn" onclick="submitImportPlex()" disabled>Import</button>
+                </div>
+              </div>
+            </div>
+            <% } %>
           </div>
         </div>
 
         <%# ── Track list ───────────────────────────────────────────────── %>
-        <div class="cur-panel cur-panel--playlist-tracks">
+        <div class="cur-panel cur-panel--playlist-tracks" id="playlistTracksPanel">
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Tracks</h3>
             <div class="cur-panel-actions" style="gap:8px">
@@ -278,6 +382,73 @@
   </div>
 
   <style>
+    .pl-header-import { font-size:18px; line-height:1; font-weight:700; transform:translateY(-1px); }
+    .spm-dialog--import { max-width:840px; }
+    .import-pl-tabs { display:flex; gap:8px; margin-top:14px; }
+    .import-pl-tab { appearance:none; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:var(--muted,#a0aec0); border-radius:999px; padding:8px 14px; cursor:pointer; font-weight:600; }
+    .import-pl-tab.is-active { border-color:rgba(74,222,128,.72); color:#f8fafc; background:rgba(74,222,128,.12); }
+    .import-pl-panel { margin-top:8px; }
+    .import-pl-field { display:flex; flex-direction:column; gap:6px; margin:14px 0 0; }
+    .import-pl-field span { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted,#94a3b8); }
+    .import-pl-owner-toggle { display:flex; gap:8px; margin-top:12px; }
+    .import-pl-owner-btn { appearance:none; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:var(--muted,#a0aec0); border-radius:999px; padding:7px 12px; cursor:pointer; font-size:12px; font-weight:600; }
+    .import-pl-owner-btn.is-active { border-color:rgba(74,222,128,.72); color:#f8fafc; background:rgba(74,222,128,.12); }
+    .import-pl-status { min-height:18px; margin:12px 0 0; }
+    .import-pl-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-top:14px; max-height:360px; overflow:auto; }
+    .import-pl-option { display:flex; flex-direction:column; gap:6px; width:100%; text-align:left; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); color:var(--text,#e5e7eb); cursor:pointer; transition:border-color .16s ease, background .16s ease, transform .16s ease; }
+    .import-pl-option:hover { border-color:rgba(255,255,255,.2); transform:translateY(-1px); }
+    .import-pl-option.is-active { border-color:rgba(74,222,128,.72); background:rgba(74,222,128,.08); box-shadow:0 0 0 1px rgba(74,222,128,.18); }
+    .import-pl-option__top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .import-pl-option__title { font-weight:700; color:#f8fafc; }
+    .import-pl-option__badge { display:inline-flex; align-items:center; justify-content:center; padding:3px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; background:rgba(255,255,255,.08); color:rgba(255,255,255,.72); }
+    .import-pl-option__badge--collection { background:rgba(56,189,248,.14); color:#bae6fd; }
+    .import-pl-option__meta { font-size:12px; line-height:1.45; color:var(--muted,#a0aec0); }
+    .import-spotify-preview { margin-top:14px; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.03); }
+    .import-spotify-preview__summary { font-size:13px; color:#f8fafc; }
+    .import-spotify-preview__stats { margin-top:6px; font-size:12px; line-height:1.5; color:var(--muted,#a0aec0); }
+    .import-spotify-preview__sections { display:grid; gap:12px; margin-top:12px; }
+    .import-spotify-preview__section { padding-top:12px; border-top:1px solid rgba(255,255,255,.08); }
+    .import-spotify-preview__section-title { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted,#94a3b8); }
+    .import-spotify-preview__list { display:grid; gap:8px; margin-top:10px; }
+    .import-spotify-preview__item { display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); }
+    .import-spotify-preview__item-title { font-size:13px; font-weight:600; color:#f8fafc; }
+    .import-spotify-preview__item-meta { font-size:12px; line-height:1.45; color:var(--muted,#a0aec0); }
+    .import-spotify-preview__more { margin-top:2px; font-size:12px; color:var(--muted,#94a3b8); }
+    .imported-missing-list { display:grid; gap:12px; }
+    .imported-missing-group { border:1px solid rgba(255,255,255,.08); border-radius:14px; background:rgba(255,255,255,.03); padding:12px; }
+    .imported-missing-group-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .imported-missing-group-title { display:flex; align-items:center; gap:10px; font-weight:700; color:#f8fafc; }
+    .imported-missing-group-meta { font-size:12px; color:var(--muted,#a0aec0); }
+    .imported-missing-table { margin-top:10px; }
+    .imported-missing-cell-stack { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .imported-missing-cell-subline { font-size:12px; line-height:1.4; color:var(--muted,#a0aec0); }
+    .imported-missing-toggle { width:16px; height:16px; accent-color:var(--brand,#8b5cf6); }
+    .imported-missing-group-toggle { margin-top:1px; }
+    [data-theme="day"] .import-pl-field span { color:#6b7a8d; }
+    [data-theme="day"] .import-pl-owner-btn { border-color:rgba(10,20,30,.12); background:rgba(255,255,255,.88); color:#5e6d80; }
+    [data-theme="day"] .import-pl-owner-btn.is-active { border-color:rgba(34,197,94,.55); background:rgba(34,197,94,.08); color:#1f2d3d; }
+    [data-theme="day"] .import-pl-tab { border-color:rgba(10,20,30,.12); background:rgba(255,255,255,.88); color:#5e6d80; }
+    [data-theme="day"] .import-pl-tab.is-active { border-color:rgba(34,197,94,.55); background:rgba(34,197,94,.08); color:#1f2d3d; }
+    [data-theme="day"] .import-pl-option { background:rgba(255,255,255,.88); border-color:rgba(10,20,30,.12); color:#223043; }
+    [data-theme="day"] .import-pl-option:hover { border-color:rgba(var(--brand-rgb), .26); }
+    [data-theme="day"] .import-pl-option.is-active { background:rgba(34,197,94,.08); border-color:rgba(34,197,94,.55); box-shadow:0 0 0 1px rgba(34,197,94,.12); }
+    [data-theme="day"] .import-pl-option__title { color:#1f2d3d; }
+    [data-theme="day"] .import-pl-option__meta { color:#5e6d80; }
+    [data-theme="day"] .import-pl-option__badge { background:rgba(15,23,42,.08); color:#475569; }
+    [data-theme="day"] .import-pl-option__badge--collection { background:rgba(14,165,233,.14); color:#0f766e; }
+    [data-theme="day"] .import-spotify-preview { background:rgba(255,255,255,.9); border-color:rgba(10,20,30,.1); }
+    [data-theme="day"] .import-spotify-preview__summary { color:#1f2d3d; }
+    [data-theme="day"] .import-spotify-preview__stats { color:#5e6d80; }
+    [data-theme="day"] .import-spotify-preview__section { border-top-color:rgba(10,20,30,.08); }
+    [data-theme="day"] .import-spotify-preview__section-title { color:#6b7a8d; }
+    [data-theme="day"] .import-spotify-preview__item { background:rgba(255,255,255,.76); border-color:rgba(10,20,30,.08); }
+    [data-theme="day"] .import-spotify-preview__item-title { color:#1f2d3d; }
+    [data-theme="day"] .import-spotify-preview__item-meta,
+    [data-theme="day"] .import-spotify-preview__more { color:#5e6d80; }
+    [data-theme="day"] .imported-missing-group { background:rgba(255,255,255,.88); border-color:rgba(10,20,30,.1); }
+    [data-theme="day"] .imported-missing-group-title { color:#1f2d3d; }
+    [data-theme="day"] .imported-missing-group-meta,
+    [data-theme="day"] .imported-missing-cell-subline { color:#5e6d80; }
     .playlist-preset-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:10px; align-items:stretch; }
     .playlist-preset-card { position:relative; overflow:hidden; display:flex; flex-direction:column; min-height:100%; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:linear-gradient(180deg,rgba(14,18,27,.92),rgba(11,15,24,.82)); color:#f8fafc; padding:12px; text-align:left; cursor:pointer; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; box-shadow:0 14px 34px rgba(15,23,42,.18); }
     .playlist-preset-card:hover { transform:translateY(-1px); border-color:rgba(255,255,255,.22); }
@@ -629,7 +800,15 @@
     var _currentPlexKey = null;
     var _currentPlaylistKind = '';
     var _currentPlaylistType = '';
+    var _currentPlaylistMissingCount = 0;
     var _allTracks = [];
+    var _importedMissingState = {
+      playlistKey: '',
+      rows: [],
+      selectedCount: 0,
+      missingCount: 0,
+      actionMessage: '',
+    };
     var _sortField = 'index';
     var _sortAsc = true;
     var CSRF = '<%= csrfToken %>';
@@ -639,10 +818,27 @@
     var CURRENT_USER_ID = <%- JSON.stringify(currentUserId || '') %>;
     var IS_ACTUAL_ADMIN = <%- JSON.stringify(actualRole === 'admin') %>;
     var ALL_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
+    var SPOTIFY_USER_ID = <%- JSON.stringify(spotifyUserId || '') %>;
+    var SPOTIFY_CONNECTED = <%- JSON.stringify(Boolean(spotifyConnected)) %>;
+    var SPOTIFY_CONFIGURED = <%- JSON.stringify(Boolean(spotifyConfigured)) %>;
+    var LIDARR_AUTOMATION_ELIGIBLE = <%- JSON.stringify(Boolean(lidarrAutomationEligible)) %>;
+    var LIDARR_CONFIGURED = <%- JSON.stringify(Boolean(lidarrConfigured)) %>;
+    var IMPORT_HAS_PLEX = <%- JSON.stringify(_msType === 'plex') %>;
+    var _importPlexSources = [];
+    var _importPlexSelection = null;
+    var _importPlexTitleTouched = false;
+    var _importSpotifySources = [];
+    var _importSpotifySelection = null;
+    var _importSpotifyPreview = null;
+    var _importSpotifyOwnerFilter = 'mine';
+    var _importSourceTab = IMPORT_HAS_PLEX ? 'plex' : 'spotify';
     var _playlistCardFilterState = {
       type: 'all',
       status: 'all',
     };
+    var _playlistCarouselCollapsed = false;
+    var _playlistCarouselCollapseThreshold = 56;
+    var _playlistCarouselExpandThreshold = 18;
 
     function fmtDuration(ms) {
       if (!ms) return '';
@@ -762,7 +958,9 @@
       _currentPlexKey = null;
       _currentPlaylistKind = '';
       _currentPlaylistType = '';
+      _currentPlaylistMissingCount = 0;
       _allTracks = [];
+      resetImportedMissingPanel();
       updateSelectionButtons();
     }
 
@@ -859,8 +1057,12 @@
       renderFiltered();
     }
 
+    function getTrackSearchQuery() {
+      return String(document.getElementById('trackSearch').value || '').toLowerCase().trim();
+    }
+
     function getSortedFiltered() {
-      var q = (document.getElementById('trackSearch').value || '').toLowerCase().trim();
+      var q = getTrackSearchQuery();
       var tracks = _allTracks.slice();
 
       if (q) {
@@ -889,6 +1091,7 @@
 
     function renderFiltered() {
       var tracks = getSortedFiltered();
+      var missingRows = getFilteredImportedMissingRows(getTrackSearchQuery());
       var visibleCount = Math.min(_visibleTrackCount || tracks.length, tracks.length);
       var visibleTracks = tracks.slice(0, visibleCount);
       var list = document.getElementById('trackList');
@@ -897,11 +1100,13 @@
       visibleTracks.forEach(function(t, i) {
         frag.appendChild(buildRow(t, i));
       });
+      appendImportedMissingInlineSection(frag, missingRows);
       list.appendChild(frag);
-      document.getElementById('trackListEmpty').style.display = tracks.length ? 'none' : '';
+      document.getElementById('trackListEmpty').style.display = (tracks.length || missingRows.length) ? 'none' : '';
       document.getElementById('trackCountLabel').textContent =
         (visibleCount < tracks.length ? visibleCount + ' / ' : '') +
-        tracks.length.toLocaleString() + ' tracks';
+        tracks.length.toLocaleString() + ' tracks' +
+        (Number(_importedMissingState.missingCount || 0) > 0 ? (' • ' + Number(_importedMissingState.missingCount || 0).toLocaleString() + ' missing') : '');
       updateLoadControls(tracks.length, visibleCount);
       syncSortHeaders();
     }
@@ -929,6 +1134,93 @@
       }
 
       wrap.style.display = 'none';
+    }
+
+    function getFilteredImportedMissingRows(query) {
+      var q = String(query || '').toLowerCase().trim();
+      var rows = Array.isArray(_importedMissingState.rows) ? _importedMissingState.rows : [];
+      if (!q) return rows.slice();
+      return rows.filter(function(row) {
+        var title = String(row && row.title || '').toLowerCase();
+        var albumTitle = String(row && row.albumTitle || '').toLowerCase();
+        var artistNames = Array.isArray(row && row.artists) ? row.artists.join(', ') : String(row && row.artistName || '');
+        return title.indexOf(q) !== -1 || albumTitle.indexOf(q) !== -1 || artistNames.toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    function buildImportedMissingSectionStatus(selectedCount, visibleCount, missingCount) {
+      if (_importedMissingState.actionMessage) return _importedMissingState.actionMessage;
+      if (!visibleCount && missingCount > 0) return 'No missing tracks match the current filter.';
+      if (selectedCount > 0) return selectedCount.toLocaleString() + ' selected for Lidarr actions.';
+      if (LIDARR_AUTOMATION_ELIGIBLE && LIDARR_CONFIGURED) return 'Select missing tracks to queue them for Lidarr review or add them to the Lidarr queue.';
+      return 'Select missing tracks for later review.';
+    }
+
+    function appendImportedMissingInlineSection(frag, filteredRows) {
+      var rows = Array.isArray(_importedMissingState.rows) ? _importedMissingState.rows : [];
+      var missingCount = Number(_importedMissingState.missingCount || rows.length || 0);
+      var selectedCount = rows.filter(function(row) { return row.selected; }).length;
+      _importedMissingState.selectedCount = selectedCount;
+      if (!missingCount && !rows.length && !_importedMissingState.actionMessage) return;
+
+      var reviewButtonLabel = selectedCount > 0
+        ? ('Queue ' + selectedCount.toLocaleString() + ' for Lidarr review')
+        : 'Queue selected for Lidarr review';
+      var queueButtonLabel = selectedCount > 0
+        ? ('Add ' + selectedCount.toLocaleString() + ' to Lidarr queue')
+        : 'Add selected to Lidarr queue';
+      var lidarrEnabled = LIDARR_AUTOMATION_ELIGIBLE && LIDARR_CONFIGURED;
+      var groups = groupImportedMissingRows(filteredRows);
+      var wrapper = document.createElement('div');
+      wrapper.className = 'imported-missing-inline';
+      wrapper.innerHTML =
+        '<div class="imported-missing-inline__header">' +
+          '<div class="imported-missing-inline__title-wrap">' +
+            '<div class="imported-missing-inline__title">Missing From Source</div>' +
+            '<div class="imported-missing-inline__meta">' + missingCount.toLocaleString() + ' missing</div>' +
+          '</div>' +
+          '<div class="imported-missing-inline__actions">' +
+            '<button class="btn btn-sm btn-ghost" type="button" onclick="setAllImportedMissingSelected(true)">Select all</button>' +
+            '<button class="btn btn-sm btn-ghost" type="button" onclick="setAllImportedMissingSelected(false)">Clear</button>' +
+            (lidarrEnabled ? '<button class="btn btn-sm btn-ghost" type="button" onclick="queueImportedMissingForLidarrReview()" ' + (selectedCount <= 0 ? 'disabled' : '') + '>' + escHtml(reviewButtonLabel) + '</button>' : '') +
+            (lidarrEnabled ? '<button class="btn btn-sm btn-primary" type="button" onclick="queueImportedMissingInLidarr()" ' + (selectedCount <= 0 ? 'disabled' : '') + '>' + escHtml(queueButtonLabel) + '</button>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="imported-missing-inline__status">' + escHtml(buildImportedMissingSectionStatus(selectedCount, filteredRows.length, missingCount)) + '</div>';
+
+      if (!filteredRows.length) {
+        var empty = document.createElement('div');
+        empty.className = 'cur-empty imported-missing-inline__empty';
+        empty.textContent = missingCount > 0 ? 'No missing tracks match the current filter.' : 'No missing tracks for this imported playlist.';
+        wrapper.appendChild(empty);
+        frag.appendChild(wrapper);
+        return;
+      }
+
+      groups.forEach(function(group) {
+        var groupEl = document.createElement('div');
+        groupEl.className = 'imported-missing-inline__group';
+        var groupChecked = group.rows.length && group.selectedCount === group.rows.length;
+        groupEl.innerHTML =
+          '<div class="imported-missing-inline__group-header">' +
+            '<label class="imported-missing-inline__group-title">' +
+              '<input class="imported-missing-toggle imported-missing-group-toggle" type="checkbox" ' + (groupChecked ? 'checked ' : '') + 'onchange="toggleImportedMissingArtist(' + escAttr(JSON.stringify(group.artistName)) + ', this.checked)" />' +
+              '<span>' + escHtml(group.artistName) + '</span>' +
+            '</label>' +
+            '<div class="imported-missing-inline__group-meta">' + group.selectedCount.toLocaleString() + ' / ' + group.rows.length.toLocaleString() + ' selected</div>' +
+          '</div>';
+        var bodyEl = document.createElement('div');
+        bodyEl.className = 'imported-missing-inline__rows';
+        group.rows.forEach(function(row, idx) {
+          var temp = document.createElement('div');
+          temp.innerHTML = buildImportedMissingRow(row, idx + 1);
+          bodyEl.appendChild(temp.firstChild);
+        });
+        groupEl.appendChild(bodyEl);
+        wrapper.appendChild(groupEl);
+      });
+
+      frag.appendChild(wrapper);
     }
 
     // ── Row builder ───────────────────────────────────────────────────────────
@@ -1074,6 +1366,12 @@
       document.getElementById('newPlaylistStatus').textContent = '';
     }
 
+    function isImportedRefreshPlaylist(card) {
+      if (!card || String(card.dataset.playlistType || '').trim().toLowerCase() !== 'custom') return false;
+      var sourceType = String(card.dataset.playlistSourceType || '').trim().toLowerCase();
+      return sourceType === 'spotify-playlist' || sourceType === 'plex-playlist' || sourceType === 'plex-collection';
+    }
+
     function canRebuildSelection(kind, type) {
       if (kind === 'legacy') return true;
       return ['curatorred', 'crescive', 'curative', 'curatorr', 'daily-mix', 'global', 'personal'].indexOf(String(type || '').toLowerCase()) !== -1;
@@ -1082,14 +1380,15 @@
     function updateSelectionButtons() {
       var viewBtn = document.getElementById('playlistViewBtn');
       var canView = Boolean(_currentPlexId && PLEX_MACHINE_ID);
-      var canRebuild = canRebuildSelection(_currentPlaylistKind, _currentPlaylistType);
+      var activeCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card.is-active');
+      var canRebuild = canRebuildSelection(_currentPlaylistKind, _currentPlaylistType) || isImportedRefreshPlaylist(activeCard);
       if (viewBtn) {
         viewBtn.disabled = !canView;
         viewBtn.title = canView ? ('Open this playlist in ' + MS_LABEL) : ('This playlist is not yet available to open in ' + MS_LABEL + '.');
       }
       document.querySelectorAll('#playlistCarouselTrack .cur-playlist-carousel-rebuild').forEach(function(rebuildBtn) {
         rebuildBtn.disabled = !canRebuild;
-        rebuildBtn.title = canRebuild ? 'Rebuild this playlist in Curatorr' : 'This playlist does not support automatic rebuilding.';
+        rebuildBtn.title = canRebuild ? 'Rebuild or refresh this playlist in Curatorr' : 'This playlist does not support automatic rebuilding.';
       });
     }
 
@@ -1100,7 +1399,9 @@
 
     function resolvePlaylistAudience(data) {
       var audience = String((data && data.playlistAudience) || '').trim().toLowerCase();
-      if (audience === 'global' || audience === 'external' || audience === 'blend' || audience === 'personal' || audience === 'system') return audience;
+      if (audience === 'global' || audience === 'external' || audience === 'blend' || audience === 'personal' || audience === 'system' || audience === 'imported') return audience;
+      var source = String(data && data.sourceType || data && data.playlistSourceType || '').trim().toLowerCase();
+      if (source === 'spotify-playlist' || source.indexOf('plex-') === 0) return 'imported';
       var type = String(data && data.playlistType || '').trim().toLowerCase();
       if (type === 'global') return 'global';
       if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
@@ -1109,10 +1410,11 @@
     }
 
     function playlistAudienceSortRank(audience) {
-      if (audience === 'external') return 1;
-      if (audience === 'blend') return 2;
-      if (audience === 'global') return 3;
-      if (audience === 'system') return 4;
+      if (audience === 'imported') return 1;
+      if (audience === 'external') return 2;
+      if (audience === 'blend') return 3;
+      if (audience === 'global') return 4;
+      if (audience === 'system') return 5;
       return 0;
     }
 
@@ -1159,7 +1461,11 @@
       applyPlaylistCardFilters({ preserveActive: true, skipReload: true });
     }
 
-    function playlistAudienceTitle(audience) {
+    function playlistAudienceTitle(audience, sourceType) {
+      var source = String(sourceType || '').trim().toLowerCase();
+      if (source === 'spotify-playlist') return 'Imported Spotify playlist';
+      if (source.indexOf('plex-') === 0) return 'Imported Plex playlist';
+      if (audience === 'imported') return 'Imported playlist';
       if (audience === 'external') return 'External playlist';
       if (audience === 'global') return 'Global playlist';
       if (audience === 'blend') return 'Blend playlist';
@@ -1167,9 +1473,12 @@
       return 'Personal playlist';
     }
 
-    function buildPlaylistAudienceBadgeHtml(audience) {
+    function buildPlaylistAudienceBadgeHtml(audience, sourceType) {
       var iconHtml = '';
-      if (audience === 'global') {
+      var source = String(sourceType || '').trim().toLowerCase();
+      if (source === 'spotify-playlist' || source.indexOf('plex-') === 0) {
+        iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
+      } else if (audience === 'global') {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
       } else if (audience === 'external') {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M10 14 20 4"></path><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"></path></svg>';
@@ -1180,7 +1489,7 @@
       } else {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12"></path><path d="M4 10h9"></path><path d="M4 14h10"></path><path d="M4 18h7"></path><path d="M18.5 8.5 21 10l-2.5 1.5v-3z"></path></svg>';
       }
-      return '<div class="pl-card-audience-badge" title="' + escAttr(playlistAudienceTitle(audience)) + '">' + iconHtml + '</div>';
+      return '<div class="pl-card-audience-badge" title="' + escAttr(playlistAudienceTitle(audience, sourceType)) + '">' + iconHtml + '</div>';
     }
 
     function buildPlaylistCard(data) {
@@ -1197,14 +1506,18 @@
       card.dataset.playlistActive = data.active === false ? 'false' : 'true';
       card.dataset.playlistState = data.active === false ? 'disabled' : (data.plexPlaylistId ? 'synced' : 'pending');
       card.dataset.playlistTrackCount = String(Number(data.trackCount || 0));
+      card.dataset.playlistMissingCount = String(Number(data.missingCount || 0));
+      card.dataset.playlistSourceType = data.sourceType || '';
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
       if (data.active === false) card.classList.add('is-disabled');
       var isPersonal = data.playlistType === 'personal';
       var isGlobal = data.playlistType === 'global';
+      var isSystemRenameable = ['daily-mix', 'curatorr', 'crescive', 'curative'].indexOf(data.playlistType || '') !== -1;
       var isActive = data.active !== false;
       var playlistAudience = resolvePlaylistAudience(data);
       var isDeletable = ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(data.playlistType || '') !== -1;
+      var isImportedRefresh = data.playlistType === 'custom' && ['spotify-playlist', 'plex-playlist', 'plex-collection'].indexOf(String(data.sourceType || '').toLowerCase()) !== -1;
       var editBtnHtml = isPersonal
         ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
         : (isGlobal ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-global" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '');
@@ -1214,15 +1527,16 @@
             (data.artPath ? '<img src="' + ((_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(data.artPath) + (data.artTag ? '&tag=' + encodeURIComponent(data.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(data.artPath)) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
             (data.playlistKey ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
             '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
-            buildPlaylistAudienceBadgeHtml(playlistAudience) +
+            buildPlaylistAudienceBadgeHtml(playlistAudience, data.sourceType) +
             editBtnHtml +
             '<div class="pl-card-dots-wrap">' +
               '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options">⋯</button>' +
               '<div class="pl-card-menu" style="display:none">' +
                 (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
                 (isGlobal ? '<button type="button" class="pl-card-menu-edit-global">Edit</button>' : '') +
+                (isSystemRenameable ? '<button type="button" class="pl-card-menu-rename">Rename</button>' : '') +
                 (data.playlistKey ? '<button type="button" class="pl-card-menu-toggle-state">' + (isActive ? 'Disable' : 'Enable') + '</button>' : '') +
-                '<button type="button" class="pl-card-menu-rebuild"' + (isActive ? '' : ' disabled title="Enable this playlist first."') + '>Rebuild</button>' +
+                '<button type="button" class="pl-card-menu-rebuild"' + (isActive ? '' : ' disabled title="Enable this playlist first."') + '>' + (isImportedRefresh ? 'Refresh import' : 'Rebuild') + '</button>' +
                 (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
               '</div>' +
             '</div>' +
@@ -1230,7 +1544,7 @@
         '</div>' +
         '<div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">' +
           '<div class="plex-name cur-discover-result-name cur-playlist-carousel-title">' + escHtml(data.playlistTitle || 'Playlist') + '</div>' +
-          '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta">' + Number(data.trackCount || 0).toLocaleString() + ' tracks</div>' +
+          '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta">' + Number(data.trackCount || 0).toLocaleString() + ' tracks' + (Number(data.missingCount || 0) > 0 ? (' • ' + Number(data.missingCount || 0).toLocaleString() + ' missing') : '') + '</div>' +
           '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta' + (isActive ? '' : ' cur-playlist-carousel-meta--disabled') + '">' + (isActive ? ('Curatorr updated ' + escHtml(fmtShortDate(data.updatedAt || Date.now()))) : 'Disabled in Plex') + '</div>' +
         '</div>';
       card.addEventListener('click', function() { selectPlaylist(card); });
@@ -1249,6 +1563,8 @@
       if (editMenuBtn) editMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditPlaylistModal(card); });
       var editGlobalMenuBtn = card.querySelector('.pl-card-menu-edit-global');
       if (editGlobalMenuBtn) editGlobalMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditGlobalPlaylist(card); });
+      var renameMenuBtn = card.querySelector('.pl-card-menu-rename');
+      if (renameMenuBtn) renameMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); renameCardPlaylist(card); });
       var toggleStateBtn = card.querySelector('.pl-card-menu-toggle-state');
       if (toggleStateBtn) toggleStateBtn.addEventListener('click', function(e) { e.stopPropagation(); toggleCardPlaylistActive(card, !isPlaylistCardActive(card)); });
       var rebuildMenuBtn = card.querySelector('.pl-card-menu-rebuild');
@@ -1295,6 +1611,707 @@
         });
     }
 
+    function closeImportPlaylistModal() {
+      var modal = document.getElementById('importPlModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+    }
+
+    function onImportPlexTitleInput() {
+      _importPlexTitleTouched = true;
+    }
+
+    function setImportSourceTab(tab) {
+      _importSourceTab = tab === 'spotify' ? 'spotify' : 'plex';
+      var plexBtn = document.getElementById('importPlexTabBtn');
+      var spotifyBtn = document.getElementById('importSpotifyTabBtn');
+      var plexPanel = document.getElementById('importPlexPanel');
+      var spotifyPanel = document.getElementById('importSpotifyPanel');
+      if (plexBtn) {
+        plexBtn.classList.toggle('is-active', _importSourceTab === 'plex');
+        plexBtn.setAttribute('aria-selected', _importSourceTab === 'plex' ? 'true' : 'false');
+      }
+      if (spotifyBtn) {
+        spotifyBtn.classList.toggle('is-active', _importSourceTab === 'spotify');
+        spotifyBtn.setAttribute('aria-selected', _importSourceTab === 'spotify' ? 'true' : 'false');
+      }
+      if (plexPanel) plexPanel.style.display = _importSourceTab === 'plex' ? 'block' : 'none';
+      if (spotifyPanel) spotifyPanel.style.display = _importSourceTab === 'spotify' ? 'block' : 'none';
+      resetImportedTitleField();
+      updateImportSubmitButton();
+    }
+
+    function updateImportSubmitButton() {
+      var submitBtn = document.getElementById('importPlexSubmitBtn');
+      if (!submitBtn) return;
+      if (_importSourceTab === 'spotify') {
+        var canImportSpotify = Boolean(_importSpotifySelection && _importSpotifyPreview && Number(_importSpotifyPreview.matchedCount || 0) > 0);
+        if (!_importSpotifySelection) submitBtn.textContent = 'Select a playlist';
+        else if (!_importSpotifyPreview) submitBtn.textContent = 'Checking matches…';
+        else if (!Number(_importSpotifyPreview.totalSourceTracks || 0) && Number(_importSpotifySelection.trackCount || 0) > 0) submitBtn.textContent = 'Preview unavailable';
+        else if (!Number(_importSpotifyPreview.totalSourceTracks || 0)) submitBtn.textContent = 'Playlist is empty';
+        else if (!Number(_importSpotifyPreview.matchedCount || 0)) submitBtn.textContent = 'No matched tracks';
+        else submitBtn.textContent = 'Import matched tracks';
+        submitBtn.disabled = !canImportSpotify;
+      } else {
+        submitBtn.textContent = 'Import';
+        submitBtn.disabled = !_importPlexSelection;
+      }
+    }
+
+    function resetImportedTitleField() {
+      var titleInput = document.getElementById('importPlexTitle');
+      if (!titleInput) return;
+      if (_importSourceTab === 'spotify' && _importSpotifySelection && !_importPlexTitleTouched) {
+        titleInput.value = _importSpotifySelection.name || '';
+      } else if (_importSourceTab === 'plex' && _importPlexSelection && !_importPlexTitleTouched) {
+        titleInput.value = _importPlexSelection.title || '';
+      }
+    }
+
+    function setImportSpotifyOwnerFilter(mode) {
+      _importSpotifyOwnerFilter = mode === 'all' ? 'all' : 'mine';
+      var mineBtn = document.getElementById('importSpotifyMineBtn');
+      var allBtn = document.getElementById('importSpotifyAllBtn');
+      if (mineBtn) mineBtn.classList.toggle('is-active', _importSpotifyOwnerFilter === 'mine');
+      if (allBtn) allBtn.classList.toggle('is-active', _importSpotifyOwnerFilter === 'all');
+      renderImportSpotifySources();
+    }
+
+    function ensureModalAtRoot(modalId) {
+      var modal = document.getElementById(modalId);
+      if (!modal || !document.body || modal.parentNode === document.body) return modal;
+      document.body.appendChild(modal);
+      return modal;
+    }
+
+    function openImportPlaylistModal() {
+      var modal = ensureModalAtRoot('importPlModal');
+      if (!modal) return;
+      modal.style.display = '';
+      modal.scrollTop = 0;
+      var dialogEl = document.getElementById('importPlDialog') || modal.querySelector('.spm-dialog--import');
+      var bodyEl = modal.querySelector('.spm-body');
+      var headerEl = document.getElementById('importPlHeader');
+      if (dialogEl) dialogEl.scrollTop = 0;
+      if (bodyEl) bodyEl.scrollTop = 0;
+      if (headerEl && typeof headerEl.scrollIntoView === 'function') headerEl.scrollIntoView({ block: 'start' });
+      requestAnimationFrame(function() {
+        modal.scrollTop = 0;
+        if (dialogEl) dialogEl.scrollTop = 0;
+        if (bodyEl) bodyEl.scrollTop = 0;
+        if (headerEl && typeof headerEl.scrollIntoView === 'function') headerEl.scrollIntoView({ block: 'start' });
+      });
+      setTimeout(function() {
+        modal.scrollTop = 0;
+        if (dialogEl) dialogEl.scrollTop = 0;
+        if (bodyEl) bodyEl.scrollTop = 0;
+      }, 0);
+      _importPlexSources = [];
+      _importPlexSelection = null;
+      _importSpotifySources = [];
+      _importSpotifySelection = null;
+      _importSpotifyPreview = null;
+      _importSpotifyOwnerFilter = 'mine';
+      _importPlexTitleTouched = false;
+      var titleInput = document.getElementById('importPlexTitle');
+      var searchInput = document.getElementById('importPlexSearch');
+      var spotifySearchInput = document.getElementById('importSpotifySearch');
+      var statusEl = document.getElementById('importPlexStatus');
+      var spotifyStatusEl = document.getElementById('importSpotifyStatus');
+      var submitBtn = document.getElementById('importPlexSubmitBtn');
+      if (titleInput) titleInput.value = '';
+      if (searchInput) searchInput.value = '';
+      if (spotifySearchInput) spotifySearchInput.value = '';
+      if (submitBtn) submitBtn.disabled = true;
+      if (statusEl) statusEl.textContent = 'Loading sources…';
+      if (spotifyStatusEl) spotifyStatusEl.textContent = SPOTIFY_CONNECTED ? 'Loading Spotify playlists…' : 'Connect Spotify in User Settings first.';
+      if (document.getElementById('importPlexList')) document.getElementById('importPlexList').innerHTML = '';
+      if (document.getElementById('importSpotifyList')) document.getElementById('importSpotifyList').innerHTML = '';
+      if (document.getElementById('importPlexEmpty')) document.getElementById('importPlexEmpty').style.display = 'none';
+      if (document.getElementById('importSpotifyEmpty')) document.getElementById('importSpotifyEmpty').style.display = 'none';
+      if (document.getElementById('importSpotifyPreview')) document.getElementById('importSpotifyPreview').style.display = 'none';
+      setImportSpotifyOwnerFilter('mine');
+      setImportSourceTab(IMPORT_HAS_PLEX ? 'plex' : 'spotify');
+      if (IMPORT_HAS_PLEX) loadImportPlexSources();
+      if (SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED) loadImportSpotifySources();
+    }
+
+    function loadImportPlexSources() {
+      var statusEl = document.getElementById('importPlexStatus');
+      fetch('/api/music/import/plex/sources')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to load Plex sources.');
+          var playlists = Array.isArray(data.playlists) ? data.playlists : [];
+          var collections = Array.isArray(data.collections) ? data.collections : [];
+          _importPlexSources = playlists
+            .map(function(item) { return { kind: 'playlist', id: item.id, title: item.title, trackCount: Number(item.trackCount || 0), updatedAt: Number(item.updatedAt || 0), libraryTitle: '' }; })
+            .concat(collections.map(function(item) {
+              return {
+                kind: 'collection',
+                id: item.id,
+                title: item.title,
+                trackCount: Number(item.trackCount || 0),
+                updatedAt: Number(item.updatedAt || 0),
+                libraryTitle: item.libraryTitle || '',
+              };
+            }));
+          _importPlexSources.sort(function(a, b) {
+            if (a.kind !== b.kind) return a.kind === 'playlist' ? -1 : 1;
+            return String(a.title || '').localeCompare(String(b.title || ''));
+          });
+          renderImportPlexSources();
+        })
+        .catch(function(err) {
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
+    }
+
+    function renderImportPlexSources() {
+      if (!document.getElementById('importPlexList')) return;
+      var listEl = document.getElementById('importPlexList');
+      var statusEl = document.getElementById('importPlexStatus');
+      var emptyEl = document.getElementById('importPlexEmpty');
+      var search = String(document.getElementById('importPlexSearch').value || '').trim().toLowerCase();
+      var visibleItems = _importPlexSources.filter(function(item) {
+        if (!search) return true;
+        return String(item.title || '').toLowerCase().indexOf(search) !== -1
+          || String(item.libraryTitle || '').toLowerCase().indexOf(search) !== -1
+          || String(item.kind || '').toLowerCase().indexOf(search) !== -1;
+      });
+      listEl.innerHTML = '';
+      emptyEl.style.display = visibleItems.length ? 'none' : '';
+      if (!visibleItems.length) {
+        if (statusEl) statusEl.textContent = _importPlexSources.length ? 'No matching Plex sources.' : 'No Plex playlists or collections found.';
+        return;
+      }
+      if (statusEl) statusEl.textContent = visibleItems.length + ' Plex sources available.';
+      visibleItems.forEach(function(item) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'import-pl-option' + (_importPlexSelection && _importPlexSelection.kind === item.kind && _importPlexSelection.id === item.id ? ' is-active' : '');
+        button.innerHTML =
+          '<span class="import-pl-option__top">' +
+            '<span class="import-pl-option__title">' + escHtml(item.title || 'Untitled') + '</span>' +
+            '<span class="import-pl-option__badge' + (item.kind === 'collection' ? ' import-pl-option__badge--collection' : '') + '">' + escHtml(item.kind) + '</span>' +
+          '</span>' +
+          '<span class="import-pl-option__meta">' +
+            Number(item.trackCount || 0).toLocaleString() + ' tracks' +
+            (item.libraryTitle ? ' • ' + escHtml(item.libraryTitle) : '') +
+          '</span>';
+        button.addEventListener('click', function() {
+          _importPlexSelection = item;
+          resetImportedTitleField();
+          updateImportSubmitButton();
+          renderImportPlexSources();
+        });
+        listEl.appendChild(button);
+      });
+    }
+
+    function loadImportSpotifySources() {
+      var statusEl = document.getElementById('importSpotifyStatus');
+      fetch('/api/music/import/spotify/playlists')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to load Spotify playlists.');
+          _importSpotifySources = Array.isArray(data.playlists) ? data.playlists : [];
+          _importSpotifySources.sort(function(a, b) {
+            return String(a.name || '').localeCompare(String(b.name || ''));
+          });
+          renderImportSpotifySources();
+        })
+        .catch(function(err) {
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
+    }
+
+    function renderImportSpotifySources() {
+      var listEl = document.getElementById('importSpotifyList');
+      if (!listEl) return;
+      var statusEl = document.getElementById('importSpotifyStatus');
+      var emptyEl = document.getElementById('importSpotifyEmpty');
+      var search = String(document.getElementById('importSpotifySearch').value || '').trim().toLowerCase();
+      var visibleItems = _importSpotifySources.filter(function(item) {
+        if (_importSpotifyOwnerFilter === 'mine' && SPOTIFY_USER_ID && String(item.ownerId || '').trim() !== SPOTIFY_USER_ID) return false;
+        if (!search) return true;
+        return String(item.name || '').toLowerCase().indexOf(search) !== -1
+          || String(item.ownerName || '').toLowerCase().indexOf(search) !== -1;
+      });
+      listEl.innerHTML = '';
+      emptyEl.style.display = visibleItems.length ? 'none' : '';
+      if (!visibleItems.length) {
+        if (statusEl) {
+          if (!_importSpotifySources.length) statusEl.textContent = 'No Spotify playlists found.';
+          else if (_importSpotifyOwnerFilter === 'mine') statusEl.textContent = 'No Spotify playlists owned by you match that search.';
+          else statusEl.textContent = 'No matching Spotify playlists.';
+        }
+        return;
+      }
+      if (statusEl) statusEl.textContent = visibleItems.length + ' Spotify playlists available.';
+      visibleItems.forEach(function(item) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'import-pl-option' + (_importSpotifySelection && _importSpotifySelection.id === item.id ? ' is-active' : '');
+        button.innerHTML =
+          '<span class="import-pl-option__top">' +
+            '<span class="import-pl-option__title">' + escHtml(item.name || 'Untitled') + '</span>' +
+            '<span class="import-pl-option__badge">spotify</span>' +
+          '</span>' +
+          '<span class="import-pl-option__meta">' +
+            Number(item.trackCount || 0).toLocaleString() + ' tracks' +
+            (item.ownerName ? ' • ' + escHtml(item.ownerName) : '') +
+          '</span>';
+        button.addEventListener('click', function() {
+          _importSpotifySelection = item;
+          _importSpotifyPreview = null;
+          resetImportedTitleField();
+          renderImportSpotifySources();
+          loadImportSpotifyPreview(item);
+        });
+        listEl.appendChild(button);
+      });
+    }
+
+    function renderSpotifyPreviewSection(sectionId, listId, items, formatter, totalCount) {
+      var sectionEl = document.getElementById(sectionId);
+      var listEl = document.getElementById(listId);
+      if (!sectionEl || !listEl) return;
+      listEl.innerHTML = '';
+      var safeItems = Array.isArray(items) ? items : [];
+      if (!safeItems.length) {
+        sectionEl.style.display = 'none';
+        return;
+      }
+      safeItems.forEach(function(item) {
+        var row = document.createElement('div');
+        row.className = 'import-spotify-preview__item';
+        row.innerHTML = formatter(item);
+        listEl.appendChild(row);
+      });
+      if (Number(totalCount || 0) > safeItems.length) {
+        var more = document.createElement('div');
+        more.className = 'import-spotify-preview__more';
+        more.textContent = '+' + (Number(totalCount || 0) - safeItems.length).toLocaleString() + ' more';
+        listEl.appendChild(more);
+      }
+      sectionEl.style.display = '';
+    }
+
+    function renderImportSpotifyPreviewDetails(data) {
+      var sectionsEl = document.getElementById('importSpotifyPreviewSections');
+      if (!sectionsEl) return;
+      renderSpotifyPreviewSection(
+        'importSpotifyMatchedSection',
+        'importSpotifyMatchedList',
+        Array.isArray(data?.matched) ? data.matched.slice(0, 5) : [],
+        function(item) {
+          return '<div class="import-spotify-preview__item-title">' + escHtml(item.spotifyTitle || item.trackTitle || 'Matched track') + '</div>'
+            + '<div class="import-spotify-preview__item-meta">'
+            + escHtml((Array.isArray(item.spotifyArtists) ? item.spotifyArtists.join(', ') : '') || item.artistName || '')
+            + (item.trackTitle && item.trackTitle !== item.spotifyTitle ? ' → ' + escHtml(item.trackTitle) : '')
+            + (item.albumName ? ' • ' + escHtml(item.albumName) : '')
+            + '</div>';
+        },
+        Number(data?.matchedCount || 0)
+      );
+      renderSpotifyPreviewSection(
+        'importSpotifyUnmatchedArtistsSection',
+        'importSpotifyUnmatchedArtistsList',
+        Array.isArray(data?.unmatchedArtists) ? data.unmatchedArtists.slice(0, 6) : [],
+        function(item) {
+          var sampleTracks = Array.isArray(item.sampleTracks) ? item.sampleTracks : [];
+          var sampleText = sampleTracks
+            .map(function(track) {
+              var title = String(track?.title || '').trim();
+              var albumTitle = String(track?.albumTitle || '').trim();
+              if (!title) return '';
+              return title + (albumTitle ? ' (' + albumTitle + ')' : '');
+            })
+            .filter(Boolean)
+            .join(' • ');
+          var meta = Number(item.trackCount || 0).toLocaleString() + ' unmatched track' + (Number(item.trackCount || 0) === 1 ? '' : 's');
+          if (sampleText) meta += ' • ' + sampleText;
+          return '<div class="import-spotify-preview__item-title">' + escHtml(item.artistName || 'Unknown artist') + '</div>'
+            + '<div class="import-spotify-preview__item-meta">' + escHtml(meta) + '</div>';
+        },
+        Number(data?.unmatchedArtistCount || 0)
+      );
+      renderSpotifyPreviewSection(
+        'importSpotifyUnmatchedSection',
+        'importSpotifyUnmatchedList',
+        Array.isArray(data?.unmatched) ? data.unmatched.slice(0, 5) : [],
+        function(item) {
+          return '<div class="import-spotify-preview__item-title">' + escHtml(item.title || 'Unmatched track') + '</div>'
+            + '<div class="import-spotify-preview__item-meta">'
+            + escHtml(Array.isArray(item.artists) ? item.artists.join(', ') : '')
+            + (item.albumTitle ? ' • ' + escHtml(item.albumTitle) : '')
+            + '</div>';
+        },
+        Number(data?.unmatchedCount || 0)
+      );
+      renderSpotifyPreviewSection(
+        'importSpotifyDuplicateSection',
+        'importSpotifyDuplicateList',
+        Array.isArray(data?.duplicateMatches) ? data.duplicateMatches.slice(0, 5) : [],
+        function(item) {
+          return '<div class="import-spotify-preview__item-title">' + escHtml(item.spotifyTitle || item.trackTitle || 'Duplicate match') + '</div>'
+            + '<div class="import-spotify-preview__item-meta">'
+            + escHtml((Array.isArray(item.spotifyArtists) ? item.spotifyArtists.join(', ') : '') || item.artistName || '')
+            + (item.trackTitle && item.trackTitle !== item.spotifyTitle ? ' → ' + escHtml(item.trackTitle) : '')
+            + '</div>';
+        },
+        Number(data?.duplicateCount || 0)
+      );
+      var hasVisibleSections = !!(
+        (Array.isArray(data?.matched) && data.matched.length)
+        || (Array.isArray(data?.unmatchedArtists) && data.unmatchedArtists.length)
+        || (Array.isArray(data?.unmatched) && data.unmatched.length)
+        || (Array.isArray(data?.duplicateMatches) && data.duplicateMatches.length)
+      );
+      sectionsEl.style.display = hasVisibleSections ? '' : 'none';
+    }
+
+    function loadImportSpotifyPreview(item) {
+      var statusEl = document.getElementById('importSpotifyStatus');
+      var previewEl = document.getElementById('importSpotifyPreview');
+      var summaryEl = document.getElementById('importSpotifyPreviewSummary');
+      var statsEl = document.getElementById('importSpotifyPreviewStats');
+      var sectionsEl = document.getElementById('importSpotifyPreviewSections');
+      if (!item || !item.id) return;
+      if (previewEl) previewEl.style.display = 'none';
+      if (sectionsEl) sectionsEl.style.display = 'none';
+      if (statusEl) statusEl.textContent = 'Checking local matches…';
+      fetch('/api/music/import/spotify/preview?playlistId=' + encodeURIComponent(item.id))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to preview Spotify playlist.');
+          _importSpotifyPreview = data;
+          if (summaryEl) {
+            summaryEl.textContent = (data.playlist && data.playlist.name ? data.playlist.name : item.name) + ' by ' + (data.playlist && data.playlist.ownerName ? data.playlist.ownerName : (item.ownerName || 'Spotify'));
+          }
+          if (statsEl) {
+            statsEl.textContent = Number(data.totalSourceTracks || 0).toLocaleString() + ' source tracks • '
+              + Number(data.matchedCount || 0).toLocaleString() + ' matched • '
+              + Number(data.unmatchedCount || 0).toLocaleString() + ' unmatched'
+              + (Number(data.duplicateCount || 0) ? (' • ' + Number(data.duplicateCount || 0).toLocaleString() + ' duplicates skipped') : '');
+          }
+          renderImportSpotifyPreviewDetails(data);
+          if (previewEl) previewEl.style.display = '';
+          if (statusEl) {
+            if (!Number(data.totalSourceTracks || 0) && Number(item.trackCount || 0) > 0) {
+              statusEl.textContent = 'Spotify did not expose track details for this playlist.';
+            } else if (!Number(data.totalSourceTracks || 0)) statusEl.textContent = 'This Spotify playlist is empty.';
+            else if (!Number(data.matchedCount || 0)) statusEl.textContent = 'No tracks from this Spotify playlist matched your local library.';
+            else statusEl.textContent = 'Spotify preview ready.';
+          }
+          updateImportSubmitButton();
+        })
+        .catch(function(err) {
+          _importSpotifyPreview = null;
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+          updateImportSubmitButton();
+        });
+    }
+
+    function submitImportPlex() {
+      var titleInput = document.getElementById('importPlexTitle');
+      var submitBtn = document.getElementById('importPlexSubmitBtn');
+      var title = String(titleInput && titleInput.value || '').trim()
+        || (_importSourceTab === 'spotify' ? (_importSpotifySelection && _importSpotifySelection.name) : (_importPlexSelection && _importPlexSelection.title))
+        || 'Imported Playlist';
+      if (_importSourceTab === 'spotify') {
+        if (!_importSpotifySelection) return;
+        var spotifyStatusEl = document.getElementById('importSpotifyStatus');
+        submitBtn.disabled = true;
+        if (spotifyStatusEl) spotifyStatusEl.textContent = 'Importing matched Spotify tracks…';
+        fetch('/api/music/import/spotify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+          body: JSON.stringify({
+            playlistId: _importSpotifySelection.id,
+            title: title,
+          }),
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.ok) throw new Error(data.error || 'Import failed.');
+            var playlist = data.playlist || {};
+            var card = buildPlaylistCard({
+              plexPlaylistId: playlist.plexPlaylistId || '',
+              playlistKey: playlist.playlistKey || '',
+              playlistTitle: playlist.playlistTitle || title,
+              playlistKind: 'generated',
+              playlistType: 'custom',
+              playlistAudience: 'personal',
+              sourceType: playlist.sourceType || 'spotify-playlist',
+              active: true,
+              trackCount: Number(data.importedTrackCount || playlist.trackCount || 0),
+              missingCount: Number(data.importedMissingCount || playlist.missingCount || 0),
+              updatedAt: Number(playlist.updatedAt || playlist.lastSyncedAt || Date.now()),
+              artPath: '',
+            });
+            insertPlaylistCardSorted(card);
+            closeImportPlaylistModal();
+            selectPlaylist(card);
+          })
+          .catch(function(err) {
+            if (spotifyStatusEl) spotifyStatusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+          })
+          .finally(function() {
+            updateImportSubmitButton();
+          });
+        return;
+      }
+      if (!_importPlexSelection) return;
+      var statusEl = document.getElementById('importPlexStatus');
+      submitBtn.disabled = true;
+      statusEl.textContent = 'Importing…';
+      fetch('/api/music/import/plex', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({
+          sourceType: _importPlexSelection.kind,
+          sourceId: _importPlexSelection.id,
+          sourceTitle: _importPlexSelection.title,
+          title: title,
+        }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Import failed.');
+          var playlist = data.playlist || {};
+          var card = buildPlaylistCard({
+            plexPlaylistId: playlist.plexPlaylistId || '',
+            playlistKey: playlist.playlistKey || '',
+            playlistTitle: playlist.playlistTitle || title,
+            playlistKind: 'generated',
+            playlistType: 'custom',
+            playlistAudience: 'personal',
+            sourceType: playlist.sourceType || (_importPlexSelection ? ('plex-' + _importPlexSelection.kind) : 'plex-playlist'),
+            active: true,
+            trackCount: Number(data.importedTrackCount || playlist.trackCount || 0),
+            missingCount: Number(data.importedMissingCount || playlist.missingCount || 0),
+            updatedAt: Number(playlist.updatedAt || playlist.lastSyncedAt || Date.now()),
+            artPath: '',
+          });
+          insertPlaylistCardSorted(card);
+          closeImportPlaylistModal();
+          selectPlaylist(card);
+        })
+        .catch(function(err) {
+          statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+        })
+        .finally(function() {
+          updateImportSubmitButton();
+        });
+    }
+
+    function resetImportedMissingPanel() {
+      _importedMissingState = { playlistKey: '', rows: [], selectedCount: 0, missingCount: 0, actionMessage: '' };
+    }
+
+    function groupImportedMissingRows(rows) {
+      var groups = new Map();
+      (Array.isArray(rows) ? rows : []).forEach(function(row) {
+        var artistName = String(row.artistName || (Array.isArray(row.artists) ? row.artists[0] : '') || 'Unknown artist').trim() || 'Unknown artist';
+        if (!groups.has(artistName)) groups.set(artistName, []);
+        groups.get(artistName).push(row);
+      });
+      return Array.from(groups.entries()).map(function(entry) {
+        var artistName = entry[0];
+        var items = entry[1];
+        return {
+          artistName: artistName,
+          rows: items,
+          selectedCount: items.filter(function(row) { return row.selected; }).length,
+        };
+      }).sort(function(a, b) {
+        if (b.rows.length !== a.rows.length) return b.rows.length - a.rows.length;
+        return a.artistName.localeCompare(b.artistName);
+      });
+    }
+
+    function buildImportedMissingRow(row, fallbackIndex) {
+      var displayIndex = Number(row.position || 0) > 0 ? Number(row.position) : Number(fallbackIndex || 0);
+      var title = String(row.title || '').trim() || 'Unmatched track';
+      var albumTitle = String(row.albumTitle || '').trim();
+      var artistNames = Array.isArray(row.artists) && row.artists.length ? row.artists : [row.artistName || 'Unknown artist'];
+      var artistText = artistNames.filter(Boolean).join(', ') || 'Unknown artist';
+      var albumHtml = albumTitle
+        ? escHtml(albumTitle)
+        : '<span class="cur-pl-cell-empty">—</span>';
+
+      return '<div class="cur-pl-row imported-missing-row">' +
+        '<span class="cur-pl-col-num">' + displayIndex + '</span>' +
+        '<span class="cur-pl-col-track"><span class="cur-pl-track-name"><span class="cur-track-titletext">' + escHtml(title) + '</span></span></span>' +
+        '<span class="cur-pl-col-album">' + albumHtml + '</span>' +
+        '<span class="cur-pl-col-artist">' + escHtml(artistText) + '</span>' +
+        '<span class="cur-pl-col-dur">' + fmtDuration(Number(row.durationMs || 0)) + '</span>' +
+        '<span class="cur-pl-col-act"><input class="imported-missing-toggle" type="checkbox" ' + (row.selected ? 'checked ' : '') + 'onchange="toggleImportedMissingRow(' + Number(row.id || 0) + ', this.checked)" /></span>' +
+      '</div>';
+    }
+
+    function loadImportedMissingPanel(playlistKey, expectedMissingCount) {
+      if (!playlistKey || Number(expectedMissingCount || 0) <= 0) {
+        resetImportedMissingPanel();
+        return;
+      }
+      _importedMissingState = { playlistKey: playlistKey, rows: [], selectedCount: 0, missingCount: Number(expectedMissingCount || 0), actionMessage: '' };
+      fetch('/api/music/playlists/imported-unmatched?playlistKey=' + encodeURIComponent(playlistKey))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to load missing tracks.');
+          if (_currentPlexKey !== playlistKey) return;
+          _importedMissingState = {
+            playlistKey: playlistKey,
+            rows: Array.isArray(data.rows) ? data.rows : [],
+            selectedCount: Number(data.selectedCount || 0),
+            missingCount: Number(data.missingCount || 0),
+            actionMessage: '',
+          };
+          if (document.getElementById('trackListLoading').style.display === 'none') renderFiltered();
+        })
+        .catch(function(err) {
+          if (_currentPlexKey !== playlistKey) return;
+          _importedMissingState.actionMessage = 'Failed to load missing source tracks: ' + err.message;
+          if (document.getElementById('trackListLoading').style.display === 'none') renderFiltered();
+        });
+    }
+
+    function syncImportedMissingSelection(payload) {
+      if (!_currentPlexKey) return;
+      fetch('/api/music/playlists/imported-unmatched/selection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify(Object.assign({ playlistKey: _currentPlexKey }, payload || {})),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to update selection.');
+          if (_currentPlexKey !== String(data.playlistKey || '')) return;
+          _importedMissingState.rows = Array.isArray(data.rows) ? data.rows : [];
+          _importedMissingState.selectedCount = Number(data.selectedCount || 0);
+          _importedMissingState.missingCount = Number(data.missingCount || 0);
+          _importedMissingState.actionMessage = '';
+          renderFiltered();
+        })
+        .catch(function(err) {
+          _importedMissingState.actionMessage = 'Could not save selection: ' + err.message;
+          renderFiltered();
+        });
+    }
+
+    function setAllImportedMissingSelected(selected) {
+      if (!_currentPlexKey) return;
+      syncImportedMissingSelection({ selectAll: true, selected: Boolean(selected) });
+    }
+
+    function toggleImportedMissingArtist(artistName, selected) {
+      if (!_currentPlexKey) return;
+      syncImportedMissingSelection({ artistName: String(artistName || ''), selected: Boolean(selected) });
+    }
+
+    function toggleImportedMissingRow(id, selected) {
+      if (!_currentPlexKey) return;
+      syncImportedMissingSelection({ ids: [Number(id || 0)], selected: Boolean(selected) });
+    }
+
+    function queueImportedMissingForLidarrReview() {
+      if (!_currentPlexKey || !_importedMissingState.selectedCount) return;
+      _importedMissingState.actionMessage = 'Queueing selected artists for Lidarr review…';
+      renderFiltered();
+      fetch('/api/music/playlists/imported-unmatched/lidarr-seed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ playlistKey: _currentPlexKey }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to queue selected tracks for Lidarr review.');
+          _importedMissingState.rows = Array.isArray(data.rows) ? data.rows : [];
+          _importedMissingState.selectedCount = Number(data.selectedCount || 0);
+          _importedMissingState.missingCount = Number(data.missingCount || 0);
+          _importedMissingState.actionMessage = String(data.message || '').trim();
+          renderFiltered();
+        })
+        .catch(function(err) {
+          _importedMissingState.actionMessage = 'Could not queue selected artists for Lidarr review: ' + err.message;
+          renderFiltered();
+        });
+    }
+
+    function queueImportedMissingInLidarr() {
+      if (!_currentPlexKey || !_importedMissingState.selectedCount) return;
+      _importedMissingState.actionMessage = 'Adding selected artists to the Lidarr queue…';
+      renderFiltered();
+      fetch('/api/music/playlists/imported-unmatched/lidarr-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ playlistKey: _currentPlexKey }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to add selected artists to the Lidarr queue.');
+          _importedMissingState.rows = Array.isArray(data.rows) ? data.rows : [];
+          _importedMissingState.selectedCount = Number(data.selectedCount || 0);
+          _importedMissingState.missingCount = Number(data.missingCount || 0);
+          _importedMissingState.actionMessage = String(data.message || '').trim();
+          renderFiltered();
+        })
+        .catch(function(err) {
+          _importedMissingState.actionMessage = 'Could not add selected artists to the Lidarr queue: ' + err.message;
+          renderFiltered();
+        });
+    }
+
+    function setPlaylistCarouselCollapsed(collapsed) {
+      var panel = document.getElementById('playlistCarouselPanel');
+      if (!panel) return;
+      var next = Boolean(collapsed);
+      if (_playlistCarouselCollapsed === next) return;
+      _playlistCarouselCollapsed = next;
+      panel.classList.toggle('is-collapsed', next);
+      document.body.classList.toggle('has-collapsed-playlist-carousel', next);
+    }
+
+    function getPlaylistTrackScrollContainer() {
+      return document.querySelector('#playlistTracksPanel .cur-pl-body');
+    }
+
+    function evaluatePlaylistCarouselAutoCollapse() {
+      var panel = document.getElementById('playlistCarouselPanel');
+      var tracksPanel = document.getElementById('playlistTracksPanel');
+      var trackScroller = getPlaylistTrackScrollContainer();
+      if (!panel || !tracksPanel) return;
+      var scrollTop = trackScroller ? Number(trackScroller.scrollTop || 0) : 0;
+      var collapse = _playlistCarouselCollapsed
+        ? scrollTop > _playlistCarouselExpandThreshold
+        : scrollTop > _playlistCarouselCollapseThreshold;
+      if (!collapse) collapse = tracksPanel.getBoundingClientRect().top <= 116;
+      setPlaylistCarouselCollapsed(collapse);
+    }
+
+    function bindPlaylistCarouselAutoCollapse() {
+      var dashContent = document.querySelector('.cur-playlists-page .dash-content');
+      var trackScroller = getPlaylistTrackScrollContainer();
+      var ticking = false;
+      function onScroll() {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(function() {
+          ticking = false;
+          evaluatePlaylistCarouselAutoCollapse();
+        });
+      }
+      if (dashContent) dashContent.addEventListener('scroll', onScroll, { passive: true });
+      if (trackScroller) trackScroller.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', onScroll);
+      onScroll();
+    }
+
     // ── Playlist selection ────────────────────────────────────────────────────
 
     function selectPlaylist(el) {
@@ -1303,6 +2320,7 @@
       var title = el.getAttribute('data-pl-title') || '';
       _currentPlaylistKind = el.getAttribute('data-playlist-kind') || '';
       _currentPlaylistType = el.getAttribute('data-playlist-type') || '';
+      _currentPlaylistMissingCount = Number(el.getAttribute('data-playlist-missing-count') || 0);
       document.querySelectorAll('#playlistCarouselTrack .cur-playlist-carousel-card').forEach(function(card) {
         card.classList.remove('is-active');
       });
@@ -1324,6 +2342,8 @@
         return;
       }
       reloadTracks();
+      loadImportedMissingPanel(plKey, _currentPlaylistMissingCount);
+      evaluatePlaylistCarouselAutoCollapse();
     }
 
     function reloadTracks() {
@@ -1340,6 +2360,8 @@
       document.getElementById('trackListEmpty').style.display = 'none';
       document.getElementById('trackListLoading').style.display = '';
       document.getElementById('loadMoreWrap').style.display = 'none';
+      var trackScroller = getPlaylistTrackScrollContainer();
+      if (trackScroller) trackScroller.scrollTop = 0;
       loadTracks(0, null, generation).then(function(data) {
         if (!data || generation !== _trackLoadGeneration) return;
         if (_offset < _total) ensureAllTracksLoaded('', { silent: true, generation: generation });
@@ -1378,7 +2400,10 @@
             selectedCard.setAttribute('data-playlist-track-count', String(_total));
             // Sync the visible track count on the carousel card to match the actual Plex count
             var metaEl = selectedCard.querySelector('.cur-playlist-carousel-meta');
-            if (metaEl) metaEl.textContent = Number(_total).toLocaleString() + ' tracks';
+            if (metaEl) {
+              var missingCount = Number(selectedCard.getAttribute('data-playlist-missing-count') || 0);
+              metaEl.textContent = Number(_total).toLocaleString() + ' tracks' + (missingCount > 0 ? (' • ' + missingCount.toLocaleString() + ' missing') : '');
+            }
             updateSelectionSummary(selectedCard);
           }
 
@@ -1475,12 +2500,13 @@
       var status = document.getElementById('syncStatus');
       var kind = card.dataset.playlistKind || '';
       var key = card.dataset.plKey || '';
-      if (!canRebuildSelection(kind, card.dataset.playlistType || '')) {
+      var importedRefresh = isImportedRefreshPlaylist(card);
+      if (!importedRefresh && !canRebuildSelection(kind, card.dataset.playlistType || '')) {
         status.textContent = 'This playlist does not support rebuilding.';
         return;
       }
-      status.textContent = 'Rebuilding…';
-      fetch('/api/music/playlists/rebuild', {
+      status.textContent = importedRefresh ? 'Refreshing import…' : 'Rebuilding…';
+      fetch(importedRefresh ? '/api/music/playlists/imported-refresh' : '/api/music/playlists/rebuild', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
         body: JSON.stringify({ playlistKind: kind, playlistKey: key }),
@@ -1488,7 +2514,7 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.ok) {
-            status.textContent = 'Rebuilt.';
+            status.textContent = importedRefresh ? 'Import refreshed.' : 'Rebuilt.';
             var reloadUrl = new URL(window.location.href);
             reloadUrl.searchParams.delete('blend');
             reloadUrl.searchParams.delete('name');
@@ -1510,6 +2536,31 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
         body: JSON.stringify({ playlistKey: playlistKey, active: Boolean(shouldEnable) }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Unknown error');
+          window.location.reload();
+        })
+        .catch(function(err) {
+          status.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
+    }
+
+    function renameCardPlaylist(card) {
+      if (!card) return;
+      closeAllCardMenus();
+      var playlistKey = String(card.dataset.plKey || '').trim();
+      var currentTitle = String(card.dataset.plTitle || '').trim();
+      if (!playlistKey) return;
+      var nextTitle = prompt('Plex playlist name. Leave blank to reset to the default system name.', currentTitle);
+      if (nextTitle === null) return;
+      var status = document.getElementById('syncStatus');
+      status.textContent = 'Renaming…';
+      fetch('/api/music/playlists/generated/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ playlistKey: playlistKey, title: String(nextTitle || '').trim() }),
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -1763,7 +2814,7 @@
       document.getElementById('spm-wizard-body').style.display = '';
       document.getElementById('spm-wizard-footer').style.display = '';
       document.getElementById('spm-modal-title').textContent = wizardModalTitle();
-      var modal = document.getElementById('smartPlModal');
+      var modal = ensureModalAtRoot('smartPlModal');
       if (!modal) return;
       modal.style.display = '';
       wizardInit();
@@ -2220,6 +3271,7 @@
 
     var _wizardState = {};
     var _wizardPreviewSeq = 0;
+    var _wizardAudioPreview = { loading: false, error: false, matchingTrackCount: null };
     var _wizardTemplates = [];
     var _wizardPendingPrefill = null;
     var _wizardEditKind = null;
@@ -2810,10 +3862,77 @@
       body.innerHTML = wizardStepDots(step) + wizardStepContent(step);
       footer.innerHTML = wizardStepFooter(step);
       wizardBindStep(step);
+      wizardRefreshAudioPresetMeta();
+      wizardRefreshAudioProfileStatus();
       setTimeout(wizardRunPreview, 50);
     }
 
     function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function wizardAudioPresetMetaHtml(preset, cov) {
+      if (!cov || !cov.enabled) return escH((cov && cov.reason) || 'Unavailable');
+      return Number(cov.readyTrackCount || 0).toLocaleString() + ' audio-ready';
+    }
+
+    function wizardRefreshAudioPresetMeta() {
+      document.querySelectorAll('#spm-wizard-body [data-audio-preset-meta]').forEach(function(el) {
+        var preset = String(el.dataset.audioPresetMeta || '');
+        var cov = WIZARD_PRESET_COVERAGE[preset] || {};
+        el.innerHTML = wizardAudioPresetMetaHtml(preset, cov);
+      });
+    }
+
+    function wizardContentPrefillSummaryHtml(presetId) {
+      var preset = String(presetId || 'none');
+      if (!preset || preset === 'none') {
+        return '<div class="spm-wizard-field-hint" style="margin-top:10px">No audio profile selected, so the next step starts with all genres, moods, and tags neutral.</div>';
+      }
+      var defaults = WIZARD_FEATURE_PRESET_CONTENT[preset] || WIZARD_FEATURE_PRESET_CONTENT.none;
+      var meta = WIZARD_FEATURE_PRESET_META[preset] || WIZARD_FEATURE_PRESET_META.none;
+      var rows = [];
+      function pushRow(label, values) {
+        if (!Array.isArray(values) || !values.length) return;
+        rows.push('<div><strong style="color:var(--text,#e5e7eb)">' + escH(label) + ':</strong> ' + escH(values.join(', ')) + '</div>');
+      }
+      pushRow('Genres', defaults.genres && defaults.genres.include);
+      pushRow('Moods', defaults.moods && defaults.moods.include);
+      pushRow('Tags', defaults.tags && defaults.tags.include);
+      pushRow('Excludes', []
+        .concat((defaults.genres && defaults.genres.exclude) || [])
+        .concat((defaults.moods && defaults.moods.exclude) || [])
+        .concat((defaults.tags && defaults.tags.exclude) || []));
+      if (!rows.length) {
+        rows.push('<div>No genre, mood, or tag suggestions are added for this profile.</div>');
+      }
+      return '<div style="margin-top:14px;padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)">' +
+        '<div class="spm-wizard-field-label" style="margin-bottom:6px">Next step prefill</div>' +
+        '<div class="spm-wizard-field-hint" style="margin-bottom:8px">Selecting <strong style="color:var(--text,#e5e7eb)">' + escH(meta.label) + '</strong> also preselects these content suggestions on Step 2. You can change anything there.</div>' +
+        '<div style="display:grid;gap:6px;font-size:12px;color:var(--muted,#aab1bc);line-height:1.45">' + rows.join('') + '</div>' +
+      '</div>';
+    }
+
+    function wizardAudioProfileStatusHtml() {
+      var preset = String(_wizardState.featurePreset || 'none');
+      if (!preset || preset === 'none') return '';
+      var cov = WIZARD_PRESET_COVERAGE[preset] || {};
+      var audioReady = cov && cov.enabled ? Number(cov.readyTrackCount || 0).toLocaleString() : '0';
+      var matchingNow = _wizardAudioPreview.loading
+        ? '…'
+        : _wizardAudioPreview.error
+          ? '?'
+          : Number(_wizardAudioPreview.matchingTrackCount || 0).toLocaleString();
+      return '<div style="margin:0 0 14px;padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);font-size:12px;color:var(--muted,#aab1bc)">' +
+        '<strong style="color:var(--text,#e5e7eb)">' + audioReady + ' audio-ready</strong>' +
+        ' · ' + matchingNow + ' matching current setup' +
+        '<div style="margin-top:4px">This compares the preset&apos;s broad audio availability with what still matches after the visible content rules on this step.</div>' +
+      '</div>';
+    }
+
+    function wizardRefreshAudioProfileStatus() {
+      var el = document.getElementById('wiz-audio-profile-status');
+      if (!el) return;
+      el.innerHTML = wizardAudioProfileStatusHtml();
+    }
 
     function wizardStepDots(current) {
       var dots = '';
@@ -2951,10 +4070,11 @@
           '<div class="spm-wizard-template-card__icon">' + entry.icon + '</div>' +
           '<div class="spm-wizard-template-card__name">' + escH(meta.label) + '</div>' +
           '<div class="spm-wizard-template-card__desc">' + escH(meta.description) + '</div>' +
-          '<div class="spm-wizard-template-card__meta">' + (cov.enabled ? (Number(cov.readyTrackCount || 0)).toLocaleString() + ' audio-ready' : escH(cov.reason || 'Unavailable')) + '</div>' +
+          '<div class="spm-wizard-template-card__meta" data-audio-preset-meta="' + entry.preset + '">' + wizardAudioPresetMetaHtml(entry.preset, cov) + '</div>' +
           '</button>';
       });
       html += '</div>';
+      html += wizardContentPrefillSummaryHtml(cur || 'none');
       html += '<div class="playlist-feature-grid">' +
         '<label class="field"><span>BPM min</span><input type="number" id="wiz-bpm-min" min="0" step="1" placeholder="Any" value="' + (ws.bpmMin || '') + '"/></label>' +
         '<label class="field"><span>BPM max</span><input type="number" id="wiz-bpm-max" min="0" step="1" placeholder="Any" value="' + (ws.bpmMax || '') + '"/></label>' +
@@ -2979,6 +4099,7 @@
       if (_wizardState.featurePreset && _wizardState.featurePreset !== 'none') {
         var activePresetMeta = WIZARD_FEATURE_PRESET_META[_wizardState.featurePreset] || WIZARD_FEATURE_PRESET_META.none;
         html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">The ' + escH(activePresetMeta.label) + ' audio profile has already prefilled some content chips here. Change anything you want.</p>';
+        html += '<div id="wiz-audio-profile-status">' + wizardAudioProfileStatusHtml() + '</div>';
       }
       html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Click once to <span style="color:#4ade80;font-weight:600">include</span>, again to <span style="color:#f87171;font-weight:600">exclude</span>, again to clear. Leave all neutral to allow everything.</p>';
 
@@ -3438,10 +4559,13 @@
       var eatEl = document.getElementById('wiz-prev-eligible-artists');
       var etrEl = document.getElementById('wiz-prev-eligible-tracks');
       var previewSeq = ++_wizardPreviewSeq;
+      _wizardAudioPreview.loading = true;
+      _wizardAudioPreview.error = false;
       if (atEl) atEl.textContent = '…';
       if (trEl) trEl.textContent = '…';
       if (eatEl) eatEl.textContent = '…';
       if (etrEl) etrEl.textContent = '…';
+      wizardRefreshAudioProfileStatus();
       fetch(endpoint + '?' + params.toString())
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -3451,6 +4575,10 @@
           if (trEl) trEl.textContent = (counts.trackCount || 0).toLocaleString();
           if (eatEl) eatEl.textContent = (counts.eligibleArtistCount || counts.artistCount || 0).toLocaleString();
           if (etrEl) etrEl.textContent = (counts.eligibleTrackCount || counts.trackCount || 0).toLocaleString();
+          _wizardAudioPreview.loading = false;
+          _wizardAudioPreview.error = false;
+          _wizardAudioPreview.matchingTrackCount = Number(counts.eligibleTrackCount || counts.trackCount || 0);
+          wizardRefreshAudioProfileStatus();
         })
         .catch(function() {
           if (previewSeq !== _wizardPreviewSeq) return;
@@ -3458,6 +4586,10 @@
           if (trEl) trEl.textContent = '?';
           if (eatEl) eatEl.textContent = '?';
           if (etrEl) etrEl.textContent = '?';
+          _wizardAudioPreview.loading = false;
+          _wizardAudioPreview.error = true;
+          _wizardAudioPreview.matchingTrackCount = null;
+          wizardRefreshAudioProfileStatus();
         });
     }
 
@@ -3951,6 +5083,7 @@
     initSmartPlaylistModal();
 
     bindPlaylistCarousel();
+    bindPlaylistCarouselAutoCollapse();
     document.querySelectorAll('[data-playlist-type-filter]').forEach(function(button) {
       button.addEventListener('click', function() {
         _playlistCardFilterState.type = String(button.getAttribute('data-playlist-type-filter') || 'all');

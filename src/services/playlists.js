@@ -416,6 +416,18 @@ function buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId, 
     : baseTitle;
 }
 
+function resolveGeneratedPlaylistTitle(config, playlistType, playlistKey, userId, existing = null, fallbackTitle = '') {
+  const titleOverride = String(existing?.titleOverride || '').trim();
+  if (titleOverride) return titleOverride;
+  return buildGeneratedPlaylistTitle(
+    config,
+    playlistType,
+    playlistKey,
+    userId,
+    fallbackTitle || existing?.playlistTitle || '',
+  );
+}
+
 function buildGeneratedPlaylistSearchTitles(config, playlistType, playlistKey, userId, fallbackTitle = '') {
   const titles = new Set();
   const baseTitle = getGeneratedPlaylistBaseTitle(config, playlistType, playlistKey, userId, fallbackTitle);
@@ -2097,7 +2109,9 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   }
   if (!machineId) throw new Error('Could not determine Plex machine ID');
 
-  const title = buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId);
+  const existing = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+    .find((entry) => entry.playlistKey === playlistKey) || null;
+  const title = resolveGeneratedPlaylistTitle(config, playlistType, playlistKey, userId, existing);
   const playlistRow = await ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, title, machineId);
 
   // Rebuild from current artist scores on every sync
@@ -2112,6 +2126,7 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
     playlistType, playlistKey,
     plexPlaylistId: playlistRow.plexPlaylistId,
     playlistTitle: title,
+    titleOverride: existing?.titleOverride || '',
     algorithmVersion: ALGORITHM_VERSION,
     lastBuiltAt: now, lastSyncedAt: now,
     trackCount: ratingKeys.length,
@@ -2159,7 +2174,9 @@ async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playl
   const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks);
   setPlaylistTracks(db, userId, playlistKey, trackList);
   pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `${playlistType} rebuilt: ${ratingKeys.length} tracks for ${userId}` });
-  const title = buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userId);
+  const existing = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+    .find((entry) => entry.playlistKey === playlistKey) || null;
+  const title = resolveGeneratedPlaylistTitle(config, playlistType, playlistKey, userId, existing);
 
   // Always resolve the playlist via ensurePlaylist (searches by name first, creates if missing).
   // This handles stale UUIDs from externally-deleted playlists.
@@ -2172,6 +2189,7 @@ async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playl
     playlistType, playlistKey,
     plexPlaylistId: playlistId,
     playlistTitle: title,
+    titleOverride: existing?.titleOverride || '',
     algorithmVersion: ALGORITHM_VERSION,
     lastBuiltAt: now, lastSyncedAt: now,
     trackCount: ratingKeys.length,
@@ -2413,10 +2431,12 @@ export function createPlaylistService(ctx) {
     const masterTracks = applyTrackFilters(getMasterTracks(db), playlistCfg.trackFilters);
     if (!masterTracks.length) return;
     const { ratingKeys, trackList } = buildSmartPlaylistPayload(db, userPlexId, playlistCfg, masterTracks);
+    const existing = getGeneratedByKey(userPlexId, playlistKey);
     const builtPlaylist = {
       playlistKey,
       playlistType,
-      playlistTitle: buildGeneratedPlaylistTitle(config, playlistType, playlistKey, userPlexId),
+      playlistTitle: resolveGeneratedPlaylistTitle(config, playlistType, playlistKey, userPlexId, existing),
+      titleOverride: existing?.titleOverride || '',
       algorithmVersion: ALGORITHM_VERSION,
       trackCount: ratingKeys.length,
       trackKeys: ratingKeys,
@@ -2568,7 +2588,13 @@ export function createPlaylistService(ctx) {
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,
       playlistType: DAILY_MIX_PLAYLIST_TYPE,
-      playlistTitle: buildGeneratedPlaylistTitle(config, DAILY_MIX_PLAYLIST_TYPE, DAILY_MIX_PLAYLIST_KEY, userPlexId),
+      playlistTitle: resolveGeneratedPlaylistTitle(
+        config,
+        DAILY_MIX_PLAYLIST_TYPE,
+        DAILY_MIX_PLAYLIST_KEY,
+        userPlexId,
+        getGeneratedByKey(userPlexId, DAILY_MIX_PLAYLIST_KEY),
+      ),
       algorithmVersion: 'phase3-daily-mix',
       trackCount: combined.length,
       trackKeys: combined.map((track) => track.ratingKey),
@@ -2684,7 +2710,13 @@ export function createPlaylistService(ctx) {
     return {
       playlistKey: CURATORR_PLAYLIST_KEY,
       playlistType: CURATORR_PLAYLIST_TYPE,
-      playlistTitle: buildGeneratedPlaylistTitle(config, CURATORR_PLAYLIST_TYPE, CURATORR_PLAYLIST_KEY, userPlexId),
+      playlistTitle: resolveGeneratedPlaylistTitle(
+        config,
+        CURATORR_PLAYLIST_TYPE,
+        CURATORR_PLAYLIST_KEY,
+        userPlexId,
+        getGeneratedByKey(userPlexId, CURATORR_PLAYLIST_KEY),
+      ),
       algorithmVersion: 'phase1-rotating-curatorr',
       trackCount: selected.length,
       trackKeys: selected.map((track) => track.ratingKey),
@@ -3609,16 +3641,12 @@ export function createPlaylistService(ctx) {
     }
   }
 
-  async function renameGeneratedPlaylistTitle(userPlexId, playlistKey, configOverride = null) {
+  async function renameGeneratedPlaylistTitle(userPlexId, playlistKey, titleOverride = null, configOverride = null) {
     const existing = getGeneratedByKey(userPlexId, playlistKey);
-    if (!existing?.plexPlaylistId) return null;
+    if (!existing) return null;
     const config = configOverride || ctx.loadConfig();
-    if (!ctx.userHasOwnPlexToken(config, userPlexId)) return existing;
-    const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
-    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
-    if (!base || !token) return existing;
-
-    const playlistTitle = buildGeneratedPlaylistTitle(
+    const nextOverride = titleOverride == null ? String(existing.titleOverride || '').trim() : String(titleOverride || '').trim();
+    const playlistTitle = nextOverride || buildGeneratedPlaylistTitle(
       config,
       existing.playlistType,
       existing.playlistKey,
@@ -3627,16 +3655,25 @@ export function createPlaylistService(ctx) {
     );
     if (!playlistTitle) return existing;
 
-    await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
-      method: 'PUT',
-      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-    });
     saveUserGeneratedPlaylist(db, userPlexId, {
       ...existing,
       playlistTitle,
+      titleOverride: nextOverride,
       updatedAt: Date.now(),
     });
-    return getGeneratedByKey(userPlexId, playlistKey);
+
+    const updated = getGeneratedByKey(userPlexId, playlistKey);
+    if (!updated?.plexPlaylistId) return updated;
+    if (!ctx.userHasOwnPlexToken(config, userPlexId)) return updated;
+    const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    if (!base || !token) return updated;
+
+    await fetch(`${base}/playlists/${updated.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
+      method: 'PUT',
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    });
+    return updated;
   }
 
   async function renameAllGeneratedPlaylistTitles(configOverride = null) {
@@ -3647,15 +3684,16 @@ export function createPlaylistService(ctx) {
     for (const entry of all) {
       try {
         const existing = getGeneratedByKey(entry.userPlexId, entry.playlistKey);
-        const nextTitle = buildGeneratedPlaylistTitle(
+        const nextTitle = resolveGeneratedPlaylistTitle(
           config,
           existing?.playlistType || entry.playlistType,
           entry.playlistKey,
           entry.userPlexId,
-          existing?.playlistTitle || entry.playlistTitle,
+          existing,
+          entry.playlistTitle,
         );
         if (!nextTitle) continue;
-        await renameGeneratedPlaylistTitle(entry.userPlexId, entry.playlistKey, config);
+        await renameGeneratedPlaylistTitle(entry.userPlexId, entry.playlistKey, null, config);
         if (nextTitle !== String(existing?.playlistTitle || entry.playlistTitle || '').trim()) renamed += 1;
       } catch (err) {
         ctx.pushLog({
@@ -3675,6 +3713,7 @@ export function createPlaylistService(ctx) {
     getGeneratedByKey,
     upsertGenerated,
     getCanonicalPlaylist,
+    syncCustomPlaylist,
     buildDailyMix,
     buildCuratorr,
     syncDailyMix,
