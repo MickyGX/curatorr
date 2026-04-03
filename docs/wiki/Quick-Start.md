@@ -15,6 +15,11 @@ services:
       - BASE_URL=http://localhost:7676
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
+      # Optional: required for Spotify playlist import and refresh.
+      # Add the same callback URL in your Spotify app settings:
+      # http://localhost:7676/user-settings/spotify/callback
+      # - SPOTIFY_CLIENT_ID=your-spotify-client-id
+      # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
       - SESSION_SECRET=replace-this-with-a-random-secret
       - WEBHOOK_SECRET=replace-this-with-a-random-secret
     volumes:
@@ -28,6 +33,10 @@ Generate `SESSION_SECRET` and `WEBHOOK_SECRET` with:
 ```bash
 openssl rand -hex 32
 ```
+
+If you want Spotify playlist import, also create a Spotify developer app and uncomment
+`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`. The redirect URI must match your Curatorr
+base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
 
 ## 2. Start the container
 

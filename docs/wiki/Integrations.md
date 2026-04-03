@@ -138,6 +138,31 @@ Users can set:
 
 Last.fm history sync is not a replacement for webhook playback tracking. It is best used as historical backfill or as a supplement.
 
+## Spotify
+
+Spotify is optional and user-specific.
+
+Current support is for:
+
+- connecting a Spotify account from `User Profile`
+- browsing owned Spotify playlists
+- importing Spotify playlists into Curatorr as managed custom playlists
+- refreshing imported Spotify playlists against the current library
+
+Spotify requires app-level credentials on the Curatorr container:
+
+- `SPOTIFY_CLIENT_ID`
+- `SPOTIFY_CLIENT_SECRET`
+
+The Spotify developer app must also include a redirect URI that matches your Curatorr base
+URL, for example:
+
+- `http://localhost:7676/user-settings/spotify/callback`
+- `https://curatorr.example.com/user-settings/spotify/callback`
+
+These credentials identify the Curatorr app, not a single Spotify account. Each Curatorr
+user still connects their own Spotify account separately through OAuth.
+
 ## ListenBrainz
 
 ListenBrainz is optional and user-specific.

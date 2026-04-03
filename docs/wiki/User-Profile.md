@@ -41,6 +41,17 @@ Each user can pick their preferred smart-playlist preset such as `Cautious`, `Me
 
 This changes how tightly or broadly Curatorr curates for that user.
 
+## Spotify
+
+If the Curatorr container is configured with `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`,
+users can connect their own Spotify account from `User Profile`.
+
+This enables:
+
+- browsing their Spotify playlists from the Playlists page
+- importing Spotify playlists into Curatorr
+- refreshing previously imported Spotify playlists after the local library changes
+
 ## Last.fm
 
 Per-user Last.fm settings include:

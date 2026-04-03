@@ -53,6 +53,11 @@ services:
       - BASE_URL=http://localhost:7676
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
+      # Optional: required for Spotify playlist import and refresh.
+      # Add the same callback URL in your Spotify app settings:
+      # http://localhost:7676/user-settings/spotify/callback
+      # - SPOTIFY_CLIENT_ID=your-spotify-client-id
+      # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
       - SESSION_SECRET=replace-this-with-a-random-secret
       - WEBHOOK_SECRET=replace-this-with-a-random-secret
     volumes:
@@ -77,6 +82,11 @@ services:
     network_mode: "service:curatorr"
     restart: unless-stopped
 ```
+
+Optional Spotify import setup:
+
+- Uncomment `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` if you want users to connect Spotify accounts and import Spotify playlists.
+- In the Spotify developer app, add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
 
 Then in `Settings -> General -> Track Analysis Import`:
 

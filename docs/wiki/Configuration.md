@@ -16,6 +16,8 @@ Curatorr is configured through container environment variables and the Settings 
 | `COOKIE_SECURE` | No | Mark cookies as secure when serving over HTTPS only. |
 | `EMBED_ALLOWED_ORIGINS` | No | Comma-separated list of origins allowed to embed Curatorr in an iframe. |
 | `LOCAL_AUTH_MIN_PASSWORD` | No | Minimum password length for local Curatorr accounts. Default: `12` |
+| `SPOTIFY_CLIENT_ID` | No | Spotify app client ID used for Spotify playlist import and refresh. |
+| `SPOTIFY_CLIENT_SECRET` | No | Spotify app client secret used for Spotify playlist import and refresh. |
 
 ## Settings UI
 
@@ -119,6 +121,7 @@ Tautulli is only relevant for Plex installs.
 
 Each user also has `User Profile` settings for:
 
+- Spotify account connection for playlist import
 - Last.fm username and playlist options
 - Last.fm full-history backfill controls
 - ListenBrainz username, token, and playlist options

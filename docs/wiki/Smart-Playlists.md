@@ -87,6 +87,44 @@ Last.fm station playlists and ListenBrainz playlist suggestions are also current
 
 These features use the same underlying play history, track tiers, and master track cache.
 
+## Imported Playlists
+
+Curatorr can also import existing playlists as managed custom playlists.
+
+Supported sources:
+
+- Plex playlists
+- Plex music collections
+- Spotify playlists from a connected Spotify account
+
+Imported playlists:
+
+- appear on the Playlists page alongside Curatorr-built playlists
+- use a dedicated imported badge/icon
+- show both matched and missing counts on the playlist card
+- can be filtered separately from personal, global, system, and external playlists
+- support `Refresh import` to re-read the original source and rematch against the current library
+
+For imported Spotify playlists, tracks that are still missing from your library remain attached
+to the playlist so you can review them later instead of losing that context after import.
+
+You can:
+
+- select missing tracks directly from the playlist page
+- queue them for later Lidarr review
+- or add them directly to the Lidarr queue
+
+When album data is available, Lidarr queue entries preserve the selected album title instead of
+falling back to a generic artist-only request.
+
+## System Playlist Names
+
+System playlists such as `Curatorr`, `Daily Mix`, `Crescive`, and `Curative` can now use a
+manual name override from the playlist card menu.
+
+This override becomes the final exported playlist title in the connected media server. Clearing
+the override returns the playlist to its default generated name.
+
 ## Feature Presets
 
 Global and personal playlist builders now include feature presets with visual preset cards:
