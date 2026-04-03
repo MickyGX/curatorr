@@ -373,6 +373,7 @@
                       <div class="cur-list-primary">
                         <span class="cur-list-titleline">
                           <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.rating_key || '' %>"><%= t.track_title %></span>
+                          <% if (Number(t.popularRank || 0) > 0 && Number(t.popularRank || 0) <= 3 && Number(t.ratingCount || 0) > 0) { %><span class="cur-track-flame" title="Popular on this album — Top <%= t.popularRank %> by Plex rating count (<%= Number(t.ratingCount || 0).toLocaleString() %>)" aria-label="Popular on this album">🔥</span><% } %>
                           <% if (t.curatorrTier) { %><span class="cur-badge cur-badge--<%= t.curatorrTier.tone %>"><%= t.curatorrTier.label %></span><% } %>
                         </span>
                         <span class="cur-list-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= t.artist_name %>"><%= t.artist_name %></span>
@@ -413,6 +414,7 @@
                     <span class="cur-history-track">
                       <span class="cur-history-track-main">
                         <span class="cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.track_title || '—' %></span>
+                        <% if (Number(h.popularRank || 0) > 0 && Number(h.popularRank || 0) <= 3 && Number(h.ratingCount || 0) > 0) { %><span class="cur-track-flame" title="Popular on this album — Top <%= h.popularRank %> by Plex rating count (<%= Number(h.ratingCount || 0).toLocaleString() %>)" aria-label="Popular on this album">🔥</span><% } %>
                         <% if (h.curatorrTier) { %><span class="cur-badge cur-badge--<%= h.curatorrTier.tone %>"><%= h.curatorrTier.label %></span><% } %>
                       </span>
                       <span class="cur-history-track-sub cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= h.artist_name || '' %>" data-cur-overview-user="<%= h.user_plex_id || '' %>"><%= h.artist_name || '—' %></span>

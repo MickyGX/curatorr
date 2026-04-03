@@ -245,6 +245,9 @@
         '<span class="cur-list-primary">' +
           '<span class="cur-list-titleline">' +
             '<span class="cur-list-name">' + escHtml(track.track_title) + '</span>' +
+            ((Number(track.popularRank || 0) > 0 && Number(track.popularRank || 0) <= 3 && Number(track.ratingCount || 0) > 0)
+              ? '<span class="cur-track-flame" title="' + escHtml('Popular on this album — Top ' + Number(track.popularRank) + ' by Plex rating count (' + Number(track.ratingCount).toLocaleString() + ')') + '" aria-label="Popular on this album">🔥</span>'
+              : '') +
             '<span class="cur-badge cur-badge--' + tone + '">' + label + '</span>' +
           '</span>' +
           '<span class="cur-list-sub">' + escHtml(track.artist_name) + '</span>' +

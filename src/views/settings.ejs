@@ -903,6 +903,7 @@
                   { value: 'albumName',  label: 'Album name' },
                   { value: 'trackTitle', label: 'Track title' },
                   { value: 'artistName', label: 'Artist name' },
+                  { value: 'ratingCount', label: 'Plex rating count' },
                   { value: 'trackYear', label: 'Track year' },
                   { value: 'originalReleaseDate', label: 'Original release date' },
                   { value: 'bpm', label: 'BPM' },
@@ -937,7 +938,7 @@
                   { value: 'between', label: 'is between' },
                 ];
                 function _tfOpsForField(field) {
-                  return ['trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
+                  return ['ratingCount', 'trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
                 }
 
                 function _tfFieldOpts(current, fields) {
@@ -979,6 +980,8 @@
                   }
                   const placeholder = rule.field === 'trackYear'
                     ? (rule.operator === 'between' ? '1990..1999' : '1998')
+                    : (rule.field === 'ratingCount'
+                      ? (rule.operator === 'between' ? '1000..10000' : '5000')
                     : (rule.field === 'originalReleaseDate'
                       ? (rule.operator === 'between' ? '1998-01-01..1998-12-31' : '1998-04-20')
                       : (rule.field === 'bpm'
@@ -987,7 +990,7 @@
                           ? (rule.operator === 'between' ? '0.4..0.8' : '0.65')
                           : (rule.field === 'camelotKey'
                             ? '8A'
-                            : (rule.field === 'musicalKey' ? 'G minor' : 'value'))))
+                            : (rule.field === 'musicalKey' ? 'G minor' : 'value')))))
                       );
                   return `<input type="text" name="${prefix}_rule_val" value="${(rule.value||'').replace(/"/g,'&quot;')}" class="tf-val" placeholder="${placeholder}" />`;
                 }
@@ -1245,6 +1248,7 @@
               { value: 'albumName',  label: 'Album name' },
               { value: 'trackTitle', label: 'Track title' },
               { value: 'artistName', label: 'Artist name' },
+              { value: 'ratingCount', label: 'Plex rating count' },
               { value: 'trackYear', label: 'Track year' },
               { value: 'originalReleaseDate', label: 'Original release date' },
               { value: 'bpm', label: 'BPM' },
@@ -1276,7 +1280,7 @@
             ];
             var _TF_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
             function tfOpsForField(field) {
-              return ['trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
+              return ['ratingCount', 'trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
             }
 
             function tfMakeFieldOpts(fields, current) {
@@ -1298,6 +1302,8 @@
               }
               var placeholder = field === 'trackYear'
                 ? (operator === 'between' ? '1990..1999' : '1998')
+                : (field === 'ratingCount'
+                  ? (operator === 'between' ? '1000..10000' : '5000')
                 : (field === 'originalReleaseDate'
                   ? (operator === 'between' ? '1998-01-01..1998-12-31' : '1998-04-20')
                   : (field === 'bpm'
@@ -1306,7 +1312,7 @@
                       ? (operator === 'between' ? '0.4..0.8' : '0.65')
                       : (field === 'camelotKey'
                         ? '8A'
-                        : (field === 'musicalKey' ? 'G minor' : 'value')))));
+                        : (field === 'musicalKey' ? 'G minor' : 'value'))))));
               return '<input type="text" name="' + prefix + '_rule_val" value="' + (value || '').replace(/"/g, '&quot;') + '" class="tf-val" placeholder="' + placeholder + '" />';
             }
             function tfAddRule(prefix, segments) {
@@ -1343,7 +1349,7 @@
               var fieldEl = row.querySelector('[name="' + prefix + '_rule_field"]');
               var field = fieldEl ? fieldEl.value : '';
               var old = row.querySelector('[name="' + prefix + '_rule_val"]');
-              if (old && ['trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability', 'musicalKey', 'camelotKey'].includes(field)) {
+              if (old && ['ratingCount', 'trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability', 'musicalKey', 'camelotKey'].includes(field)) {
                 var newEl = document.createElement('div');
                 newEl.innerHTML = tfMakeValInput(prefix, field, '', [], select.value);
                 old.replaceWith(newEl.firstChild);

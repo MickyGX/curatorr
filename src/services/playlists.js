@@ -1275,6 +1275,7 @@ function trackMatchesRule(track, rule) {
   if (!field || !operator || value == null || value === '') return false;
   if (field === 'trackYear') return compareTrackYearRule(track, operator, value);
   if (field === 'originalReleaseDate') return compareTrackDateRule(track, operator, value);
+  if (field === 'ratingCount') return compareTrackNumericRule(track?.ratingCount, operator, value);
   if (field === 'bpm') return compareTrackNumericRule(track?.bpm, operator, value);
   if (field === 'energy') return compareTrackNumericRule(track?.energy, operator, value);
   if (field === 'danceability') return compareTrackNumericRule(track?.danceability, operator, value);
@@ -1533,6 +1534,88 @@ export function applyTrackFilters(tracks, filterConfig) {
   return result;
 }
 
+function normalizeAlbumPopularityMode(value) {
+  const normalized = String(value || '').trim();
+  if (normalized === 'top3Only' || normalized === 'excludeTop3') return normalized;
+  return 'all';
+}
+
+function normalizePopularityMode(value) {
+  const normalized = String(value || '').trim();
+  if (['top50', 'top25', 'top10', 'top5', 'custom'].includes(normalized)) return normalized;
+  return 'all';
+}
+
+function normalizePopularityPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(1, Math.min(100, Math.round(num)));
+}
+
+function resolvePopularityPercent(mode, value) {
+  const normalized = normalizePopularityMode(mode);
+  if (normalized === 'top50') return 50;
+  if (normalized === 'top25') return 25;
+  if (normalized === 'top10') return 10;
+  if (normalized === 'top5') return 5;
+  if (normalized === 'custom') return normalizePopularityPercent(value);
+  return null;
+}
+
+function albumPopularityGroupKey(track) {
+  const artistKey = String(track?.artistName || '').trim().toLowerCase();
+  const albumKey = String(track?.albumName || '').trim().toLowerCase();
+  return artistKey && albumKey ? `${artistKey}|${albumKey}` : '';
+}
+
+function buildAlbumPopularTopTrackKeySet(tracks, limit = 3) {
+  const groups = new Map();
+  for (const track of tracks || []) {
+    const groupKey = albumPopularityGroupKey(track);
+    const ratingKey = String(track?.ratingKey || '').trim();
+    if (!groupKey || !ratingKey) continue;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(track);
+  }
+  const keepKeys = new Set();
+  for (const groupTracks of groups.values()) {
+    groupTracks
+      .slice()
+      .sort((a, b) => (Number(b?.ratingCount || 0) - Number(a?.ratingCount || 0))
+        || (Number(b?.viewCount || 0) - Number(a?.viewCount || 0))
+        || String(a?.trackTitle || '').localeCompare(String(b?.trackTitle || ''))
+        || String(a?.ratingKey || '').localeCompare(String(b?.ratingKey || '')))
+      .slice(0, Math.max(1, Number(limit) || 3))
+      .forEach((track) => {
+        if (Number(track?.ratingCount || 0) > 0) keepKeys.add(String(track.ratingKey || ''));
+      });
+  }
+  return keepKeys;
+}
+
+function applyAlbumPopularityMode(tracks, mode, allTracks = tracks) {
+  const normalized = normalizeAlbumPopularityMode(mode);
+  if (normalized === 'all') return tracks;
+  const popularKeys = buildAlbumPopularTopTrackKeySet(allTracks, 3);
+  if (!popularKeys.size) return normalized === 'excludeTop3' ? tracks : [];
+  return tracks.filter((track) => {
+    const isPopular = popularKeys.has(String(track?.ratingKey || ''));
+    return normalized === 'top3Only' ? isPopular : !isPopular;
+  });
+}
+
+function applyAbsolutePopularityMode(tracks, mode, percentValue) {
+  const percent = resolvePopularityPercent(mode, percentValue);
+  if (!percent || percent >= 100) return tracks;
+  const sorted = (tracks || []).slice().sort((a, b) => (Number(b?.ratingCount || 0) - Number(a?.ratingCount || 0))
+    || (Number(b?.viewCount || 0) - Number(a?.viewCount || 0))
+    || String(a?.trackTitle || '').localeCompare(String(b?.trackTitle || ''))
+    || String(a?.ratingKey || '').localeCompare(String(b?.ratingKey || '')));
+  const keepCount = Math.max(1, Math.ceil(sorted.length * (percent / 100)));
+  const keepKeys = new Set(sorted.slice(0, keepCount).map((track) => String(track?.ratingKey || '')).filter(Boolean));
+  return tracks.filter((track) => keepKeys.has(String(track?.ratingKey || '')));
+}
+
 // ─── Smart playlist build pipeline ───────────────────────────────────────────
 
 // Strip featured-artist suffixes so "Eminem" and "Eminem f/ Eye-Kyu" resolve to the same primary key.
@@ -1541,6 +1624,9 @@ function primaryArtistKey(name) {
 }
 
 function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
+  const albumEligibleTracks = applyAlbumPopularityMode(masterTracks, playlistCfg?.albumPopularityMode, getMasterTracks(db));
+  const eligibleTracks = applyAbsolutePopularityMode(albumEligibleTracks, playlistCfg?.popularityMode, playlistCfg?.popularityPercent);
+  if (!eligibleTracks.length) return { ratingKeys: [], trackList: [] };
   const capMultiplier   = Math.max(0, Math.min(1, playlistCfg.capMultiplier ?? 1.0));
   const favArtistCap    = Math.max(0, Math.min(1, playlistCfg.favouriteArtistTrackPct  ?? 1.0));
   const favGenreArtPct  = Math.max(0, Math.min(1, playlistCfg.favouriteGenreArtistPct  ?? 1.0));
@@ -1563,7 +1649,7 @@ function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
 
   // Group master tracks by artist and determine each artist's genres
   const artistMap = new Map();
-  for (const t of masterTracks) {
+  for (const t of eligibleTracks) {
     const lower = t.artistName.toLowerCase();
     if (!artistMap.has(lower)) artistMap.set(lower, { name: t.artistName, tracks: [], genres: new Set() });
     const entry = artistMap.get(lower);
@@ -1641,7 +1727,7 @@ function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
   // Always include manually pinned tracks regardless of artist score or bucket
   for (const [ratingKey, stat] of statMap) {
     if (stat.manually_included !== 1 || seen.has(ratingKey)) continue;
-    const master = masterTracks.find((t) => t.ratingKey === ratingKey);
+    const master = eligibleTracks.find((t) => t.ratingKey === ratingKey);
     if (!master) continue;
     seen.add(ratingKey);
     ratingKeys.push(ratingKey);
@@ -1840,7 +1926,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const eligibleTracks = applyFeaturePresetFilters(masterTracks, rules);
   const eligibleTrackMap = new Map(eligibleTracks.map((track) => [track.ratingKey, track]));
 
-  const byArtist = new Map();
+  const matchedTracks = [];
   for (const t of eligibleTracks) {
     const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
     const artistTier = classifyArtist(score);
@@ -1869,9 +1955,25 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
       if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
     }
     if (!matchesSeasonalRule(t, rules)) continue;
+    matchedTracks.push({
+      ratingKey: t.ratingKey,
+      artistName: t.artistName || '',
+      trackTitle: t.trackTitle || '',
+      ratingCount: Number(t.ratingCount || 0),
+      viewCount: Number(t.viewCount || 0),
+      rc: t.ratingCount || 0,
+      tw: stat?.tier_weight || 0,
+      pc: stat?.play_count || 0,
+    });
+  }
 
-    if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
-    byArtist.get(t.artistName).push({ ratingKey: t.ratingKey, rc: t.ratingCount || 0, tw: stat?.tier_weight || 0, pc: stat?.play_count || 0 });
+  const albumFilteredTracks = applyAlbumPopularityMode(matchedTracks, rules?.albumPopularityMode, masterTracks);
+  const filteredTracks = applyAbsolutePopularityMode(albumFilteredTracks, rules?.popularityMode, rules?.popularityPercent);
+
+  const byArtist = new Map();
+  for (const track of filteredTracks) {
+    if (!byArtist.has(track.artistName)) byArtist.set(track.artistName, []);
+    byArtist.get(track.artistName).push(track);
   }
 
   let ratingKeys = [];

@@ -52,6 +52,7 @@ import {
   deleteUserPersonalPlaylist,
   deleteUserGeneratedPlaylist,
   previewGlobalPlaylist,
+  getAlbumPopularTrackRanks,
   getArtistTagMap,
   listRuleTemplates,
   saveRuleTemplate,
@@ -74,6 +75,8 @@ const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill',
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
 const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
+const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
+const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
 // Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
 const msUserIdCache = new Map();
 const MS_USERID_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -82,6 +85,15 @@ function parseNullablePlaylistNumber(value) {
   if (value === '' || value == null) return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField = 'ratingKey') {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const popularity = popularityByKey.get(String(item?.[keyField] || '')) || null;
+    return popularity
+      ? { ...item, popularRank: popularity.rank, ratingCount: popularity.ratingCount }
+      : { ...item, popularRank: null, ratingCount: Number(item?.ratingCount || item?.rating_count || 0) };
+  });
 }
 
 // Accepts a flat string[] (legacy) or { include: string[], exclude: string[], includeMode?: 'any'|'all' } from the tri-state UI.
@@ -111,6 +123,13 @@ function normaliseTrackFiltersInput(value) {
 function buildPlaylistFeatureRules(payload = {}) {
   const rawPreset = String(payload.featurePreset || '').trim().toLowerCase();
   return {
+    albumPopularityMode: PLAYLIST_ALBUM_POPULARITY_VALUES.includes(String(payload.albumPopularityMode || '').trim())
+      ? String(payload.albumPopularityMode).trim()
+      : 'all',
+    popularityMode: PLAYLIST_POPULARITY_VALUES.includes(String(payload.popularityMode || '').trim())
+      ? String(payload.popularityMode).trim()
+      : 'all',
+    popularityPercent: parseNullablePlaylistNumber(payload.popularityPercent),
     featurePreset: PLAYLIST_FEATURE_PRESETS.includes(rawPreset) ? rawPreset : 'none',
     bpmMin: parseNullablePlaylistNumber(payload.bpmMin),
     bpmMax: parseNullablePlaylistNumber(payload.bpmMax),
@@ -864,7 +883,8 @@ export function registerApiMusic(app, ctx) {
       })),
       { limit, offset },
     );
-    const decoratedHistory = history.map((event) => ({
+    const popularityByKey = getAlbumPopularTrackRanks(db, history.map((event) => event.plex_rating_key));
+    const decoratedHistory = attachAlbumPopularity(history, popularityByKey, 'plex_rating_key').map((event) => ({
       ...event,
       curatorrTier: deriveHistoryTier(event, config),
     }));
@@ -2175,9 +2195,10 @@ export function registerApiMusic(app, ctx) {
         artistThumb: t.grandparentThumb || '',
         playlistItemID: t.playlistItemID,
       }));
+      const popularityByKey = getAlbumPopularTrackRanks(db, tracks.map((track) => track.ratingKey));
       return res.json({
         ok: true,
-        tracks,
+        tracks: attachAlbumPopularity(tracks, popularityByKey),
         total: json?.MediaContainer?.totalSize || 0,
         playlistTitle,
         playlistId,
@@ -3464,6 +3485,7 @@ export function registerApiMusic(app, ctx) {
     const allTrackKeys   = new Set(userTrackMaps.flatMap((m) => [...m.keys()]));
     const sharedTrackKeys = [...allTrackKeys].filter((k) => userTrackMaps.every((m) => m.has(k)));
 
+    const topTrackPopularity = getAlbumPopularTrackRanks(db, sharedTrackKeys);
     const topTracks = sharedTrackKeys
       .map((key) => {
         const master = masterTrackMap.get(key);
@@ -3475,7 +3497,18 @@ export function registerApiMusic(app, ctx) {
         for (const e of entries) tierCounts[e.tier || 'curatorr'] = (tierCounts[e.tier || 'curatorr'] || 0) + 1;
         const tier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
         const normTier = tier === 'half-decent' ? 'halfDecent' : tier === 'curatorr' ? 'unplayed' : tier;
-        return { track_title: master.trackTitle, artist_name: master.artistName, rating_key: key, avg_tier_weight: Math.round(avgWeight * 10) / 10, avg_plays: avgPlays, tier, normTier };
+        const popularity = topTrackPopularity.get(String(key || '')) || null;
+        return {
+          track_title: master.trackTitle,
+          artist_name: master.artistName,
+          rating_key: key,
+          avg_tier_weight: Math.round(avgWeight * 10) / 10,
+          avg_plays: avgPlays,
+          tier,
+          normTier,
+          popularRank: popularity ? popularity.rank : null,
+          ratingCount: popularity ? popularity.ratingCount : Number(master.ratingCount || 0),
+        };
       })
       .filter(Boolean)
       .sort((a, b) => b.avg_tier_weight - a.avg_tier_weight || b.avg_plays - a.avg_plays)

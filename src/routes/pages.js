@@ -27,6 +27,7 @@ import {
   getMasterTracks,
   getMasterTrackCount,
   getMasterArtistCount,
+  getAlbumPopularTrackRanks,
   getExcludedTrackKeys,
   getSkipTierArtists,
   getAllUserIds,
@@ -56,6 +57,15 @@ function stripArtistSuffix(title, artist) {
   if (!title || !artist) return title || '';
   const suffix = ' - ' + artist;
   return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title;
+}
+
+function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField = 'rating_key') {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const popularity = popularityByKey.get(String(item?.[keyField] || '')) || null;
+    return popularity
+      ? { ...item, popularRank: popularity.rank, ratingCount: popularity.ratingCount }
+      : { ...item, popularRank: null, ratingCount: Number(item?.ratingCount || item?.rating_count || 0) };
+  });
 }
 
 function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map()) {
@@ -1296,11 +1306,13 @@ export function registerPages(app, ctx) {
       ...artist,
       curatorrTier: deriveArtistTier(artist, config),
     }));
-    const topTracks = getTopTracks(db, userPlexId, 5).map((track) => ({
+    const topTracksBase = getTopTracks(db, userPlexId, 5).map((track) => ({
       ...track,
       track_title: stripArtistSuffix(track.track_title, track.artist_name),
       curatorrTier: deriveTrackTier(track),
     }));
+    const topTrackPopularity = getAlbumPopularTrackRanks(db, topTracksBase.map((track) => track.rating_key));
+    const topTracks = attachAlbumPopularity(topTracksBase, topTrackPopularity);
     const { history: recentHistory } = paginateRolledHistory(
       (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
         ...event,
@@ -1308,7 +1320,8 @@ export function registerPages(app, ctx) {
       })),
       { limit: 10, offset: 0 },
     );
-    const decoratedRecentHistory = recentHistory.map((event) => ({
+    const recentHistoryPopularity = getAlbumPopularTrackRanks(db, recentHistory.map((event) => event.plex_rating_key));
+    const decoratedRecentHistory = attachAlbumPopularity(recentHistory, recentHistoryPopularity, 'plex_rating_key').map((event) => ({
       ...event,
       curatorrTier: deriveHistoryTier(event, config),
     }));
@@ -1405,7 +1418,8 @@ export function registerPages(app, ctx) {
       })),
       { limit, offset },
     );
-    const decoratedHistory = history.map((event) => ({
+    const historyPopularity = getAlbumPopularTrackRanks(db, history.map((event) => event.plex_rating_key));
+    const decoratedHistory = attachAlbumPopularity(history, historyPopularity, 'plex_rating_key').map((event) => ({
       ...event,
       curatorrTier: deriveHistoryTier(event, config),
     }));
@@ -1520,11 +1534,13 @@ export function registerPages(app, ctx) {
     const config = loadConfig();
     const user = req.session.user;
     const { adminPreview, role, userPlexId, suggestionUserId } = await buildPageScope(req, config);
-    const tracks = getTopTracks(db, userPlexId, 500).map((track) => ({
+    const trackRows = getTopTracks(db, userPlexId, 500).map((track) => ({
       ...track,
       track_title: stripArtistSuffix(track.track_title, track.artist_name),
       curatorrTier: deriveTrackTier(track),
     }));
+    const trackPopularity = getAlbumPopularTrackRanks(db, trackRows.map((track) => track.rating_key));
+    const tracks = attachAlbumPopularity(trackRows, trackPopularity);
     const smartSettings = config.smartPlaylist || {};
     const completionThresholdMs = (Number(smartSettings.completionThresholdSeconds) || 20) * 1000;
     const completedKeys = getCompletedTrackKeys(db, userPlexId, completionThresholdMs);

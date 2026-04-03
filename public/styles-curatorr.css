@@ -1380,6 +1380,23 @@ body.cur-modal-open {
   border: 1px solid rgba(255,255,255,.1);
 }
 
+.cur-track-titletext {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cur-track-flame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 4px rgba(251, 146, 60, .35));
+}
+
 /* ── Tier table (Curatorr Rules settings) ────────────────────────────────── */
 
 .cur-tier-table-wrap {
@@ -4509,6 +4526,7 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-pl-col-track {
   padding: 4px 0;
+  gap: 6px;
 }
 
 .cur-pl-col-album,
@@ -4908,12 +4926,12 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 }
 
 .cur-tr-col-track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 500;
   color: rgba(255,255,255,.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   padding: 4px 0;
 }
 
@@ -6874,7 +6892,8 @@ html[data-square-corners="1"] .cur-filter-option{
   border: 1px solid var(--border, rgba(255,255,255,0.12));
   border-radius: 14px;
   width: min(1120px, calc(100vw - 32px));
-  max-height: 92vh;
+  height: min(840px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -8417,6 +8436,25 @@ html[data-square-corners="1"] .cur-filter-option{
   align-items: end;
   margin-bottom: 10px;
 }
+.spm-wizard-regex-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.spm-wizard-regex-row .field span {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted, #94a3b8);
+}
+.spm-wizard-regex-row input,
+.spm-wizard-regex-row select {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+}
 .spm-wizard-regex-case {
   display: inline-flex;
   align-items: center;
@@ -8427,6 +8465,9 @@ html[data-square-corners="1"] .cur-filter-option{
 }
 .spm-wizard-regex-remove {
   min-height: 40px;
+}
+[data-theme="day"] .spm-wizard-regex-row .field span {
+  color: #6b7a8d;
 }
 .spm-wizard-folder-input {
   flex: 1;

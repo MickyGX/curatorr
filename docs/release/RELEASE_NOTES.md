@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.60 (2026-04-03)
+
+- Added first-class smart-playlist popularity controls powered by Plex `ratingCount`, including album-level Top 3 filtering and absolute popularity slicing (Top 50/25/10/5 percent or custom percentile) directly in the wizard.
+- Added popularity flame badges across playlist, tracks, dashboard, history, and blend views so high-performing album tracks are visible at a glance.
+- Fixed the smart-playlist wizard flow around advanced rules and general usability: raw `Plex rating count` was removed from the admin-only cleanup step, dropdown headings/layout were corrected, and the modal now keeps a stable height between steps instead of resizing page by page.
+
 ## v0.1.59 (2026-04-03)
 
 - Fixed the worst cold-start lag on NAS installs. Curatorr now opens the SQLite database after a sequential pre-read, starts listening before heavy background jobs begin, checkpoints the WAL more aggressively, and truncates it on shutdown. This avoids the long "app is up but unusable" period that happened when startup immediately kicked off expensive playlist/master-track work.

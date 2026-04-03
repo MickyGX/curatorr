@@ -130,6 +130,8 @@
         started_at: Number(h.started_at || 0),
         is_skip: Boolean(h.is_skip),
         rollup_count: Math.max(1, Number(h.rollup_count || 1)),
+        popularRank: h.popularRank == null ? null : Number(h.popularRank || 0),
+        ratingCount: Number(h.ratingCount || 0),
         curatorrTier: h.curatorrTier || null,
       };
     })).replace(/</g, '\\u003c') %>;
@@ -232,6 +234,9 @@
 
     function renderHistoryTrack(item) {
       const parts = [];
+      if (Number(item.popularRank || 0) > 0 && Number(item.popularRank || 0) <= 3 && Number(item.ratingCount || 0) > 0) {
+        parts.push('<span class="cur-track-flame" title="' + escapeAttr('Popular on this album — Top ' + Number(item.popularRank) + ' by Plex rating count (' + Number(item.ratingCount).toLocaleString() + ')') + '" aria-label="Popular on this album">🔥</span>');
+      }
       if (item.curatorrTier) {
         parts.push('<span class="cur-badge cur-badge--' + escapeAttr(item.curatorrTier.tone) + '">' + escapeHtml(item.curatorrTier.label) + '</span>');
       }
@@ -341,6 +346,8 @@
         started_at: Number(item.started_at || 0),
         is_skip: Boolean(item.is_skip),
         rollup_count: Math.max(1, Number(item.rollup_count || 1)),
+        popularRank: item.popularRank == null ? null : Number(item.popularRank || 0),
+        ratingCount: Number(item.ratingCount || 0),
         curatorrTier: item.curatorrTier || null,
       };
     }

@@ -20,6 +20,8 @@ const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill',
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
 const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
+const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
+const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
 
 function normaliseTriStateInput(value) {
   if (!value) return { include: [], exclude: [], includeMode: 'any' };
@@ -303,6 +305,13 @@ function normalizePlaylistFeaturePreset(value) {
 
 function buildPlaylistFeatureRuleConfig(input = {}) {
   return {
+    albumPopularityMode: PLAYLIST_ALBUM_POPULARITY_VALUES.includes(String(input.albumPopularityMode || '').trim())
+      ? String(input.albumPopularityMode).trim()
+      : 'all',
+    popularityMode: PLAYLIST_POPULARITY_VALUES.includes(String(input.popularityMode || '').trim())
+      ? String(input.popularityMode).trim()
+      : 'all',
+    popularityPercent: parseNullableNumber(input.popularityPercent),
     featurePreset: normalizePlaylistFeaturePreset(input.featurePreset),
     bpmMin: parseNullableNumber(input.bpmMin),
     bpmMax: parseNullableNumber(input.bpmMax),

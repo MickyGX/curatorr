@@ -938,6 +938,11 @@
       row.className = 'cur-pl-row';
       row.dataset.ratingKey = t.ratingKey || '';
       row.dataset.playlistItemId = t.playlistItemID || '';
+      var flameHtml = '';
+      if (Number(t.popularRank || 0) > 0 && Number(t.popularRank || 0) <= 3 && Number(t.ratingCount || 0) > 0) {
+        var title = 'Popular on this album — Top ' + Number(t.popularRank) + ' by Plex rating count (' + Number(t.ratingCount).toLocaleString() + ')';
+        flameHtml = '<span class="cur-track-flame" title="' + escAttr(title) + '" aria-label="' + escAttr(title) + '">🔥</span>';
+      }
 
       var _isNonPlex = _msType === 'jellyfin' || _msType === 'emby';
       var albumThumbUrl = t.albumThumb
@@ -977,7 +982,8 @@
         '<span class="cur-pl-col-num">' + (i + 1) + '</span>' +
         '<span class="cur-pl-col-track">' +
           '<span class="cur-pl-track-name cur-overview-trigger" role="button" tabindex="0"' +
-          ' data-cur-overview-kind="track" data-cur-overview-key="' + escAttr(t.ratingKey || '') + '">' + escHtml(t.title) + '</span>' +
+          ' data-cur-overview-kind="track" data-cur-overview-key="' + escAttr(t.ratingKey || '') + '"><span class="cur-track-titletext">' + escHtml(t.title) + '</span></span>' +
+          flameHtml +
         '</span>' +
         '<span class="cur-pl-col-album">' + albumHtml + '</span>' +
         '<span class="cur-pl-col-artist"><span class="cur-pl-inline-media"><span class="cur-pl-col-art cur-pl-col-art--artist">' + artistThumbHtml + '</span>' + artistHtml + '</span>' + addArtistBtn + '</span>' +
@@ -1794,6 +1800,9 @@
         danceabilityMax: rules.danceabilityMax != null ? rules.danceabilityMax : null,
         camelotFocus: String(rules.camelotFocus || ''),
         camelotMode: String(rules.camelotMode || 'exact'),
+        albumPopularityMode: String(rules.albumPopularityMode || 'all'),
+        popularityMode: String(rules.popularityMode || 'all'),
+        popularityPercent: rules.popularityPercent != null ? Number(rules.popularityPercent) : null,
         topNPerArtist: rules.topNPerArtist != null ? Number(rules.topNPerArtist) : null,
         maxTracks: rules.maxTracks != null ? Number(rules.maxTracks) : null,
         sortBy: String(rules.sortBy || 'ratingCount'),
@@ -2294,7 +2303,9 @@
       return {
         includeFolders: Array.isArray(tf.includeFolders) ? tf.includeFolders.slice() : [],
         excludeFolders: Array.isArray(tf.excludeFolders) ? tf.excludeFolders.slice() : [],
-        rules: Array.isArray(tf.rules) ? tf.rules.map(function(rule) { return cloneWizardValue(rule); }) : [],
+        rules: Array.isArray(tf.rules) ? tf.rules.filter(function(rule) {
+          return String(rule && rule.field || '') !== 'ratingCount';
+        }).map(function(rule) { return cloneWizardValue(rule); }) : [],
         deduplicateByMbid: Boolean(tf.deduplicateByMbid),
         deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
       };
@@ -2471,6 +2482,9 @@
         energyMin: null, energyMax: null,
         danceabilityMin: null, danceabilityMax: null,
         camelotFocus: '', camelotMode: 'exact',
+        albumPopularityMode: 'all',
+        popularityMode: 'all',
+        popularityPercent: null,
         topNPerArtist: null,
         maxTracks: null,
         sortBy: 'ratingCount',
@@ -2515,6 +2529,9 @@
         energyMin: ws.energyMin || null, energyMax: ws.energyMax || null,
         danceabilityMin: ws.danceabilityMin || null, danceabilityMax: ws.danceabilityMax || null,
         camelotFocus: ws.camelotFocus || '', camelotMode: ws.camelotMode || 'exact',
+        albumPopularityMode: ws.albumPopularityMode || 'all',
+        popularityMode: ws.popularityMode || 'all',
+        popularityPercent: (ws.popularityMode || 'all') === 'custom' ? (ws.popularityPercent || null) : null,
       };
     }
 
@@ -2646,6 +2663,58 @@
         exclude: (defaults.tags && defaults.tags.exclude ? defaults.tags.exclude.slice() : []),
         includeMode: 'any',
       };
+    }
+
+    var WIZARD_TEXT_RULE_OPS = [
+      ['contains', 'Contains'],
+      ['not_contains', 'Does not contain'],
+      ['equals', 'Is'],
+      ['not_equals', 'Is not'],
+      ['starts_with', 'Starts with'],
+      ['not_starts_with', 'Does not start with'],
+      ['ends_with', 'Ends with'],
+      ['not_ends_with', 'Does not end with'],
+      ['regex', 'Matches regex'],
+      ['not_regex', 'Does not match'],
+    ];
+    function wizardTrackRuleOps(field) {
+      return WIZARD_TEXT_RULE_OPS;
+    }
+
+    function wizardTrackRuleOptions(field, current) {
+      return wizardTrackRuleOps(field).map(function(option) {
+        return '<option value="' + option[0] + '"' + (current === option[0] ? ' selected' : '') + '>' + option[1] + '</option>';
+      }).join('');
+    }
+
+    function wizardNormalizeTrackRuleOperator(field, operator) {
+      var allowed = wizardTrackRuleOps(field).map(function(option) { return option[0]; });
+      return allowed.indexOf(operator) !== -1 ? operator : allowed[0];
+    }
+
+    function wizardTrackRulePlaceholder(field, operator) {
+      if (field === 'filePath') return 'e.g. /Christmas/';
+      return 'e.g. (christmas|xmas)';
+    }
+
+    function wizardSyncTrackRuleRow(row) {
+      if (!row) return;
+      var fieldEl = row.querySelector('.wiz-regex-field');
+      var operatorEl = row.querySelector('.wiz-regex-operator');
+      var valueEl = row.querySelector('.wiz-regex-value');
+      var caseWrap = row.querySelector('.spm-wizard-regex-case');
+      var caseEl = row.querySelector('.wiz-regex-case');
+      var field = fieldEl ? fieldEl.value : 'trackTitle';
+      var operator = wizardNormalizeTrackRuleOperator(field, operatorEl ? operatorEl.value : '');
+      if (operatorEl) {
+        operatorEl.innerHTML = wizardTrackRuleOptions(field, operator);
+        operatorEl.value = operator;
+      }
+      if (valueEl) valueEl.placeholder = wizardTrackRulePlaceholder(field, operator);
+      if (caseWrap) caseWrap.style.opacity = '';
+      if (caseEl) {
+        caseEl.disabled = false;
+      }
     }
 
     function wizardFolderChildren(prefix) {
@@ -3038,6 +3107,16 @@
         '<label class="field" style="flex:1"><span>Final ordering</span><select id="wiz-final-ordering">' +
         [['none','No final ordering'],['plexSonic','Plex sonic'],['loudness','Loudness smoothing'],['plexSonicLoudness','Plex sonic then loudness']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.finalOrdering===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
         '</select></label></div>';
+      html += '<div class="spm-filter-section spm-filter-section--inline">' +
+        '<label class="field" style="flex:1"><span>Album popularity</span><select id="wiz-album-popularity">' +
+        [['all','Keep all album tracks'],['top3Only','Popular album tracks only (Top 3)'],['excludeTop3','Exclude popular album tracks (hide Top 3)']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.albumPopularityMode===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        '</select></label>' +
+        '<label class="field" style="flex:1"><span>Overall popularity</span><select id="wiz-popularity-mode">' +
+        [['all','Keep all popularity levels'],['top50','Top 50% by popularity'],['top25','Top 25% by popularity'],['top10','Top 10% by popularity'],['top5','Top 5% by popularity'],['custom','Custom percentile']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.popularityMode===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        '</select></label>' +
+        '<label class="field" style="flex:1;' + (_wizardState.popularityMode === 'custom' ? '' : 'display:none;') + '" id="wiz-popularity-percent-wrap"><span>Custom percentile</span><input type="number" id="wiz-popularity-percent" min="1" max="100" step="1" placeholder="25" value="' + (_wizardState.popularityPercent || '') + '"/></label>' +
+      '</div>';
+      html += '<div class="spm-wizard-field-hint" style="margin-bottom:18px">Album popularity uses the flame definition: the top 3 tracks on each album by Plex rating count. Overall popularity keeps only the most popular slice of the current candidate pool.</div>';
       html += '<div class="spm-wizard-toggle-block">' +
         '<label class="spm-wizard-toggle-row" for="wiz-dedupe-mbid">' +
           '<span class="spm-wizard-toggle-copy">' +
@@ -3111,31 +3190,31 @@
       }
       function renderRegexRule(rule, index) {
         var field = String(rule?.field || 'trackTitle');
-        var operator = String(rule?.operator || 'regex');
+        var operator = wizardNormalizeTrackRuleOperator(field, String(rule?.operator || 'regex'));
         var value = String(rule?.value || '');
         var caseSensitive = Boolean(rule?.caseSensitive);
         return '<div class="spm-wizard-regex-row" data-regex-index="' + index + '">' +
           '<label class="field"><span>Field</span><select class="wiz-regex-field"><option value="trackTitle"' + (field === 'trackTitle' ? ' selected' : '') + '>Track title</option><option value="albumName"' + (field === 'albumName' ? ' selected' : '') + '>Album</option><option value="artistName"' + (field === 'artistName' ? ' selected' : '') + '>Artist</option><option value="filePath"' + (field === 'filePath' ? ' selected' : '') + '>File path</option></select></label>' +
-          '<label class="field"><span>Match</span><select class="wiz-regex-operator"><option value="regex"' + (operator === 'regex' ? ' selected' : '') + '>Matches regex</option><option value="not_regex"' + (operator === 'not_regex' ? ' selected' : '') + '>Does not match</option></select></label>' +
-          '<label class="field field--wide"><span>Pattern</span><input type="text" class="wiz-regex-value" placeholder="e.g. (christmas|xmas)" value="' + escH(value) + '" /></label>' +
+          '<label class="field"><span>Match</span><select class="wiz-regex-operator">' + wizardTrackRuleOptions(field, operator) + '</select></label>' +
+          '<label class="field field--wide"><span>Value</span><input type="text" class="wiz-regex-value" placeholder="' + escH(wizardTrackRulePlaceholder(field, operator)) + '" value="' + escH(value) + '" /></label>' +
           '<label class="spm-wizard-regex-case"><input type="checkbox" class="wiz-regex-case"' + (caseSensitive ? ' checked' : '') + ' /> <span>Case sensitive</span></label>' +
           '<button type="button" class="btn btn-ghost spm-wizard-regex-remove" data-regex-remove="' + index + '">Remove</button>' +
         '</div>';
       }
       var html = '<div class="spm-wizard-step-label">Step 4 of ' + WIZARD_TOTAL_STEPS + ' — Advanced settings <span class="gp-filter-hint">(admin only)</span></div>';
-      html += '<div class="spm-wizard-step-intro">Folder scoping and regex rules live here so the main wizard stays focused on normal playlist setup.</div>';
+      html += '<div class="spm-wizard-step-intro">Folder scoping and track rules live here so the main wizard stays focused on normal playlist setup.</div>';
       html += renderFolderSection('include', 'Include folders', _wizardState.includeFolders);
       html += renderFolderSection('exclude', 'Exclude folders', _wizardState.excludeFolders);
       var regexOpen = (_wizardState.activeAdvancedSection || 'include') === 'regex';
       html += '<div class="spm-filter-section spm-wizard-accordion' + (regexOpen ? ' is-open' : '') + '" data-advanced-kind="regex">' +
         '<button type="button" class="spm-wizard-accordion-toggle" data-advanced-toggle="regex">' +
-          '<span class="spm-filter-label">Regex exclusions</span>' +
+          '<span class="spm-filter-label">Track rules</span>' +
           '<span class="spm-wizard-accordion-indicator">' + (regexOpen ? '−' : '+') + '</span>' +
         '</button>' +
         '<div class="spm-wizard-accordion-panel"' + (regexOpen ? '' : ' hidden') + ' data-advanced-panel="regex">' +
-        '<div class="spm-wizard-field-hint">Rules remove matching tracks. Use them against track title, album, artist, or full file path; "does not match" therefore keeps only matching items.</div>' +
-        '<div id="wiz-regex-rules">' + (regexRules.length ? regexRules.map(renderRegexRule).join('') : '<div class="spm-wizard-folder-empty">No regex rules yet.</div>') + '</div>' +
-        '<button type="button" class="btn btn-ghost" id="wiz-regex-add">+ Add regex rule</button>' +
+        '<div class="spm-wizard-field-hint">Rules remove matching tracks. Use these for text or file-path cleanup after the main playlist rules are set.</div>' +
+        '<div id="wiz-regex-rules">' + (regexRules.length ? regexRules.map(renderRegexRule).join('') : '<div class="spm-wizard-folder-empty">No track rules yet.</div>') + '</div>' +
+        '<button type="button" class="btn btn-ghost" id="wiz-regex-add">+ Add track rule</button>' +
         '</div>' +
       '</div>';
       return html;
@@ -3198,6 +3277,18 @@
       if (ws.advancedRules && ws.advancedRules.length) html += row('Regex rules', escH(ws.advancedRules.map(function(rule) { return [rule.field, rule.operator, rule.value].join(' '); }).join(' | ')));
       if (ws.topNPerArtist) html += row('Top N / artist', escH(String(ws.topNPerArtist)));
       if (ws.maxTracks)     html += row('Max tracks', escH(String(ws.maxTracks)));
+      if (ws.albumPopularityMode && ws.albumPopularityMode !== 'all') {
+        html += row('Album popularity', escH(ws.albumPopularityMode === 'top3Only' ? 'Popular album tracks only (Top 3)' : 'Exclude popular album tracks'));
+      }
+      if (ws.popularityMode && ws.popularityMode !== 'all') {
+        var popularityLabel = ws.popularityMode === 'custom'
+          ? (ws.popularityPercent ? ('Top ' + escH(String(ws.popularityPercent)) + '% by popularity') : 'Custom percentile')
+          : (ws.popularityMode === 'top50' ? 'Top 50% by popularity'
+            : ws.popularityMode === 'top25' ? 'Top 25% by popularity'
+            : ws.popularityMode === 'top10' ? 'Top 10% by popularity'
+            : 'Top 5% by popularity');
+        html += row('Overall popularity', popularityLabel);
+      }
       if (ws.deduplicateByMbid) html += row('Deduplicate releases', 'MusicBrainz recording ID');
       if (ws.deduplicateByArtistTitle) html += row('Deduplicate release variants', 'Artist + fuzzy song title');
       html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
@@ -3300,6 +3391,9 @@
       } else if (step === 3) {
         _wizardState.topNPerArtist = parseInt(document.getElementById('wiz-top-n') ? document.getElementById('wiz-top-n').value : '', 10) || null;
         _wizardState.maxTracks     = parseInt(document.getElementById('wiz-max-tracks') ? document.getElementById('wiz-max-tracks').value : '', 10) || null;
+        _wizardState.albumPopularityMode = document.getElementById('wiz-album-popularity') ? document.getElementById('wiz-album-popularity').value : 'all';
+        _wizardState.popularityMode = document.getElementById('wiz-popularity-mode') ? document.getElementById('wiz-popularity-mode').value : 'all';
+        _wizardState.popularityPercent = parseInt(document.getElementById('wiz-popularity-percent') ? document.getElementById('wiz-popularity-percent').value : '', 10) || null;
         _wizardState.sortBy        = document.getElementById('wiz-sort-by') ? document.getElementById('wiz-sort-by').value : 'ratingCount';
         _wizardState.finalOrdering = document.getElementById('wiz-final-ordering') ? document.getElementById('wiz-final-ordering').value : 'none';
         _wizardState.deduplicateByMbid = !!(document.getElementById('wiz-dedupe-mbid') && document.getElementById('wiz-dedupe-mbid').checked);
@@ -3312,13 +3406,14 @@
           else _wizardState.excludeFolders = values;
         });
         _wizardState.advancedRules = Array.from(document.querySelectorAll('#wiz-regex-rules .spm-wizard-regex-row')).map(function(row) {
+          var field = row.querySelector('.wiz-regex-field') ? row.querySelector('.wiz-regex-field').value : 'trackTitle';
           return {
-            field: row.querySelector('.wiz-regex-field') ? row.querySelector('.wiz-regex-field').value : 'trackTitle',
-            operator: row.querySelector('.wiz-regex-operator') ? row.querySelector('.wiz-regex-operator').value : 'regex',
+            field: field,
+            operator: wizardNormalizeTrackRuleOperator(field, row.querySelector('.wiz-regex-operator') ? row.querySelector('.wiz-regex-operator').value : 'regex'),
             value: row.querySelector('.wiz-regex-value') ? row.querySelector('.wiz-regex-value').value.trim() : '',
             caseSensitive: !!(row.querySelector('.wiz-regex-case') && row.querySelector('.wiz-regex-case').checked),
           };
-        }).filter(function(rule) { return rule.value; });
+        });
       } else if (step === WIZARD_TOTAL_STEPS) {
         var finishNameEl = document.getElementById('wiz-finish-name');
         if (finishNameEl) _wizardState.name = finishNameEl.value.trim();
@@ -3585,10 +3680,16 @@
 
       // Step 3: output rules
       if (step === 3) {
-        ['wiz-top-n','wiz-max-tracks','wiz-sort-by','wiz-dedupe-mbid','wiz-dedupe-artist-title'].forEach(function(id) {
+        ['wiz-top-n','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title'].forEach(function(id) {
           var el = document.getElementById(id);
           if (!el) return;
           var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };
+          if (id === 'wiz-popularity-mode') {
+            handler = function() {
+              wizardSaveStateFromStep(3);
+              wizardRenderStep(3);
+            };
+          }
           el.addEventListener('change', handler);
           if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', handler);
         });
@@ -3678,7 +3779,12 @@
           });
         });
         document.querySelectorAll('#wiz-regex-rules select, #wiz-regex-rules input').forEach(function(el) {
-          var handler = function() { wizardSaveStateFromStep(4); setTimeout(wizardRunPreview, 200); };
+          var handler = function() {
+            var row = el.closest('.spm-wizard-regex-row');
+            if (el.classList.contains('wiz-regex-field') || el.classList.contains('wiz-regex-operator')) wizardSyncTrackRuleRow(row);
+            wizardSaveStateFromStep(4);
+            setTimeout(wizardRunPreview, 200);
+          };
           el.addEventListener('change', handler);
           if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', handler);
         });

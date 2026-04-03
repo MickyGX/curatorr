@@ -1361,23 +1361,25 @@ export function getArtistRankSnapshot(db, userPlexId, artistName) {
 
 export function getTopTracks(db, userPlexId, limit = 20) {
   const filter = userPlexId
-    ? "WHERE user_plex_id = ? AND LOWER(artist_name) != 'various artists'"
-    : "WHERE LOWER(artist_name) != 'various artists'";
+    ? "WHERE ts.user_plex_id = ? AND LOWER(ts.artist_name) != 'various artists'"
+    : "WHERE LOWER(ts.artist_name) != 'various artists'";
   const params = userPlexId ? [userPlexId, limit] : [limit];
   return db.prepare(`
-    SELECT plex_rating_key AS rating_key,
-           track_title, artist_name, album_name,
-           play_count AS total_plays,
-           skip_count AS total_skips,
-           consecutive_skips AS skip_streak,
-           excluded_from_smart AS excluded,
-           manually_excluded,
-           manually_included AS force_included,
-           tier,
-           last_played_at
-    FROM track_stats
+    SELECT ts.plex_rating_key AS rating_key,
+           ts.track_title, ts.artist_name, ts.album_name,
+           ts.play_count AS total_plays,
+           ts.skip_count AS total_skips,
+           ts.consecutive_skips AS skip_streak,
+           ts.excluded_from_smart AS excluded,
+           ts.manually_excluded,
+           ts.manually_included AS force_included,
+           ts.tier,
+           ts.last_played_at,
+           COALESCE(mt.rating_count, 0) AS rating_count
+    FROM track_stats ts
+    LEFT JOIN master_tracks mt ON mt.rating_key = ts.plex_rating_key
     ${filter}
-    ORDER BY play_count DESC
+    ORDER BY ts.play_count DESC
     LIMIT ?
   `).all(...params);
 }
@@ -1391,15 +1393,51 @@ export function getRecentHistory(db, userPlexId, limit = 50, offset = 0) {
            pe.is_skip, pe.event_source,
            COALESCE(ts.tier, 'curatorr') AS current_tier,
            COALESCE(ts.excluded_from_smart, 0) AS current_excluded,
-           COALESCE(ts.manually_included, 0) AS current_force_included
+           COALESCE(ts.manually_included, 0) AS current_force_included,
+           COALESCE(mt.rating_count, 0) AS rating_count
     FROM play_events pe
     LEFT JOIN track_stats ts
       ON ts.user_plex_id = pe.user_plex_id
      AND ts.plex_rating_key = pe.plex_rating_key
+    LEFT JOIN master_tracks mt
+      ON mt.rating_key = pe.plex_rating_key
     ${filter}
     ORDER BY pe.started_at DESC
     LIMIT ? OFFSET ?
   `).all(...params);
+}
+
+export function getAlbumPopularTrackRanks(db, ratingKeys = []) {
+  const keys = [...new Set((Array.isArray(ratingKeys) ? ratingKeys : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean))];
+  if (!keys.length) return new Map();
+  const placeholders = keys.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    WITH ranked AS (
+      SELECT
+        rating_key,
+        rating_count,
+        ROW_NUMBER() OVER (
+          PARTITION BY LOWER(TRIM(artist_name)), LOWER(TRIM(album_name))
+          ORDER BY rating_count DESC, view_count DESC, LOWER(TRIM(track_title)) ASC, rating_key ASC
+        ) AS popularity_rank
+      FROM master_tracks
+      WHERE TRIM(album_name) != ''
+        AND rating_count > 0
+    )
+    SELECT rating_key, rating_count, popularity_rank
+    FROM ranked
+    WHERE popularity_rank <= 3
+      AND rating_key IN (${placeholders})
+  `).all(...keys);
+  return new Map(rows.map((row) => [
+    String(row.rating_key || ''),
+    {
+      rank: Number(row.popularity_rank || 0),
+      ratingCount: Number(row.rating_count || 0),
+    },
+  ]));
 }
 
 // Returns a Set of plex_rating_key for tracks listened through to within completionThresholdMs of the end.
@@ -3091,8 +3129,84 @@ export function reorderQueuedLidarrRequests(db, userPlexId, requestIds = []) {
 // Returns { forUser: {artistCount, trackCount} | null, average: {artistCount, trackCount} }
 // rules: { artistTiers, trackTiers, topNPerArtist: number|null, maxTracks: number|null }
 // smartSettings: { artistSkipRank, artistBelterRank }
+function normalizeAlbumPopularityMode(value) {
+  const normalized = String(value || '').trim();
+  if (normalized === 'top3Only' || normalized === 'excludeTop3') return normalized;
+  return 'all';
+}
+
+function normalizePopularityMode(value) {
+  const normalized = String(value || '').trim();
+  if (['top50', 'top25', 'top10', 'top5', 'custom'].includes(normalized)) return normalized;
+  return 'all';
+}
+
+function normalizePopularityPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(1, Math.min(100, Math.round(num)));
+}
+
+function resolvePopularityPercent(mode, value) {
+  const normalized = normalizePopularityMode(mode);
+  if (normalized === 'top50') return 50;
+  if (normalized === 'top25') return 25;
+  if (normalized === 'top10') return 10;
+  if (normalized === 'top5') return 5;
+  if (normalized === 'custom') return normalizePopularityPercent(value);
+  return null;
+}
+
+function albumPopularityGroupKey(track) {
+  const artistKey = String(track?.artistName || '').trim().toLowerCase();
+  const albumKey = String(track?.albumName || '').trim().toLowerCase();
+  return artistKey && albumKey ? `${artistKey}|${albumKey}` : '';
+}
+
+function buildAlbumPopularTopTrackKeySet(tracks, limit = 3) {
+  const groups = new Map();
+  for (const track of tracks || []) {
+    const groupKey = albumPopularityGroupKey(track);
+    const ratingKey = String(track?.ratingKey || '').trim();
+    if (!groupKey || !ratingKey) continue;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(track);
+  }
+  const keepKeys = new Set();
+  for (const groupTracks of groups.values()) {
+    groupTracks
+      .slice()
+      .sort((a, b) => (Number(b?.ratingCount || 0) - Number(a?.ratingCount || 0))
+        || (Number(b?.viewCount || 0) - Number(a?.viewCount || 0))
+        || String(a?.trackTitle || '').localeCompare(String(b?.trackTitle || ''))
+        || String(a?.ratingKey || '').localeCompare(String(b?.ratingKey || '')))
+      .slice(0, Math.max(1, Number(limit) || 3))
+      .forEach((track) => {
+        if (Number(track?.ratingCount || 0) > 0) keepKeys.add(String(track.ratingKey || ''));
+      });
+  }
+  return keepKeys;
+}
+
+function applyAbsolutePopularityMode(tracks, mode, percentValue) {
+  const percent = resolvePopularityPercent(mode, percentValue);
+  if (!percent || percent >= 100) return tracks;
+  const sorted = (tracks || []).slice().sort((a, b) => (Number(b?.ratingCount || b?.rc || 0) - Number(a?.ratingCount || a?.rc || 0))
+    || (Number(b?.viewCount || 0) - Number(a?.viewCount || 0))
+    || String(a?.trackTitle || '').localeCompare(String(b?.trackTitle || ''))
+    || String(a?.ratingKey || '').localeCompare(String(b?.ratingKey || '')));
+  const keepCount = Math.max(1, Math.ceil(sorted.length * (percent / 100)));
+  const keepKeys = new Set(sorted.slice(0, keepCount).map((track) => String(track?.ratingKey || '')).filter(Boolean));
+  return tracks.filter((track) => keepKeys.has(String(track?.ratingKey || '')));
+}
+
 export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, filteredMasterTracks) {
   const masterTracks = filteredMasterTracks ?? getMasterTracks(db);
+  const albumPopularityMode = normalizeAlbumPopularityMode(rules?.albumPopularityMode);
+  const popularityMode = normalizePopularityMode(rules?.popularityMode);
+  const albumPopularTrackKeys = albumPopularityMode === 'all'
+    ? null
+    : buildAlbumPopularTopTrackKeySet(getMasterTracks(db), 3);
   const artistTagMap = getArtistTagMap(db);
   const skipRank = Number(smartSettings?.artistSkipRank ?? 2);
   const belterRank = Number(smartSettings?.artistBelterRank ?? 8);
@@ -3151,7 +3265,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
 
   // Returns both the eligible pool and the final output estimate for a given pre-built artistMap + trackMap.
   function runWithMaps(artistMap, trackMap) {
-    const byArtist = new Map();
+    const matchedTracks = [];
     for (const t of masterTracks) {
       const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
       const artistTier = classifyArtist(score);
@@ -3180,15 +3294,28 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
       }
       if (!matchesSeasonalRule(t)) continue;
-
-      if (!byArtist.has(t.artistName)) byArtist.set(t.artistName, []);
-      byArtist.get(t.artistName).push({
+      if (albumPopularTrackKeys) {
+        const isPopular = albumPopularTrackKeys.has(String(t.ratingKey || ''));
+        if (albumPopularityMode === 'top3Only' && !isPopular) continue;
+        if (albumPopularityMode === 'excludeTop3' && isPopular) continue;
+      }
+      matchedTracks.push({
         ratingKey: t.ratingKey,
         artistName: t.artistName || '',
+        trackTitle: t.trackTitle || '',
+        ratingCount: Number(t.ratingCount || 0),
+        viewCount: Number(t.viewCount || 0),
         rc: t.ratingCount || 0,
         tw: stat?.tier_weight || 0,
         pc: stat?.play_count || 0,
       });
+    }
+
+    const popularityFilteredTracks = applyAbsolutePopularityMode(matchedTracks, popularityMode, rules?.popularityPercent);
+    const byArtist = new Map();
+    for (const track of popularityFilteredTracks) {
+      if (!byArtist.has(track.artistName)) byArtist.set(track.artistName, []);
+      byArtist.get(track.artistName).push(track);
     }
 
     const eligibleArtistCount = byArtist.size;
@@ -3223,7 +3350,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
         .map((r) => [r.plex_rating_key, r]),
     );
-    const keys = new Set();
+    const matchedTracks = [];
     for (const t of masterTracks) {
       const score = artistMap.get((t.artistName || '').toLowerCase()) ?? null;
       const artistTier = classifyArtist(score);
@@ -3250,8 +3377,21 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
       }
       if (!matchesSeasonalRule(t)) continue;
-      keys.add(t.ratingKey);
+      if (albumPopularTrackKeys) {
+        const isPopular = albumPopularTrackKeys.has(String(t.ratingKey || ''));
+        if (albumPopularityMode === 'top3Only' && !isPopular) continue;
+        if (albumPopularityMode === 'excludeTop3' && isPopular) continue;
+      }
+      matchedTracks.push({
+        ratingKey: t.ratingKey,
+        trackTitle: t.trackTitle || '',
+        ratingCount: Number(t.ratingCount || 0),
+        viewCount: Number(t.viewCount || 0),
+      });
     }
+    const keys = new Set(applyAbsolutePopularityMode(matchedTracks, popularityMode, rules?.popularityPercent)
+      .map((track) => String(track.ratingKey || ''))
+      .filter(Boolean));
     return keys;
   }
 
