@@ -19,6 +19,13 @@ Curatorr is configured through container environment variables and the Settings 
 | `SPOTIFY_CLIENT_ID` | No | Spotify app client ID used for Spotify playlist import and refresh. |
 | `SPOTIFY_CLIENT_SECRET` | No | Spotify app client secret used for Spotify playlist import and refresh. |
 
+For Spotify:
+
+1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
+3. Put the app `Client ID` into `SPOTIFY_CLIENT_ID`.
+4. Put the app `Client Secret` into `SPOTIFY_CLIENT_SECRET`.
+
 ## Settings UI
 
 All runtime configuration lives in `Settings`.

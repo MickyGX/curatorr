@@ -88,6 +88,16 @@ Optional Spotify import setup:
 - Uncomment `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` if you want users to connect Spotify accounts and import Spotify playlists.
 - In the Spotify developer app, add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
 
+How to get the Spotify secrets:
+
+1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and sign in.
+2. Click `Create app`.
+3. Give the app a name and description, then choose `Web API`.
+4. Open the app settings and add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
+5. Save the app settings.
+6. Copy the app `Client ID` into `SPOTIFY_CLIENT_ID`.
+7. Use `View client secret` to copy the `Client Secret` into `SPOTIFY_CLIENT_SECRET`.
+
 Then in `Settings -> General -> Track Analysis Import`:
 
 - set `Analyzer mode` to `Analyzer sidecar`

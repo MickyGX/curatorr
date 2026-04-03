@@ -154,6 +154,18 @@ Spotify requires app-level credentials on the Curatorr container:
 - `SPOTIFY_CLIENT_ID`
 - `SPOTIFY_CLIENT_SECRET`
 
+### Spotify app setup
+
+1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Sign in with a Spotify account.
+3. Click `Create app`.
+4. Give it a name and description, then select `Web API`.
+5. Open the app settings.
+6. Add a redirect URI that matches your Curatorr base URL.
+7. Save the app settings.
+8. Copy the `Client ID` into `SPOTIFY_CLIENT_ID`.
+9. Click `View client secret` and copy that value into `SPOTIFY_CLIENT_SECRET`.
+
 The Spotify developer app must also include a redirect URI that matches your Curatorr base
 URL, for example:
 

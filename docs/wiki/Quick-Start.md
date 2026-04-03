@@ -38,6 +38,15 @@ If you want Spotify playlist import, also create a Spotify developer app and unc
 `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`. The redirect URI must match your Curatorr
 base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
 
+To create the Spotify app:
+
+1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Sign in and click `Create app`.
+3. Create a `Web API` app.
+4. In the app settings, add your Curatorr callback URL, for example `http://localhost:7676/user-settings/spotify/callback`.
+5. Copy the `Client ID` into `SPOTIFY_CLIENT_ID`.
+6. Use `View client secret` and copy that value into `SPOTIFY_CLIENT_SECRET`.
+
 ## 2. Start the container
 
 ```bash
