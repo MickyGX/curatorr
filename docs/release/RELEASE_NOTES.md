@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.62 (2026-04-04)
+
+- Reworked Curatorr overview popups to use a Launcharr-style layout with better desktop/mobile sizing, square album artwork, fixed artist backdrops, internal text scrolling, cleaner release dates, and corrected multi-disc numbering.
+- Fixed Discover request rows so artists and albums open the correct overview popups, album artwork now resolves from stored Lidarr/manual album data instead of falling back to the artist image, and failed requests get a proper retry button.
+- Polished page spacing and scrolling across the app: removed the extra sidebar divider, tightened dashboard/discover/playlist panel gaps, kept the History header visible while scrolling, and refined playlist carousel collapse/expand behavior and page spacing.
+
 ## v0.1.61 (2026-04-03)
 
 - Added playlist import workflows for both Plex and Spotify, including Spotify account connection, owned-playlist filtering, previewing matched tracks, and one-click import into Curatorr-managed custom playlists.

@@ -330,6 +330,7 @@ CREATE TABLE IF NOT EXISTS imported_playlist_unmatched (
   artists_json    TEXT NOT NULL DEFAULT '[]',
   album_title     TEXT NOT NULL DEFAULT '',
   album_type      TEXT NOT NULL DEFAULT '',
+  album_image_url TEXT NOT NULL DEFAULT '',
   duration_ms     INTEGER NOT NULL DEFAULT 0,
   selected        INTEGER NOT NULL DEFAULT 1,
   created_at      INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
@@ -544,6 +545,10 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_owner TEXT NOT NULL DEFAULT ''");
   if (!generatedCols.includes('missing_count'))
     db.exec('ALTER TABLE user_generated_playlists ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0');
+
+  const importedUnmatchedCols = db.prepare('PRAGMA table_info(imported_playlist_unmatched)').all().map((c) => c.name);
+  if (!importedUnmatchedCols.includes('album_image_url'))
+    db.exec("ALTER TABLE imported_playlist_unmatched ADD COLUMN album_image_url TEXT NOT NULL DEFAULT ''");
 
   const masterCols = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (!masterCols.includes('rating_count'))
@@ -2298,7 +2303,7 @@ export function removePlaylistTracks(db, userId, playlistKey, ratingKeys) {
 
 export function listImportedPlaylistUnmatched(db, userId, playlistKey) {
   return db.prepare(`
-    SELECT id, source_track_id, position, track_title, artist_name, artists_json, album_title, album_type, duration_ms, selected
+    SELECT id, source_track_id, position, track_title, artist_name, artists_json, album_title, album_type, album_image_url, duration_ms, selected
     FROM imported_playlist_unmatched
     WHERE user_plex_id = ? AND playlist_key = ?
     ORDER BY position ASC, artist_name COLLATE NOCASE ASC, track_title COLLATE NOCASE ASC, id ASC
@@ -2314,6 +2319,7 @@ export function listImportedPlaylistUnmatched(db, userId, playlistKey) {
       artists: Array.isArray(artists) ? artists.map((artist) => String(artist || '').trim()).filter(Boolean) : [],
       albumTitle: String(row.album_title || '').trim(),
       albumType: String(row.album_type || '').trim(),
+      albumImageUrl: String(row.album_image_url || '').trim(),
       durationMs: Number(row.duration_ms || 0),
       selected: Boolean(row.selected),
     };
@@ -2325,9 +2331,9 @@ export function setImportedPlaylistUnmatched(db, userId, playlistKey, rows) {
   const ins = db.prepare(`
     INSERT INTO imported_playlist_unmatched (
       playlist_key, user_plex_id, source_track_id, position, track_title,
-      artist_name, artists_json, album_title, album_type, duration_ms,
+      artist_name, artists_json, album_title, album_type, album_image_url, duration_ms,
       selected, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const now = Date.now();
   db.transaction(() => {
@@ -2344,6 +2350,7 @@ export function setImportedPlaylistUnmatched(db, userId, playlistKey, rows) {
         JSON.stringify(artists),
         String(row?.albumTitle || '').trim(),
         String(row?.albumType || '').trim(),
+        String(row?.albumImageUrl || '').trim(),
         Number(row?.durationMs || 0),
         row?.selected === false ? 0 : 1,
         now,

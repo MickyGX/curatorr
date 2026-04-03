@@ -995,9 +995,9 @@ export function createLidarrService(ctx) {
       } catch (_err) {
         tracks = [];
       }
-      const image = preview.imageUrl
-        ? String(preview.imageUrl)
-        : (preview.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(preview.imagePath))}` : '');
+      const image = preview.imagePath
+        ? `/api/music/lidarr/image?path=${encodeURIComponent(String(preview.imagePath))}`
+        : (preview.imageUrl ? String(preview.imageUrl) : '');
       return {
         artistName,
         albumTitle: preview.title || albumTitle,
@@ -2252,6 +2252,12 @@ export function createLidarrService(ctx) {
     }
 
     if (requestId) {
+      const resolvedAlbumImageUrl = String(
+        album?.imageUrl
+        || (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : '')
+        || (String(album?.foreignAlbumId || '').trim() ? `/api/music/cover/release-group/${encodeURIComponent(String(album.foreignAlbumId).trim())}` : '')
+        || ''
+      ).trim();
       updateLidarrRequest(db, requestId, {
         status: 'completed',
         lidarrArtistId: lidarrResult.artistId || null,
@@ -2259,7 +2265,9 @@ export function createLidarrService(ctx) {
         processedAt: Date.now(),
         detail: {
           preferredAlbumTitle,
+          preferredAlbumImageUrl: String(options.preferredAlbumImageUrl || '').trim(),
           selectedAlbumTitle: albumTitle,
+          selectedAlbumImageUrl: resolvedAlbumImageUrl,
           selectionReason: pickedAlbum.selectionReason,
           searchCommandId: Number(searchCommand?.id || 0) || null,
           alreadyMonitored,
@@ -2302,6 +2310,7 @@ export function createLidarrService(ctx) {
       status: 'queued',
       detail: {
         preferredAlbumTitle: String(options.preferredAlbumTitle || ''),
+        preferredAlbumImageUrl: String(options.preferredAlbumImageUrl || ''),
         allowCuratorrFallback: options.allowCuratorrFallback !== false,
         autoAdd: options.autoAdd === true,
         note: String(options.note || ''),

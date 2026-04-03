@@ -424,8 +424,7 @@ html[data-sidebar-invert="1"] .nav-subitem{
   color:var(--on-brand);
 }
 
-html[data-sidebar-invert="1"] .dash-brand::after,
-html[data-sidebar-invert="1"] .nav-divider{
+html[data-sidebar-invert="1"] .dash-brand::after{
   background:rgba(0,0,0,.3);
   border-color:rgba(0,0,0,.48);
 }
@@ -760,13 +759,6 @@ html[data-sidebar-invert="1"] .dash-brand-menu-toggle{
   height:0;
 }
 
-.nav-divider{
-  height:1px;
-  background:rgba(0,0,0,.35);
-  border-top:1px solid rgba(255,255,255,.08);
-  margin:4px 2px;
-}
-
 .nav-section{
   font-size:10px;
   text-transform:uppercase;
@@ -962,11 +954,6 @@ html:not([data-sidebar-invert="1"]) .dash-frame:not(.sidebar-collapsed) .nav-acc
 .sidebar-collapsed .dash-nav{
   padding:8px 0 6px;
   align-items:center;
-}
-
-.sidebar-collapsed .nav-divider{
-  width:32px;
-  margin:4px auto;
 }
 
 .sidebar-collapsed .dash-user{

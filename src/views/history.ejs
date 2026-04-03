@@ -74,31 +74,33 @@
             <% if (_history.length) { %>
               <div class="cur-hi-shell">
                 <div class="cur-hi-table">
-                  <div class="cur-hi-head">
-                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="track">
-                      <span>Track</span>
-                      <span class="cur-pl-sort-arrow">↕</span>
-                    </button>
-                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="artist">
-                      <span>Artist</span>
-                      <span class="cur-pl-sort-arrow">↕</span>
-                    </button>
-                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="album">
-                      <span>Album</span>
-                      <span class="cur-pl-sort-arrow">↕</span>
-                    </button>
-                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="listened">
-                      <span>Listened</span>
-                      <span class="cur-pl-sort-arrow">↕</span>
-                    </button>
-                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="when">
-                      <span>When</span>
-                      <span class="cur-pl-sort-arrow">↕</span>
-                    </button>
-                  </div>
-                  <div class="cur-hi-body" id="historyTableBody"></div>
-                  <div id="historyLoadMoreWrap" style="display:none; text-align:center; padding:16px">
-                    <button class="btn btn-ghost" id="historyLoadMoreBtn" type="button" onclick="loadMoreHistory()">Load more</button>
+                  <div class="cur-hi-scroll">
+                    <div class="cur-hi-head">
+                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="track">
+                        <span>Track</span>
+                        <span class="cur-pl-sort-arrow">↕</span>
+                      </button>
+                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="artist">
+                        <span>Artist</span>
+                        <span class="cur-pl-sort-arrow">↕</span>
+                      </button>
+                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="album">
+                        <span>Album</span>
+                        <span class="cur-pl-sort-arrow">↕</span>
+                      </button>
+                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="listened">
+                        <span>Listened</span>
+                        <span class="cur-pl-sort-arrow">↕</span>
+                      </button>
+                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="when">
+                        <span>When</span>
+                        <span class="cur-pl-sort-arrow">↕</span>
+                      </button>
+                    </div>
+                    <div class="cur-hi-body" id="historyTableBody"></div>
+                    <div id="historyLoadMoreWrap" class="cur-hi-load-more" style="display:none">
+                      <button class="btn btn-ghost" id="historyLoadMoreBtn" type="button" onclick="loadMoreHistory()">Load more</button>
+                    </div>
                   </div>
                 </div>
               </div>

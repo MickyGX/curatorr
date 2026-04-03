@@ -58,22 +58,26 @@
           '<div class="plex-modal-subtitle"></div>' +
         '</div>' +
         '<div class="plex-modal-body">' +
-          '<div class="plex-modal-hero">' +
-            '<div class="plex-modal-bg"></div>' +
-            '<div class="plex-modal-content">' +
-              '<div class="plex-modal-poster"></div>' +
-              '<div class="plex-modal-meta">' +
-                '<div class="plex-pills"></div>' +
-                '<div class="plex-section">' +
-                  '<h4>Overview</h4>' +
-                  '<p class="plex-overview-text"></p>' +
+          '<div class="plex-modal-scroll">' +
+            '<div class="plex-modal-hero">' +
+              '<div class="plex-modal-bg"></div>' +
+              '<div class="plex-modal-content">' +
+                '<div class="plex-modal-poster"></div>' +
+                '<div class="plex-modal-meta">' +
+                  '<div class="plex-pills"></div>' +
+                  '<div class="plex-modal-meta-scroll">' +
+                    '<div class="plex-section">' +
+                      '<h4>Overview</h4>' +
+                      '<p class="plex-overview-text"></p>' +
+                    '</div>' +
+                    '<div class="plex-section plex-section--tracks plex-hidden">' +
+                      '<h4>Tracks</h4>' +
+                      '<div class="cur-overview-track-list"></div>' +
+                    '</div>' +
+                  '</div>' +
                 '</div>' +
               '</div>' +
             '</div>' +
-          '</div>' +
-          '<div class="plex-section plex-section--tracks plex-hidden">' +
-            '<h4>Tracks</h4>' +
-            '<div class="cur-overview-track-list"></div>' +
           '</div>' +
         '</div>' +
         '<div class="plex-modal-footer">' +
@@ -162,6 +166,12 @@
     var mediaNumbers = items
       .map(function(track) { return Number(track.mediumNumber || 0) || 0; })
       .filter(function(value) { return value > 0; });
+    var mediumDisplayMap = new Map();
+    Array.from(new Set(mediaNumbers))
+      .sort(function(left, right) { return left - right; })
+      .forEach(function(value, index) {
+        mediumDisplayMap.set(value, index + 1);
+      });
     var hasDiscHeaders = (new Set(mediaNumbers)).size > 1;
     var currentMedium = null;
     container.innerHTML = items.map(function(track) {
@@ -169,7 +179,7 @@
       var html = '';
       if (hasDiscHeaders && mediumNumber > 0 && mediumNumber !== currentMedium) {
         currentMedium = mediumNumber;
-        html += '<div class="cur-overview-track-group">CD ' + escHtml(mediumNumber) + '</div>';
+        html += '<div class="cur-overview-track-group">CD ' + escHtml(mediumDisplayMap.get(mediumNumber) || mediumNumber) + '</div>';
       }
       html += '<div class="cur-overview-track-row' + (track.thumb ? ' has-thumb' : '') + '">' +
         '<span class="cur-overview-track-index">' + escHtml(track.index || '') + '</span>' +
@@ -217,6 +227,7 @@
     var statsPills = modal.querySelector('.plex-pills--stats');
     var actions = modal.querySelector('.plex-modal-actions');
     var overview = modal.querySelector('.plex-overview-text');
+    var scroll = modal.querySelector('.plex-modal-meta-scroll');
     var trackList = modal.querySelector('.cur-overview-track-list');
     var trackHeading = modal.querySelector('.plex-section--tracks h4');
     var kindPills = pills;
@@ -233,6 +244,7 @@
     if (trackHeading) trackHeading.textContent = item.trackSectionTitle || 'Tracks';
     renderTrackList(trackList, item.trackList);
     renderActions(actions, item.actions);
+    if (scroll) scroll.scrollTop = 0;
 
     backdrop.classList.remove('plex-hidden');
     document.body.classList.add('cur-modal-open');

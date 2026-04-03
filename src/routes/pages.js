@@ -104,6 +104,29 @@ function comparePlaylistCards(a, b) {
   return String(a?.playlistTitle || '').localeCompare(String(b?.playlistTitle || ''));
 }
 
+function resolveDiscoverAlbumImageUrl(album = {}) {
+  const directUrl = String(
+    album?.selectedAlbumImageUrl
+    || album?.preferredAlbumImageUrl
+    || album?.albumImageUrl
+    || album?.imageUrl
+    || ''
+  ).trim();
+  if (directUrl) return directUrl;
+  const imagePath = String(album?.imagePath || '').trim();
+  if (imagePath) return `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}`;
+  const foreignAlbumId = String(album?.foreignAlbumId || '').trim();
+  if (foreignAlbumId) return `/api/music/cover/release-group/${encodeURIComponent(foreignAlbumId)}`;
+  return '';
+}
+
+function toDiscoverAlbumSelection(album = {}) {
+  return {
+    albumTitle: String(album?.albumTitle || album?.title || '').trim(),
+    albumImageUrl: resolveDiscoverAlbumImageUrl(album),
+  };
+}
+
 function enrichDiscoverRequests(db, userPlexId, requests = []) {
   const libraryArtistSet = new Set(
     db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
@@ -113,17 +136,27 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
     for (const album of listSuggestedAlbums(db, userPlexId, { status, limit: 500 })) {
       const key = String(album?.artistName || '').trim().toLowerCase();
       if (!key || addedAlbumMap.has(key)) continue;
-      addedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+      addedAlbumMap.set(key, toDiscoverAlbumSelection(album));
     }
   }
   const suggestedAlbumMap = new Map();
   for (const album of listSuggestedAlbums(db, userPlexId, { limit: 500 })) {
     const key = String(album?.artistName || '').trim().toLowerCase();
     if (!key || suggestedAlbumMap.has(key)) continue;
-    suggestedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+    suggestedAlbumMap.set(key, toDiscoverAlbumSelection(album));
   }
   return (Array.isArray(requests) ? requests : []).map((request) => {
     const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
+    const artistKey = String(request?.artistName || '').trim().toLowerCase();
+    const inLibrary = libraryArtistSet.has(artistKey);
+    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
+    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
+    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
+    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
+    const starterSelection = toDiscoverAlbumSelection(starterAlbum);
+    const latestSelection = toDiscoverAlbumSelection(latestAlbum);
+    const addedSelection = addedAlbumMap.get(artistKey) || { albumTitle: '', albumImageUrl: '' };
+    const suggestedSelection = suggestedAlbumMap.get(artistKey) || { albumTitle: '', albumImageUrl: '' };
     const currentAlbumTitle = String(
       request?.albumTitle
       || detail.selectedAlbumTitle
@@ -132,35 +165,32 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       || detail.preferredAlbumTitle
       || ''
     ).trim();
-    const artistKey = String(request?.artistName || '').trim().toLowerCase();
-    const inLibrary = libraryArtistSet.has(artistKey);
-    if (currentAlbumTitle) return { ...request, detail, inLibrary };
-    const addedAlbumTitle = addedAlbumMap.get(artistKey) || '';
-    if (addedAlbumTitle) {
-      return {
-        ...request,
-        detail: { ...detail, selectedAlbumTitle: addedAlbumTitle },
-        inLibrary,
-      };
-    }
-    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
-    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
-    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
-    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
-    const fallbackAlbumTitle = String(
-      starterAlbum?.albumTitle
-      || latestAlbum?.albumTitle
-      || suggestedAlbumMap.get(artistKey)
+    const selectedAlbumTitle = currentAlbumTitle
+      || addedSelection.albumTitle
+      || starterSelection.albumTitle
+      || latestSelection.albumTitle
+      || suggestedSelection.albumTitle
+      || '';
+    const selectedAlbumImageUrl = String(
+      detail.selectedAlbumImageUrl
+      || detail.preferredAlbumImageUrl
+      || (selectedAlbumTitle && selectedAlbumTitle === starterSelection.albumTitle ? starterSelection.albumImageUrl : '')
+      || (selectedAlbumTitle && selectedAlbumTitle === latestSelection.albumTitle ? latestSelection.albumImageUrl : '')
+      || (selectedAlbumTitle && selectedAlbumTitle === addedSelection.albumTitle ? addedSelection.albumImageUrl : '')
+      || (selectedAlbumTitle && selectedAlbumTitle === suggestedSelection.albumTitle ? suggestedSelection.albumImageUrl : '')
       || ''
     ).trim();
-    if (!fallbackAlbumTitle) return { ...request, detail, inLibrary };
+    if (!selectedAlbumTitle) return { ...request, detail, inLibrary };
     return {
       ...request,
       detail: {
         ...detail,
-        selectedAlbumTitle: detail.selectedAlbumTitle || fallbackAlbumTitle,
-        starterAlbumTitle: detail.starterAlbumTitle || String(starterAlbum?.albumTitle || '').trim(),
-        latestAlbumTitle: detail.latestAlbumTitle || String(latestAlbum?.albumTitle || '').trim(),
+        selectedAlbumTitle: detail.selectedAlbumTitle || selectedAlbumTitle,
+        selectedAlbumImageUrl: detail.selectedAlbumImageUrl || selectedAlbumImageUrl,
+        starterAlbumTitle: detail.starterAlbumTitle || starterSelection.albumTitle,
+        starterAlbumImageUrl: detail.starterAlbumImageUrl || starterSelection.albumImageUrl,
+        latestAlbumTitle: detail.latestAlbumTitle || latestSelection.albumTitle,
+        latestAlbumImageUrl: detail.latestAlbumImageUrl || latestSelection.albumImageUrl,
       },
       inLibrary,
     };

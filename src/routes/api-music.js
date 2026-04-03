@@ -94,6 +94,14 @@ function parseNullablePlaylistNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function formatOverviewReleaseDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})T/);
+  if (isoMatch) return isoMatch[1];
+  return raw;
+}
+
 function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField = 'ratingKey') {
   return (Array.isArray(items) ? items : []).map((item) => {
     const popularity = popularityByKey.get(String(item?.[keyField] || '')) || null;
@@ -396,22 +404,53 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
   const libraryArtistSet = new Set(
     db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
   );
+  function resolveDiscoverAlbumImageUrl(album = {}) {
+    const directUrl = String(
+      album?.selectedAlbumImageUrl
+      || album?.preferredAlbumImageUrl
+      || album?.albumImageUrl
+      || album?.imageUrl
+      || ''
+    ).trim();
+    if (directUrl) return directUrl;
+    const imagePath = String(album?.imagePath || '').trim();
+    if (imagePath) return `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}`;
+    const foreignAlbumId = String(album?.foreignAlbumId || '').trim();
+    if (foreignAlbumId) return `/api/music/cover/release-group/${encodeURIComponent(foreignAlbumId)}`;
+    return '';
+  }
+  function toDiscoverAlbumSelection(album = {}) {
+    return {
+      albumTitle: String(album?.albumTitle || album?.title || '').trim(),
+      albumImageUrl: resolveDiscoverAlbumImageUrl(album),
+    };
+  }
   const addedAlbumMap = new Map();
   for (const status of ['added_to_lidarr', 'already_monitored']) {
     for (const album of listSuggestedAlbums(db, userPlexId, { status, limit: 500 })) {
       const key = String(album?.artistName || '').trim().toLowerCase();
       if (!key || addedAlbumMap.has(key)) continue;
-      addedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+      addedAlbumMap.set(key, toDiscoverAlbumSelection(album));
     }
   }
   const suggestedAlbumMap = new Map();
   for (const album of listSuggestedAlbums(db, userPlexId, { limit: 500 })) {
     const key = String(album?.artistName || '').trim().toLowerCase();
     if (!key || suggestedAlbumMap.has(key)) continue;
-    suggestedAlbumMap.set(key, String(album?.albumTitle || '').trim());
+    suggestedAlbumMap.set(key, toDiscoverAlbumSelection(album));
   }
   return (Array.isArray(requests) ? requests : []).map((request) => {
     const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
+    const artistKey = String(request?.artistName || '').trim().toLowerCase();
+    const inLibrary = libraryArtistSet.has(artistKey);
+    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
+    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
+    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
+    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
+    const starterSelection = toDiscoverAlbumSelection(starterAlbum);
+    const latestSelection = toDiscoverAlbumSelection(latestAlbum);
+    const addedSelection = addedAlbumMap.get(artistKey) || { albumTitle: '', albumImageUrl: '' };
+    const suggestedSelection = suggestedAlbumMap.get(artistKey) || { albumTitle: '', albumImageUrl: '' };
     const currentAlbumTitle = String(
       request?.albumTitle
       || detail.selectedAlbumTitle
@@ -420,35 +459,32 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       || detail.preferredAlbumTitle
       || ''
     ).trim();
-    const artistKey = String(request?.artistName || '').trim().toLowerCase();
-    const inLibrary = libraryArtistSet.has(artistKey);
-    if (currentAlbumTitle) return { ...request, detail, inLibrary };
-    const addedAlbumTitle = addedAlbumMap.get(artistKey) || '';
-    if (addedAlbumTitle) {
-      return {
-        ...request,
-        detail: { ...detail, selectedAlbumTitle: addedAlbumTitle },
-        inLibrary,
-      };
-    }
-    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
-    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
-    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
-    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
-    const fallbackAlbumTitle = String(
-      starterAlbum?.albumTitle
-      || latestAlbum?.albumTitle
-      || suggestedAlbumMap.get(artistKey)
+    const selectedAlbumTitle = currentAlbumTitle
+      || addedSelection.albumTitle
+      || starterSelection.albumTitle
+      || latestSelection.albumTitle
+      || suggestedSelection.albumTitle
+      || '';
+    const selectedAlbumImageUrl = String(
+      detail.selectedAlbumImageUrl
+      || detail.preferredAlbumImageUrl
+      || (selectedAlbumTitle && selectedAlbumTitle === starterSelection.albumTitle ? starterSelection.albumImageUrl : '')
+      || (selectedAlbumTitle && selectedAlbumTitle === latestSelection.albumTitle ? latestSelection.albumImageUrl : '')
+      || (selectedAlbumTitle && selectedAlbumTitle === addedSelection.albumTitle ? addedSelection.albumImageUrl : '')
+      || (selectedAlbumTitle && selectedAlbumTitle === suggestedSelection.albumTitle ? suggestedSelection.albumImageUrl : '')
       || ''
     ).trim();
-    if (!fallbackAlbumTitle) return { ...request, detail, inLibrary };
+    if (!selectedAlbumTitle) return { ...request, detail, inLibrary };
     return {
       ...request,
       detail: {
         ...detail,
-        selectedAlbumTitle: detail.selectedAlbumTitle || fallbackAlbumTitle,
-        starterAlbumTitle: detail.starterAlbumTitle || String(starterAlbum?.albumTitle || '').trim(),
-        latestAlbumTitle: detail.latestAlbumTitle || String(latestAlbum?.albumTitle || '').trim(),
+        selectedAlbumTitle: detail.selectedAlbumTitle || selectedAlbumTitle,
+        selectedAlbumImageUrl: detail.selectedAlbumImageUrl || selectedAlbumImageUrl,
+        starterAlbumTitle: detail.starterAlbumTitle || starterSelection.albumTitle,
+        starterAlbumImageUrl: detail.starterAlbumImageUrl || starterSelection.albumImageUrl,
+        latestAlbumTitle: detail.latestAlbumTitle || latestSelection.albumTitle,
+        latestAlbumImageUrl: detail.latestAlbumImageUrl || latestSelection.albumImageUrl,
       },
       inLibrary,
     };
@@ -1474,15 +1510,15 @@ export function registerApiMusic(app, ctx) {
         source: String(preview?.source || ''),
         albums: applyManualPreviewStatuses((Array.isArray(preview?.albums) ? preview.albums : []).map((album) => ({
           ...album,
-          image: album?.imageUrl
-            ? String(album.imageUrl)
-            : (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : ''),
+          image: album?.imagePath
+            ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}`
+            : (album?.imageUrl ? String(album.imageUrl) : ''),
         })), stateMap),
         curatorrPickPreview: (Array.isArray(preview?.curatorrPickPreview) ? preview.curatorrPickPreview : []).map((album) => ({
           ...album,
-          image: album?.imageUrl
-            ? String(album.imageUrl)
-            : (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : ''),
+          image: album?.imagePath
+            ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}`
+            : (album?.imageUrl ? String(album.imageUrl) : ''),
         })),
       });
     } catch (err) {
@@ -1546,7 +1582,7 @@ export function registerApiMusic(app, ctx) {
           subtitle: artistName,
           overview: String(overview?.overview || `${albumTitle} by ${artistName}`),
           thumb: String(overview?.thumb || '').trim(),
-          art: String(overview?.art || '').trim(),
+          art: artistName ? `/api/music/thumb/artist/${encodeURIComponent(artistName)}` : String(overview?.art || '').trim(),
           posterRatio: 'square',
           pills: [
             'Album',
@@ -1557,7 +1593,7 @@ export function registerApiMusic(app, ctx) {
           stats: [
             { label: 'Tracks', value: Number(overview?.trackCount || tracks.length || 0) },
             { label: 'Available', value: Number(overview?.trackFileCount || 0) > 0 ? 'Yes' : 'No' },
-            overview?.releaseDate ? { label: 'Released', value: String(overview.releaseDate) } : null,
+            overview?.releaseDate ? { label: 'Released', value: formatOverviewReleaseDate(overview.releaseDate) } : null,
           ].filter(Boolean),
           trackList: tracks.map((track, index) => ({
             mediumNumber: Number(track?.mediumNumber || 0) || 0,
@@ -1600,9 +1636,9 @@ export function registerApiMusic(app, ctx) {
       const stateMap = buildManualAlbumStateMap(db, userPlexId, resolvedArtistName);
       const plan = applyManualPreviewStatuses((Array.isArray(preview?.curatorrPickPlan) ? preview.curatorrPickPlan : []).map((album) => ({
         ...album,
-        image: album?.imageUrl
-          ? String(album.imageUrl)
-          : (album?.imagePath ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}` : ''),
+        image: album?.imagePath
+          ? `/api/music/lidarr/image?path=${encodeURIComponent(String(album.imagePath))}`
+          : (album?.imageUrl ? String(album.imageUrl) : ''),
       })), stateMap);
       const firstImage = String(plan.find((album) => String(album?.image || '').trim())?.image || '').trim();
       return res.json({
@@ -1613,7 +1649,7 @@ export function registerApiMusic(app, ctx) {
           subtitle: resolvedArtistName,
           overview: 'Curatorr will try these albums in priority order. Greatest hits are preferred first, then the highest-ranked fallback albums.',
           thumb: firstImage,
-          art: firstImage,
+          art: resolvedArtistName ? `/api/music/thumb/artist/${encodeURIComponent(resolvedArtistName)}` : firstImage,
           posterRatio: 'square',
           pills: [
             'Curatorr pick',
@@ -1952,7 +1988,8 @@ export function registerApiMusic(app, ctx) {
           subtitle: artistName,
           overview: buildOverviewText(albumMeta?.summary, `${albumName} by ${artistName} currently has ${Number(stats.total_plays || 0)} plays and ${Number(stats.total_skips || 0)} skips across ${Number(stats.track_count || 0)} tracked songs.`),
           thumb: `/api/music/thumb/album?artist=${encodeURIComponent(artistName)}&album=${encodeURIComponent(albumName)}`,
-          art: `/api/music/thumb/album?artist=${encodeURIComponent(artistName)}&album=${encodeURIComponent(albumName)}`,
+          art: `/api/music/thumb/artist/${encodeURIComponent(artistName)}`,
+          posterRatio: 'square',
           pills: ['Album'],
           stats: [
             { label: 'Tracks', value: Number(stats.track_count || 0) },
@@ -2101,7 +2138,8 @@ export function registerApiMusic(app, ctx) {
           subtitle: [artistName, albumName].filter(Boolean).join(' · '),
           overview: buildOverviewText(trackMeta?.summary, `${trackTitle || 'This track'} currently has ${playCount} plays and ${skipCount} skips in Curatorr.`),
           thumb: `/api/music/thumb/track/${encodeURIComponent(ratingKey)}`,
-          art: `/api/music/thumb/track/${encodeURIComponent(ratingKey)}`,
+          art: artistName ? `/api/music/thumb/artist/${encodeURIComponent(artistName)}` : `/api/music/thumb/track/${encodeURIComponent(ratingKey)}`,
+          posterRatio: 'square',
           pills: ['Track', formatTierLabel(tier)],
           stats: [
             { label: 'Plays', value: playCount },
@@ -3104,16 +3142,17 @@ export function registerApiMusic(app, ctx) {
             matched.push(summary);
           }
         } else {
-          unmatched.push({
-            sourceTrackId: String(item?.id || '').trim(),
-            position: Number(item.position || 0),
-            title: String(item.title || ''),
-            artistName: String((Array.isArray(item.artists) && item.artists[0]?.name) || '').trim(),
-            artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
-            albumTitle: String(item?.album?.title || '').trim(),
-            albumType: String(item?.album?.albumType || '').trim(),
-            durationMs: Number(item.durationMs || 0),
-          });
+        unmatched.push({
+          sourceTrackId: String(item?.id || '').trim(),
+          position: Number(item.position || 0),
+          title: String(item.title || ''),
+          artistName: String((Array.isArray(item.artists) && item.artists[0]?.name) || '').trim(),
+          artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+          albumTitle: String(item?.album?.title || '').trim(),
+          albumType: String(item?.album?.albumType || '').trim(),
+          albumImageUrl: String(item?.album?.imageUrl || '').trim(),
+          durationMs: Number(item.durationMs || 0),
+        });
         }
       }
       const unmatchedArtists = buildSpotifyUnmatchedArtistGroups(unmatched, {
@@ -3173,6 +3212,7 @@ export function registerApiMusic(app, ctx) {
           artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
           albumTitle: String(item?.album?.title || '').trim(),
           albumType: String(item?.album?.albumType || '').trim(),
+          albumImageUrl: String(item?.album?.imageUrl || '').trim(),
           durationMs: Number(item.durationMs || 0),
         });
       });
@@ -3399,9 +3439,11 @@ export function registerApiMusic(app, ctx) {
         if (!albumGroups.has(key)) {
           albumGroups.set(key, {
             albumTitle,
+            albumImageUrl: String(row.albumImageUrl || '').trim(),
             rows: [],
           });
         }
+        if (!albumGroups.get(key).albumImageUrl) albumGroups.get(key).albumImageUrl = String(row.albumImageUrl || '').trim();
         albumGroups.get(key).rows.push(row);
       });
 
@@ -3411,6 +3453,7 @@ export function registerApiMusic(app, ctx) {
           userPlexId,
           artistName,
           preferredAlbumTitle,
+          preferredAlbumImageUrl: String(group.albumImageUrl || '').trim(),
           sourceKind: 'manual',
           allowCuratorrFallback: true,
           note: `Queued from imported playlist missing tracks: ${String(playlist.playlistTitle || playlist.playlistKey || '').trim()}`,
@@ -3952,6 +3995,48 @@ export function registerApiMusic(app, ctx) {
       return res.send(Buffer.from(buf));
     } catch (_err) {
       return res.status(404).end();
+    }
+  });
+
+  app.get('/api/music/lidarr/thumb/album/:id', requireUser, async (req, res) => {
+    const albumId = Number(req.params.id || 0) || 0;
+    if (!albumId || !lidarrService?.isConfigured()) return res.status(404).end();
+    const cacheKey = `lidarr-album:${albumId}`;
+    const cached = getThumbCache(cacheKey);
+    if (cached) return sendCachedThumbResponse(res, cached);
+
+    try {
+      const album = await lidarrService.getAlbum(albumId, { timeoutMs: 12000 });
+      if (!album) return sendThumbNotFound(res, cacheKey);
+
+      const imagePath = String(
+        album?.images?.find((img) => String(img?.coverType || '').trim().toLowerCase() === 'cover')?.url
+        || album?.images?.find((img) => /cover/i.test(String(img?.coverType || '')))?.url
+        || album?.images?.[0]?.url
+        || album?.imagePath
+        || ''
+      ).trim();
+      if (isAllowedLidarrImagePath(imagePath)) {
+        return sendThumbRedirect(res, cacheKey, `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}`);
+      }
+
+      const directUrl = String(album?.imageUrl || '').trim();
+      if (directUrl) {
+        const upstream = await fetch(directUrl, { headers: { Accept: 'image/*,*/*' } });
+        if (upstream.ok) {
+          const buf = await upstream.arrayBuffer();
+          return sendThumbImage(res, cacheKey, upstream.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf), 'public, max-age=3600');
+        }
+      }
+
+      const foreignAlbumId = String(album?.foreignAlbumId || '').trim();
+      if (foreignAlbumId) {
+        return sendThumbRedirect(res, cacheKey, `/api/music/cover/release-group/${encodeURIComponent(foreignAlbumId)}`);
+      }
+
+      return sendThumbNotFound(res, cacheKey);
+    } catch (_err) {
+      return sendThumbNotFound(res, cacheKey);
     }
   });
 

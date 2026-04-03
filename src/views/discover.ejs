@@ -105,6 +105,18 @@
             return '/api/music/thumb/artist/' + encodeURIComponent(String(item?.artistName || ''));
           }
           function albumThumb(item) {
+            const detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+            const storedImage = String(
+              detail.selectedAlbumImageUrl
+              || detail.preferredAlbumImageUrl
+              || detail.starterAlbumImageUrl
+              || detail.latestAlbumImageUrl
+              || item?.albumImageUrl
+              || ''
+            ).trim();
+            if (storedImage) return storedImage;
+            const lidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0;
+            if (lidarrAlbumId > 0) return '/api/music/lidarr/thumb/album/' + encodeURIComponent(String(lidarrAlbumId));
             const title = displayAlbumTitle(item);
             if (!title) return '';
             return '/api/music/thumb/album?artist=' + encodeURIComponent(String(item?.artistName || '')) + '&album=' + encodeURIComponent(title);
@@ -361,23 +373,24 @@
                 <div id="discoverQueueList" class="<%= _queuedRequests.length ? 'cur-discover-ledger cur-discover-ledger--queue' : 'cur-empty' %>">
                   <% if (_queuedRequests.length) { %>
                     <% _queuedRequests.forEach(function(item) { %>
+                      <% const _queueAlbumTitle = displayAlbumTitle(item); const _queueForeignArtistId = String(item?.foreignArtistId || item?.detail?.foreignArtistId || '').trim(); const _queueLidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0; %>
                       <div class="cur-discover-ledger-row cur-discover-ledger-row--queue" draggable="true" data-request-id="<%= item.id %>">
                         <button class="cur-discover-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder">&#x2630;</button>
                         <span class="cur-discover-ledger-media">
-                          <span class="cur-discover-ledger-thumb">
+                          <span class="cur-discover-ledger-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>">
                             <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
                           </span>
-                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist"><%= item.artistName %></span>
+                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
                         </span>
                         <span class="cur-discover-ledger-media">
-                          <span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">
+                          <span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="<%= _queueAlbumTitle ? 'manual-album' : 'manual-curatorr-pick' %>" data-cur-overview-artist="<%= item.artistName %>"<% if (_queueAlbumTitle) { %> data-cur-overview-album="<%= _queueAlbumTitle %>"<% if (_queueLidarrAlbumId > 0) { %> data-cur-overview-album-id="<%= _queueLidarrAlbumId %>" data-cur-overview-source="lidarr"<% } %><% } else if (_queueForeignArtistId) { %> data-cur-overview-foreign-artist-id="<%= _queueForeignArtistId %>"<% } %>>
                             <% if (albumThumb(item)) { %>
                               <img src="<%= albumThumb(item) %>" data-fallback-src="<%= artistThumb(item) %>" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
                             <% } else { %>
                               <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
                             <% } %>
                           </span>
-                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--album"><%= albumLabel(item) %><% if (isCuratorrChosen(item)) { %> <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span><% } %></span>
+                          <span class="cur-discover-ledger-cell cur-discover-ledger-cell--album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="<%= _queueAlbumTitle ? 'manual-album' : 'manual-curatorr-pick' %>" data-cur-overview-artist="<%= item.artistName %>"<% if (_queueAlbumTitle) { %> data-cur-overview-album="<%= _queueAlbumTitle %>"<% if (_queueLidarrAlbumId > 0) { %> data-cur-overview-album-id="<%= _queueLidarrAlbumId %>" data-cur-overview-source="lidarr"<% } %><% } else if (_queueForeignArtistId) { %> data-cur-overview-foreign-artist-id="<%= _queueForeignArtistId %>"<% } %>><%= albumLabel(item) %><% if (isCuratorrChosen(item)) { %> <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span><% } %></span>
                         </span>
                         <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= item.sourceKind === 'automatic' ? 'automatic' : 'manual' %></span>
                         <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= item.status === 'processing' ? 'processing now' : 'queued' %></span>
@@ -423,31 +436,32 @@
                   <% if (_requestHistory.length) { %>
                     <div class="cur-discover-ledger cur-discover-ledger--history">
                       <% _requestHistory.forEach(function(item) { %>
+                        <% const _historyAlbumTitle = displayAlbumTitle(item); const _historyForeignArtistId = String(item?.foreignArtistId || item?.detail?.foreignArtistId || '').trim(); const _historyLidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0; %>
                         <div class="cur-discover-ledger-row cur-discover-ledger-row--history">
                           <span class="cur-discover-ledger-media">
-                            <span class="cur-discover-ledger-thumb">
+                            <span class="cur-discover-ledger-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>">
                               <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
                             </span>
-                            <span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist"><%= item.artistName %></span>
+                            <span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>"><%= item.artistName %></span>
                           </span>
                           <span class="cur-discover-ledger-media">
-                          <span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">
+                          <span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="<%= _historyAlbumTitle ? 'manual-album' : 'manual-curatorr-pick' %>" data-cur-overview-artist="<%= item.artistName %>"<% if (_historyAlbumTitle) { %> data-cur-overview-album="<%= _historyAlbumTitle %>"<% if (_historyLidarrAlbumId > 0) { %> data-cur-overview-album-id="<%= _historyLidarrAlbumId %>" data-cur-overview-source="lidarr"<% } %><% } else if (_historyForeignArtistId) { %> data-cur-overview-foreign-artist-id="<%= _historyForeignArtistId %>"<% } %>>
                             <% if (albumThumb(item)) { %>
                                 <img src="<%= albumThumb(item) %>" data-fallback-src="<%= artistThumb(item) %>" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
                               <% } else { %>
                                 <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
                               <% } %>
                           </span>
-                            <span class="cur-discover-ledger-cell cur-discover-ledger-cell--album"><%= albumLabel(item) %><% if (isCuratorrChosen(item)) { %> <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span><% } %></span>
+                            <span class="cur-discover-ledger-cell cur-discover-ledger-cell--album cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="<%= _historyAlbumTitle ? 'manual-album' : 'manual-curatorr-pick' %>" data-cur-overview-artist="<%= item.artistName %>"<% if (_historyAlbumTitle) { %> data-cur-overview-album="<%= _historyAlbumTitle %>"<% if (_historyLidarrAlbumId > 0) { %> data-cur-overview-album-id="<%= _historyLidarrAlbumId %>" data-cur-overview-source="lidarr"<% } %><% } else if (_historyForeignArtistId) { %> data-cur-overview-foreign-artist-id="<%= _historyForeignArtistId %>"<% } %>><%= albumLabel(item) %><% if (isCuratorrChosen(item)) { %> <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span><% } %></span>
                           </span>
                           <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= item.sourceKind === 'automatic' ? 'automatic' : 'manual' %></span>
                           <span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta"><%= fmtDate(item.processedAt || item.updatedAt || item.createdAt) %></span>
                           <% const _badge = item.status === 'completed' ? (item.inLibrary ? 'available' : 'added') : 'failed'; %>
-                          <span style="display:flex;align-items:center;gap:6px;">
+                          <span class="cur-discover-ledger-result">
                             <span class="cur-badge cur-badge--<%= _badge === 'available' ? 'ok' : (_badge === 'added' ? 'pending' : 'warn') %>"><%= _badge === 'available' ? 'Available' : (_badge === 'added' ? 'Added' : 'Failed') %></span>
                             <% if (_badge === 'failed' && lidarrAutomationEligible) { %>
-                              <button onclick="retryLidarrRequest(<%= item.id %>, this)" title="Retry" aria-label="Retry" style="background:none;border:none;padding:2px;cursor:pointer;opacity:.6;color:inherit;display:flex;align-items:center;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">
-                                <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M13.6 2.4A7 7 0 1 0 15 8h-1.5a5.5 5.5 0 1 1-1.1-3.3L10 7h4V3l-0.4-0.6z"/></svg>
+                              <button class="cur-discover-retry-btn" type="button" onclick="retryLidarrRequest(<%= item.id %>, this)" title="Retry failed request" aria-label="Retry failed request">
+                                <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6 2.4A7 7 0 1 0 15 8h-1.5a5.5 5.5 0 1 1-1.1-3.3L10 7h4V3l-0.4-0.6z"/></svg>
                               </button>
                             <% } %>
                           </span>
@@ -566,9 +580,39 @@
     }
 
     function getRequestAlbumThumb(item) {
+      var detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+      var storedImage = String(
+        detail.selectedAlbumImageUrl
+        || detail.preferredAlbumImageUrl
+        || detail.starterAlbumImageUrl
+        || detail.latestAlbumImageUrl
+        || item?.albumImageUrl
+        || ''
+      ).trim();
+      if (storedImage) return storedImage;
+      var lidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0;
+      if (lidarrAlbumId > 0) return '/api/music/lidarr/thumb/album/' + encodeURIComponent(String(lidarrAlbumId));
       var albumTitle = getRequestDisplayAlbumTitle(item);
       if (!albumTitle) return '';
       return '/api/music/thumb/album?artist=' + encodeURIComponent(String(item?.artistName || '')) + '&album=' + encodeURIComponent(albumTitle);
+    }
+
+    function getRequestForeignArtistId(item) {
+      var detail = item && item.detail && typeof item.detail === 'object' ? item.detail : {};
+      return String(item?.foreignArtistId || detail.foreignArtistId || '').trim();
+    }
+
+    function getRequestAlbumOverviewAttrs(item) {
+      var albumTitle = getRequestDisplayAlbumTitle(item);
+      var artistName = String(item?.artistName || '').trim();
+      var lidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0;
+      if (albumTitle) {
+        var attrs = ' data-cur-overview-kind="manual-album" data-cur-overview-artist="' + escHtml(artistName) + '" data-cur-overview-album="' + escHtml(albumTitle) + '"';
+        if (lidarrAlbumId > 0) attrs += ' data-cur-overview-album-id="' + escHtml(String(lidarrAlbumId)) + '" data-cur-overview-source="lidarr"';
+        return attrs;
+      }
+      var foreignArtistId = getRequestForeignArtistId(item);
+      return ' data-cur-overview-kind="manual-curatorr-pick" data-cur-overview-artist="' + escHtml(artistName) + '"' + (foreignArtistId ? ' data-cur-overview-foreign-artist-id="' + escHtml(foreignArtistId) + '"' : '');
     }
 
     function renderQueueList() {
@@ -590,18 +634,19 @@
         var albumThumb = getRequestAlbumThumb(item);
         var curatorrChosen = isCuratorrChosenRequest(item);
         var albumLabel = getRequestAlbumLabel(item);
+        var albumOverviewAttrs = getRequestAlbumOverviewAttrs(item);
         return '' +
           '<div class="cur-discover-ledger-row cur-discover-ledger-row--queue" draggable="true" data-request-id="' + Number(item.id || 0) + '">' +
             '<button class="cur-discover-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder">&#x2630;</button>' +
             '<span class="cur-discover-ledger-media">' +
-              '<span class="cur-discover-ledger-thumb"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
-              '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist">' + escHtml(item.artistName || '') + '</span>' +
+              '<span class="cur-discover-ledger-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escHtml(item.artistName || '') + '"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
+              '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escHtml(item.artistName || '') + '">' + escHtml(item.artistName || '') + '</span>' +
             '</span>' +
             '<span class="cur-discover-ledger-media">' +
-              '<span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">' +
+              '<span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album cur-overview-trigger" role="button" tabindex="0"' + albumOverviewAttrs + '>' +
                 '<img src="' + escHtml(albumThumb || artistThumb) + '" data-fallback-src="' + escHtml(albumThumb ? artistThumb : '') + '" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />' +
               '</span>' +
-              '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--album">' + escHtml(albumLabel) + (curatorrChosen ? ' <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span>' : '') + '</span>' +
+              '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--album cur-overview-trigger" role="button" tabindex="0"' + albumOverviewAttrs + '>' + escHtml(albumLabel) + (curatorrChosen ? ' <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span>' : '') + '</span>' +
             '</span>' +
             '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(sourceKind) + '</span>' +
             '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(status) + '</span>' +
@@ -632,21 +677,29 @@
             var albumThumb = getRequestAlbumThumb(item);
             var curatorrChosen = isCuratorrChosenRequest(item);
             var albumLabel = getRequestAlbumLabel(item);
+            var albumOverviewAttrs = getRequestAlbumOverviewAttrs(item);
             return '' +
               '<div class="cur-discover-ledger-row cur-discover-ledger-row--history">' +
                 '<span class="cur-discover-ledger-media">' +
-                  '<span class="cur-discover-ledger-thumb"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
-                  '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist">' + escHtml(item.artistName || '') + '</span>' +
+                  '<span class="cur-discover-ledger-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escHtml(item.artistName || '') + '"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
+                  '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escHtml(item.artistName || '') + '">' + escHtml(item.artistName || '') + '</span>' +
                 '</span>' +
                 '<span class="cur-discover-ledger-media">' +
-                  '<span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album">' +
+                  '<span class="cur-discover-ledger-thumb cur-discover-ledger-thumb--album cur-overview-trigger" role="button" tabindex="0"' + albumOverviewAttrs + '>' +
                     '<img src="' + escHtml(albumThumb || artistThumb) + '" data-fallback-src="' + escHtml(albumThumb ? artistThumb : '') + '" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />' +
                   '</span>' +
-                  '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--album">' + escHtml(albumLabel) + (curatorrChosen ? ' <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span>' : '') + '</span>' +
+                  '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--album cur-overview-trigger" role="button" tabindex="0"' + albumOverviewAttrs + '>' + escHtml(albumLabel) + (curatorrChosen ? ' <span class="cur-discover-ledger-inline-icon" aria-hidden="true"><img src="/icons/curatorr-icon.svg" alt="" loading="lazy" /></span>' : '') + '</span>' +
                 '</span>' +
                 '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(sourceKind) + '</span>' +
                 '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--meta">' + escHtml(when) + '</span>' +
-                '<span class="cur-badge cur-badge--' + (inLibrary ? 'ok' : (added ? 'pending' : 'warn')) + '">' + (inLibrary ? 'Available' : (added ? 'Added' : 'Failed')) + '</span>' +
+                '<span class="cur-discover-ledger-result">' +
+                  '<span class="cur-badge cur-badge--' + (inLibrary ? 'ok' : (added ? 'pending' : 'warn')) + '">' + (inLibrary ? 'Available' : (added ? 'Added' : 'Failed')) + '</span>' +
+                  (!added
+                    ? '<button class="cur-discover-retry-btn" type="button" onclick="retryLidarrRequest(' + Number(item.id || 0) + ', this)" title="Retry failed request" aria-label="Retry failed request">' +
+                        '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6 2.4A7 7 0 1 0 15 8h-1.5a5.5 5.5 0 1 1-1.1-3.3L10 7h4V3l-0.4-0.6z"/></svg>' +
+                      '</button>'
+                    : '') +
+                '</span>' +
               '</div>';
           }).join('') +
         '</div>';

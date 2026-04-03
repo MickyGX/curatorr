@@ -4,7 +4,6 @@ Curatorr is a self-hosted Plex, Jellyfin, and Emby companion for playback tracki
 
 [![Latest release](https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release)](https://github.com/MickyGX/curatorr/releases/latest)
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/TvrxJWD4PK)
-[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=MickyGX&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/MickyGX)
 
 ## Preview
 
@@ -132,3 +131,5 @@ For installation, setup, configuration, and troubleshooting:
 - [Discord](https://discord.gg/TvrxJWD4PK)
 - [GitHub Discussions](https://github.com/MickyGX/curatorr/discussions)
 - [GitHub Wiki](https://github.com/MickyGX/curatorr/wiki)
+
+[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=MickyGX&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/MickyGX)

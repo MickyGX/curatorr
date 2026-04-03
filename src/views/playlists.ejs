@@ -2289,7 +2289,9 @@
       var collapse = _playlistCarouselCollapsed
         ? scrollTop > _playlistCarouselExpandThreshold
         : scrollTop > _playlistCarouselCollapseThreshold;
-      if (!collapse) collapse = tracksPanel.getBoundingClientRect().top <= 116;
+      if (!_playlistCarouselCollapsed && !collapse) {
+        collapse = tracksPanel.getBoundingClientRect().top <= 116;
+      }
       setPlaylistCarouselCollapsed(collapse);
     }
 
