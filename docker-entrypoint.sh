@@ -35,9 +35,9 @@ if [ -n "${PUID:-}" ] && [ -n "${PGID:-}" ]; then
     APP_USER="$(getent passwd "${PUID}" | cut -d: -f1)"
   fi
 
-  chown -R "${PUID}:${PGID}" /app/data /app/config /app/public/icons/custom 2>/dev/null || true
+  find /app/data /app/config /app/public/icons/custom ! -user "${PUID}" -exec chown "${PUID}:${PGID}" {} + 2>/dev/null || true
 else
-  chown -R node:node /app/data /app/config /app/public/icons/custom 2>/dev/null || true
+  find /app/data /app/config /app/public/icons/custom ! -user node -exec chown node:node {} + 2>/dev/null || true
 fi
 
 chown "${APP_USER}:${APP_GROUP}" /app/config/config.json 2>/dev/null || true

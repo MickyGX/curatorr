@@ -55,6 +55,7 @@ import {
   getArtistTagMap,
   listRuleTemplates,
   saveRuleTemplate,
+  updateRuleTemplate,
   deleteRuleTemplate,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
@@ -3253,8 +3254,26 @@ export function registerApiMusic(app, ctx) {
     if (!name) return res.status(400).json({ error: 'Name is required' });
     const description = String(req.body?.description || '').trim();
     const rules = req.body?.rules && typeof req.body.rules === 'object' ? req.body.rules : {};
-    const id = saveRuleTemplate(db, userPlexId, { name, description, rules });
+    const trackFilters = req.body?.trackFilters && typeof req.body.trackFilters === 'object' ? req.body.trackFilters : null;
+    const startingPointId = String(req.body?.startingPointId || '').trim() || 'blank';
+    const id = saveRuleTemplate(db, userPlexId, { name, description, rules, trackFilters, startingPointId });
     res.json({ ok: true, id });
+  });
+
+  // PUT /api/music/playlist-templates/:id — update a user-saved template
+  app.put('/api/music/playlist-templates/:id', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const id = String(req.params.id || '').trim();
+    const name = String(req.body?.name || '').trim();
+    if (!id) return res.status(400).json({ error: 'Template id is required' });
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const description = String(req.body?.description || '').trim();
+    const rules = req.body?.rules && typeof req.body.rules === 'object' ? req.body.rules : {};
+    const trackFilters = req.body?.trackFilters && typeof req.body.trackFilters === 'object' ? req.body.trackFilters : null;
+    const startingPointId = String(req.body?.startingPointId || '').trim() || 'blank';
+    const result = updateRuleTemplate(db, id, userPlexId, { name, description, rules, trackFilters, startingPointId });
+    if (!result.changes) return res.status(404).json({ error: 'Template not found' });
+    res.json({ ok: true });
   });
 
   // DELETE /api/music/playlist-templates/:id — delete a user-saved template

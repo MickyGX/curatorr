@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.59 (2026-04-03)
+
+- Fixed the worst cold-start lag on NAS installs. Curatorr now opens the SQLite database after a sequential pre-read, starts listening before heavy background jobs begin, checkpoints the WAL more aggressively, and truncates it on shutdown. This avoids the long "app is up but unusable" period that happened when startup immediately kicked off expensive playlist/master-track work.
+- Fixed smart-playlist template reuse so saved templates now behave like real branching starting points: they preserve advanced filters and the original starting point, can be selected from the first wizard step, and can be updated or deleted later instead of being save-only.
+- Improved container startup behaviour by avoiding recursive ownership rewrites across the entire data/config tree and by shipping explicit analyzer CPU/memory caps in the sample compose file, reducing avoidable startup and runtime pressure on lower-spec NAS hardware.
+
 ## v0.1.58 (2026-04-02)
 
 - Added analyzer throttling controls — chunk size, delay between chunks (ms), and delay between tracks (ms) are now configurable in Settings under Analyzer Throttling. Useful for low-spec or shared NAS hardware where the analyzer can monopolise CPU or memory.

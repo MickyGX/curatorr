@@ -43,7 +43,7 @@ services:
       # Example:
       # - /path/to/music:/media/music:ro
     # Uncomment and adjust to prevent the analyzer from monopolising CPU/memory.
-    # cpus: "1.5"      # max CPU cores (e.g. 1.5 = 150% of one core)
-    # mem_limit: 2g    # hard memory cap
+    cpus: "1"      # max CPU cores (e.g. 1.5 = 150% of one core)
+    mem_limit: 2g    # hard memory cap
     network_mode: "service:curatorr"
     restart: unless-stopped

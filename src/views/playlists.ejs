@@ -84,6 +84,7 @@
               <button class="btn btn-sm pl-toolbar-button pl-toolbar-button--danger" type="button" onclick="deleteSelectedPlaylists()">Delete Selected</button>
             </div>
             <div class="cur-panel-actions">
+              <span class="cur-sync-status" id="syncStatus"></span>
               <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Create smart playlist" title="Create smart playlist" onclick="openSmartPlaylistModal()">
                 <span class="pl-header-plus" aria-hidden="true">+</span>
               </button>
@@ -138,7 +139,6 @@
                   </div>
                 </div>
               </div>
-              <span class="cur-sync-status" id="syncStatus"></span>
               <button class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" type="button" id="playlistCarouselPrev" aria-label="Previous">
                 <span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span>
               </button>
@@ -1775,6 +1775,7 @@
       if (target !== 'global' && Array.isArray(rules.blendUsers) && rules.blendUsers.length) target = 'blend';
       return {
         templateId: 'blank',
+        startingPointId: 'blank',
         name: String(playlist && playlist.name || '').trim(),
         nameManual: true,
         playlistTarget: target,
@@ -2407,10 +2408,50 @@
       return WIZARD_BUILTIN_TEMPLATES.concat(wizardManagedStarterTemplates());
     }
 
+    function wizardUserTemplates() {
+      return (_wizardTemplates || []).filter(function(t) {
+        return !Number(t && t.is_builtin);
+      });
+    }
+
+    function wizardSelectedUserTemplate() {
+      var templateId = String(_wizardState && _wizardState.templateId || '').trim();
+      if (!templateId) return null;
+      return wizardUserTemplates().find(function(t) { return t.id === templateId; }) || null;
+    }
+
+    function wizardRefreshTemplates(options) {
+      options = options || {};
+      return fetch('/api/music/playlist-templates')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          _wizardTemplates = data.templates || [];
+          var keepTemplateId = String(options.keepTemplateId || '').trim();
+          if (!keepTemplateId) return _wizardTemplates;
+          if (_wizardTemplates.some(function(t) { return t.id === keepTemplateId; }) || keepTemplateId === 'blank') {
+            _wizardState.templateId = keepTemplateId;
+            if (!String(_wizardState.startingPointId || '').trim()) _wizardState.startingPointId = 'blank';
+            return _wizardTemplates;
+          }
+          _wizardState.templateId = 'blank';
+          _wizardState.startingPointId = 'blank';
+          return _wizardTemplates;
+        })
+        .catch(function() {
+          _wizardTemplates = [];
+          if (options.keepTemplateId) {
+            _wizardState.templateId = 'blank';
+            _wizardState.startingPointId = 'blank';
+          }
+          return _wizardTemplates;
+        });
+    }
+
     function wizardDefaultState() {
       return {
         step: 1,
         templateId: 'blank',
+        startingPointId: 'blank',
         name: '',
         nameManual: false,
         playlistTarget: 'personal',
@@ -2508,6 +2549,12 @@
       return 'Personal';
     }
 
+    function wizardStartingPointLabel(templateId) {
+      var normalized = String(templateId || 'blank').trim() || 'blank';
+      var starter = wizardAllBuiltinTemplates().find(function(t) { return t.id === normalized; }) || null;
+      return starter && starter.name ? starter.name : 'Custom';
+    }
+
     function wizardIsEditMode() {
       return Boolean(_wizardEditKind && _wizardEditId);
     }
@@ -2540,8 +2587,9 @@
     }
 
     function wizardFindTemplate(templateId) {
-      return _wizardTemplates.find(function(t) { return t.id === templateId; })
+      return wizardUserTemplates().find(function(t) { return t.id === templateId; })
         || wizardAllBuiltinTemplates().find(function(t) { return t.id === templateId; })
+        || (_wizardTemplates || []).find(function(t) { return t.id === templateId; })
         || null;
     }
 
@@ -2643,6 +2691,7 @@
       };
       var nextState = wizardDefaultState();
       nextState.templateId = templateId || 'blank';
+      nextState.startingPointId = templateId || 'blank';
       nextState.name = currentName;
       nextState.nameManual = currentNameManual;
       nextState.playlistTarget = currentTarget;
@@ -2652,6 +2701,10 @@
       nextState.activeAdvancedSection = currentActiveAdvancedSection;
       Object.assign(nextState, currentAudio);
       var tmpl = wizardFindTemplate(nextState.templateId);
+      var selectedUserTemplate = wizardUserTemplates().some(function(t) { return t.id === nextState.templateId; });
+      if (selectedUserTemplate) {
+        nextState.startingPointId = String(tmpl && tmpl.startingPointId || 'blank').trim() || 'blank';
+      }
       if (tmpl && tmpl.rules) Object.assign(nextState, tmpl.rules);
       if (tmpl && Object.prototype.hasOwnProperty.call(tmpl, 'trackFilters')) {
         var templateTrackFilters = wizardStarterTrackFilters(tmpl.trackFilters);
@@ -2676,10 +2729,7 @@
         wizardSyncSuggestedName(_wizardState, false);
         _wizardPendingPrefill = null;
       }
-      fetch('/api/music/playlist-templates')
-        .then(function(r) { return r.json(); })
-        .then(function(data) { _wizardTemplates = data.templates || []; })
-        .catch(function() { _wizardTemplates = []; })
+      wizardRefreshTemplates({ keepTemplateId: _wizardState.templateId || 'blank' })
         .finally(function() { wizardRenderStep(1); });
     }
 
@@ -2768,6 +2818,7 @@
         { preset: 'wakeup',   icon: '☀' },
         { preset: 'downtempo', icon: '☾' },
       ];
+      var userTemplates = wizardUserTemplates();
       var cur = _wizardState.featurePreset && _wizardState.featurePreset !== 'none' ? _wizardState.featurePreset : '';
       var ws = _wizardState;
       var html = '<div class="spm-wizard-step-label">Step 1 of ' + WIZARD_TOTAL_STEPS + ' — Basics</div>';
@@ -2783,13 +2834,33 @@
         '<div class="spm-wizard-field-hint">Blend playlists still sync as personal playlists, but the selected users shape the ranking too.</div>' +
         '</div>';
       html += wizardBlendSection();
+      html += '<div class="spm-wizard-user-templates">';
+      html += '<div class="spm-wizard-user-templates-title">Saved templates</div>';
+      html += '<div class="spm-wizard-subsection-copy">Pick a saved template first if you want to reuse an existing rule set. Its base starting point will stay highlighted below so you can see or change it.</div>';
+      if (userTemplates.length) {
+        html += '<div class="spm-wizard-template-grid">';
+        userTemplates.forEach(function(t) {
+          var sel = _wizardState.templateId === t.id ? ' is-selected' : '';
+          var meta = t.trackFilters ? 'Rules + advanced filters' : 'Rules only';
+          html += '<button type="button" class="spm-wizard-template-card' + sel + '" data-user-template-id="' + escH(t.id) + '">' +
+            '<div class="spm-wizard-template-card__icon">⎘</div>' +
+            '<div class="spm-wizard-template-card__name">' + escH(t.name) + '</div>' +
+            '<div class="spm-wizard-template-card__desc">' + escH(t.description || 'Saved from the playlist wizard.') + '</div>' +
+            '<div class="spm-wizard-template-card__meta">' + escH('Base: ' + wizardStartingPointLabel(t.startingPointId) + ' · ' + meta) + '</div>' +
+            '</button>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div class="spm-wizard-field-hint">No saved templates yet. Save one on the finish step to reuse it here later.</div>';
+      }
+      html += '</div>';
       html += '<div class="spm-wizard-subsection">';
       html += '<div class="spm-wizard-subsection-title">Starting point</div>';
-      html += '<div class="spm-wizard-subsection-copy">Choose the quickest route into the kind of playlist you want.</div>';
+      html += '<div class="spm-wizard-subsection-copy">Choose the quickest route into the kind of playlist you want. Selecting a saved template can preselect one of these, but you can still change it here.</div>';
       html += '<div class="spm-wizard-template-grid" id="wiz-tmpl-grid">';
       wizardAllBuiltinTemplates().filter(function(t) { return STARTING_POINTS.indexOf(t.id) !== -1; }).forEach(function(t) {
-        var sel = _wizardState.templateId === t.id ? ' is-selected' : '';
-        html += '<button type="button" class="spm-wizard-template-card' + sel + '" data-tmpl-id="' + escH(t.id) + '">' +
+        var sel = _wizardState.startingPointId === t.id ? ' is-selected' : '';
+        html += '<button type="button" class="spm-wizard-template-card' + sel + '" data-starting-point-id="' + escH(t.id) + '">' +
           '<div class="spm-wizard-template-card__icon">' + t.icon + '</div>' +
           '<div class="spm-wizard-template-card__name">' + escH(t.name) + '</div>' +
           '<div class="spm-wizard-template-card__desc">' + escH(t.description) + '</div>' +
@@ -3073,6 +3144,7 @@
     // Final step — Finish & create
     function wizardStep7() {
       var ws = _wizardState;
+      var selectedTemplate = wizardSelectedUserTemplate();
       var html = '<div class="spm-wizard-step-label">Step ' + WIZARD_TOTAL_STEPS + ' of ' + WIZARD_TOTAL_STEPS + ' — Finish &amp; create</div>';
       html += '<label class="spm-wizard-field" style="margin-bottom:18px">' +
         '<span class="spm-wizard-field-label">Playlist name</span>' +
@@ -3131,11 +3203,25 @@
       html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
       if (ws.finalOrdering && ws.finalOrdering !== 'none') html += row('Final ordering', escH(wizardFinalOrderingLabel(ws.finalOrdering)));
       html += '</div>';
-      // Save as template row
+      if (selectedTemplate) {
+        html += '<div class="spm-wizard-subsection">';
+        html += '<div class="spm-wizard-subsection-title">Selected saved template</div>';
+        html += '<div class="spm-wizard-subsection-copy">This playlist started from a saved template. Rename it, overwrite it with the current rules, or delete it.</div>';
+        html += '<div class="spm-wizard-save-tmpl-row">' +
+          '<input type="text" id="wiz-selected-tmpl-name" class="spm-wizard-save-tmpl-input" placeholder="Template name" value="' + escH(selectedTemplate.name || '') + '" />' +
+          '<button class="btn btn-ghost" type="button" id="wiz-update-tmpl-btn" style="white-space:nowrap">Update template</button>' +
+          '<button class="btn btn-ghost" type="button" id="wiz-delete-tmpl-btn" style="white-space:nowrap">Delete</button>' +
+          '</div>';
+        html += '</div>';
+      }
+      html += '<div class="spm-wizard-subsection">';
+      html += '<div class="spm-wizard-subsection-title">Save as new template</div>';
+      html += '<div class="spm-wizard-subsection-copy">Save this rule set under a new name so it appears in the saved templates list next time.</div>';
       html += '<div class="spm-wizard-save-tmpl-row">' +
         '<input type="text" id="wiz-tmpl-name" class="spm-wizard-save-tmpl-input" placeholder="Save these rules as a template (optional name)…" />' +
         '<button class="btn btn-ghost" type="button" id="wiz-save-tmpl-btn" style="white-space:nowrap">Save template</button>' +
         '</div>';
+      html += '</div>';
       return html;
     }
 
@@ -3143,8 +3229,12 @@
       if (step === 1) {
         var targetEl = document.querySelector('#spm-wizard-body .spm-wizard-choice-card.is-selected');
         if (targetEl) _wizardState.playlistTarget = targetEl.dataset.target || 'personal';
-        var sel = document.querySelector('#spm-wizard-body [data-tmpl-id].is-selected');
-        _wizardState.templateId = sel ? sel.dataset.tmplId : 'blank';
+        var selectedSavedTemplate = document.querySelector('#spm-wizard-body [data-user-template-id].is-selected');
+        var selectedStartingPoint = document.querySelector('#spm-wizard-body [data-starting-point-id].is-selected');
+        _wizardState.startingPointId = selectedStartingPoint ? (selectedStartingPoint.dataset.startingPointId || 'blank') : 'blank';
+        _wizardState.templateId = selectedSavedTemplate
+          ? (selectedSavedTemplate.dataset.userTemplateId || 'blank')
+          : (_wizardState.startingPointId || 'blank');
         var selPreset = document.querySelector('#spm-wizard-body [data-audio-preset].is-selected');
         _wizardState.featurePreset = selPreset ? (selPreset.dataset.audioPreset || 'none') : 'none';
         _wizardState.bpmMin          = document.getElementById('wiz-bpm-min') ? document.getElementById('wiz-bpm-min').value || null : null;
@@ -3392,7 +3482,12 @@
         if (tmplName) {
           fetch('/api/music/playlist-templates', {
             method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
-            body: JSON.stringify({ name: tmplName, rules: wizardAssembleRules(_wizardState) }),
+            body: JSON.stringify({
+              name: tmplName,
+              rules: wizardAssembleRules(_wizardState),
+              trackFilters: wizardAssembleTrackFilters(_wizardState),
+              startingPointId: _wizardState.startingPointId || 'blank',
+            }),
           }).catch(function(){});
         }
         createSmartPlaylist(_wizardState.name, wizardAssembleRules(_wizardState), {
@@ -3412,11 +3507,17 @@
             wizardRenderStep(1);
           });
         });
-        document.querySelectorAll('#spm-wizard-body .spm-wizard-template-card').forEach(function(card) {
-          if (card.dataset.audioPreset) return;
+        document.querySelectorAll('#spm-wizard-body [data-user-template-id]').forEach(function(card) {
           card.addEventListener('click', function() {
             wizardSaveStateFromStep(1);
-            wizardApplyTemplate(card.dataset.tmplId);
+            wizardApplyTemplate(card.dataset.userTemplateId);
+            wizardRenderStep(1);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body [data-starting-point-id]').forEach(function(card) {
+          card.addEventListener('click', function() {
+            wizardSaveStateFromStep(1);
+            wizardApplyTemplate(card.dataset.startingPointId);
             wizardRenderStep(1);
           });
         });
@@ -3596,17 +3697,97 @@
         if (scheduleEl) scheduleEl.addEventListener('change', function() { wizardSaveStateFromStep(WIZARD_TOTAL_STEPS); });
         var saveTmplBtn = document.getElementById('wiz-save-tmpl-btn');
         if (saveTmplBtn) saveTmplBtn.addEventListener('click', function() {
+          wizardSaveStateFromStep(WIZARD_TOTAL_STEPS);
           var nameEl = document.getElementById('wiz-tmpl-name');
           var n = nameEl ? nameEl.value.trim() : '';
           if (!n) { nameEl && nameEl.focus(); return; }
+          var msgEl = document.getElementById('wiz-msg');
           fetch('/api/music/playlist-templates', {
             method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
-            body: JSON.stringify({ name: n, rules: wizardAssembleRules(_wizardState) }),
+            body: JSON.stringify({
+              name: n,
+              rules: wizardAssembleRules(_wizardState),
+              trackFilters: wizardAssembleTrackFilters(_wizardState),
+              startingPointId: _wizardState.startingPointId || 'blank',
+            }),
+          }).then(function() {
+            return wizardRefreshTemplates({ keepTemplateId: _wizardState.templateId || 'blank' });
           }).then(function() {
             saveTmplBtn.textContent = 'Saved ✓';
             saveTmplBtn.disabled = true;
-            setTimeout(function() { saveTmplBtn.textContent = 'Save template'; saveTmplBtn.disabled = false; }, 2000);
-          }).catch(function() {});
+            if (nameEl) nameEl.value = '';
+            if (msgEl) msgEl.textContent = 'Template saved.';
+            setTimeout(function() {
+              saveTmplBtn.textContent = 'Save template';
+              saveTmplBtn.disabled = false;
+            }, 2000);
+          }).catch(function() {
+            if (msgEl) msgEl.textContent = 'Unable to save template.';
+          });
+        });
+        var updateTmplBtn = document.getElementById('wiz-update-tmpl-btn');
+        if (updateTmplBtn) updateTmplBtn.addEventListener('click', function() {
+          wizardSaveStateFromStep(WIZARD_TOTAL_STEPS);
+          var selectedTemplate = wizardSelectedUserTemplate();
+          var nameEl = document.getElementById('wiz-selected-tmpl-name');
+          var n = nameEl ? nameEl.value.trim() : '';
+          var msgEl = document.getElementById('wiz-msg');
+          if (!selectedTemplate) {
+            if (msgEl) msgEl.textContent = 'Select a saved template first.';
+            return;
+          }
+          if (!n) {
+            if (nameEl) nameEl.focus();
+            return;
+          }
+          updateTmplBtn.disabled = true;
+          fetch('/api/music/playlist-templates/' + encodeURIComponent(selectedTemplate.id), {
+            method: 'PUT', headers: {'Content-Type':'application/json','X-CSRF-Token':CSRF},
+            body: JSON.stringify({
+              name: n,
+              rules: wizardAssembleRules(_wizardState),
+              trackFilters: wizardAssembleTrackFilters(_wizardState),
+              startingPointId: _wizardState.startingPointId || 'blank',
+            }),
+          }).then(function(r) {
+            if (!r.ok) throw new Error('update_failed');
+            return wizardRefreshTemplates({ keepTemplateId: selectedTemplate.id });
+          }).then(function() {
+            if (!_wizardState.nameManual) wizardSyncSuggestedName(_wizardState, false);
+            wizardRenderStep(WIZARD_TOTAL_STEPS);
+            var nextMsgEl = document.getElementById('wiz-msg');
+            if (nextMsgEl) nextMsgEl.textContent = 'Template updated.';
+          }).catch(function() {
+            if (msgEl) msgEl.textContent = 'Unable to update template.';
+            updateTmplBtn.disabled = false;
+          });
+        });
+        var deleteTmplBtn = document.getElementById('wiz-delete-tmpl-btn');
+        if (deleteTmplBtn) deleteTmplBtn.addEventListener('click', function() {
+          wizardSaveStateFromStep(WIZARD_TOTAL_STEPS);
+          var selectedTemplate = wizardSelectedUserTemplate();
+          var msgEl = document.getElementById('wiz-msg');
+          if (!selectedTemplate) {
+            if (msgEl) msgEl.textContent = 'Select a saved template first.';
+            return;
+          }
+          if (!window.confirm('Delete template "' + selectedTemplate.name + '"?')) return;
+          deleteTmplBtn.disabled = true;
+          fetch('/api/music/playlist-templates/' + encodeURIComponent(selectedTemplate.id), {
+            method: 'DELETE', headers: {'X-CSRF-Token':CSRF},
+          }).then(function(r) {
+            if (!r.ok) throw new Error('delete_failed');
+            _wizardState.templateId = 'blank';
+            if (!_wizardState.nameManual) wizardSyncSuggestedName(_wizardState, false);
+            return wizardRefreshTemplates({ keepTemplateId: 'blank' });
+          }).then(function() {
+            wizardRenderStep(WIZARD_TOTAL_STEPS);
+            var nextMsgEl = document.getElementById('wiz-msg');
+            if (nextMsgEl) nextMsgEl.textContent = 'Template deleted.';
+          }).catch(function() {
+            if (msgEl) msgEl.textContent = 'Unable to delete template.';
+            deleteTmplBtn.disabled = false;
+          });
         });
       }
     }

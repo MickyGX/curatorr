@@ -666,7 +666,7 @@ const DEFAULT_CONFIG = {
     analyzerSidecarUrl: 'http://127.0.0.1:8765',
     analyzerInputFormat: 'auto',
     analyzerOverwriteExisting: false,
-    analyzerChunkSize: 0,
+    analyzerChunkSize: 100,
     analyzerChunkDelayMs: 0,
     analyzerTrackDelayMs: 0,
   },
@@ -1857,6 +1857,12 @@ export async function start() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
   if (!started) {
+    // Pre-warm the NAS page cache by reading the DB file sequentially before opening it.
+    // Without this, SQLite's random page reads on a cold NAS cache take 60-90 seconds.
+    // A single sequential read loads the file into NAS RAM, making initDb near-instant.
+    if (fs.existsSync(DB_PATH)) {
+      try { fs.readFileSync(DB_PATH); } catch (_) {}
+    }
     // Initialize SQLite DB
     const db = initDb(DB_PATH);
     _routeCtx.db = db;
@@ -1999,14 +2005,6 @@ export async function start() {
     };
     _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
 
-    const config0 = loadConfig();
-    if (config0.wizard?.completed) {
-      _routeCtx.jobService.startAll({
-        runImmediately: true,
-        skipImmediate: ['tautulliDailySync', 'lastfmTagSync', 'lastfmHistorySync', 'trackEnrichmentSync', 'trackPlexLoudnessSync', 'trackFeatureImportSync', 'trackAnalysisPipeline'],
-      }); // start intervals + run most jobs immediately once
-    }
-
     // Register all routes
     registerApiUtil(app, _routeCtx);
     registerAuth(app, _routeCtx);
@@ -2050,6 +2048,18 @@ export async function start() {
     server = listener;
   });
 
+  // Start background jobs after the server is already accepting connections.
+  // getMasterTracks() is a synchronous SQLite query that can take 90 seconds on
+  // a cold NAS page cache — running it before app.listen would block the event
+  // loop and make the container appear unhealthy until the query finishes.
+  const config0 = loadConfig();
+  if (config0.wizard?.completed) {
+    _routeCtx.jobService.startAll({
+      runImmediately: true,
+      skipImmediate: ['masterTrackRefresh', 'smartPlaylistSync', 'tautulliDailySync', 'lastfmTagSync', 'lastfmHistorySync', 'trackEnrichmentSync', 'trackPlexLoudnessSync', 'trackFeatureImportSync', 'trackAnalysisPipeline'],
+    });
+  }
+
   return server;
 }
 
@@ -2061,6 +2071,24 @@ export async function stop() {
   });
   server = null;
 }
+
+function gracefulShutdown(signal) {
+  console.log(`[curatorr] Received ${signal}, shutting down…`);
+  stop().catch(() => {}).finally(() => {
+    try {
+      // Checkpoint and truncate the WAL before exit so the next startup is fast.
+      const db = _routeCtx.db;
+      if (db && db.open) {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+        db.close();
+      }
+    } catch (_err) {}
+    process.exit(0);
+  });
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 if (process.env.CURATORR_DISABLE_AUTOSTART !== '1') {
   start().catch((err) => {

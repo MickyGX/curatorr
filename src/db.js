@@ -434,6 +434,9 @@ export function initDb(dbPath) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  // Checkpoint every 200 pages (~800 KB) to keep the WAL small.
+  // Default is 1000 pages which can grow to 4+ MB on a NAS, causing slow startup.
+  db.pragma('wal_autocheckpoint = 200');
 
   // Apply schema
   db.exec(SCHEMA);
@@ -909,21 +912,71 @@ export function getSignalBonus(db, userPlexId, plexRatingKey) {
 // ─── Rule templates ───────────────────────────────────────────────────────────
 
 export function listRuleTemplates(db, userPlexId) {
+  function parseTemplatePayload(raw) {
+    let parsed = {};
+    try {
+      parsed = JSON.parse(raw || '{}') || {};
+    } catch {
+      parsed = {};
+    }
+    const hasEnvelope = parsed && typeof parsed === 'object'
+      && !Array.isArray(parsed)
+      && (Object.prototype.hasOwnProperty.call(parsed, 'rules')
+        || Object.prototype.hasOwnProperty.call(parsed, 'trackFilters')
+        || Object.prototype.hasOwnProperty.call(parsed, 'startingPointId'));
+    const rules = hasEnvelope && parsed.rules && typeof parsed.rules === 'object' && !Array.isArray(parsed.rules)
+      ? parsed.rules
+      : (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {});
+    const trackFilters = hasEnvelope && parsed.trackFilters && typeof parsed.trackFilters === 'object'
+      ? parsed.trackFilters
+      : null;
+    const startingPointId = hasEnvelope && typeof parsed.startingPointId === 'string'
+      ? parsed.startingPointId
+      : 'blank';
+    return { rules, trackFilters, startingPointId };
+  }
   return db.prepare(`
     SELECT * FROM playlist_rule_templates
     WHERE is_builtin = 1 OR user_plex_id = ?
     ORDER BY is_builtin DESC, created_at ASC
-  `).all(userPlexId).map((r) => ({ ...r, rules: JSON.parse(r.rules || '{}') }));
+  `).all(userPlexId).map((r) => {
+    const payload = parseTemplatePayload(r.rules);
+    return {
+      ...r,
+      rules: payload.rules,
+      trackFilters: payload.trackFilters,
+      startingPointId: payload.startingPointId,
+    };
+  });
 }
 
-export function saveRuleTemplate(db, userPlexId, { name, description, rules }) {
+export function saveRuleTemplate(db, userPlexId, { name, description, rules, trackFilters, startingPointId }) {
   const now = Date.now();
   const id = 'utmpl_' + now.toString(36) + Math.random().toString(36).slice(2, 6);
+  const payload = JSON.stringify({
+    rules: rules || {},
+    trackFilters: trackFilters && typeof trackFilters === 'object' ? trackFilters : null,
+    startingPointId: typeof startingPointId === 'string' && startingPointId.trim() ? startingPointId.trim() : 'blank',
+  });
   db.prepare(`
     INSERT INTO playlist_rule_templates (id, user_plex_id, name, description, rules, is_builtin, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-  `).run(id, userPlexId, name, description || '', JSON.stringify(rules || {}), now, now);
+  `).run(id, userPlexId, name, description || '', payload, now, now);
   return id;
+}
+
+export function updateRuleTemplate(db, id, userPlexId, { name, description, rules, trackFilters, startingPointId }) {
+  const now = Date.now();
+  const payload = JSON.stringify({
+    rules: rules || {},
+    trackFilters: trackFilters && typeof trackFilters === 'object' ? trackFilters : null,
+    startingPointId: typeof startingPointId === 'string' && startingPointId.trim() ? startingPointId.trim() : 'blank',
+  });
+  return db.prepare(`
+    UPDATE playlist_rule_templates
+    SET name = ?, description = ?, rules = ?, updated_at = ?
+    WHERE id = ? AND user_plex_id = ? AND is_builtin = 0
+  `).run(name, description || '', payload, now, id, userPlexId);
 }
 
 export function deleteRuleTemplate(db, id, userPlexId) {
