@@ -1,9 +1,46 @@
-# Curatorr
+<table align="center">
+  <tr>
+    <td valign="middle">
+      <img src="public/icons/curatorr-icon.png" alt="" width="32" height="32" />
+    </td>
+    <td valign="middle">
+      <strong style="font-size: 2em;">Curatorr</strong>
+    </td>
+  </tr>
+</table>
+<p align="center">
+  <a href="https://github.com/MickyGX/curatorr/releases/latest">
+    <img src="https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release" alt="Latest release" />
+  </a>
+  <a href="https://discord.gg/TvrxJWD4PK">
+    <img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Discord" />
+  </a>
+  <a href="https://github.com/MickyGX/curatorr/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-AGPL--3.0-1677c5" alt="License AGPL-3.0" />
+  </a>
+  <a href="https://hub.docker.com/r/mickygx/curatorr">
+    <img src="https://img.shields.io/badge/docker-mickygx%2Fcuratorr-1677c5?logo=docker&logoColor=white" alt="Docker Hub" />
+  </a>
+</p>
+<p align="center">
+  <a href="https://ko-fi.com/U7U61X81Z1" target="_blank">
+    <img
+      src="https://storage.ko-fi.com/cdn/kofi6.png?v=6"
+      alt="Support me on Ko-fi"
+      height="24"
+    />
+  </a>
+  <a href="https://www.buymeacoffee.com/MickyGX">
+    <img
+      src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=MickyGX&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"
+      alt="Buy Me a Coffee"
+      height="24"
+    />
+  </a>
+</p>
+<hr />
 
 Curatorr is a self-hosted Plex, Jellyfin, and Emby companion for playback tracking, smart playlist generation, artist discovery, and optional Lidarr automation.
-
-[![Latest release](https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release)](https://github.com/MickyGX/curatorr/releases/latest)
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/TvrxJWD4PK)
 
 ## Preview
 
@@ -81,6 +118,13 @@ services:
     network_mode: "service:curatorr"
     restart: unless-stopped
 ```
+Then in `Settings -> General -> Track Analysis Import`:
+
+- set `Analyzer mode` to `Analyzer sidecar`
+- set `Analyzer sidecar URL` to `http://127.0.0.1:8765`
+- set `Feature manifest path` to `/app/data/track-features.json`
+- set `Analyzer results path` to `/app/data/track-features.results.json`
+- run `Track Analysis Pipeline`
 
 Optional Spotify import setup:
 
@@ -96,14 +140,6 @@ How to get the Spotify secrets:
 5. Save the app settings.
 6. Copy the app `Client ID` into `SPOTIFY_CLIENT_ID`.
 7. Use `View client secret` to copy the `Client Secret` into `SPOTIFY_CLIENT_SECRET`.
-
-Then in `Settings -> General -> Track Analysis Import`:
-
-- set `Analyzer mode` to `Analyzer sidecar`
-- set `Analyzer sidecar URL` to `http://127.0.0.1:8765`
-- set `Feature manifest path` to `/app/data/track-features.json`
-- set `Analyzer results path` to `/app/data/track-features.results.json`
-- run `Track Analysis Pipeline`
 
 ## Documentation
 
@@ -131,5 +167,3 @@ For installation, setup, configuration, and troubleshooting:
 - [Discord](https://discord.gg/TvrxJWD4PK)
 - [GitHub Discussions](https://github.com/MickyGX/curatorr/discussions)
 - [GitHub Wiki](https://github.com/MickyGX/curatorr/wiki)
-
-[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=MickyGX&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/MickyGX)
