@@ -1,13 +1,8 @@
-<table align="center">
-  <tr>
-    <td valign="middle">
-      <img src="public/icons/curatorr-icon.png" alt="" width="32" height="32" />
-    </td>
-    <td valign="middle">
-      <strong style="font-size: 2em;">Curatorr</strong>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="public/icons/curatorr-icon.png" alt="" width="64" height="64" />
+</p>
+<h3 align="center">CURATORR</h3>
+<p align="center"><sub>SMART PLAYLIST CURATOR</sub></p>
 <p align="center">
   <a href="https://github.com/MickyGX/curatorr/releases/latest">
     <img src="https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release" alt="Latest release" />
