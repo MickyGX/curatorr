@@ -4,34 +4,14 @@
 <h3 align="center">CURATORR</h3>
 <p align="center"><sub>SMART PLAYLIST CURATOR</sub></p>
 <p align="center">
-  <a href="https://github.com/MickyGX/curatorr/releases/latest">
-    <img src="https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release" alt="Latest release" />
-  </a>
-  <a href="https://discord.gg/TvrxJWD4PK">
-    <img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Discord" />
-  </a>
-  <a href="https://github.com/MickyGX/curatorr/blob/main/LICENSE">
-    <img src="https://img.shields.io/badge/license-AGPL--3.0-1677c5" alt="License AGPL-3.0" />
-  </a>
-  <a href="https://hub.docker.com/r/mickygx/curatorr">
-    <img src="https://img.shields.io/badge/docker-mickygx%2Fcuratorr-1677c5?logo=docker&logoColor=white" alt="Docker Hub" />
-  </a>
+  <a href="https://github.com/MickyGX/curatorr/releases/latest"><img src="https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release" alt="Latest release" /></a>
+  <a href="https://discord.gg/TvrxJWD4PK"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://github.com/MickyGX/curatorr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-1677c5" alt="License AGPL-3.0" /></a>
+  <a href="https://hub.docker.com/r/mickygx/curatorr"><img src="https://img.shields.io/badge/docker-mickygx%2Fcuratorr-1677c5?logo=docker&logoColor=white" alt="Docker Hub" /></a>
 </p>
 <p align="center">
-  <a href="https://ko-fi.com/U7U61X81Z1" target="_blank">
-    <img
-      src="https://storage.ko-fi.com/cdn/kofi6.png?v=6"
-      alt="Support me on Ko-fi"
-      height="24"
-    />
-  </a>
-  <a href="https://www.buymeacoffee.com/MickyGX">
-    <img
-      src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=MickyGX&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"
-      alt="Buy Me a Coffee"
-      height="24"
-    />
-  </a>
+  <a href="https://ko-fi.com/U7U61X81Z1" target="_blank"><img src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Support me on Ko-fi" height="24" /></a>
+  <a href="https://www.buymeacoffee.com/MickyGX"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=MickyGX&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me a Coffee" height="24" /></a>
 </p>
 <hr />
 
