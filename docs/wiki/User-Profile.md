@@ -2,6 +2,8 @@
 
 The User Profile page holds the settings that belong to one specific user rather than the whole Curatorr instance.
 
+![Curatorr user profile page](../media/curatorr-user-profile.png)
+
 ## Profile
 
 Users can review:
@@ -51,6 +53,8 @@ This enables:
 - browsing their Spotify playlists from the Playlists page
 - importing Spotify playlists into Curatorr
 - refreshing previously imported Spotify playlists after the local library changes
+
+If the Spotify section is missing entirely, the app-level credentials are not configured on the Curatorr container yet.
 
 ## Last.fm
 

@@ -15,11 +15,6 @@ services:
       - BASE_URL=http://localhost:7676
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
-      # Optional: required for Spotify playlist import and refresh.
-      # Add the same callback URL in your Spotify app settings:
-      # http://localhost:7676/user-settings/spotify/callback
-      # - SPOTIFY_CLIENT_ID=your-spotify-client-id
-      # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
       - SESSION_SECRET=replace-this-with-a-random-secret
       - WEBHOOK_SECRET=replace-this-with-a-random-secret
     volumes:
@@ -33,19 +28,6 @@ Generate `SESSION_SECRET` and `WEBHOOK_SECRET` with:
 ```bash
 openssl rand -hex 32
 ```
-
-If you want Spotify playlist import, also create a Spotify developer app and uncomment
-`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`. The redirect URI must match your Curatorr
-base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
-
-To create the Spotify app:
-
-1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Sign in and click `Create app`.
-3. Create a `Web API` app.
-4. In the app settings, add your Curatorr callback URL, for example `http://localhost:7676/user-settings/spotify/callback`.
-5. Copy the `Client ID` into `SPOTIFY_CLIENT_ID`.
-6. Use `View client secret` and copy that value into `SPOTIFY_CLIENT_SECRET`.
 
 ## 2. Start the container
 
@@ -103,6 +85,11 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
   - optional: set Last.fm username
   - optional: set ListenBrainz username/token
   - optional: adjust your theme
+
+## Optional integrations
+
+- Spotify playlist import requires `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the Curatorr container. Setup details: [Integrations](Integrations.md#spotify).
+- Track analysis enrichment is optional and uses the separate analyzer sidecar or a custom command workflow. Setup details: [Track Analysis](Track-Analysis.md).
 
 ## What to expect
 

@@ -2,6 +2,8 @@
 
 The Tracks page combines track-level scoring, rediscovery suggestions, and exclusion controls.
 
+![Curatorr tracks page](../media/curatorr-tracks.png)
+
 ## Suggested Tracks
 
 This panel highlights tracks that currently look strong for either:
@@ -32,11 +34,15 @@ It includes:
 - current track tier/status
 - exclude or re-include actions
 
+The table is the quickest way to answer "why is Curatorr treating this track this way?" because it brings the score inputs, current tier, and exclusion state together in one place.
+
 ## Excluding tracks
 
 Use `Exclude` when you never want a track to influence smart playlist scoring or suggestions.
 
 Use `Re-include` to return an excluded track to normal scoring.
+
+Excluded tracks remain visible for review, but Curatorr stops using them when building suggestions and playlist candidates.
 
 ## Related pages
 

@@ -8,6 +8,8 @@ Curatorr can import track-level audio features such as:
 - `energy`
 - `danceability`
 
+![Curatorr track analysis settings](../media/curatorr-track-analysis.png)
+
 Long-term, Curatorr uses this split:
 
 - Plex API and sonic analysis for ordering and loudness where available
@@ -41,11 +43,6 @@ services:
       - BASE_URL=http://localhost:7676
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
-      # Optional: required for Spotify playlist import and refresh.
-      # Add the same callback URL in your Spotify app settings:
-      # http://localhost:7676/user-settings/spotify/callback
-      # - SPOTIFY_CLIENT_ID=your-spotify-client-id
-      # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
       - SESSION_SECRET=replace-this-with-a-random-secret
       - WEBHOOK_SECRET=replace-this-with-a-random-secret
     volumes:
@@ -71,16 +68,13 @@ services:
     restart: unless-stopped
 ```
 
-If you also want Spotify playlist import on this stack, uncomment
-`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` on the `curatorr` service and add a matching
-redirect URI in the Spotify developer app, for example
-`http://localhost:7676/user-settings/spotify/callback`.
-
 Repository example:
 
 ```bash
 docker compose --profile analysis up -d curatorr curatorr_analyzer
 ```
+
+The command above applies to the repository's bundled compose/profile setup. If you are using the minimal compose example shown on this page, start both services with your normal `docker compose up -d`.
 
 The sidecar:
 

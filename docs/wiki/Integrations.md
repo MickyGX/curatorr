@@ -205,7 +205,7 @@ Curatorr can enrich tracks with:
 - energy
 - danceability
 
-Curatorr supports three analysis paths from `Settings -> General -> Track Analysis Import`:
+Curatorr supports two analysis paths from `Settings -> General -> Track Analysis Import`:
 
 - `Analyzer sidecar`
 - `Custom command`

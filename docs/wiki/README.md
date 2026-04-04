@@ -17,15 +17,16 @@ Recommended publish order:
 3. `Configuration.md`
 4. `Authentication-and-Roles.md`
 5. `Integrations.md`
-6. `Artist-Suggestions-and-Lidarr-Activity.md`
-7. `Discover.md`
-8. `Smart-Playlists.md`
-9. `History.md`
-10. `Tracks.md`
-11. `Blend.md`
-12. `User-Profile.md`
-13. `Troubleshooting.md`
-14. `FAQ.md`
+6. `Track-Analysis.md`
+7. `Artist-Suggestions-and-Lidarr-Activity.md`
+8. `Discover.md`
+9. `Smart-Playlists.md`
+10. `History.md`
+11. `Tracks.md`
+12. `Blend.md`
+13. `User-Profile.md`
+14. `Troubleshooting.md`
+15. `FAQ.md`
 
 ## Publish To GitHub Wiki
 

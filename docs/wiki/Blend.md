@@ -2,6 +2,8 @@
 
 The Blend page compares your listening profile with other listeners and helps you build shared playlist ideas.
 
+![Curatorr blend page](../media/curatorr-blended.png)
+
 ## Blend Queue
 
 The carousel shows listeners who have enough overlap with your history to calculate blend stats.
@@ -14,6 +16,8 @@ Each card includes:
 - agreed skip count
 
 Select one or more listeners to calculate the blend.
+
+If someone does not appear here yet, Curatorr usually does not have enough overlapping listening history to produce a meaningful comparison.
 
 ## Blend results
 

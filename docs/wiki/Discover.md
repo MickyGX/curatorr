@@ -57,6 +57,8 @@ The Queue panel shows pending add requests that are waiting for quota. Items can
 
 The Added For You panel shows a history of all artists added through the Discover page for your account, including both manual adds and any automatic adds. Each entry shows the artist name, the album chosen, whether it was a manual or automatic add, and the current status.
 
+![Curatorr added for you history](../media/curatorr-discover-added-for-you.png)
+
 ---
 
 ## Setup

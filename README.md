@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://github.com/MickyGX/curatorr/releases/latest"><img src="https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release" alt="Latest release" /></a>
   <a href="https://discord.gg/TvrxJWD4PK"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
-  <a href="https://github.com/MickyGX/curatorr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-1677c5" alt="License AGPL-3.0" /></a>
+  <a href="https://www.gnu.org/licenses/agpl-3.0.en.html"><img src="https://img.shields.io/badge/license-AGPL--3.0-1677c5" alt="License AGPL-3.0" /></a>
   <a href="https://hub.docker.com/r/mickygx/curatorr"><img src="https://img.shields.io/badge/docker-mickygx%2Fcuratorr-1677c5?logo=docker&logoColor=white" alt="Docker Hub" /></a>
 </p>
 <p align="center">
