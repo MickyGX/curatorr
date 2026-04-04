@@ -45,9 +45,7 @@ Current Plex-only features:
 - ListenBrainz playlist suggestion sync
 - Sonic ordering and loudness-aware sequencing
 
-## Analyzer Sidecar
-
-Curatorr can enrich tracks with `BPM`, `musical key`, `Camelot key`, `energy`, and `danceability` through the optional `curatorr-analyzer` sidecar.
+## Quick Start
 
 Minimal Docker Compose example:
 
@@ -64,11 +62,6 @@ services:
       - BASE_URL=http://localhost:7676
       - TRUST_PROXY=true
       - TRUST_PROXY_HOPS=1
-      # Optional: required for Spotify playlist import and refresh.
-      # Add the same callback URL in your Spotify app settings:
-      # http://localhost:7676/user-settings/spotify/callback
-      # - SPOTIFY_CLIENT_ID=your-spotify-client-id
-      # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
       - SESSION_SECRET=replace-this-with-a-random-secret
       - WEBHOOK_SECRET=replace-this-with-a-random-secret
     volumes:
@@ -77,44 +70,27 @@ services:
       - ./data/icons/custom:/app/public/icons/custom
     network_mode: bridge
     restart: unless-stopped
-
-  curatorr_analyzer:
-    image: mickygx/curatorr-analyzer:latest
-    container_name: curatorr_analyzer
-    depends_on:
-      - curatorr
-    environment:
-      - PORT=8765
-    volumes:
-      - ./data:/app/data
-      # Mount your music library at the same absolute path Plex reports for track files.
-      # Example:
-      # - /path/to/music:/media/music:ro
-    network_mode: "service:curatorr"
-    restart: unless-stopped
 ```
-Then in `Settings -> General -> Track Analysis Import`:
 
-- set `Analyzer mode` to `Analyzer sidecar`
-- set `Analyzer sidecar URL` to `http://127.0.0.1:8765`
-- set `Feature manifest path` to `/app/data/track-features.json`
-- set `Analyzer results path` to `/app/data/track-features.results.json`
-- run `Track Analysis Pipeline`
+Generate `SESSION_SECRET` and `WEBHOOK_SECRET` with:
 
-Optional Spotify import setup:
+```bash
+openssl rand -hex 32
+```
 
-- Uncomment `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` if you want users to connect Spotify accounts and import Spotify playlists.
-- In the Spotify developer app, add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
+Start Curatorr with:
 
-How to get the Spotify secrets:
+```bash
+docker compose up -d
+```
 
-1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and sign in.
-2. Click `Create app`.
-3. Give the app a name and description, then choose `Web API`.
-4. Open the app settings and add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
-5. Save the app settings.
-6. Copy the app `Client ID` into `SPOTIFY_CLIENT_ID`.
-7. Use `View client secret` to copy the `Client Secret` into `SPOTIFY_CLIENT_SECRET`.
+Then open `http://localhost:7676/wizard` and complete the setup wizard for Plex, Jellyfin, or Emby.
+
+## Optional Features
+
+Curatorr supports an optional analyzer sidecar for `BPM`, `musical key`, `Camelot key`, `energy`, and `danceability` enrichment. For setup and workflow details, see [Track Analysis](docs/wiki/Track-Analysis.md).
+
+Spotify support is optional and user-specific. Users can connect Spotify accounts to browse and import playlists after app-level credentials are configured on the Curatorr container. For setup details, see [Spotify in Integrations](docs/wiki/Integrations.md#spotify).
 
 ## Documentation
 
