@@ -68,6 +68,7 @@ import {
   deleteRuleTemplate,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
+import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { applyFeaturePresetFilters, applyTrackFilters } from '../services/playlists.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -686,9 +687,6 @@ async function lookupLastfmArtistArtUrl(artistName, apiKey) {
 
 
 function enrichDiscoverRequests(db, userPlexId, requests = []) {
-  const libraryArtistSet = new Set(
-    db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
-  );
   function resolveDiscoverAlbumImageUrl(album = {}) {
     const directUrl = String(
       album?.selectedAlbumImageUrl
@@ -727,7 +725,6 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
   return (Array.isArray(requests) ? requests : []).map((request) => {
     const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
     const artistKey = String(request?.artistName || '').trim().toLowerCase();
-    const inLibrary = libraryArtistSet.has(artistKey);
     const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
     const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
     const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
@@ -750,6 +747,25 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       || latestSelection.albumTitle
       || suggestedSelection.albumTitle
       || '';
+    let albumMatch = resolveLibraryAlbumMatch(db, {
+      artistName: request?.artistName,
+      albumTitle: selectedAlbumTitle,
+      alternateTitles: [
+        request?.albumTitle,
+        detail.selectedAlbumTitle,
+        detail.starterAlbumTitle,
+        detail.latestAlbumTitle,
+        detail.preferredAlbumTitle,
+      ],
+    });
+    if (detail.manualAvailabilityOverride === true) {
+      albumMatch = {
+        ...albumMatch,
+        inLibrary: true,
+        kind: 'manual_override',
+        matchedAlbumTitle: String(detail.matchedAlbumTitle || selectedAlbumTitle || request?.albumTitle || '').trim(),
+      };
+    }
     const selectedAlbumImageUrl = String(
       detail.selectedAlbumImageUrl
       || detail.preferredAlbumImageUrl
@@ -759,7 +775,15 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       || (selectedAlbumTitle && selectedAlbumTitle === suggestedSelection.albumTitle ? suggestedSelection.albumImageUrl : '')
       || ''
     ).trim();
-    if (!selectedAlbumTitle) return { ...request, detail, inLibrary };
+    if (!selectedAlbumTitle) {
+      return {
+        ...request,
+        detail,
+        inLibrary: albumMatch.inLibrary,
+        inLibraryKind: albumMatch.kind,
+        matchedAlbumTitle: albumMatch.matchedAlbumTitle,
+      };
+    }
     return {
       ...request,
       detail: {
@@ -771,9 +795,33 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
         latestAlbumTitle: detail.latestAlbumTitle || latestSelection.albumTitle,
         latestAlbumImageUrl: detail.latestAlbumImageUrl || latestSelection.albumImageUrl,
       },
-      inLibrary,
+      inLibrary: albumMatch.inLibrary,
+      inLibraryKind: albumMatch.kind,
+      matchedAlbumTitle: albumMatch.matchedAlbumTitle,
     };
   });
+}
+
+function isDiscoverRequestReconciledElsewhere(request) {
+  return String(request?.detail?.reconciledAction || '').trim().toLowerCase() === 'already_in_lidarr';
+}
+
+function isDiscoverRequestAddedToLibrary(request) {
+  return String(request?.status || '').trim().toLowerCase() === 'completed' && request?.inLibrary === true;
+}
+
+function splitDiscoverRequestBuckets(requests = []) {
+  const queue = [];
+  const history = [];
+  (Array.isArray(requests) ? requests : []).forEach((request) => {
+    if (!request || isDiscoverRequestReconciledElsewhere(request)) return;
+    if (isDiscoverRequestAddedToLibrary(request)) {
+      history.push(request);
+    } else {
+      queue.push(request);
+    }
+  });
+  return { queue, history };
 }
 
 function normalizeManualAlbumTitle(value) {
@@ -1966,7 +2014,27 @@ export function registerApiMusic(app, ctx) {
         },
       });
     } catch (err) {
-      return res.status(500).json({ error: safeMessage(err) });
+      const artistName = String(req.query?.artist || '').trim();
+      return res.json({
+        ok: true,
+        item: {
+          kind: 'album',
+          title: 'Selection unavailable',
+          subtitle: artistName,
+          overview: 'Curatorr could not build an album selection preview for this request. This usually means the request failed before a candidate album plan was saved.',
+          thumb: '',
+          art: artistName ? `/api/music/thumb/artist/${encodeURIComponent(artistName)}` : '',
+          posterRatio: 'square',
+          pills: [
+            'Curatorr pick',
+            'Unavailable',
+          ],
+          stats: [],
+          trackSectionTitle: 'Albums',
+          trackList: [],
+          actions: [],
+        },
+      });
     }
   });
 
@@ -1998,20 +2066,22 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
-  app.get('/api/music/lidarr/requests', requireUser, (req, res) => {
+  app.get('/api/music/lidarr/requests', requireUser, async (req, res) => {
     const userPlexId = resolveQueryUserId(req);
+    const buckets = splitDiscoverRequestBuckets(
+      await promoteCompletedRequestsFromLidarr(
+        enrichDiscoverRequests(
+          db,
+          userPlexId,
+          listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed', 'failed'], limit: 250 }),
+        ),
+        lidarrService,
+      ),
+    );
     return res.json({
       ok: true,
-      queued: enrichDiscoverRequests(
-        db,
-        userPlexId,
-        listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 200 }),
-      ),
-      history: enrichDiscoverRequests(
-        db,
-        userPlexId,
-        listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 }),
-      ).filter((r) => r?.detail?.reconciledAction !== 'already_in_lidarr'),
+      queued: buckets.queue,
+      history: buckets.history,
     });
   });
 
@@ -2117,6 +2187,113 @@ export function registerApiMusic(app, ctx) {
     }, existing.userPlexId);
     lidarrService.processQueuedRequests({ userPlexId: existing.userPlexId, limit: 1 }).catch(() => {});
     return res.json({ ok: true, request: getLidarrRequest(db, existing.id, existing.userPlexId) });
+  });
+
+  app.post('/api/music/lidarr/requests/:id/delete', requireUser, (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const existing = getLidarrRequest(db, req.params.id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Request not found.' });
+    const removed = updateLidarrRequest(db, existing.id, {
+      status: 'removed',
+      processedAt: Date.now(),
+      updatedAt: Date.now(),
+      detail: {
+        ...(existing.detail || {}),
+        deleted: true,
+        deletedAt: Date.now(),
+      },
+    }, existing.userPlexId);
+    return res.json({ ok: true, request: removed });
+  });
+
+  app.post('/api/music/lidarr/requests/:id/select-album', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+    const existing = getLidarrRequest(db, req.params.id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Request not found.' });
+
+    const albumTitle = String(req.body?.albumTitle || '').trim();
+    const foreignArtistId = String(req.body?.foreignArtistId || existing.foreignArtistId || '').trim();
+    const lidarrAlbumId = Number(req.body?.lidarrAlbumId || 0) || null;
+    const albumImageUrl = String(req.body?.albumImageUrl || '').trim();
+    if (!String(existing.artistName || '').trim() || !albumTitle) {
+      return res.status(400).json({ error: 'artist and album are required.' });
+    }
+
+    const updated = updateLidarrRequest(db, existing.id, {
+      albumTitle,
+      foreignArtistId,
+      lidarrAlbumId,
+      status: 'queued',
+      processedAt: null,
+      updatedAt: Date.now(),
+      detail: {
+        ...(existing.detail || {}),
+        preferredAlbumTitle: albumTitle,
+        selectedAlbumTitle: albumTitle,
+        selectedAlbumImageUrl: albumImageUrl || String(existing.detail?.selectedAlbumImageUrl || ''),
+        useCuratorrPick: false,
+        retried: true,
+        retriedAt: Date.now(),
+        manualSelectionOverride: true,
+        manualSelectionOverrideAt: Date.now(),
+        manualAvailabilityOverride: false,
+        matchedAlbumTitle: '',
+        lastError: '',
+        lastErrorCode: '',
+      },
+    }, existing.userPlexId);
+
+    lidarrService.processQueuedRequests({ userPlexId: existing.userPlexId, limit: 1 }).catch(() => {});
+    return res.json({ ok: true, request: updated });
+  });
+
+  app.post('/api/music/lidarr/requests/:id/mark-available', requireUser, (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    const existing = getLidarrRequest(db, req.params.id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Request not found.' });
+    const now = Date.now();
+    const matchedAlbumTitle = String(
+      req.body?.matchedAlbumTitle
+      || existing.detail?.selectedAlbumTitle
+      || existing.albumTitle
+      || ''
+    ).trim();
+
+    const request = updateLidarrRequest(db, existing.id, {
+      status: 'completed',
+      processedAt: existing.processedAt || now,
+      updatedAt: now,
+      detail: {
+        ...(existing.detail || {}),
+        manualAvailabilityOverride: true,
+        manualAvailabilityMarkedAt: now,
+        matchedAlbumTitle,
+        lastError: '',
+        lastErrorCode: '',
+      },
+    }, existing.userPlexId);
+
+    const existingProgress = getLidarrArtistProgress(db, existing.userPlexId, existing.artistName);
+    saveLidarrArtistProgress(db, existing.userPlexId, {
+      artistName: existing.artistName,
+      lidarrArtistId: existingProgress?.lidarrArtistId ?? existing.lidarrArtistId ?? null,
+      currentStage: 'album_acquired',
+      albumsAddedCount: Number(existingProgress?.albumsAddedCount || 0),
+      highestObservedRank: Number(existingProgress?.highestObservedRank || 0),
+      lastAlbumAddedAt: existingProgress?.lastAlbumAddedAt ?? now,
+      nextReviewAt: now + (7 * DAY_MS),
+      lastManualSearchAt: existingProgress?.lastManualSearchAt ?? now,
+      lastManualSearchStatus: 'completed',
+      updatedAt: now,
+    });
+
+    return res.json({ ok: true, request: getLidarrRequest(db, existing.id, existing.userPlexId), progress: getLidarrArtistProgress(db, existing.userPlexId, existing.artistName) });
   });
 
   app.post('/api/music/lidarr/requests/reorder', requireUser, (req, res) => {

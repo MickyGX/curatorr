@@ -6201,7 +6201,13 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-discover-ledger-head--queue,
 .cur-discover-ledger-row--queue {
-  grid-template-columns: 40px minmax(160px, 1.1fr) minmax(220px, 1.4fr) 110px 110px 110px;
+  grid-template-columns: 40px minmax(160px, 1.1fr) minmax(220px, 1.4fr) 110px 110px 72px;
+}
+
+.cur-discover-ledger-head--queue > :last-child,
+.cur-discover-ledger-row--queue > :last-child {
+  justify-self: center;
+  text-align: center;
 }
 
 .cur-discover-ledger-head--history,
@@ -6338,6 +6344,40 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   gap: 8px;
 }
 
+.cur-discover-row-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.cur-discover-row-menu {
+  bottom: auto;
+  top: calc(100% + 4px);
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  min-width: 148px;
+  max-height: min(180px, calc(100vh - 40px));
+  overflow-y: auto;
+  z-index: 120;
+}
+
+.cur-discover-row-menu.is-dropup {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.cur-discover-row-menu-toggle {
+  width: 32px;
+  min-width: 32px;
+  padding: 6px 0;
+  line-height: 1;
+  justify-content: center;
+  margin: 0 auto;
+}
+
 .cur-discover-retry-btn {
   width: 28px;
   height: 28px;
@@ -6409,6 +6449,18 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   background: rgba(0,0,0,.03);
   border-color: rgba(0,0,0,.08);
   color: rgba(11,21,30,.45);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .cur-discover-ledger-head--queue,
+  .cur-discover-ledger-row--queue {
+    grid-template-columns: minmax(160px, 1.1fr) minmax(220px, 1.4fr) 110px 110px 72px;
+  }
+
+  .cur-discover-ledger-head--queue > :first-child,
+  .cur-discover-ledger-row--queue > :first-child {
+    display: none;
+  }
 }
 
 [data-theme="day"] .cur-discover-retry-btn {
@@ -6576,6 +6628,13 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   overflow: hidden;
   padding: 18px;
   position: relative;
+}
+
+.release-welcome-scroll,
+.quick-start-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .plex-modal-content {

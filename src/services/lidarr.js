@@ -1,5 +1,4 @@
 import {
-  getArtistMasterTrackCount,
   getArtistRankSnapshot,
   getCurrentLidarrUsage,
   getLidarrArtistProgress,
@@ -17,6 +16,7 @@ import {
   updateLidarrRequest,
   upsertSuggestedAlbum,
 } from '../db.js';
+import { resolveLibraryAlbumMatch } from './album-reconciliation.js';
 
 export const DEFAULT_LIDARR_AUTOMATION_SETTINGS = {
   autoAddArtists: false,
@@ -1463,9 +1463,20 @@ export function createLidarrService(ctx) {
     const commandId = Number(trackedAlbum?.commandId || acquisition.lastCommandId || 0);
     let liveCommand = null;
 
-    const mediaServerTrackCount = getArtistMasterTrackCount(db, artistName);
-    if (liveTrackFileCount > 0 || mediaServerTrackCount > 0) {
-      const resolvedStatus = liveTrackFileCount > 0 ? 'downloaded' : 'downloaded_media_server';
+    const mediaServerAlbumMatch = resolveLibraryAlbumMatch(db, {
+      artistName,
+      albumTitle: trackedAlbum?.albumTitle || album?.title || '',
+      alternateTitles: [
+        trackedAlbum?.albumTitle,
+        album?.title,
+        baseReason?.latestAlbum?.albumTitle,
+        baseReason?.starterAlbum?.albumTitle,
+      ],
+    });
+    if (liveTrackFileCount > 0 || mediaServerAlbumMatch.inLibrary) {
+      const resolvedStatus = liveTrackFileCount > 0
+        ? 'downloaded'
+        : (mediaServerAlbumMatch.kind === 'variant' ? 'downloaded_media_server_variant' : 'downloaded_media_server');
       const nextProgress = {
         artistName,
         lidarrArtistId: lidarrArtistId || null,
@@ -1489,6 +1500,8 @@ export function createLidarrService(ctx) {
               searchAttempts,
               monitorRepairCount,
               lastCheckedAt: now,
+              reconciliationKind: mediaServerAlbumMatch.kind || '',
+              reconciledAlbumTitle: mediaServerAlbumMatch.matchedAlbumTitle || '',
             },
           },
           lidarrArtistId: existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || null,

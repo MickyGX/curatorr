@@ -34,6 +34,7 @@ import {
   getDistinctPathSegments,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
+import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { buildFeaturePresetAvailability } from '../services/playlists.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
@@ -128,9 +129,6 @@ function toDiscoverAlbumSelection(album = {}) {
 }
 
 function enrichDiscoverRequests(db, userPlexId, requests = []) {
-  const libraryArtistSet = new Set(
-    db.prepare('SELECT DISTINCT artist_name FROM master_tracks').all().map((r) => String(r.artist_name || '').trim().toLowerCase()),
-  );
   const addedAlbumMap = new Map();
   for (const status of ['added_to_lidarr', 'already_monitored']) {
     for (const album of listSuggestedAlbums(db, userPlexId, { status, limit: 500 })) {
@@ -148,7 +146,6 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
   return (Array.isArray(requests) ? requests : []).map((request) => {
     const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
     const artistKey = String(request?.artistName || '').trim().toLowerCase();
-    const inLibrary = libraryArtistSet.has(artistKey);
     const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
     const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
     const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
@@ -171,6 +168,25 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       || latestSelection.albumTitle
       || suggestedSelection.albumTitle
       || '';
+    let albumMatch = resolveLibraryAlbumMatch(db, {
+      artistName: request?.artistName,
+      albumTitle: selectedAlbumTitle,
+      alternateTitles: [
+        request?.albumTitle,
+        detail.selectedAlbumTitle,
+        detail.starterAlbumTitle,
+        detail.latestAlbumTitle,
+        detail.preferredAlbumTitle,
+      ],
+    });
+    if (detail.manualAvailabilityOverride === true) {
+      albumMatch = {
+        ...albumMatch,
+        inLibrary: true,
+        kind: 'manual_override',
+        matchedAlbumTitle: String(detail.matchedAlbumTitle || selectedAlbumTitle || request?.albumTitle || '').trim(),
+      };
+    }
     const selectedAlbumImageUrl = String(
       detail.selectedAlbumImageUrl
       || detail.preferredAlbumImageUrl
@@ -180,7 +196,15 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
       || (selectedAlbumTitle && selectedAlbumTitle === suggestedSelection.albumTitle ? suggestedSelection.albumImageUrl : '')
       || ''
     ).trim();
-    if (!selectedAlbumTitle) return { ...request, detail, inLibrary };
+    if (!selectedAlbumTitle) {
+      return {
+        ...request,
+        detail,
+        inLibrary: albumMatch.inLibrary,
+        inLibraryKind: albumMatch.kind,
+        matchedAlbumTitle: albumMatch.matchedAlbumTitle,
+      };
+    }
     return {
       ...request,
       detail: {
@@ -192,9 +216,33 @@ function enrichDiscoverRequests(db, userPlexId, requests = []) {
         latestAlbumTitle: detail.latestAlbumTitle || latestSelection.albumTitle,
         latestAlbumImageUrl: detail.latestAlbumImageUrl || latestSelection.albumImageUrl,
       },
-      inLibrary,
+      inLibrary: albumMatch.inLibrary,
+      inLibraryKind: albumMatch.kind,
+      matchedAlbumTitle: albumMatch.matchedAlbumTitle,
     };
   });
+}
+
+function isDiscoverRequestReconciledElsewhere(request) {
+  return String(request?.detail?.reconciledAction || '').trim().toLowerCase() === 'already_in_lidarr';
+}
+
+function isDiscoverRequestAddedToLibrary(request) {
+  return String(request?.status || '').trim().toLowerCase() === 'completed' && request?.inLibrary === true;
+}
+
+function splitDiscoverRequestBuckets(requests = []) {
+  const queue = [];
+  const history = [];
+  (Array.isArray(requests) ? requests : []).forEach((request) => {
+    if (!request || isDiscoverRequestReconciledElsewhere(request)) return;
+    if (isDiscoverRequestAddedToLibrary(request)) {
+      history.push(request);
+    } else {
+      queue.push(request);
+    }
+  });
+  return { queue, history };
 }
 
 function normalizeIdentitySet(values = [], normalizeIdentityList) {
@@ -1524,16 +1572,18 @@ export function registerPages(app, ctx) {
     const lidarrQuota = lidarrService?.isConfigured() && lidarrAutomationEligible
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {})
       : null;
-    const queuedRequests = enrichDiscoverRequests(
-      db,
-      userPlexId,
-      listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing'], limit: 200 }),
+    const lidarrRequestBuckets = splitDiscoverRequestBuckets(
+      await promoteCompletedRequestsFromLidarr(
+        enrichDiscoverRequests(
+          db,
+          userPlexId,
+          listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed', 'failed'], limit: 250 }),
+        ),
+        lidarrService,
+      ),
     );
-    const requestHistory = enrichDiscoverRequests(
-      db,
-      userPlexId,
-      listLidarrRequests(db, userPlexId, { statuses: ['completed', 'failed'], limit: 50 }),
-    ).filter((r) => r?.detail?.reconciledAction !== 'already_in_lidarr');
+    const queuedRequests = lidarrRequestBuckets.queue;
+    const requestHistory = lidarrRequestBuckets.history;
     const discoverSuggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 16 });
     const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, suggestionUserId, discoverSuggestions.artists);
     const disc = config.discovery || {};

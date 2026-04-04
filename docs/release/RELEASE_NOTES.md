@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.64 (2026-04-04)
+
+- Discover now uses album-level Lidarr/library reconciliation instead of artist-only presence, including variant matching for standard vs deluxe editions and a Lidarr downloaded fallback when the local media cache has not caught up yet.
+- Discover request management is now split cleanly between a live Queue and Added For You history, with row action menus for retry/delete/manual availability overrides and safer failed-request handling.
+- Polished the Discover UI with scrollable request popups, a tighter centered action column, smarter queue menu positioning inside the scroller, and drag handles hidden when reordering is not actually available.
+
 ## v0.1.63 (2026-04-04)
 
 - Imported Plex and Spotify playlists can now be converted into editable smart playlists, with inferred audio/profile defaults, recommended chip suggestions, a toggle to switch to all detected genres/moods/tags, and an option to keep or remove the original imported mirror.
