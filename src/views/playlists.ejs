@@ -192,7 +192,7 @@
                           <% if (p.artPath) { %>
                             <img src="<%= (_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(p.artPath) + (p.artTag ? '&tag=' + encodeURIComponent(p.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
                           <% } %>
-                          <% if (p.playlistKey) { %>
+                          <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
                           <label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()">
                             <input type="checkbox" class="pl-card-checkbox" onchange="onCardCheckChange(this)" />
                             <span class="pl-card-checkbox-ui"></span>
@@ -212,6 +212,10 @@
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
+                          <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(p.sourceType)) { %>
+                          <button class="pl-card-btn pl-card-btn--edit" type="button" title="Convert to smart playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openConvertImportedPlaylist(this.closest('.cur-playlist-carousel-card'))">
+                            <img src="/icons/edit.svg" alt="Convert" style="display:block;width:18px;height:18px" />
+                          </button>
                           <% } %>
                           <div class="pl-card-dots-wrap">
                             <button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleCardMenu(this)">⋯</button>
@@ -220,11 +224,13 @@
                               <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                               <% } else if (p.playlistType === 'global') { %>
                               <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
+                              <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(p.sourceType)) { %>
+                              <button type="button" onclick="event.stopPropagation(); openConvertImportedPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Convert to Smart</button>
                               <% } %>
                               <% if (['daily-mix', 'curatorr', 'crescive', 'curative'].includes(p.playlistType)) { %>
                               <button type="button" onclick="event.stopPropagation(); renameCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rename</button>
                               <% } %>
-                              <% if (p.playlistKey) { %>
+                              <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
                               <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
                               <% } %>
                               <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
@@ -238,7 +244,7 @@
                       <div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">
                         <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= p.playlistTitle || 'Playlist' %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks<% if (Number(p.missingCount || 0) > 0) { %> • <%= Number(p.missingCount || 0).toLocaleString() %> missing<% } %></div>
-                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? 'Disabled in Plex' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt) %></div>
+                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? 'Disabled in Plex' : (p.playlistKind === 'draft' ? 'Draft saved in Curatorr' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt)) %></div>
                       </div>
                     </div>
                   <% }) %>
@@ -1504,13 +1510,14 @@
       card.dataset.playlistType = data.playlistType || 'custom';
       card.dataset.playlistAudience = resolvePlaylistAudience(data);
       card.dataset.playlistActive = data.active === false ? 'false' : 'true';
-      card.dataset.playlistState = data.active === false ? 'disabled' : (data.plexPlaylistId ? 'synced' : 'pending');
+      card.dataset.playlistState = data.active === false ? 'disabled' : (String(data.playlistKind || '').trim().toLowerCase() === 'draft' ? 'draft' : (data.plexPlaylistId ? 'synced' : 'pending'));
       card.dataset.playlistTrackCount = String(Number(data.trackCount || 0));
       card.dataset.playlistMissingCount = String(Number(data.missingCount || 0));
       card.dataset.playlistSourceType = data.sourceType || '';
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
       if (data.active === false) card.classList.add('is-disabled');
+      var isDraft = String(data.playlistKind || '').trim().toLowerCase() === 'draft';
       var isPersonal = data.playlistType === 'personal';
       var isGlobal = data.playlistType === 'global';
       var isSystemRenameable = ['daily-mix', 'curatorr', 'crescive', 'curative'].indexOf(data.playlistType || '') !== -1;
@@ -1518,14 +1525,17 @@
       var playlistAudience = resolvePlaylistAudience(data);
       var isDeletable = ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(data.playlistType || '') !== -1;
       var isImportedRefresh = data.playlistType === 'custom' && ['spotify-playlist', 'plex-playlist', 'plex-collection'].indexOf(String(data.sourceType || '').toLowerCase()) !== -1;
+      var isImportedConvertible = isImportedRefresh;
       var editBtnHtml = isPersonal
         ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
-        : (isGlobal ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-global" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : '');
+        : (isGlobal
+          ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-global" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
+          : (isImportedConvertible ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--convert-import" type="button" title="Convert to smart playlist"><img src="/icons/edit.svg" alt="Convert" style="display:block;width:18px;height:18px" /></button>' : ''));
       card.innerHTML =
         '<div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">' +
           '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artPath ? '' : ' is-empty') + '">' +
             (data.artPath ? '<img src="' + ((_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(data.artPath) + (data.artTag ? '&tag=' + encodeURIComponent(data.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(data.artPath)) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
-            (data.playlistKey ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
+            (data.playlistKey && !isDraft ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
             '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
             buildPlaylistAudienceBadgeHtml(playlistAudience, data.sourceType) +
             editBtnHtml +
@@ -1534,8 +1544,9 @@
               '<div class="pl-card-menu" style="display:none">' +
                 (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
                 (isGlobal ? '<button type="button" class="pl-card-menu-edit-global">Edit</button>' : '') +
+                (isImportedConvertible ? '<button type="button" class="pl-card-menu-convert-import">Convert to Smart</button>' : '') +
                 (isSystemRenameable ? '<button type="button" class="pl-card-menu-rename">Rename</button>' : '') +
-                (data.playlistKey ? '<button type="button" class="pl-card-menu-toggle-state">' + (isActive ? 'Disable' : 'Enable') + '</button>' : '') +
+                (data.playlistKey && !isDraft ? '<button type="button" class="pl-card-menu-toggle-state">' + (isActive ? 'Disable' : 'Enable') + '</button>' : '') +
                 '<button type="button" class="pl-card-menu-rebuild"' + (isActive ? '' : ' disabled title="Enable this playlist first."') + '>' + (isImportedRefresh ? 'Refresh import' : 'Rebuild') + '</button>' +
                 (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
               '</div>' +
@@ -1545,16 +1556,18 @@
         '<div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">' +
           '<div class="plex-name cur-discover-result-name cur-playlist-carousel-title">' + escHtml(data.playlistTitle || 'Playlist') + '</div>' +
           '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta">' + Number(data.trackCount || 0).toLocaleString() + ' tracks' + (Number(data.missingCount || 0) > 0 ? (' • ' + Number(data.missingCount || 0).toLocaleString() + ' missing') : '') + '</div>' +
-          '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta' + (isActive ? '' : ' cur-playlist-carousel-meta--disabled') + '">' + (isActive ? ('Curatorr updated ' + escHtml(fmtShortDate(data.updatedAt || Date.now()))) : 'Disabled in Plex') + '</div>' +
+          '<div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta' + (isActive ? '' : ' cur-playlist-carousel-meta--disabled') + '">' + (isActive ? (isDraft ? 'Draft saved in Curatorr' : ('Curatorr updated ' + escHtml(fmtShortDate(data.updatedAt || Date.now())))) : 'Disabled in Plex') + '</div>' +
         '</div>';
       card.addEventListener('click', function() { selectPlaylist(card); });
       card.addEventListener('keydown', function(event) {
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPlaylist(card); }
       });
-      var editBtn = card.querySelector('.pl-card-btn--edit:not(.pl-card-btn--edit-global)');
+      var editBtn = card.querySelector('.pl-card-btn--edit:not(.pl-card-btn--edit-global):not(.pl-card-btn--convert-import)');
       if (editBtn) editBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditPlaylistModal(card); });
       var editGlobalBtn = card.querySelector('.pl-card-btn--edit-global');
       if (editGlobalBtn) editGlobalBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditGlobalPlaylist(card); });
+      var convertImportedBtn = card.querySelector('.pl-card-btn--convert-import');
+      if (convertImportedBtn) convertImportedBtn.addEventListener('click', function(e) { e.stopPropagation(); openConvertImportedPlaylist(card); });
       var viewBtn2 = card.querySelector('.pl-card-btn--view');
       if (viewBtn2) viewBtn2.addEventListener('click', function(e) { e.stopPropagation(); selectPlaylist(card); });
       var dotsBtn = card.querySelector('.pl-card-btn--dots');
@@ -1563,6 +1576,8 @@
       if (editMenuBtn) editMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditPlaylistModal(card); });
       var editGlobalMenuBtn = card.querySelector('.pl-card-menu-edit-global');
       if (editGlobalMenuBtn) editGlobalMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditGlobalPlaylist(card); });
+      var convertImportedMenuBtn = card.querySelector('.pl-card-menu-convert-import');
+      if (convertImportedMenuBtn) convertImportedMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openConvertImportedPlaylist(card); });
       var renameMenuBtn = card.querySelector('.pl-card-menu-rename');
       if (renameMenuBtn) renameMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); renameCardPlaylist(card); });
       var toggleStateBtn = card.querySelector('.pl-card-menu-toggle-state');
@@ -2337,9 +2352,11 @@
         document.getElementById('trackListLoading').style.display = 'none';
         document.getElementById('loadMoreWrap').style.display = 'none';
         var emptyEl = document.getElementById('trackListEmpty');
-        emptyEl.textContent = isPlaylistCardActive(el)
-          ? ('Not yet synced to ' + MS_LABEL + '. It will be created automatically on the next scheduled run.')
-          : ('Disabled. Enable this playlist to rebuild and add it back to ' + MS_LABEL + '.');
+        emptyEl.textContent = (el.getAttribute('data-playlist-kind') || '') === 'draft'
+          ? 'Draft saved in Curatorr. Edit the filters or rebuild once the playlist matches tracks.'
+          : (isPlaylistCardActive(el)
+            ? ('Not yet synced to ' + MS_LABEL + '. It will be created automatically on the next scheduled run.')
+            : ('Disabled. Enable this playlist to rebuild and add it back to ' + MS_LABEL + '.'));
         emptyEl.style.display = '';
         return;
       }
@@ -2580,8 +2597,14 @@
       var playlistKey = card.dataset.plKey;
       var playlistTitle = card.dataset.plTitle;
       if (!playlistKey) return;
-      if (!confirm('Delete "' + playlistTitle + '" from Curatorr and ' + MS_LABEL + '? This cannot be undone.')) return;
-      fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(playlistKey), {
+      var isDraft = String(card.dataset.playlistKind || '').trim().toLowerCase() === 'draft';
+      var isPersonalDraft = isDraft && String(card.dataset.playlistType || '').trim().toLowerCase() === 'personal';
+      var personalId = playlistKey.replace(/^personal:/, '');
+      var promptLabel = isPersonalDraft
+        ? ('Delete "' + playlistTitle + '" from Curatorr? This draft has not been synced to ' + MS_LABEL + '.')
+        : ('Delete "' + playlistTitle + '" from Curatorr and ' + MS_LABEL + '? This cannot be undone.');
+      if (!confirm(promptLabel)) return;
+      fetch(isPersonalDraft ? ('/api/music/playlists/personal/' + encodeURIComponent(personalId)) : ('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(playlistKey)), {
         method: 'DELETE',
         headers: { 'X-CSRF-Token': CSRF },
       })
@@ -2873,6 +2896,15 @@
         advancedRules: trackFilters.rules,
         deduplicateByMbid: trackFilters.deduplicateByMbid,
         deduplicateByArtistTitle: trackFilters.deduplicateByArtistTitle,
+        importSource: rules.importSource || null,
+        importSuggestedContent: rules.importSuggestedContent || (rules.importSource ? {
+          genres: normaliseUiTriState(rules.genres),
+          moods: normaliseUiTriState(rules.moods),
+          tags: normaliseUiTriState(rules.tags),
+        } : null),
+        importDetectedContent: rules.importDetectedContent || null,
+        keepImportedSource: true,
+        inferenceSummary: null,
       };
     }
 
@@ -2903,6 +2935,24 @@
       var gpId = plKey.replace(/^global:/, '');
       if (!gpId) return;
       openWizardEdit('global', gpId, '/api/playlists/global/' + encodeURIComponent(gpId));
+    }
+
+    function openConvertImportedPlaylist(card) {
+      if (!card) return;
+      var playlistKey = String(card.dataset.plKey || '').trim();
+      if (!playlistKey) return;
+      fetch('/api/music/playlists/imported-convert?playlistKey=' + encodeURIComponent(playlistKey))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok || !data.prefill) {
+            alert((data && data.error) || 'Could not infer a smart playlist from this import.');
+            return;
+          }
+          openSmartPlaylistWizard(data.prefill);
+        })
+        .catch(function() {
+          alert('Network error loading imported playlist conversion.');
+        });
     }
 
     function spmResetChips(containerId) {
@@ -3222,6 +3272,9 @@
       var trackFilters = options.trackFilters || null;
       var editKind = options.editKind || _wizardEditKind || null;
       var editId = options.editId || _wizardEditId || '';
+      var allowEmptyDraft = Boolean(options.allowEmptyDraft);
+      var importSource = options.importSource || null;
+      var removeImportedSourcePlaylistKey = options.removeImportedSourcePlaylistKey || '';
       var isEdit = Boolean(editKind && editId);
       var endpoint = isEdit
         ? (editKind === 'global'
@@ -3230,6 +3283,9 @@
         : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
       var payload = Object.assign({ name: name }, rules);
       if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, rules: [] };
+      if (allowEmptyDraft) payload.allowEmptyDraft = true;
+      if (importSource) payload.importSource = importSource;
+      if (removeImportedSourcePlaylistKey) payload.removeImportedSourcePlaylistKey = removeImportedSourcePlaylistKey;
       if (btn) btn.disabled = true;
       if (msg) msg.textContent = isEdit ? 'Saving…' : 'Creating…';
       fetch(endpoint, {
@@ -3237,10 +3293,30 @@
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
         body: JSON.stringify(payload),
       })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          return r.json().catch(function() { return {}; }).then(function(data) {
+            if (!r.ok || !data.ok) {
+              var err = new Error(data.error || 'Failed');
+              err.code = data.code || '';
+              err.canSaveDraft = Boolean(data.canSaveDraft);
+              throw err;
+            }
+            return data;
+          });
+        })
         .then(function(data) {
           if (!data.ok) throw new Error(data.error || 'Failed');
           if (isEdit) {
+            closeSmartPlaylistModal();
+            window.location.reload();
+            return;
+          }
+          if (data.draft) {
+            closeSmartPlaylistModal();
+            window.location.reload();
+            return;
+          }
+          if (importSource || data.removedSourcePlaylistKey) {
             closeSmartPlaylistModal();
             window.location.reload();
             return;
@@ -3264,7 +3340,11 @@
           selectPlaylist(card);
         })
         .catch(function(err) {
-          if (msg) msg.textContent = 'Error: ' + (err.message || 'Unknown');
+          if (msg) {
+            msg.textContent = err.code === 'ZERO_TRACK_PLAYLIST' && err.canSaveDraft
+              ? (err.message || 'This setup matches 0 tracks. Review the filters or save it as a draft.')
+              : ('Error: ' + (err.message || 'Unknown'));
+          }
           if (btn) btn.disabled = false;
         });
     }
@@ -3545,6 +3625,11 @@
         finalOrdering: 'none',
         blendUsers: [],
         blendMode: 'average',
+        importSource: null,
+        importSuggestedContent: null,
+        importDetectedContent: null,
+        keepImportedSource: true,
+        inferenceSummary: null,
         seasonalGenres: [],
         seasonalKeywords: [],
         seasonalExcludeGenres: [],
@@ -3565,6 +3650,16 @@
         genres:      normaliseUiTriState(ws.genres),
         moods:       normaliseUiTriState(ws.moods),
         tags:        normaliseUiTriState(ws.tags),
+        importSuggestedContent: wizardHasImportedContentSet(ws && ws.importSuggestedContent) ? {
+          genres: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.genres),
+          moods: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.moods),
+          tags: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.tags),
+        } : null,
+        importDetectedContent: wizardHasImportedDetectedContent(ws) ? {
+          genres: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.genres),
+          moods: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.moods),
+          tags: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.tags),
+        } : null,
         topNPerArtist: ws.topNPerArtist || null,
         maxTracks:     ws.maxTracks     || null,
         sortBy:        ws.sortBy        || 'ratingCount',
@@ -3700,23 +3795,155 @@
       state.camelotMode = nextValues.camelotMode;
     }
 
-    function wizardReplaceContentStateFromAudioProfile(state, presetId) {
-      var defaults = WIZARD_FEATURE_PRESET_CONTENT[presetId || 'none'] || WIZARD_FEATURE_PRESET_CONTENT.none;
-      state.genres = {
-        include: (defaults.genres && defaults.genres.include ? defaults.genres.include.slice() : []),
-        exclude: (defaults.genres && defaults.genres.exclude ? defaults.genres.exclude.slice() : []),
-        includeMode: 'any',
+    function wizardAudioProfileContentDefaults(presetId) {
+      return WIZARD_FEATURE_PRESET_CONTENT[presetId || 'none'] || WIZARD_FEATURE_PRESET_CONTENT.none;
+    }
+
+    function wizardUpdateContentStateWithSuggestedValues(currentState, defaultsState, shouldApply) {
+      var triState = normaliseUiTriState(currentState);
+      var includeSet = new Set(triState.include || []);
+      var excludeSet = new Set(triState.exclude || []);
+      var suggestedInclude = defaultsState && defaultsState.include ? defaultsState.include : [];
+      var suggestedExclude = defaultsState && defaultsState.exclude ? defaultsState.exclude : [];
+      suggestedInclude.forEach(function(value) {
+        if (shouldApply) {
+          includeSet.add(value);
+          excludeSet.delete(value);
+        } else {
+          includeSet.delete(value);
+        }
+      });
+      suggestedExclude.forEach(function(value) {
+        if (shouldApply) {
+          excludeSet.add(value);
+          includeSet.delete(value);
+        } else {
+          excludeSet.delete(value);
+        }
+      });
+      return {
+        include: Array.from(includeSet),
+        exclude: Array.from(excludeSet),
+        includeMode: triState.includeMode === 'all' ? 'all' : 'any',
       };
-      state.moods = {
-        include: (defaults.moods && defaults.moods.include ? defaults.moods.include.slice() : []),
-        exclude: (defaults.moods && defaults.moods.exclude ? defaults.moods.exclude.slice() : []),
-        includeMode: 'any',
+    }
+
+    function wizardSuggestedContentApplied(state, presetId) {
+      var defaults = wizardAudioProfileContentDefaults(presetId);
+      var kinds = ['genres', 'moods', 'tags'];
+      var hasSuggestions = false;
+      return kinds.every(function(kind) {
+        var suggested = defaults[kind] || { include: [], exclude: [] };
+        var triState = normaliseUiTriState(state && state[kind]);
+        var includeSet = new Set(triState.include || []);
+        var excludeSet = new Set(triState.exclude || []);
+        var suggestedInclude = suggested.include || [];
+        var suggestedExclude = suggested.exclude || [];
+        if (suggestedInclude.length || suggestedExclude.length) hasSuggestions = true;
+        return suggestedInclude.every(function(value) {
+          return includeSet.has(value) && !excludeSet.has(value);
+        }) && suggestedExclude.every(function(value) {
+          return excludeSet.has(value) && !includeSet.has(value);
+        });
+      }) && hasSuggestions;
+    }
+
+    function wizardToggleContentStateFromAudioProfile(state, presetId) {
+      var defaults = wizardAudioProfileContentDefaults(presetId);
+      var shouldApply = !wizardSuggestedContentApplied(state, presetId);
+      state.genres = wizardUpdateContentStateWithSuggestedValues(state.genres, defaults.genres, shouldApply);
+      state.moods = wizardUpdateContentStateWithSuggestedValues(state.moods, defaults.moods, shouldApply);
+      state.tags = wizardUpdateContentStateWithSuggestedValues(state.tags, defaults.tags, shouldApply);
+      return shouldApply;
+    }
+
+    function wizardHasImportedContentSet(contentSet) {
+      var detected = contentSet;
+      if (!detected || typeof detected !== 'object') return false;
+      return ['genres', 'moods', 'tags'].some(function(kind) {
+        return normaliseUiTriState(detected[kind]).include.length > 0;
+      });
+    }
+
+    function wizardHasImportedSuggestedContent(state) {
+      return wizardHasImportedContentSet(state && state.importSuggestedContent);
+    }
+
+    function wizardHasImportedDetectedContent(state) {
+      return wizardHasImportedContentSet(state && state.importDetectedContent);
+    }
+
+    function wizardImportedDetectedContentCounts(state) {
+      var detected = state && state.importDetectedContent;
+      return {
+        genres: normaliseUiTriState(detected && detected.genres).include.length,
+        moods: normaliseUiTriState(detected && detected.moods).include.length,
+        tags: normaliseUiTriState(detected && detected.tags).include.length,
       };
-      state.tags = {
-        include: (defaults.tags && defaults.tags.include ? defaults.tags.include.slice() : []),
-        exclude: (defaults.tags && defaults.tags.exclude ? defaults.tags.exclude.slice() : []),
-        includeMode: 'any',
+    }
+
+    function wizardImportedContentSetEquals(a, b) {
+      var kinds = ['genres', 'moods', 'tags'];
+      return kinds.every(function(kind) {
+        var aTri = normaliseUiTriState(a && a[kind]);
+        var bTri = normaliseUiTriState(b && b[kind]);
+        if (aTri.includeMode !== bTri.includeMode) return false;
+        if ((aTri.exclude || []).length || (bTri.exclude || []).length) return false;
+        if ((aTri.include || []).length !== (bTri.include || []).length) return false;
+        var bSet = new Set(bTri.include || []);
+        return (aTri.include || []).every(function(value) { return bSet.has(value); });
+      });
+    }
+
+    function wizardImportedContentStateSnapshot(state) {
+      return {
+        genres: normaliseUiTriState(state && state.genres),
+        moods: normaliseUiTriState(state && state.moods),
+        tags: normaliseUiTriState(state && state.tags),
       };
+    }
+
+    function wizardImportedContentMode(state) {
+      var current = wizardImportedContentStateSnapshot(state);
+      if (wizardHasImportedDetectedContent(state) && wizardImportedContentSetEquals(current, state.importDetectedContent)) return 'detected';
+      if (wizardHasImportedSuggestedContent(state) && wizardImportedContentSetEquals(current, state.importSuggestedContent)) return 'suggested';
+      return 'custom';
+    }
+
+    function wizardApplyImportedContentSet(state, contentSet) {
+      if (!wizardHasImportedContentSet(contentSet)) return;
+      state.genres = normaliseUiTriState(contentSet && contentSet.genres);
+      state.moods = normaliseUiTriState(contentSet && contentSet.moods);
+      state.tags = normaliseUiTriState(contentSet && contentSet.tags);
+    }
+
+    function wizardToggleImportedContentMode(state) {
+      if (!wizardHasImportedDetectedContent(state)) return 'custom';
+      var mode = wizardImportedContentMode(state);
+      if (mode === 'detected') {
+        if (wizardHasImportedSuggestedContent(state)) {
+          wizardApplyImportedContentSet(state, state.importSuggestedContent);
+          return 'suggested';
+        }
+        wizardClearContentState(state);
+        return 'custom';
+      }
+      wizardApplyImportedContentSet(state, state.importDetectedContent);
+      return 'detected';
+    }
+
+    function wizardClearContentState(state) {
+      state.genres = { include: [], exclude: [], includeMode: 'any' };
+      state.moods = { include: [], exclude: [], includeMode: 'any' };
+      state.tags = { include: [], exclude: [], includeMode: 'any' };
+      state.seasonalGenres = [];
+      state.seasonalKeywords = [];
+      state.seasonalExcludeGenres = [];
+      state.seasonalExcludeKeywords = [];
+      state.seasonalGenresMode = 'any';
+      state.seasonalKeywordsMode = 'any';
+      state.artistTiers = { include: [], exclude: [], includeMode: 'any' };
+      state.trackTiers = { include: [], exclude: [], includeMode: 'any' };
     }
 
     var WIZARD_TEXT_RULE_OPS = [
@@ -3838,7 +4065,6 @@
         nextState.deduplicateByArtistTitle = templateTrackFilters.deduplicateByArtistTitle;
       }
       if (nextState.featurePreset) wizardApplyPresetValues(nextState, nextState.featurePreset, false);
-      if (nextState.featurePreset && nextState.featurePreset !== 'none') wizardReplaceContentStateFromAudioProfile(nextState, nextState.featurePreset);
       wizardSyncSuggestedName(nextState, false);
       _wizardState = nextState;
     }
@@ -3866,6 +4092,7 @@
       wizardBindStep(step);
       wizardRefreshAudioPresetMeta();
       wizardRefreshAudioProfileStatus();
+      wizardRefreshDraftAction();
       setTimeout(wizardRunPreview, 50);
     }
 
@@ -3889,7 +4116,7 @@
       if (!preset || preset === 'none') {
         return '<div class="spm-wizard-field-hint" style="margin-top:10px">No audio profile selected, so the next step starts with all genres, moods, and tags neutral.</div>';
       }
-      var defaults = WIZARD_FEATURE_PRESET_CONTENT[preset] || WIZARD_FEATURE_PRESET_CONTENT.none;
+      var defaults = wizardAudioProfileContentDefaults(preset);
       var meta = WIZARD_FEATURE_PRESET_META[preset] || WIZARD_FEATURE_PRESET_META.none;
       var rows = [];
       function pushRow(label, values) {
@@ -3907,8 +4134,8 @@
         rows.push('<div>No genre, mood, or tag suggestions are added for this profile.</div>');
       }
       return '<div style="margin-top:14px;padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)">' +
-        '<div class="spm-wizard-field-label" style="margin-bottom:6px">Next step prefill</div>' +
-        '<div class="spm-wizard-field-hint" style="margin-bottom:8px">Selecting <strong style="color:var(--text,#e5e7eb)">' + escH(meta.label) + '</strong> also preselects these content suggestions on Step 2. You can change anything there.</div>' +
+        '<div class="spm-wizard-field-label" style="margin-bottom:6px">Next step suggestions</div>' +
+        '<div class="spm-wizard-field-hint" style="margin-bottom:8px">Selecting <strong style="color:var(--text,#e5e7eb)">' + escH(meta.label) + '</strong> also suggests these content chips on Step 2. Apply them only if you want the stricter content match.</div>' +
         '<div style="display:grid;gap:6px;font-size:12px;color:var(--muted,#aab1bc);line-height:1.45">' + rows.join('') + '</div>' +
       '</div>';
     }
@@ -3923,10 +4150,11 @@
         : _wizardAudioPreview.error
           ? '?'
           : Number(_wizardAudioPreview.matchingTrackCount || 0).toLocaleString();
+      var suggestedApplied = wizardSuggestedContentApplied(_wizardState, preset);
       return '<div style="margin:0 0 14px;padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);font-size:12px;color:var(--muted,#aab1bc)">' +
         '<strong style="color:var(--text,#e5e7eb)">' + audioReady + ' audio-ready</strong>' +
         ' · ' + matchingNow + ' matching current setup' +
-        '<div style="margin-top:4px">This compares the preset&apos;s broad audio availability with what still matches after the visible content rules on this step.</div>' +
+        '<div style="margin-top:4px">Suggested chips are ' + (suggestedApplied ? '<strong style="color:var(--text,#e5e7eb)">applied</strong>' : 'neutral') + '. This compares the preset&apos;s broad audio availability with what still matches after the active Step 2 filters.</div>' +
       '</div>';
     }
 
@@ -3934,6 +4162,17 @@
       var el = document.getElementById('wiz-audio-profile-status');
       if (!el) return;
       el.innerHTML = wizardAudioProfileStatusHtml();
+    }
+
+    function wizardRefreshDraftAction() {
+      var btn = document.getElementById('wiz-save-draft-btn');
+      if (!btn) return;
+      var target = _wizardState.playlistTarget || 'personal';
+      var isDraftCandidate = target !== 'global'
+        && !_wizardAudioPreview.loading
+        && !_wizardAudioPreview.error
+        && Number(_wizardAudioPreview.matchingTrackCount || 0) <= 0;
+      btn.style.display = isDraftCandidate ? '' : 'none';
     }
 
     function wizardStepDots(current) {
@@ -3958,7 +4197,7 @@
       var back = step > 1 ? '<button class="btn btn-ghost" type="button" id="wiz-back-btn">← Back</button>' : '<button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>';
       var fwd = step < WIZARD_TOTAL_STEPS
         ? '<button class="btn btn-primary" type="button" id="wiz-next-btn">Next →</button>'
-        : '<button class="btn btn-primary" type="button" id="wiz-create-btn">' + wizardSubmitLabel() + '</button>';
+        : '<button class="btn btn-ghost" type="button" id="wiz-save-draft-btn" style="display:none">Save as Draft</button><button class="btn btn-primary" type="button" id="wiz-create-btn">' + wizardSubmitLabel() + '</button>';
       return '<div class="spm-wizard-footer-wrap">' +
         '<div class="spm-wizard-preview-bar">' +
           '<div class="spm-wizard-preview-main">' +
@@ -4013,6 +4252,23 @@
       var ws = _wizardState;
       var html = '<div class="spm-wizard-step-label">Step 1 of ' + WIZARD_TOTAL_STEPS + ' — Basics</div>';
       html += '<div class="spm-wizard-step-intro">Choose who this playlist is for, where it starts, and the audio lane you want it to follow.</div>';
+      if (ws.importSource) {
+        var importLabel = ws.importSource.sourceType === 'spotify-playlist'
+          ? 'Spotify playlist'
+          : (ws.importSource.sourceType === 'plex-collection' ? 'Plex collection' : 'Plex playlist');
+        var inferredSourceTitle = ws.importSource.sourceTitle || ws.importSource.playlistTitle || 'Imported playlist';
+        var summaryBits = [];
+        if (ws.inferenceSummary && ws.inferenceSummary.matchedTrackCount) summaryBits.push(String(ws.inferenceSummary.matchedTrackCount) + ' matched tracks');
+        if (ws.inferenceSummary && ws.inferenceSummary.missingCount) summaryBits.push(String(ws.inferenceSummary.missingCount) + ' missing');
+        if (ws.inferenceSummary && ws.inferenceSummary.featurePreset && ws.inferenceSummary.featurePreset !== 'none') summaryBits.push('closest preset: ' + ws.inferenceSummary.featurePreset);
+        html += '<div style="margin:0 0 18px;padding:12px 14px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)">' +
+          '<div class="spm-wizard-field-label" style="margin-bottom:6px">Imported starting point</div>' +
+          '<div class="spm-wizard-field-hint" style="line-height:1.5">' +
+            'This wizard setup was inferred from the imported ' + escH(importLabel) + ' <strong style="color:var(--text,#e5e7eb)">' + escH(inferredSourceTitle) + '</strong>. It is a starting point, not an exact recreation.' +
+            (summaryBits.length ? ('<div style="margin-top:6px">' + escH(summaryBits.join(' · ')) + '</div>') : '') +
+          '</div>' +
+        '</div>';
+      }
       html += '<div class="spm-wizard-stack">';
       html += '<div class="spm-wizard-field">' +
         '<span class="spm-wizard-field-label">Create for</span>' +
@@ -4061,7 +4317,7 @@
       html += '</div>';
       html += '<div class="spm-wizard-subsection spm-wizard-subsection--audio">';
       html += '<div class="spm-wizard-subsection-title">Audio profile <span class="gp-filter-hint">(optional)</span></div>';
-      html += '<div class="spm-wizard-subsection-copy">These cards set BPM, energy, danceability, Camelot defaults, and prefill matching content chips on the next step. You can edit any of that later.</div>';
+      html += '<div class="spm-wizard-subsection-copy">These cards set BPM, energy, danceability, Camelot defaults, and suggest matching content chips on the next step. You can apply those suggestions there if you want them.</div>';
       html += '<div class="spm-wizard-template-grid spm-wizard-template-grid--audio">';
       AUDIO_PROFILES.forEach(function(entry) {
         var cov = WIZARD_PRESET_COVERAGE[entry.preset] || {};
@@ -4097,11 +4353,33 @@
       var ALLGENRES = <%- JSON.stringify(allGenres || []) %>;
       var ALLMOODS  = <%- JSON.stringify(allMoods  || []) %>;
       var ALLTAGS   = <%- JSON.stringify(allLastfmTags || []) %>;
+      var hasImportedDetectedContent = wizardHasImportedDetectedContent(_wizardState);
+      var importedContentMode = wizardImportedContentMode(_wizardState);
+      var importedDetectedCounts = wizardImportedDetectedContentCounts(_wizardState);
       var html = '<div class="spm-wizard-step-label">Step 2 of ' + WIZARD_TOTAL_STEPS + ' — Content</div>';
       if (_wizardState.featurePreset && _wizardState.featurePreset !== 'none') {
         var activePresetMeta = WIZARD_FEATURE_PRESET_META[_wizardState.featurePreset] || WIZARD_FEATURE_PRESET_META.none;
-        html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">The ' + escH(activePresetMeta.label) + ' audio profile has already prefilled some content chips here. Change anything you want.</p>';
+        var suggestedApplied = wizardSuggestedContentApplied(_wizardState, _wizardState.featurePreset);
+        html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 10px">The ' + escH(activePresetMeta.label) + ' audio profile can suggest content chips here, but they stay neutral until you apply them.</p>';
+        html += '<div style="display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;margin:0 0 14px"><button class="btn btn-ghost btn-sm" type="button" id="wiz-apply-suggested-content">' + (suggestedApplied ? 'Remove suggested chips' : 'Apply suggested chips') + '</button>';
+        if (hasImportedDetectedContent) {
+          html += '<button class="btn btn-ghost btn-sm" type="button" id="wiz-toggle-import-detected">' + (importedContentMode === 'detected' ? 'Use recommended chips' : 'Use all detected chips') + '</button>';
+        }
+        html += '<button class="btn btn-ghost btn-sm" type="button" id="wiz-clear-content-filters">Clear all Step 2 filters</button></div>';
         html += '<div id="wiz-audio-profile-status">' + wizardAudioProfileStatusHtml() + '</div>';
+      } else {
+        html += '<div style="display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;margin:0 0 14px">';
+        if (hasImportedDetectedContent) {
+          html += '<button class="btn btn-ghost btn-sm" type="button" id="wiz-toggle-import-detected">' + (importedContentMode === 'detected' ? 'Use recommended chips' : 'Use all detected chips') + '</button>';
+        }
+        html += '<button class="btn btn-ghost btn-sm" type="button" id="wiz-clear-content-filters">Clear all Step 2 filters</button></div>';
+      }
+      if (hasImportedDetectedContent) {
+        var importDetectedBits = [];
+        if (importedDetectedCounts.genres) importDetectedBits.push(String(importedDetectedCounts.genres) + ' genres');
+        if (importedDetectedCounts.moods) importDetectedBits.push(String(importedDetectedCounts.moods) + ' moods');
+        if (importedDetectedCounts.tags) importDetectedBits.push(String(importedDetectedCounts.tags) + ' tags');
+        html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Imported conversion can switch between the recommended inferred chips and every detected content value from the matched source tracks' + (importDetectedBits.length ? (' (' + escH(importDetectedBits.join(' · ')) + ')') : '') + '.</p>';
       }
       html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Click once to <span style="color:#4ade80;font-weight:600">include</span>, again to <span style="color:#f87171;font-weight:600">exclude</span>, again to clear. Leave all neutral to allow everything.</p>';
 
@@ -4362,6 +4640,23 @@
         '</select>' +
         '<div class="spm-wizard-field-hint">Manual keeps the rules saved without rebuilding on the schedule.</div>' +
       '</label>';
+      if (ws.importSource && !_wizardEditKind) {
+        var importSourceLabel = ws.importSource.sourceTitle || ws.importSource.playlistTitle || 'Imported playlist';
+        html += '<label class="spm-wizard-field" style="margin-bottom:18px">' +
+          '<span class="spm-wizard-field-label">Imported source</span>' +
+          '<div class="spm-wizard-field-hint" style="margin-bottom:10px">Your new smart playlist is derived from <strong style="color:var(--text,#e5e7eb)">' + escH(importSourceLabel) + '</strong>. Keep the original imported playlist if you want a preserved mirror alongside the editable smart version.</div>' +
+          '<label class="spm-wizard-toggle-row" for="wiz-keep-imported-source">' +
+            '<span class="spm-wizard-toggle-copy">' +
+              '<span class="spm-wizard-toggle-title">Keep original imported playlist</span>' +
+              '<span class="spm-wizard-field-hint">Turn this off to delete the imported mirror after the new smart playlist is created successfully.</span>' +
+            '</span>' +
+            '<span class="spm-wizard-toggle-switch">' +
+              '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-keep-imported-source"' + (ws.keepImportedSource !== false ? ' checked' : '') + ' />' +
+              '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+            '</span>' +
+          '</label>' +
+        '</label>';
+      }
       html += '<div class="spm-wizard-review-list">';
 
       function row(key, val) { return '<div class="spm-wizard-review-row"><span class="spm-wizard-review-key">' + key + '</span><span class="spm-wizard-review-val">' + val + '</span></div>'; }
@@ -4376,6 +4671,7 @@
       html += row('Name', '<strong>' + escH(ws.name) + '</strong>');
       html += row('Target', escH(wizardTargetLabel(ws.playlistTarget || 'personal')));
       html += row('Rebuild', escH(ws.rebuildSchedule || 'daily'));
+      if (ws.importSource) html += row('Imported source', escH(ws.importSource.sourceTitle || ws.importSource.playlistTitle || 'Imported playlist'));
       if (ws.playlistTarget === 'blend' && ws.blendUsers && ws.blendUsers.length) html += row('Blend users', escH(ws.blendUsers.join(', ')));
       if (ws.playlistTarget === 'blend') html += row('Blend mode', escH(ws.blendMode || 'average'));
       var artistTierState = normaliseUiTriState(ws.artistTiers);
@@ -4542,6 +4838,8 @@
         if (finishNameEl) _wizardState.name = finishNameEl.value.trim();
         var schedEl = document.getElementById('wiz-schedule');
         if (schedEl) _wizardState.rebuildSchedule = schedEl.value;
+        var keepImportedEl = document.getElementById('wiz-keep-imported-source');
+        if (keepImportedEl) _wizardState.keepImportedSource = !!keepImportedEl.checked;
       }
     }
 
@@ -4581,6 +4879,7 @@
           _wizardAudioPreview.error = false;
           _wizardAudioPreview.matchingTrackCount = Number(counts.eligibleTrackCount || counts.trackCount || 0);
           wizardRefreshAudioProfileStatus();
+          wizardRefreshDraftAction();
         })
         .catch(function() {
           if (previewSeq !== _wizardPreviewSeq) return;
@@ -4592,6 +4891,7 @@
           _wizardAudioPreview.error = true;
           _wizardAudioPreview.matchingTrackCount = null;
           wizardRefreshAudioProfileStatus();
+          wizardRefreshDraftAction();
         });
     }
 
@@ -4724,6 +5024,22 @@
           trackFilters: wizardAssembleTrackFilters(_wizardState),
           editKind: _wizardEditKind,
           editId: _wizardEditId,
+          importSource: _wizardState.importSource || null,
+          removeImportedSourcePlaylistKey: _wizardState.importSource && _wizardState.keepImportedSource === false
+            ? String(_wizardState.importSource.playlistKey || '')
+            : '',
+        });
+      });
+      var saveDraftBtn = document.getElementById('wiz-save-draft-btn');
+      if (saveDraftBtn) saveDraftBtn.addEventListener('click', function() {
+        wizardSaveStateFromStep(step);
+        createSmartPlaylist(_wizardState.name, wizardAssembleRules(_wizardState), {
+          playlistTarget: _wizardState.playlistTarget || 'personal',
+          trackFilters: wizardAssembleTrackFilters(_wizardState),
+          editKind: _wizardEditKind,
+          editId: _wizardEditId,
+          allowEmptyDraft: true,
+          importSource: _wizardState.importSource || null,
         });
       });
 
@@ -4757,7 +5073,6 @@
             wizardSaveStateFromStep(1);
             var nextPreset = alreadySelected ? 'none' : card.dataset.audioPreset;
             wizardReplaceAudioState(_wizardState, nextPreset);
-            wizardReplaceContentStateFromAudioProfile(_wizardState, nextPreset);
             wizardRenderStep(1);
           });
         });
@@ -4773,6 +5088,30 @@
 
       // Step 2: content
       if (step === 2) {
+        var applySuggestedBtn = document.getElementById('wiz-apply-suggested-content');
+        if (applySuggestedBtn) {
+          applySuggestedBtn.addEventListener('click', function() {
+            wizardToggleContentStateFromAudioProfile(_wizardState, _wizardState.featurePreset || 'none');
+            wizardRenderStep(2);
+            setTimeout(wizardRunPreview, 50);
+          });
+        }
+        var toggleImportDetectedBtn = document.getElementById('wiz-toggle-import-detected');
+        if (toggleImportDetectedBtn) {
+          toggleImportDetectedBtn.addEventListener('click', function() {
+            wizardToggleImportedContentMode(_wizardState);
+            wizardRenderStep(2);
+            setTimeout(wizardRunPreview, 50);
+          });
+        }
+        var clearContentBtn = document.getElementById('wiz-clear-content-filters');
+        if (clearContentBtn) {
+          clearContentBtn.addEventListener('click', function() {
+            wizardClearContentState(_wizardState);
+            wizardRenderStep(2);
+            setTimeout(wizardRunPreview, 50);
+          });
+        }
         document.querySelectorAll('#spm-wizard-body [data-accordion-toggle]').forEach(function(btn) {
           btn.addEventListener('click', function() {
             _wizardState.activeContentSection = btn.dataset.accordionToggle || 'genre';

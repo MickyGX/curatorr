@@ -29,6 +29,7 @@ const {
   listLidarrRequests,
   listTracksMissingPlexLoudness,
   getUserPreferences,
+  saveArtistTags,
   saveUserPreferences,
   listUserGeneratedPlaylists,
   saveUserGeneratedPlaylist,
@@ -3866,6 +3867,186 @@ describe('security guards', () => {
       assert.equal(otherUser, null);
     } finally {
       db.close();
+    }
+  });
+
+  it('rejects zero-track personal playlists unless they are explicitly saved as drafts', async () => {
+    const now = Date.now();
+    runDbStatement(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `draft-track-${now}`, 'Draft Artist', 'Draft Track', 'Draft Album', `draft-mbid-${now}`, '["Rock"]', '1', `/music/draft-${now}.flac`, 180000, 0, 0, now);
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const rejected = await client.postJson('/api/music/playlists/personal', {
+      name: `Zero Draft ${now}`,
+      genres: { include: ['Jazz'], exclude: [], includeMode: 'any' },
+    }, '/settings');
+    assert.equal(rejected.status, 422);
+    assert.equal(rejected.json?.code, 'ZERO_TRACK_PLAYLIST');
+    assert.equal(rejected.json?.canSaveDraft, true);
+
+    const created = await client.postJson('/api/music/playlists/personal', {
+      name: `Zero Draft ${now}`,
+      genres: { include: ['Jazz'], exclude: [], includeMode: 'any' },
+      allowEmptyDraft: true,
+    }, '/settings');
+    assert.equal(created.status, 200);
+    assert.equal(created.json?.ok, true);
+    assert.equal(created.json?.draft, true);
+
+    const playlistId = String(created.json?.playlist?.id || '');
+    assert.ok(playlistId);
+
+    const draftRow = readDbRow(
+      'SELECT id, name FROM user_personal_playlists WHERE user_plex_id = ? AND id = ?',
+      'testadmin',
+      playlistId,
+    );
+    assert.equal(draftRow?.name, `Zero Draft ${now}`);
+
+    const db = initDb(join(process.env.DATA_DIR, 'curatorr.db'));
+    try {
+      const generated = listUserGeneratedPlaylists(db, 'testadmin', { activeOnly: false });
+      const matchingGenerated = generated.find((entry) => entry.playlistKey === `personal:${playlistId}`);
+      assert.equal(matchingGenerated, undefined);
+    } finally {
+      db.close();
+    }
+
+  });
+
+  it('infers a smart-playlist wizard prefill from imported playlists and can remove the original import on create', async () => {
+    const now = Date.now();
+    runDbStatement(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, moods, library_key, file_path, duration_ms, rating_count, view_count,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `import-track-1-${now}`, 'Import Artist', 'Import Track 1', 'Import Album', `import-mbid-1-${now}`, '["Electronic","Synthwave"]', '["Driving","Athletic"]', '1', `/music/import-1-${now}.flac`, 180000, 10, 3, now);
+    runDbStatement(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, moods, library_key, file_path, duration_ms, rating_count, view_count,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `import-track-2-${now}`, 'Import Artist', 'Import Track 2', 'Import Album', `import-mbid-2-${now}`, '["Electronic","Indie"]', '["Driving"]', '1', `/music/import-2-${now}.flac`, 182000, 8, 2, now);
+    runDbStatement(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, moods, library_key, file_path, duration_ms, rating_count, view_count,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `import-track-3-${now}`, 'Import Artist', 'Import Track 3', 'Import Album', `import-mbid-3-${now}`, '["Electronic","Rock"]', '["Athletic"]', '1', `/music/import-3-${now}.flac`, 184000, 7, 2, now);
+    runDbStatement(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, bpm, camelot_key, energy, danceability,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `import-track-1-${now}`, `import-mbid-1-${now}`, 132, '8A', 0.82, 0.71, 'test', 1, '{}', now);
+    runDbStatement(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, bpm, camelot_key, energy, danceability,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `import-track-2-${now}`, `import-mbid-2-${now}`, 128, '9A', 0.78, 0.68, 'test', 1, '{}', now);
+    runDbStatement(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, bpm, camelot_key, energy, danceability,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, `import-track-3-${now}`, `import-mbid-3-${now}`, 136, '8B', 0.8, 0.73, 'test', 1, '{}', now);
+
+    const db = initDb(join(process.env.DATA_DIR, 'curatorr.db'));
+    try {
+      saveUserGeneratedPlaylist(db, 'testadmin', {
+        playlistKey: `custom-import-${now}`,
+        playlistTitle: 'Imported Gym',
+        playlistType: 'custom',
+        plexPlaylistId: '',
+        sourceType: 'spotify-playlist',
+        sourceRef: `spotify-import-${now}`,
+        sourceTitle: 'Imported Gym',
+        sourceOwner: 'Import Owner',
+        trackCount: 3,
+        missingCount: 1,
+        active: true,
+        updatedAt: now,
+      });
+      saveArtistTags(db, 'Import Artist', ['road-trip', 'summer', 'night-drive', 'uplifting']);
+    } finally {
+      db.close();
+    }
+    runDbStatement(
+      'INSERT INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, added_at) VALUES (?, ?, ?, ?, ?)',
+      `custom-import-${now}`, 'testadmin', `import-track-1-${now}`, 'Import Artist', now,
+    );
+    runDbStatement(
+      'INSERT INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, added_at) VALUES (?, ?, ?, ?, ?)',
+      `custom-import-${now}`, 'testadmin', `import-track-2-${now}`, 'Import Artist', now,
+    );
+    runDbStatement(
+      'INSERT INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, added_at) VALUES (?, ?, ?, ?, ?)',
+      `custom-import-${now}`, 'testadmin', `import-track-3-${now}`, 'Import Artist', now,
+    );
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const prefillResponse = await client.request(`/api/music/playlists/imported-convert?playlistKey=${encodeURIComponent(`custom-import-${now}`)}`);
+    assert.equal(prefillResponse.status, 200);
+    assert.equal(prefillResponse.json?.ok, true);
+    assert.equal(prefillResponse.json?.prefill?.importSource?.playlistKey, `custom-import-${now}`);
+    assert.equal(prefillResponse.json?.prefill?.keepImportedSource, true);
+    assert.equal(prefillResponse.json?.prefill?.featurePreset, 'driving');
+    assert.deepEqual(prefillResponse.json?.prefill?.genres?.include, ['Electronic']);
+    assert.deepEqual(prefillResponse.json?.prefill?.tags?.include, []);
+    assert.deepEqual(prefillResponse.json?.prefill?.importSuggestedContent?.genres?.include, ['Electronic']);
+    assert.deepEqual(prefillResponse.json?.prefill?.importDetectedContent?.genres?.include, ['Electronic', 'Indie', 'Rock', 'Synthwave']);
+    assert.deepEqual(prefillResponse.json?.prefill?.importDetectedContent?.tags?.include, ['night-drive', 'road-trip', 'summer', 'uplifting']);
+
+    const created = await client.postJson('/api/music/playlists/personal', {
+      name: `Imported Gym Smart ${now}`,
+      genres: prefillResponse.json?.prefill?.genres,
+      moods: prefillResponse.json?.prefill?.moods,
+      tags: prefillResponse.json?.prefill?.tags,
+      importSuggestedContent: prefillResponse.json?.prefill?.importSuggestedContent,
+      importDetectedContent: prefillResponse.json?.prefill?.importDetectedContent,
+      featurePreset: prefillResponse.json?.prefill?.featurePreset,
+      bpmMin: prefillResponse.json?.prefill?.bpmMin,
+      bpmMax: prefillResponse.json?.prefill?.bpmMax,
+      energyMin: prefillResponse.json?.prefill?.energyMin,
+      energyMax: prefillResponse.json?.prefill?.energyMax,
+      danceabilityMin: prefillResponse.json?.prefill?.danceabilityMin,
+      danceabilityMax: prefillResponse.json?.prefill?.danceabilityMax,
+      importSource: prefillResponse.json?.prefill?.importSource,
+      removeImportedSourcePlaylistKey: `custom-import-${now}`,
+    }, '/settings');
+    assert.equal(created.status, 200);
+    assert.equal(created.json?.ok, true);
+    assert.equal(created.json?.removedSourcePlaylistKey, `custom-import-${now}`);
+
+    const personalRow = readDbRow(
+      'SELECT id, name FROM user_personal_playlists WHERE user_plex_id = ? AND name = ?',
+      'testadmin',
+      `Imported Gym Smart ${now}`,
+    );
+    assert.ok(personalRow?.id);
+
+    const verifyDb = initDb(join(process.env.DATA_DIR, 'curatorr.db'));
+    try {
+      const savedPersonal = findUserPersonalPlaylistByName(verifyDb, 'testadmin', `Imported Gym Smart ${now}`);
+      assert.deepEqual(savedPersonal?.rules?.importSuggestedContent?.genres?.include, ['Electronic']);
+      assert.deepEqual(savedPersonal?.rules?.importDetectedContent?.tags?.include, ['night-drive', 'road-trip', 'summer', 'uplifting']);
+      const generated = listUserGeneratedPlaylists(verifyDb, 'testadmin', { activeOnly: false });
+      assert.equal(generated.find((entry) => entry.playlistKey === `custom-import-${now}`), undefined);
+    } finally {
+      verifyDb.close();
     }
   });
 

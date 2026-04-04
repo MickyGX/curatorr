@@ -1611,6 +1611,7 @@ export function registerPages(app, ctx) {
     const userPersonalPlaylists = (() => { try { return listUserPersonalPlaylists(db, userPlexId); } catch { return []; } })();
     const personalPlaylistMap = new Map(userPersonalPlaylists.map((playlist) => [String(playlist?.id || '').trim(), playlist]));
     const generatedPlaylists = playlistService?.listGenerated(userPlexId, { activeOnly: false }) || [];
+    const generatedPlaylistKeys = new Set(generatedPlaylists.map((playlist) => String(playlist?.playlistKey || '').trim()).filter(Boolean));
     const canonicalPlaylists = playlistService?.getCanonicalPlaylist(userPlexId) || { legacy: null, generated: [], curatorred: null };
     const generatedCards = generatedPlaylists
       .map((playlist) => ({
@@ -1634,6 +1635,32 @@ export function registerPages(app, ctx) {
         tracksRemoved: Number(lastSync?.tracks_removed || 0),
       }))
       .sort(comparePlaylistCards);
+    const draftCards = userPersonalPlaylists
+      .filter((playlist) => {
+        const playlistId = String(playlist?.id || '').trim();
+        return playlistId && !generatedPlaylistKeys.has(`personal:${playlistId}`);
+      })
+      .map((playlist) => ({
+        playlistKind: 'draft',
+        playlistKey: `personal:${String(playlist.id || '').trim()}`,
+        playlistType: 'personal',
+        plexPlaylistId: '',
+        playlistTitle: String(playlist.name || 'Playlist'),
+        sourceType: '',
+        sourceTitle: '',
+        sourceOwner: '',
+        trackCount: 0,
+        missingCount: 0,
+        curatorrUpdatedAt: Number(playlist.updatedAt || playlist.createdAt || 0),
+        state: 'draft',
+        active: true,
+        description: 'personal draft',
+        playlistAudience: resolvePlaylistAudience('personal', `personal:${String(playlist.id || '').trim()}`, personalPlaylistMap),
+        artPath: '',
+        tracksAdded: 0,
+        tracksRemoved: 0,
+      }))
+      .sort(comparePlaylistCards);
     const playlistCards = [];
     if (canonicalPlaylists.legacy) {
       playlistCards.push({
@@ -1654,6 +1681,7 @@ export function registerPages(app, ctx) {
       });
     }
     playlistCards.push(...generatedCards);
+    playlistCards.push(...draftCards);
     playlistCards.sort(comparePlaylistCards);
     const userPlexToken = ctx.resolveUserPlexServerToken(config, userPlexId);
     await attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken, userPlexToken);

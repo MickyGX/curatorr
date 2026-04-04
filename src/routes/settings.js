@@ -32,6 +32,21 @@ function normaliseTriStateInput(value) {
   };
 }
 
+function buildPlaylistPreviewSnapshot(db, userId, rules, trackFilters, smartSettings) {
+  const baseTracks = trackFilters ? applyTrackFilters(getMasterTracks(db), trackFilters) : getMasterTracks(db);
+  const filteredTracks = applyFeaturePresetFilters(baseTracks, rules || {});
+  const result = previewGlobalPlaylist(db, rules || {}, userId, smartSettings || {}, filteredTracks);
+  return {
+    counts: result.forUser || result.average || {
+      artistCount: 0,
+      trackCount: 0,
+      eligibleArtistCount: 0,
+      eligibleTrackCount: 0,
+    },
+    featureTrackCount: filteredTracks.length,
+  };
+}
+
 const LASTFM_REGION_NAMES = [
   'afghanistan',
   'albania',
@@ -1759,6 +1774,16 @@ export function registerSettings(app, ctx) {
     })() : undefined;
     const entry = { id: makeGlobalPlaylistId(), name, rules, trackFilters: gpFilters, enabled: true, createdAt: Date.now() };
     const config = loadConfig();
+    const smartSettings = config.smartPlaylist || {};
+    const preview = buildPlaylistPreviewSnapshot(db, null, rules, gpFilters, smartSettings);
+    if (Number(preview.counts.trackCount || 0) <= 0) {
+      return res.status(422).json({
+        error: 'This setup matches 0 tracks. Adjust the filters before saving.',
+        code: 'ZERO_TRACK_PLAYLIST',
+        canSaveDraft: false,
+        counts: preview.counts,
+      });
+    }
     const playlists = [...(config.globalPlaylists || []), entry];
     saveConfig({ ...config, globalPlaylists: playlists });
     pushLog({ level: 'info', app: 'playlist', action: 'global.create', message: `Global playlist created: ${name}` });
@@ -1833,6 +1858,16 @@ export function registerSettings(app, ctx) {
       })() : existing.trackFilters,
       updatedAt: Date.now(),
     };
+    const smartSettings = config.smartPlaylist || {};
+    const preview = buildPlaylistPreviewSnapshot(db, null, updated.rules, updated.trackFilters, smartSettings);
+    if (Number(preview.counts.trackCount || 0) <= 0) {
+      return res.status(422).json({
+        error: 'This setup matches 0 tracks. Adjust the filters before saving.',
+        code: 'ZERO_TRACK_PLAYLIST',
+        canSaveDraft: false,
+        counts: preview.counts,
+      });
+    }
     const newList = [...playlists];
     newList[idx] = updated;
     saveConfig({ ...config, globalPlaylists: newList });

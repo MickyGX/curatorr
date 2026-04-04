@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.63 (2026-04-04)
+
+- Imported Plex and Spotify playlists can now be converted into editable smart playlists, with inferred audio/profile defaults, recommended chip suggestions, a toggle to switch to all detected genres/moods/tags, and an option to keep or remove the original imported mirror.
+- Smart-playlist saving is safer: personal and global saves now validate zero-match rule sets, personal playlists can be saved as Curatorr drafts when they currently match nothing, and those drafts now surface directly on the Playlists page for later editing.
+- Refined playlist, blend, and dashboard UI behavior with tighter page spacing, clearer Step 2 chip controls in the smart-playlist wizard, better stat-card sizing/consistency, and cleaner blend/dashboard panel spacing.
+
 ## v0.1.62 (2026-04-04)
 
 - Reworked Curatorr overview popups to use a Launcharr-style layout with better desktop/mobile sizing, square album artwork, fixed artist backdrops, internal text scrolling, cleaner release dates, and corrected multi-disc numbering.

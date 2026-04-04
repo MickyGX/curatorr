@@ -45,6 +45,7 @@ import {
   removePlaylistTracks,
   addPlaylistTracks,
   setPlaylistTracks,
+  getPlaylistTracks,
   listImportedPlaylistUnmatched,
   setImportedPlaylistUnmatched,
   setImportedPlaylistUnmatchedSelection,
@@ -161,6 +162,290 @@ function buildPlaylistFeatureRules(payload = {}) {
     seasonalGenresMode: String(payload.seasonalGenresMode || '').trim() === 'all' ? 'all' : 'any',
     seasonalKeywordsMode: String(payload.seasonalKeywordsMode || '').trim() === 'all' ? 'all' : 'any',
   };
+}
+
+function buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings) {
+  const baseTracks = trackFilters ? applyTrackFilters(getMasterTracks(db), trackFilters) : getMasterTracks(db);
+  const filteredTracks = applyFeaturePresetFilters(baseTracks, rules || {});
+  const result = previewGlobalPlaylist(db, rules || {}, userPlexId, smartSettings || {}, filteredTracks);
+  const counts = result.forUser || result.average || {
+    artistCount: 0,
+    trackCount: 0,
+    eligibleArtistCount: 0,
+    eligibleTrackCount: 0,
+  };
+  return {
+    counts,
+    featureTrackCount: filteredTracks.length,
+  };
+}
+
+function sanitizeImportedSourceInput(value) {
+  if (!value || typeof value !== 'object') return null;
+  const sourceType = String(value.sourceType || '').trim().toLowerCase();
+  const playlistKey = String(value.playlistKey || '').trim();
+  if (!playlistKey || !['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(sourceType)) return null;
+  return {
+    playlistKey,
+    sourceType,
+    sourceRef: String(value.sourceRef || '').trim(),
+    sourceTitle: String(value.sourceTitle || '').trim().slice(0, 200),
+    sourceOwner: String(value.sourceOwner || '').trim().slice(0, 200),
+    playlistTitle: String(value.playlistTitle || '').trim().slice(0, 200),
+  };
+}
+
+function sanitizeImportedContentSetInput(value) {
+  if (!value || typeof value !== 'object') return null;
+  const kinds = ['genres', 'moods', 'tags'];
+  const next = {};
+  let hasAny = false;
+  for (const kind of kinds) {
+    const triState = normaliseTriStateInput(value[kind]);
+    next[kind] = {
+      include: triState.include,
+      exclude: [],
+      includeMode: 'any',
+    };
+    if (triState.include.length) hasAny = true;
+  }
+  return hasAny ? next : null;
+}
+
+function percentile(values, ratio) {
+  const sorted = (Array.isArray(values) ? values : [])
+    .map(Number)
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.round((sorted.length - 1) * Math.max(0, Math.min(1, Number(ratio) || 0)))));
+  return sorted[index];
+}
+
+function inferImportedFeaturePreset(tracks = []) {
+  const total = Array.isArray(tracks) ? tracks.length : 0;
+  if (!total) return 'none';
+  let best = { preset: 'none', count: 0, ratio: 0 };
+  for (const preset of PLAYLIST_FEATURE_PRESETS) {
+    if (preset === 'none') continue;
+    const count = applyFeaturePresetFilters(tracks, { featurePreset: preset }).length;
+    const ratio = total > 0 ? (count / total) : 0;
+    if (ratio > best.ratio || (ratio === best.ratio && count > best.count)) {
+      best = { preset, count, ratio };
+    }
+  }
+  if (best.count < Math.max(3, Math.ceil(total * 0.25))) return 'none';
+  return best.ratio >= 0.45 ? best.preset : 'none';
+}
+
+function inferImportedValueRange(values, options = {}) {
+  const low = percentile(values, options.lowRatio == null ? 0.15 : options.lowRatio);
+  const high = percentile(values, options.highRatio == null ? 0.85 : options.highRatio);
+  if (low == null || high == null) return { min: null, max: null };
+  const round = typeof options.round === 'function' ? options.round : ((value) => value);
+  const minValue = round(Math.min(low, high));
+  const maxValue = round(Math.max(low, high));
+  return {
+    min: Number.isFinite(minValue) ? minValue : null,
+    max: Number.isFinite(maxValue) ? maxValue : null,
+  };
+}
+
+function inferImportedTopValues(values = [], options = {}) {
+  const maxValues = Math.max(1, Number(options.maxValues || 3));
+  const minShare = Math.max(0, Math.min(1, Number(options.minShare || 0.3)));
+  const counts = new Map();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    counts.set(normalized, (counts.get(normalized) || 0) + 1);
+  });
+  const total = Array.from(counts.values()).reduce((sum, value) => sum + value, 0);
+  if (!total) return [];
+  return Array.from(counts.entries())
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .filter((entry) => (entry[1] / total) >= minShare)
+    .slice(0, maxValues)
+    .map((entry) => entry[0]);
+}
+
+function inferImportedAllValues(values = []) {
+  const counts = new Map();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    counts.set(normalized, (counts.get(normalized) || 0) + 1);
+  });
+  if (!counts.size) return [];
+  return Array.from(counts.entries())
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .map((entry) => entry[0]);
+}
+
+function inferImportedWizardPrefill(db, userPlexId, playlist) {
+  const masterTracks = getMasterTracks(db);
+  const masterTrackMap = new Map(masterTracks.map((track) => [String(track?.ratingKey || '').trim(), track]));
+  const trackRefs = getPlaylistTracks(db, userPlexId, playlist.playlistKey);
+  const matchedTracks = trackRefs
+    .map((trackRef) => masterTrackMap.get(String(trackRef?.ratingKey || '').trim()) || null)
+    .filter(Boolean);
+  if (!matchedTracks.length) return null;
+
+  const featurePreset = inferImportedFeaturePreset(matchedTracks);
+  const bpmRange = inferImportedValueRange(matchedTracks.map((track) => track?.bpm), { round: (value) => Math.round(value) });
+  const energyRange = inferImportedValueRange(matchedTracks.map((track) => track?.energy), { round: (value) => Number(value.toFixed(2)) });
+  const danceabilityRange = inferImportedValueRange(matchedTracks.map((track) => track?.danceability), { round: (value) => Number(value.toFixed(2)) });
+  const topGenres = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.genres) ? track.genres : []), { minShare: 0.18, maxValues: 4 });
+  const topMoods = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []), { minShare: 0.18, maxValues: 4 });
+
+  const artistTagMap = getArtistTagMap(db);
+  const uniqueArtistNames = Array.from(new Set(matchedTracks.map((track) => String(track?.artistName || '').trim().toLowerCase()).filter(Boolean)));
+  const topTags = inferImportedTopValues(
+    uniqueArtistNames.flatMap((artistName) => artistTagMap.get(artistName) || []),
+    { minShare: 0.3, maxValues: 3 },
+  );
+  const allDetectedGenres = inferImportedAllValues(
+    matchedTracks.flatMap((track) => Array.isArray(track?.genres) ? track.genres : []),
+  );
+  const allDetectedMoods = inferImportedAllValues(
+    matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []),
+  );
+  const allDetectedTags = inferImportedAllValues(
+    uniqueArtistNames.flatMap((artistName) => artistTagMap.get(artistName) || []),
+  );
+
+  const importSource = sanitizeImportedSourceInput({
+    playlistKey: playlist.playlistKey,
+    sourceType: playlist.sourceType,
+    sourceRef: playlist.sourceRef,
+    sourceTitle: playlist.sourceTitle,
+    sourceOwner: playlist.sourceOwner,
+    playlistTitle: playlist.playlistTitle,
+  });
+
+  return {
+    templateId: 'blank',
+    startingPointId: 'blank',
+    name: `${String(playlist.playlistTitle || importSource?.sourceTitle || 'Imported Playlist').trim()} Smart`,
+    nameManual: true,
+    playlistTarget: 'personal',
+    rebuildSchedule: 'daily',
+    genres: { include: topGenres, exclude: [], includeMode: 'any' },
+    moods: { include: topMoods, exclude: [], includeMode: 'any' },
+    tags: { include: topTags, exclude: [], includeMode: 'any' },
+    artistTiers: { include: [], exclude: [], includeMode: 'any' },
+    trackTiers: { include: [], exclude: [], includeMode: 'any' },
+    featurePreset,
+    bpmMin: bpmRange.min,
+    bpmMax: bpmRange.max,
+    energyMin: energyRange.min,
+    energyMax: energyRange.max,
+    danceabilityMin: danceabilityRange.min,
+    danceabilityMax: danceabilityRange.max,
+    camelotFocus: '',
+    camelotMode: 'exact',
+    albumPopularityMode: 'all',
+    popularityMode: 'all',
+    popularityPercent: null,
+    topNPerArtist: null,
+    maxTracks: null,
+    sortBy: 'ratingCount',
+    finalOrdering: 'none',
+    blendUsers: [],
+    blendMode: 'average',
+    seasonalGenres: [],
+    seasonalKeywords: [],
+    seasonalExcludeGenres: [],
+    seasonalExcludeKeywords: [],
+    seasonalGenresMode: 'any',
+    seasonalKeywordsMode: 'any',
+    includeFolders: [],
+    excludeFolders: [],
+    advancedRules: [],
+    deduplicateByMbid: false,
+    deduplicateByArtistTitle: false,
+    importSource,
+    importSuggestedContent: {
+      genres: { include: topGenres, exclude: [], includeMode: 'any' },
+      moods: { include: topMoods, exclude: [], includeMode: 'any' },
+      tags: { include: topTags, exclude: [], includeMode: 'any' },
+    },
+    importDetectedContent: {
+      genres: { include: allDetectedGenres, exclude: [], includeMode: 'any' },
+      moods: { include: allDetectedMoods, exclude: [], includeMode: 'any' },
+      tags: { include: allDetectedTags, exclude: [], includeMode: 'any' },
+    },
+    keepImportedSource: true,
+    inferenceSummary: {
+      matchedTrackCount: matchedTracks.length,
+      missingCount: Number(playlist?.missingCount || 0),
+      sourceType: importSource?.sourceType || '',
+      sourceTitle: importSource?.sourceTitle || playlist?.playlistTitle || '',
+      sourceOwner: importSource?.sourceOwner || '',
+      featurePreset,
+      detectedGenreCount: allDetectedGenres.length,
+      detectedMoodCount: allDetectedMoods.length,
+      detectedTagCount: allDetectedTags.length,
+    },
+  };
+}
+
+async function removeExistingPersonalGeneratedPlaylist({
+  db,
+  loadConfig,
+  resolveUserPlexServerToken,
+  buildPlexAuthHeaders,
+  userPlexId,
+  playlistId,
+}) {
+  const playlistKey = `personal:${playlistId}`;
+  const existing = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+    .find((entry) => String(entry?.playlistKey || '') === playlistKey);
+  if (!existing) return;
+
+  const config = loadConfig();
+  const { url } = config.plex || {};
+  const token = resolveUserPlexServerToken(config, userPlexId);
+  const base = String(url || '').replace(/\/$/, '');
+  if (base && token && existing.plexPlaylistId) {
+    try {
+      await fetch(`${base}/playlists/${existing.plexPlaylistId}`, {
+        method: 'DELETE',
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+    } catch (_err) { /* best-effort */ }
+  }
+
+  deleteUserGeneratedPlaylist(db, userPlexId, playlistKey);
+}
+
+async function deleteGeneratedPlaylistWithRemote({
+  db,
+  loadConfig,
+  resolveUserPlexServerToken,
+  buildPlexAuthHeaders,
+  userPlexId,
+  playlistKey,
+}) {
+  const existing = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+    .find((entry) => String(entry?.playlistKey || '') === String(playlistKey || ''));
+  if (!existing) return null;
+
+  const config = loadConfig();
+  const { url } = config.plex || {};
+  const token = resolveUserPlexServerToken(config, userPlexId);
+  const base = String(url || '').replace(/\/$/, '');
+  if (base && token && existing.plexPlaylistId) {
+    try {
+      await fetch(`${base}/playlists/${existing.plexPlaylistId}`, {
+        method: 'DELETE',
+        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      });
+    } catch (_err) { /* best-effort */ }
+  }
+
+  deleteUserGeneratedPlaylist(db, userPlexId, existing.playlistKey);
+  return existing;
 }
 
 function stripArtistSuffix(title, artist) {
@@ -2739,10 +3024,14 @@ export function registerApiMusic(app, ctx) {
       }
 
       const generated = playlistService?.getGeneratedByKey(userPlexId, playlistKey);
-      if (!generated) return res.status(404).json({ error: 'Playlist not found.' });
-      if (generated.active === false) return res.status(409).json({ error: 'Playlist is disabled. Enable it first.' });
+      if (generated?.active === false) return res.status(409).json({ error: 'Playlist is disabled. Enable it first.' });
 
-      const playlistType = String(generated.playlistType || '').trim().toLowerCase();
+      const playlistType = String(
+        generated?.playlistType
+        || (playlistKey.startsWith('personal:') ? 'personal' : '')
+        || (playlistKey.startsWith('global:') ? 'global' : ''),
+      ).trim().toLowerCase();
+      if (!playlistType) return res.status(404).json({ error: 'Playlist not found.' });
       if (playlistType === 'curatorred') {
         await rebuildSmartPlaylist(ctx, userPlexId);
         return res.json({ ok: true });
@@ -2820,6 +3109,30 @@ export function registerApiMusic(app, ctx) {
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
     }
+  });
+
+  app.get('/api/music/playlists/imported-convert', requireUser, (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.query?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (String(playlist.playlistType || '').trim().toLowerCase() !== 'custom') {
+      return res.status(400).json({ error: 'Only imported custom playlists can be converted.' });
+    }
+    const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
+    if (!['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(sourceType)) {
+      return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
+    }
+
+    const prefill = inferImportedWizardPrefill(db, userPlexId, playlist);
+    if (!prefill) {
+      return res.status(422).json({ error: 'This imported playlist has no matched Curatorr tracks yet, so there is nothing to infer from.' });
+    }
+
+    return res.json({ ok: true, prefill });
   });
 
   app.post('/api/music/playlists/generated/rename', requireUser, async (req, res) => {
@@ -4219,17 +4532,15 @@ export function registerApiMusic(app, ctx) {
     try { trackFilters = req.query?.trackFilters ? normaliseTrackFiltersInput(JSON.parse(String(req.query.trackFilters))) : null; } catch { trackFilters = null; }
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
-    const baseTracks = trackFilters ? applyTrackFilters(getMasterTracks(db), trackFilters) : getMasterTracks(db);
-    const filteredTracks = applyFeaturePresetFilters(baseTracks, rules || {});
-    const result = previewGlobalPlaylist(db, rules, userPlexId, smartSettings, filteredTracks);
-    const counts = result.forUser || { artistCount: 0, trackCount: 0, eligibleArtistCount: 0, eligibleTrackCount: 0 };
+    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
+    const counts = preview.counts;
     res.json({
       ok: true,
       artistCount: counts.artistCount,
       trackCount: counts.trackCount,
       eligibleArtistCount: counts.eligibleArtistCount,
       eligibleTrackCount: counts.eligibleTrackCount,
-      featureTrackCount: filteredTracks.length,
+      featureTrackCount: preview.featureTrackCount,
     });
   });
 
@@ -4254,6 +4565,9 @@ export function registerApiMusic(app, ctx) {
     const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const trackFilters = normaliseTrackFiltersInput(req.body?.trackFilters);
+    const importedSource = sanitizeImportedSourceInput(req.body?.importSource);
+    const importedSuggestedContent = sanitizeImportedContentSetInput(req.body?.importSuggestedContent);
+    const importedDetectedContent = sanitizeImportedContentSetInput(req.body?.importDetectedContent);
     const rules = {
       artistTiers:     normaliseTriStateInput(req.body?.artistTiers),
       trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
@@ -4269,10 +4583,50 @@ export function registerApiMusic(app, ctx) {
       rebuildSchedule: REBUILD_SCHEDULES.includes(req.body?.rebuildSchedule) ? req.body.rebuildSchedule : 'daily',
       ...buildPlaylistFeatureRules(req.body || {}),
     };
+    if (importedSource) rules.importSource = importedSource;
+    if (importedSuggestedContent) rules.importSuggestedContent = importedSuggestedContent;
+    if (importedDetectedContent) rules.importDetectedContent = importedDetectedContent;
+    const config = loadConfig();
+    const smartSettings = config.smartPlaylist || {};
+    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
+    const allowEmptyDraft = Boolean(req.body?.allowEmptyDraft);
+    const removeImportedSourcePlaylistKey = importedSource
+      && String(req.body?.removeImportedSourcePlaylistKey || '').trim() === importedSource.playlistKey
+      ? importedSource.playlistKey
+      : '';
+    if (Number(preview.counts.trackCount || 0) <= 0 && !allowEmptyDraft) {
+      return res.status(422).json({
+        error: 'This setup matches 0 tracks. Adjust the filters or save it as a draft.',
+        code: 'ZERO_TRACK_PLAYLIST',
+        canSaveDraft: true,
+        counts: preview.counts,
+      });
+    }
     const playlistDef = { id: makePersonalPlaylistId(), name, rules, trackFilters };
     createUserPersonalPlaylist(db, userPlexId, playlistDef);
     pushLog({ level: 'info', app: 'playlist', action: 'personal.create', message: `Personal playlist created: ${name} for ${userPlexId}` });
-    res.json({ ok: true, playlist: playlistDef });
+    const isDraft = Number(preview.counts.trackCount || 0) <= 0;
+    let removedSourcePlaylistKey = '';
+    if (!isDraft && removeImportedSourcePlaylistKey) {
+      const importedPlaylist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+        .find((entry) => entry.playlistKey === removeImportedSourcePlaylistKey);
+      if (importedPlaylist && String(importedPlaylist.playlistType || '').trim().toLowerCase() === 'custom') {
+        const importedSourceType = String(importedPlaylist.sourceType || '').trim().toLowerCase();
+        if (['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(importedSourceType)) {
+          await deleteGeneratedPlaylistWithRemote({
+            db,
+            loadConfig,
+            resolveUserPlexServerToken,
+            buildPlexAuthHeaders,
+            userPlexId,
+            playlistKey: removeImportedSourcePlaylistKey,
+          });
+          removedSourcePlaylistKey = removeImportedSourcePlaylistKey;
+        }
+      }
+    }
+    res.json({ ok: true, playlist: playlistDef, draft: isDraft, removedSourcePlaylistKey });
+    if (isDraft) return;
     // Sync for owner + all blend users so playlist appears on everyone's account
     setImmediate(async () => {
       const syncIds = blendUsers.length ? [...new Set([userPlexId, ...blendUsers])] : [userPlexId];
@@ -4297,6 +4651,15 @@ export function registerApiMusic(app, ctx) {
     const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const trackFilters = req.body?.trackFilters !== undefined ? normaliseTrackFiltersInput(req.body.trackFilters) : (existing.trackFilters || null);
+    const importedSource = req.body?.importSource !== undefined
+      ? sanitizeImportedSourceInput(req.body.importSource)
+      : sanitizeImportedSourceInput(existing.rules?.importSource);
+    const importedSuggestedContent = req.body?.importSuggestedContent !== undefined
+      ? sanitizeImportedContentSetInput(req.body.importSuggestedContent)
+      : sanitizeImportedContentSetInput(existing.rules?.importSuggestedContent);
+    const importedDetectedContent = req.body?.importDetectedContent !== undefined
+      ? sanitizeImportedContentSetInput(req.body.importDetectedContent)
+      : sanitizeImportedContentSetInput(existing.rules?.importDetectedContent);
     const rules = {
       artistTiers:     normaliseTriStateInput(req.body?.artistTiers),
       trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
@@ -4312,10 +4675,37 @@ export function registerApiMusic(app, ctx) {
       rebuildSchedule: REBUILD_SCHEDULES.includes(req.body?.rebuildSchedule) ? req.body.rebuildSchedule : 'daily',
       ...buildPlaylistFeatureRules(req.body || {}),
     };
+    if (importedSource) rules.importSource = importedSource;
+    if (importedSuggestedContent) rules.importSuggestedContent = importedSuggestedContent;
+    if (importedDetectedContent) rules.importDetectedContent = importedDetectedContent;
     const updated = { ...existing, name, rules, trackFilters };
+    const config = loadConfig();
+    const smartSettings = config.smartPlaylist || {};
+    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
+    const allowEmptyDraft = Boolean(req.body?.allowEmptyDraft);
+    if (Number(preview.counts.trackCount || 0) <= 0 && !allowEmptyDraft) {
+      return res.status(422).json({
+        error: 'This setup matches 0 tracks. Adjust the filters or save it as a draft.',
+        code: 'ZERO_TRACK_PLAYLIST',
+        canSaveDraft: true,
+        counts: preview.counts,
+      });
+    }
     updateUserPersonalPlaylist(db, userPlexId, updated);
+    const isDraft = Number(preview.counts.trackCount || 0) <= 0;
+    if (isDraft) {
+      await removeExistingPersonalGeneratedPlaylist({
+        db,
+        loadConfig,
+        resolveUserPlexServerToken,
+        buildPlexAuthHeaders,
+        userPlexId,
+        playlistId: id,
+      });
+    }
     pushLog({ level: 'info', app: 'playlist', action: 'personal.update', message: `Personal playlist updated: ${id} for ${userPlexId}` });
-    res.json({ ok: true, playlist: updated });
+    res.json({ ok: true, playlist: updated, draft: isDraft });
+    if (isDraft) return;
     setImmediate(async () => {
       const syncIds = blendUsers.length ? [...new Set([userPlexId, ...blendUsers])] : [userPlexId];
       for (const uid of syncIds) {

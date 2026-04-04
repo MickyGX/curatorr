@@ -117,7 +117,7 @@
               <div class="cur-panel-body blend-compat-body">
               <div class="blend-compat-row">
                 <div class="blend-compat-score-wrap">
-                  <div class="blend-compat-score" id="blend-compat-score">—</div>
+                  <div class="blend-compat-score" id="blend-compat-score"><span class="blend-compat-score__value">—</span></div>
                   <div class="blend-compat-label">Compatibility</div>
                 </div>
                 <div class="blend-stat-grid">
@@ -331,7 +331,9 @@
       updateResultsHeading(selectedUsersList);
       var score = data.compatibilityScore;
       var scoreEl = document.getElementById('blend-compat-score');
-      scoreEl.textContent = score !== null ? score + '%' : 'N/A';
+      scoreEl.innerHTML = score !== null
+        ? '<span class="blend-compat-score__value">' + String(score) + '</span><span class="blend-compat-score__suffix">%</span>'
+        : '<span class="blend-compat-score__value">N/A</span>';
       scoreEl.style.color = score !== null ? scoreColor(score) : '';
       document.getElementById('blend-shared-artists').textContent = Number(data.sharedArtists || 0).toLocaleString();
       document.getElementById('blend-shared-belters').textContent = Number(data.sharedBelters || 0).toLocaleString();
