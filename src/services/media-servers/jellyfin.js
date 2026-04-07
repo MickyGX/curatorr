@@ -42,6 +42,20 @@ function extractProviderRecordingMbid(item = {}) {
   return '';
 }
 
+function extractItemReleaseYear(item = {}) {
+  const direct = Number(item?.ProductionYear || 0);
+  if (Number.isInteger(direct) && direct >= 1900 && direct <= 2099) return direct;
+  const match = String(item?.PremiereDate || '').trim().match(/^(\d{4})/);
+  return match ? Number(match[1]) : null;
+}
+
+function extractItemReleaseDate(item = {}) {
+  const raw = String(item?.PremiereDate || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const year = extractItemReleaseYear(item);
+  return year ? String(year) : '';
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 // Exchange username + password for an API key. Returns the API key string.
 
@@ -134,7 +148,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
       u.searchParams.set('ParentId', key);
       u.searchParams.set('IncludeItemTypes', 'Audio');
       u.searchParams.set('Recursive', 'true');
-      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds,Path');
+      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds,Path,ProductionYear,PremiereDate');
       u.searchParams.set('StartIndex', String(startIndex));
       u.searchParams.set('Limit', String(PAGE_SIZE));
 
@@ -153,6 +167,8 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
           trackTitle:  String(item.Name || ''),
           albumName:   String(item.Album || ''),
           recordingMbid: extractProviderRecordingMbid(item),
+          trackYear:   extractItemReleaseYear(item),
+          originalReleaseDate: extractItemReleaseDate(item),
           genres:      (item.Genres || []).map(String),
           moods:       [], // no native mood field in Jellyfin; Tags could map here later
           libraryKey:  String(key),

@@ -33,6 +33,30 @@ function extractPlexRecordingMbid(metadata = {}) {
   return '';
 }
 
+function extractPlexReleaseYear(metadata = {}) {
+  const candidates = [metadata.year, metadata.parentYear, metadata.grandparentYear];
+  for (const value of candidates) {
+    const year = Number(value || 0);
+    if (Number.isInteger(year) && year >= 1900 && year <= 2099) return year;
+  }
+  const dateCandidates = [metadata.originallyAvailableAt, metadata.parentOriginallyAvailableAt, metadata.grandparentOriginallyAvailableAt];
+  for (const value of dateCandidates) {
+    const match = String(value || '').trim().match(/^(\d{4})/);
+    if (match) return Number(match[1]);
+  }
+  return null;
+}
+
+function extractPlexReleaseDate(metadata = {}) {
+  const candidates = [metadata.originallyAvailableAt, metadata.parentOriginallyAvailableAt, metadata.grandparentOriginallyAvailableAt];
+  for (const value of candidates) {
+    const raw = String(value || '').trim();
+    if (/^\d{4}(?:-\d{2}-\d{2})?$/.test(raw)) return raw;
+  }
+  const year = extractPlexReleaseYear(metadata);
+  return year ? String(year) : '';
+}
+
 // ── Connection verification ───────────────────────────────────────────────────
 
 export async function verifyConnection(url, token) {
@@ -98,6 +122,8 @@ export async function getLibraryTracks(url, token, libraryKeys) {
           trackTitle:  String(t.title || ''),
           albumName:   String(t.parentTitle || ''),
           recordingMbid: extractPlexRecordingMbid(t),
+          trackYear:    extractPlexReleaseYear(t),
+          originalReleaseDate: extractPlexReleaseDate(t),
           genres:      (t.Genre || []).map((g) => g.tag),
           moods:       [],
           libraryKey:  String(key),

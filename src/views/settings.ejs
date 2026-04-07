@@ -954,6 +954,7 @@
                     { value: 'ratingCount', label: 'Global rating count' },
                     { value: 'tierWeight', label: 'Tier weight' },
                     { value: 'playCount', label: 'Play count' },
+                    { value: 'random', label: 'Random' },
                     { value: 'bpmAsc', label: 'BPM low to high' },
                     { value: 'bpmDesc', label: 'BPM high to low' },
                     { value: 'energyAsc', label: 'Energy low to high' },
@@ -1543,10 +1544,31 @@
                 </div>
                 <% } %>
 
+                <% if ((allTrackDecades || []).length) { %>
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Decades <span class="gp-filter-hint">(generated from track years; none = all)</span></div>
+                  <div class="gp-checklist-wrap">
+                    <input type="text" class="gp-checklist-search" placeholder="Filter decades… e.g. 2020s" data-target="gp-decades-list" />
+                    <div class="gp-checklist" id="gp-decades-list">
+                      <% (allTrackDecades || []).forEach(function(d) { %>
+                      <label class="gp-checklist-item">
+                        <input type="checkbox" class="gp-decade-cb" value="<%= d %>" />
+                        <span><%= d %></span>
+                      </label>
+                      <% }); %>
+                    </div>
+                  </div>
+                </div>
+                <% } %>
+
                 <div class="gp-filter-section gp-filter-section--inline">
                   <label class="field" style="flex:1">
-                    <span>Top N per artist</span>
+                    <span>Max tracks per artist</span>
                     <input type="number" id="gp-top-n" min="1" max="999" placeholder="All tracks" />
+                  </label>
+                  <label class="field" style="flex:1">
+                    <span>Max tracks per album</span>
+                    <input type="number" id="gp-max-album-tracks" min="1" max="999" placeholder="All tracks" />
                   </label>
                   <label class="field" style="flex:1">
                     <span>Max total tracks</span>
@@ -1698,18 +1720,20 @@
                   </div>
                 </div>
                 <div class="gp-card-rules">
-                  <% const _at = (gp.rules?.artistTiers || []); const _tt = (gp.rules?.trackTiers || []); const _gr = (gp.rules?.genres || []); const _mo = (gp.rules?.moods || []); const _tg = (gp.rules?.tags || []); %>
+                  <% const _ruleList = function(v) { return Array.isArray(v) ? v : (v && Array.isArray(v.include) ? v.include : []); }; const _at = _ruleList(gp.rules?.artistTiers); const _tt = _ruleList(gp.rules?.trackTiers); const _gr = _ruleList(gp.rules?.genres); const _mo = _ruleList(gp.rules?.moods); const _tg = _ruleList(gp.rules?.tags); const _dc = _ruleList(gp.rules?.decades); %>
                   <span class="gp-rule-chip">Artists: <%= _at.length ? _at.join(', ') : 'all' %></span>
                   <span class="gp-rule-chip">Tracks: <%= _tt.length ? _tt.join(', ') : 'all' %></span>
                   <% if (_gr.length) { %><span class="gp-rule-chip">Genres: <%= _gr.join(', ') %></span><% } %>
                   <% if (_mo.length) { %><span class="gp-rule-chip">Moods: <%= _mo.join(', ') %></span><% } %>
                   <% if (_tg.length) { %><span class="gp-rule-chip">Tags: <%= _tg.join(', ') %></span><% } %>
+                  <% if (_dc.length) { %><span class="gp-rule-chip">Decades: <%= _dc.join(', ') %></span><% } %>
                   <% if (gp.rules?.featurePreset && gp.rules.featurePreset !== 'none') { %><span class="gp-rule-chip">Preset: <%= gp.rules.featurePreset %></span><% } %>
                   <% if (gp.rules?.bpmMin != null || gp.rules?.bpmMax != null) { %><span class="gp-rule-chip">BPM: <%= gp.rules?.bpmMin != null ? gp.rules.bpmMin : 'any' %> - <%= gp.rules?.bpmMax != null ? gp.rules.bpmMax : 'any' %></span><% } %>
                   <% if (gp.rules?.energyMin != null || gp.rules?.energyMax != null) { %><span class="gp-rule-chip">Energy: <%= gp.rules?.energyMin != null ? gp.rules.energyMin : 'any' %> - <%= gp.rules?.energyMax != null ? gp.rules.energyMax : 'any' %></span><% } %>
                   <% if (gp.rules?.danceabilityMin != null || gp.rules?.danceabilityMax != null) { %><span class="gp-rule-chip">Danceability: <%= gp.rules?.danceabilityMin != null ? gp.rules.danceabilityMin : 'any' %> - <%= gp.rules?.danceabilityMax != null ? gp.rules.danceabilityMax : 'any' %></span><% } %>
                   <% if (gp.rules?.camelotFocus) { %><span class="gp-rule-chip">Camelot: <%= gp.rules.camelotFocus %> (<%= gp.rules.camelotMode || 'exact' %>)</span><% } %>
                   <% if (gp.rules?.topNPerArtist) { %><span class="gp-rule-chip">Top <%= gp.rules.topNPerArtist %>/artist</span><% } %>
+                  <% if (gp.rules?.maxTracksPerAlbum) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracksPerAlbum %>/album</span><% } %>
                   <% if (gp.rules?.maxTracks) { %><span class="gp-rule-chip">Max <%= gp.rules.maxTracks %> tracks</span><% } %>
                   <% if (gp.rules?.finalOrdering && gp.rules.finalOrdering !== 'none') { %><span class="gp-rule-chip">Final: <%= gp.rules.finalOrdering %></span><% } %>
                   <% if ((gp.rules?.blendUsers || []).length) { %>
@@ -1798,10 +1822,16 @@
                 return chips.join('');
               }
 
+              function gpRuleIncludeList(value) {
+                if (Array.isArray(value)) return value;
+                if (value && Array.isArray(value.include)) return value.include;
+                return [];
+              }
+
               function gpLoadIntoBuilder(gp) {
                 var rules = gp.rules || {};
                 document.getElementById('gp-name').value = gp.name || '';
-                var artistTiers = rules.artistTiers || [];
+                var artistTiers = gpRuleIncludeList(rules.artistTiers);
                 if (artistTiers.length) {
                   document.querySelector('.gp-artist-tier-all').checked = false;
                   document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = artistTiers.indexOf(c.value) !== -1; });
@@ -1809,7 +1839,7 @@
                   document.querySelector('.gp-artist-tier-all').checked = true;
                   document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = false; });
                 }
-                var trackTiers = rules.trackTiers || [];
+                var trackTiers = gpRuleIncludeList(rules.trackTiers);
                 if (trackTiers.length) {
                   document.querySelector('.gp-track-tier-all').checked = false;
                   document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = trackTiers.indexOf(c.value) !== -1; });
@@ -1817,13 +1847,16 @@
                   document.querySelector('.gp-track-tier-all').checked = true;
                   document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = false; });
                 }
-                var genres = rules.genres || [];
+                var genres = gpRuleIncludeList(rules.genres);
                 document.querySelectorAll('.gp-genre-cb').forEach(function(c) { c.checked = genres.indexOf(c.value) !== -1; });
-                var moods = rules.moods || [];
+                var moods = gpRuleIncludeList(rules.moods);
                 document.querySelectorAll('.gp-mood-cb').forEach(function(c) { c.checked = moods.indexOf(c.value) !== -1; });
-                var tags = rules.tags || [];
+                var tags = gpRuleIncludeList(rules.tags);
                 document.querySelectorAll('.gp-tag-cb').forEach(function(c) { c.checked = tags.indexOf(c.value) !== -1; });
+                var decades = gpRuleIncludeList(rules.decades);
+                document.querySelectorAll('.gp-decade-cb').forEach(function(c) { c.checked = decades.indexOf(c.value) !== -1; });
                 document.getElementById('gp-top-n').value = rules.topNPerArtist || '';
+                document.getElementById('gp-max-album-tracks').value = rules.maxTracksPerAlbum || '';
                 document.getElementById('gp-max-tracks').value = rules.maxTracks || '';
                 document.getElementById('gp-sort-by').value = rules.sortBy || 'ratingCount';
                 document.getElementById('gp-final-ordering').value = rules.finalOrdering || 'none';
@@ -1864,8 +1897,9 @@
                 document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = false; });
                 document.querySelector('.gp-track-tier-all').checked = true;
                 document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = false; });
-                document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb').forEach(function(c) { c.checked = false; });
+                document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb, .gp-decade-cb').forEach(function(c) { c.checked = false; });
                 document.getElementById('gp-top-n').value = '';
+                document.getElementById('gp-max-album-tracks').value = '';
                 document.getElementById('gp-max-tracks').value = '';
                 document.getElementById('gp-sort-by').value = 'ratingCount';
                 document.getElementById('gp-final-ordering').value = 'none';
@@ -1884,16 +1918,18 @@
               }
 
               function gpCardRulesHtml(r) {
-                var at = r.artistTiers || [], tt = r.trackTiers || [];
-                var gr = r.genres || [], mo = r.moods || [], tg = r.tags || [];
+                var at = gpRuleIncludeList(r.artistTiers), tt = gpRuleIncludeList(r.trackTiers);
+                var gr = gpRuleIncludeList(r.genres), mo = gpRuleIncludeList(r.moods), tg = gpRuleIncludeList(r.tags), dc = gpRuleIncludeList(r.decades);
                 var bu = r.blendUsers || [], bm = r.blendMode || 'average';
                 return '<span class="gp-rule-chip">Artists: ' + (at.length ? at.join(', ') : 'all') + '</span>'
                   + '<span class="gp-rule-chip">Tracks: ' + (tt.length ? tt.join(', ') : 'all') + '</span>'
                   + (gr.length ? '<span class="gp-rule-chip">Genres: ' + gr.join(', ') + '</span>' : '')
                   + (mo.length ? '<span class="gp-rule-chip">Moods: ' + mo.join(', ') + '</span>' : '')
                   + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
+                  + (dc.length ? '<span class="gp-rule-chip">Decades: ' + dc.join(', ') + '</span>' : '')
                   + gpFeatureSummaryHtml(r)
                   + (r.topNPerArtist ? '<span class="gp-rule-chip">Top ' + r.topNPerArtist + '/artist</span>' : '')
+                  + (r.maxTracksPerAlbum ? '<span class="gp-rule-chip">Max ' + r.maxTracksPerAlbum + '/album</span>' : '')
                   + (r.maxTracks ? '<span class="gp-rule-chip">Max ' + r.maxTracks + ' tracks</span>' : '')
                   + (r.finalOrdering && r.finalOrdering !== 'none' ? '<span class="gp-rule-chip">Final: ' + r.finalOrdering + '</span>' : '')
                   + (bu.length ? '<span class="gp-rule-chip gp-rule-chip--blend">Blend (' + bm + '): ' + bu.join(', ') + '</span>' : '');
@@ -1914,6 +1950,8 @@
                 document.querySelectorAll('.gp-mood-cb:checked').forEach(function(c) { moods.push(c.value); });
                 var tags = [];
                 document.querySelectorAll('.gp-tag-cb:checked').forEach(function(c) { tags.push(c.value); });
+                var decades = [];
+                document.querySelectorAll('.gp-decade-cb:checked').forEach(function(c) { decades.push(c.value); });
                 var blendModeEl = document.querySelector('input[name="gp-blend-mode"]:checked');
                 return {
                   artistTiers: artistTiers,
@@ -1921,7 +1959,9 @@
                   genres: genres,
                   moods: moods,
                   tags: tags,
+                  decades: decades,
                   topNPerArtist: document.getElementById('gp-top-n').value ? parseInt(document.getElementById('gp-top-n').value) : null,
+                  maxTracksPerAlbum: document.getElementById('gp-max-album-tracks').value ? parseInt(document.getElementById('gp-max-album-tracks').value) : null,
                   maxTracks: document.getElementById('gp-max-tracks').value ? parseInt(document.getElementById('gp-max-tracks').value) : null,
                   sortBy: document.getElementById('gp-sort-by').value,
                   finalOrdering: document.getElementById('gp-final-ordering').value || 'none',
@@ -2231,7 +2271,7 @@
                   schedulePreview();
                 });
               });
-              ['gp-top-n','gp-max-tracks','gp-sort-by','gp-final-ordering','gp-preview-user'].forEach(function(id) {
+              ['gp-top-n','gp-max-album-tracks','gp-max-tracks','gp-sort-by','gp-final-ordering','gp-preview-user'].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('change', schedulePreview);
                 if (el && el.tagName === 'INPUT') el.addEventListener('input', schedulePreview);
@@ -2247,7 +2287,7 @@
                   gpApplyPresetDefaults(card.dataset.preset || 'none');
                 });
               });
-              document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb').forEach(function(c) {
+              document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb, .gp-decade-cb').forEach(function(c) {
                 c.addEventListener('change', schedulePreview);
               });
               var _dedupEl = document.getElementById('gp-dedup-mbid');
@@ -2297,7 +2337,7 @@
                   fetch('/api/playlists/global/' + editId, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
+                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, decades: rules.decades, topNPerArtist: rules.topNPerArtist, maxTracksPerAlbum: rules.maxTracksPerAlbum, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                   }).then(function(r) { return r.json(); }).then(function(d) {
                     if (!d.ok) { msg.textContent = d.error || 'Error updating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                     var card = document.querySelector('.gp-card[data-gp-id="' + editId + '"]');
@@ -2316,7 +2356,7 @@
                 fetch('/api/playlists/global', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, topNPerArtist: rules.topNPerArtist, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
+                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, decades: rules.decades, topNPerArtist: rules.topNPerArtist, maxTracksPerAlbum: rules.maxTracksPerAlbum, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                 }).then(function(r) { return r.json(); }).then(function(d) {
                   if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                   msg.textContent = 'Created! It will sync on the next job run.';
@@ -2923,6 +2963,7 @@
                 const _jstat = jobStatus[_jid] || {};
                 const _jEnabled = _jcfg.enabled !== false;
                 const _jInterval = _jcfg.intervalMinutes || _jdef.defaultIntervalMinutes;
+                const _jMaxInterval = Math.max(10080, Number(_jdef.defaultIntervalMinutes || 0));
                 const _jStatus = _jstat.status || 'idle';
                 const _jLastRun = _jstat.lastRunAt;
                 const _jMsg = _jstat.message || '';
@@ -2950,7 +2991,7 @@
                 <div class="settings-job-controls">
                   <label class="field" style="flex:0 0 auto;min-width:0">
                     <span>Interval (minutes)</span>
-                    <input type="number" name="<%= _jid %>_interval" value="<%= _jInterval %>" min="1" max="1440" style="width:90px" />
+                    <input type="number" name="<%= _jid %>_interval" value="<%= _jInterval %>" min="1" max="<%= _jMaxInterval %>" style="width:90px" />
                   </label>
                   <label class="settings-smart-toggle-field" style="align-self:flex-end;padding-bottom:2px">
                     <span class="settings-smart-toggle-field-title">Enabled</span>

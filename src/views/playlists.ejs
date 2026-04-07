@@ -704,10 +704,29 @@
         </div>
         <% } %>
 
+        <% if ((allTrackDecades || []).length) { %>
+        <div class="spm-filter-section">
+          <div class="spm-filter-label">Decades <span class="gp-filter-hint">(generated from track release years)</span></div>
+          <div class="spm-tristate-wrap">
+            <input type="text" class="spm-tristate-search" placeholder="Filter decades… e.g. 2000s" data-chips="spm-decades-chips" />
+            <div class="spm-tristate-chips" id="spm-decades-chips">
+              <% (allTrackDecades || []).forEach(function(t) { %>
+              <button type="button" class="spm-chip" data-kind="decade" data-value="<%= t %>" data-state="neutral"><%= t %></button>
+              <% }); %>
+            </div>
+            <div class="spm-chip-hint">None selected = include all</div>
+          </div>
+        </div>
+        <% } %>
+
         <div class="spm-filter-section spm-filter-section--inline">
           <label class="field" style="flex:1">
-            <span>Top N per artist</span>
+            <span>Max tracks per artist</span>
             <input type="number" id="spm-top-n" min="1" max="999" placeholder="All tracks" />
+          </label>
+          <label class="field" style="flex:1">
+            <span>Max tracks per album</span>
+            <input type="number" id="spm-max-album-tracks" min="1" max="999" placeholder="All tracks" />
           </label>
           <label class="field" style="flex:1">
             <span>Max total tracks</span>
@@ -728,6 +747,7 @@
               <option value="ratingCount">Global rating count</option>
               <option value="tierWeight">Tier weight</option>
               <option value="playCount">Play count</option>
+              <option value="random">Random</option>
               <option value="bpmAsc">BPM low to high</option>
               <option value="bpmDesc">BPM high to low</option>
               <option value="energyAsc">Energy low to high</option>
@@ -2865,6 +2885,7 @@
         genres: normaliseUiTriState(rules.genres),
         moods: normaliseUiTriState(rules.moods),
         tags: normaliseUiTriState(rules.tags),
+        decades: normaliseUiTriState(rules.decades),
         artistTiers: normaliseUiTriState(rules.artistTiers),
         trackTiers: normaliseUiTriState(rules.trackTiers),
         featurePreset: wizardNormalizeStarterPreset(rules.featurePreset),
@@ -2880,6 +2901,7 @@
         popularityMode: String(rules.popularityMode || 'all'),
         popularityPercent: rules.popularityPercent != null ? Number(rules.popularityPercent) : null,
         topNPerArtist: rules.topNPerArtist != null ? Number(rules.topNPerArtist) : null,
+        maxTracksPerAlbum: rules.maxTracksPerAlbum != null ? Number(rules.maxTracksPerAlbum) : null,
         maxTracks: rules.maxTracks != null ? Number(rules.maxTracks) : null,
         sortBy: String(rules.sortBy || 'ratingCount'),
         finalOrdering: String(rules.finalOrdering || 'none'),
@@ -2901,6 +2923,7 @@
           genres: normaliseUiTriState(rules.genres),
           moods: normaliseUiTriState(rules.moods),
           tags: normaliseUiTriState(rules.tags),
+          decades: normaliseUiTriState(rules.decades),
         } : null),
         importDetectedContent: rules.importDetectedContent || null,
         keepImportedSource: true,
@@ -2970,12 +2993,15 @@
       spmResetChips('spm-genres-chips');
       spmResetChips('spm-moods-chips');
       spmResetChips('spm-tags-chips');
+      spmResetChips('spm-decades-chips');
       if (window.spmSetBlendUsers) window.spmSetBlendUsers([], 'average');
       var blendModeDefault = document.querySelector('input[name="spm-blend-mode"][value="average"]');
       if (blendModeDefault) blendModeDefault.checked = true;
       spmApplyPresetDefaults('none');
       var topN = document.getElementById('spm-top-n');
       if (topN) topN.value = '';
+      var maxAlbumT = document.getElementById('spm-max-album-tracks');
+      if (maxAlbumT) maxAlbumT.value = '';
       var maxT = document.getElementById('spm-max-tracks');
       if (maxT) maxT.value = '';
       var sortBy = document.getElementById('spm-sort-by');
@@ -3121,11 +3147,14 @@
       spmApplyChips('spm-genres-chips', rules.genres || []);
       spmApplyChips('spm-moods-chips',  rules.moods  || []);
       spmApplyChips('spm-tags-chips',   rules.tags   || []);
+      spmApplyChips('spm-decades-chips', rules.decades || []);
       if (window.spmSetBlendUsers) window.spmSetBlendUsers(rules.blendUsers || [], rules.blendMode || 'average');
       spmLoadFeatureRules(rules);
       spmUpdateBlendVisibility();
       var topN = document.getElementById('spm-top-n');
       if (topN) topN.value = rules.topNPerArtist || '';
+      var maxAlbumT = document.getElementById('spm-max-album-tracks');
+      if (maxAlbumT) maxAlbumT.value = rules.maxTracksPerAlbum || '';
       var maxT = document.getElementById('spm-max-tracks');
       if (maxT) maxT.value = rules.maxTracks || '';
       var sortBy = document.getElementById('spm-sort-by');
@@ -3197,6 +3226,7 @@
       var artistTiers = Array.from(document.querySelectorAll('.spm-artist-tier:checked')).map(function(el) { return el.value; });
       var trackTiers = Array.from(document.querySelectorAll('.spm-track-tier:checked')).map(function(el) { return el.value; });
       var topN = parseInt(document.getElementById('spm-top-n').value, 10) || null;
+      var maxTracksPerAlbum = parseInt(document.getElementById('spm-max-album-tracks').value, 10) || null;
       var maxTracks = parseInt(document.getElementById('spm-max-tracks').value, 10) || null;
       var rebuildSchedule = document.getElementById('spm-rebuild-schedule') ? document.getElementById('spm-rebuild-schedule').value : 'daily';
       var sortBy = document.getElementById('spm-sort-by').value || 'ratingCount';
@@ -3210,7 +3240,9 @@
         genres: spmReadChips('spm-genres-chips'),
         moods:  spmReadChips('spm-moods-chips'),
         tags:   spmReadChips('spm-tags-chips'),
+        decades: spmReadChips('spm-decades-chips'),
         topNPerArtist: topN,
+        maxTracksPerAlbum: maxTracksPerAlbum,
         maxTracks: maxTracks,
         sortBy: sortBy,
         finalOrdering: finalOrdering,
@@ -3364,6 +3396,7 @@
       { id: 'blank',            icon: '✦', name: 'Custom',      description: 'Start clean and shape it yourself.', rules: {}, trackFilters: null },
       { id: 'tmpl_favourites',  icon: '★', name: 'Favourites',  description: 'Your highest-rated tracks and artists.', rules: { artistTiers: { include: ['belter'], exclude: [] }, trackTiers: { include: ['belter'], exclude: [] } }, trackFilters: null },
       { id: 'tmpl_discovery',   icon: '⊕', name: 'Discovery',   description: 'Unplayed tracks from unranked artists.', rules: { artistTiers: { include: ['unranked'], exclude: [] }, trackTiers: { include: ['unplayed'], exclude: [] } }, trackFilters: null },
+      { id: 'tmpl_random_library', icon: '⇄', name: 'Random Library Mix', description: '50 random library tracks with artist and album variety.', meta: '50 tracks · 1 per artist · 1 per album · daily', rules: { topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'random', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
       { id: 'tmpl_seasonal',    icon: '❄', name: 'Seasonal',    description: 'Holiday genre plus festive title and album keywords.', rules: { seasonalGenres: ['Holiday'], seasonalKeywords: ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday'] }, trackFilters: null },
     ];
 
@@ -3400,6 +3433,7 @@
     };
     var WIZARD_SEASONAL_GENRES = ['Holiday', 'Christmas', 'Winter', 'Religious'];
     var WIZARD_SEASONAL_KEYWORDS = ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday', 'snow', 'winter'];
+    var WIZARD_TRACK_DECADES = <%- JSON.stringify(allTrackDecades || []) %>;
     var WIZARD_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u){return{id:u.id,avatar:u.avatarUrl||u.avatar||''};})) %>;
     var WIZARD_SMART_SETTINGS = <%- JSON.stringify((config && config.smartPlaylist) || {}) %>;
     var WIZARD_LIBRARY_TRACK_COUNT = <%- JSON.stringify((playlistFeatureCoverage && playlistFeatureCoverage.totalTracks) || 0) %>;
@@ -3604,6 +3638,7 @@
         genres: { include: [], exclude: [], includeMode: 'any' },
         moods:  { include: [], exclude: [], includeMode: 'any' },
         tags:   { include: [], exclude: [], includeMode: 'any' },
+        decades: { include: [], exclude: [], includeMode: 'any' },
         includeFolders: [],
         excludeFolders: [],
         advancedRules: [],
@@ -3620,6 +3655,7 @@
         popularityMode: 'all',
         popularityPercent: null,
         topNPerArtist: null,
+        maxTracksPerAlbum: null,
         maxTracks: null,
         sortBy: 'ratingCount',
         finalOrdering: 'none',
@@ -3650,17 +3686,21 @@
         genres:      normaliseUiTriState(ws.genres),
         moods:       normaliseUiTriState(ws.moods),
         tags:        normaliseUiTriState(ws.tags),
+        decades:     normaliseUiTriState(ws.decades),
         importSuggestedContent: wizardHasImportedContentSet(ws && ws.importSuggestedContent) ? {
           genres: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.genres),
           moods: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.moods),
           tags: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.tags),
+          decades: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.decades),
         } : null,
         importDetectedContent: wizardHasImportedDetectedContent(ws) ? {
           genres: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.genres),
           moods: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.moods),
           tags: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.tags),
+          decades: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.decades),
         } : null,
         topNPerArtist: ws.topNPerArtist || null,
+        maxTracksPerAlbum: ws.maxTracksPerAlbum || null,
         maxTracks:     ws.maxTracks     || null,
         sortBy:        ws.sortBy        || 'ratingCount',
         finalOrdering: ws.finalOrdering || 'none',
@@ -3830,7 +3870,7 @@
 
     function wizardSuggestedContentApplied(state, presetId) {
       var defaults = wizardAudioProfileContentDefaults(presetId);
-      var kinds = ['genres', 'moods', 'tags'];
+      var kinds = ['genres', 'moods', 'tags', 'decades'];
       var hasSuggestions = false;
       return kinds.every(function(kind) {
         var suggested = defaults[kind] || { include: [], exclude: [] };
@@ -3860,7 +3900,7 @@
     function wizardHasImportedContentSet(contentSet) {
       var detected = contentSet;
       if (!detected || typeof detected !== 'object') return false;
-      return ['genres', 'moods', 'tags'].some(function(kind) {
+      return ['genres', 'moods', 'tags', 'decades'].some(function(kind) {
         return normaliseUiTriState(detected[kind]).include.length > 0;
       });
     }
@@ -3883,7 +3923,7 @@
     }
 
     function wizardImportedContentSetEquals(a, b) {
-      var kinds = ['genres', 'moods', 'tags'];
+      var kinds = ['genres', 'moods', 'tags', 'decades'];
       return kinds.every(function(kind) {
         var aTri = normaliseUiTriState(a && a[kind]);
         var bTri = normaliseUiTriState(b && b[kind]);
@@ -3900,6 +3940,7 @@
         genres: normaliseUiTriState(state && state.genres),
         moods: normaliseUiTriState(state && state.moods),
         tags: normaliseUiTriState(state && state.tags),
+        decades: normaliseUiTriState(state && state.decades),
       };
     }
 
@@ -3915,6 +3956,7 @@
       state.genres = normaliseUiTriState(contentSet && contentSet.genres);
       state.moods = normaliseUiTriState(contentSet && contentSet.moods);
       state.tags = normaliseUiTriState(contentSet && contentSet.tags);
+      state.decades = normaliseUiTriState(contentSet && contentSet.decades);
     }
 
     function wizardToggleImportedContentMode(state) {
@@ -3936,6 +3978,7 @@
       state.genres = { include: [], exclude: [], includeMode: 'any' };
       state.moods = { include: [], exclude: [], includeMode: 'any' };
       state.tags = { include: [], exclude: [], includeMode: 'any' };
+      state.decades = { include: [], exclude: [], includeMode: 'any' };
       state.seasonalGenres = [];
       state.seasonalKeywords = [];
       state.seasonalExcludeGenres = [];
@@ -4237,7 +4280,7 @@
 
     // Step 1 — Basics
     function wizardStep1() {
-      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
+      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_random_library', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
       var AUDIO_PROFILES = [
         { preset: 'workout',  icon: '⚡' },
         { preset: 'chill',    icon: '◎' },
@@ -4353,6 +4396,7 @@
       var ALLGENRES = <%- JSON.stringify(allGenres || []) %>;
       var ALLMOODS  = <%- JSON.stringify(allMoods  || []) %>;
       var ALLTAGS   = <%- JSON.stringify(allLastfmTags || []) %>;
+      var ALLDECADES = WIZARD_TRACK_DECADES || [];
       var hasImportedDetectedContent = wizardHasImportedDetectedContent(_wizardState);
       var importedContentMode = wizardImportedContentMode(_wizardState);
       var importedDetectedCounts = wizardImportedDetectedContentCounts(_wizardState);
@@ -4379,6 +4423,7 @@
         if (importedDetectedCounts.genres) importDetectedBits.push(String(importedDetectedCounts.genres) + ' genres');
         if (importedDetectedCounts.moods) importDetectedBits.push(String(importedDetectedCounts.moods) + ' moods');
         if (importedDetectedCounts.tags) importDetectedBits.push(String(importedDetectedCounts.tags) + ' tags');
+        if (importedDetectedCounts.decades) importDetectedBits.push(String(importedDetectedCounts.decades) + ' decades');
         html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Imported conversion can switch between the recommended inferred chips and every detected content value from the matched source tracks' + (importDetectedBits.length ? (' (' + escH(importDetectedBits.join(' · ')) + ')') : '') + '.</p>';
       }
       html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Click once to <span style="color:#4ade80;font-weight:600">include</span>, again to <span style="color:#f87171;font-weight:600">exclude</span>, again to clear. Leave all neutral to allow everything.</p>';
@@ -4441,6 +4486,7 @@
       html += renderWizChips(ALLGENRES, _wizardState.genres, 'genre', 'Filter genres…');
       html += renderWizChips(ALLMOODS,  _wizardState.moods,  'mood',  'Filter moods…');
       html += renderWizChips(ALLTAGS,   _wizardState.tags,   'tag',   'Filter tags…');
+      html += renderWizChips(ALLDECADES, _wizardState.decades, 'decade', 'Filter decades…');
       function renderTierPills(items, stateObj, kind, title) {
         var triState = normaliseUiTriState(stateObj);
         var includeSet = new Set(triState.include || []);
@@ -4500,10 +4546,11 @@
       var html = '<div class="spm-wizard-step-label">Step 3 of ' + WIZARD_TOTAL_STEPS + ' — Output rules</div>';
       html += '<div class="spm-wizard-step-intro">Shape the final playlist size and ordering after the content filters have done their work.</div>';
       html += '<div class="spm-filter-section spm-filter-section--inline">' +
-        '<label class="field" style="flex:1"><span>Top N per artist</span><input type="number" id="wiz-top-n" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.topNPerArtist||'') + '"/></label>' +
+        '<label class="field" style="flex:1"><span>Max tracks per artist</span><input type="number" id="wiz-top-n" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.topNPerArtist||'') + '"/></label>' +
+        '<label class="field" style="flex:1"><span>Max tracks per album</span><input type="number" id="wiz-max-album-tracks" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.maxTracksPerAlbum||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Max total tracks</span><input type="number" id="wiz-max-tracks" min="1" placeholder="No limit" value="' + (_wizardState.maxTracks||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Sort tracks by</span><select id="wiz-sort-by">' +
-        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
         '</select></label>' +
         '<label class="field" style="flex:1"><span>Final ordering</span><select id="wiz-final-ordering">' +
         [['none','No final ordering'],['plexSonic','Plex sonic'],['loudness','Loudness smoothing'],['plexSonicLoudness','Plex sonic then loudness']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.finalOrdering===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
@@ -4517,7 +4564,7 @@
         '</select></label>' +
         '<label class="field" style="flex:1;' + (_wizardState.popularityMode === 'custom' ? '' : 'display:none;') + '" id="wiz-popularity-percent-wrap"><span>Custom percentile</span><input type="number" id="wiz-popularity-percent" min="1" max="100" step="1" placeholder="25" value="' + (_wizardState.popularityPercent || '') + '"/></label>' +
       '</div>';
-      html += '<div class="spm-wizard-field-hint" style="margin-bottom:18px">Album popularity uses the flame definition: the top 3 tracks on each album by Plex rating count. Overall popularity keeps only the most popular slice of the current candidate pool.</div>';
+      html += '<div class="spm-wizard-field-hint" style="margin-bottom:18px">Album popularity uses the flame definition: the top 3 tracks on each album by Plex rating count. Overall popularity keeps only the most popular slice of the current candidate pool. Album caps limit how many tracks from the same album can survive into the final playlist.</div>';
       html += '<div class="spm-wizard-toggle-block">' +
         '<label class="spm-wizard-toggle-row" for="wiz-dedupe-mbid">' +
           '<span class="spm-wizard-toggle-copy">' +
@@ -4681,9 +4728,11 @@
       var hasGenre = (ws.genres && (ws.genres.include.length || ws.genres.exclude.length));
       var hasMood  = (ws.moods  && (ws.moods.include.length  || ws.moods.exclude.length));
       var hasTag   = (ws.tags   && (ws.tags.include.length   || ws.tags.exclude.length));
+      var hasDecade = (ws.decades && (ws.decades.include.length || ws.decades.exclude.length));
       if (hasGenre) html += row('Genres', chipList(ws.genres));
       if (hasMood)  html += row('Moods',  chipList(ws.moods));
       if (hasTag)   html += row('Tags',   chipList(ws.tags));
+      if (hasDecade) html += row('Decades', chipList(ws.decades));
       if (ws.featurePreset && ws.featurePreset !== 'none') html += row('Preset', escH(ws.featurePreset));
       if ((ws.seasonalGenres && ws.seasonalGenres.length) || (ws.seasonalExcludeGenres && ws.seasonalExcludeGenres.length)) {
         html += row('Seasonal genres', chipList({ include: ws.seasonalGenres || [], exclude: ws.seasonalExcludeGenres || [], includeMode: ws.seasonalGenresMode || 'any' }));
@@ -4694,7 +4743,8 @@
       if (ws.includeFolders && ws.includeFolders.length) html += row('Include folders', escH(ws.includeFolders.join(', ')));
       if (ws.excludeFolders && ws.excludeFolders.length) html += row('Exclude folders', escH(ws.excludeFolders.join(', ')));
       if (ws.advancedRules && ws.advancedRules.length) html += row('Regex rules', escH(ws.advancedRules.map(function(rule) { return [rule.field, rule.operator, rule.value].join(' '); }).join(' | ')));
-      if (ws.topNPerArtist) html += row('Top N / artist', escH(String(ws.topNPerArtist)));
+      if (ws.topNPerArtist) html += row('Max / artist', escH(String(ws.topNPerArtist)));
+      if (ws.maxTracksPerAlbum) html += row('Max / album', escH(String(ws.maxTracksPerAlbum)));
       if (ws.maxTracks)     html += row('Max tracks', escH(String(ws.maxTracks)));
       if (ws.albumPopularityMode && ws.albumPopularityMode !== 'all') {
         html += row('Album popularity', escH(ws.albumPopularityMode === 'top3Only' ? 'Popular album tracks only (Top 3)' : 'Exclude popular album tracks'));
@@ -4760,7 +4810,7 @@
         if (window._wizGetBlendUsers) _wizardState.blendUsers = window._wizGetBlendUsers();
         wizardSyncSuggestedName(_wizardState, false);
       } else if (step === 2) {
-        ['genre','mood','tag','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
+        ['genre','mood','tag','decade','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
           var inc = [], exc = [];
           var seen = new Set();
           var selectedModeBtn = document.querySelector('[data-match-mode-kind="' + kind + '"].is-selected');
@@ -4797,7 +4847,7 @@
             _wizardState[tierKey] = { include: inc, exclude: exc, includeMode: 'any' };
             return;
           }
-          var key = kind === 'genre' ? 'genres' : kind === 'mood' ? 'moods' : 'tags';
+          var key = kind === 'genre' ? 'genres' : kind === 'mood' ? 'moods' : kind === 'decade' ? 'decades' : 'tags';
           var prev = normaliseUiTriState(_wizardState[key]);
           (prev.include || []).forEach(function(value) {
             if (!seen.has(value) && inc.indexOf(value) === -1) inc.push(value);
@@ -4809,6 +4859,7 @@
         });
       } else if (step === 3) {
         _wizardState.topNPerArtist = parseInt(document.getElementById('wiz-top-n') ? document.getElementById('wiz-top-n').value : '', 10) || null;
+        _wizardState.maxTracksPerAlbum = parseInt(document.getElementById('wiz-max-album-tracks') ? document.getElementById('wiz-max-album-tracks').value : '', 10) || null;
         _wizardState.maxTracks     = parseInt(document.getElementById('wiz-max-tracks') ? document.getElementById('wiz-max-tracks').value : '', 10) || null;
         _wizardState.albumPopularityMode = document.getElementById('wiz-album-popularity') ? document.getElementById('wiz-album-popularity').value : 'all';
         _wizardState.popularityMode = document.getElementById('wiz-popularity-mode') ? document.getElementById('wiz-popularity-mode').value : 'all';
@@ -5153,7 +5204,7 @@
 
       // Step 3: output rules
       if (step === 3) {
-        ['wiz-top-n','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title'].forEach(function(id) {
+        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title'].forEach(function(id) {
           var el = document.getElementById(id);
           if (!el) return;
           var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };
@@ -5409,7 +5460,7 @@
         });
       });
 
-      ['spm-top-n', 'spm-max-tracks', 'spm-sort-by', 'spm-rebuild-schedule', 'spm-bpm-min', 'spm-bpm-max', 'spm-energy-min', 'spm-energy-max', 'spm-danceability-min', 'spm-danceability-max', 'spm-camelot-focus', 'spm-camelot-mode'].forEach(function(id) {
+      ['spm-top-n', 'spm-max-album-tracks', 'spm-max-tracks', 'spm-sort-by', 'spm-rebuild-schedule', 'spm-bpm-min', 'spm-bpm-max', 'spm-energy-min', 'spm-energy-max', 'spm-danceability-min', 'spm-danceability-max', 'spm-camelot-focus', 'spm-camelot-mode'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('change', spmSchedulePreview);
         if (el && el.tagName === 'INPUT') el.addEventListener('input', spmSchedulePreview);

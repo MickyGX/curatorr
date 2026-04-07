@@ -62,6 +62,8 @@ import {
   previewGlobalPlaylist,
   getAlbumPopularTrackRanks,
   getArtistTagMap,
+  getEffectiveTrackTags,
+  getTrackDecadeTag,
   listRuleTemplates,
   saveRuleTemplate,
   updateRuleTemplate,
@@ -82,7 +84,7 @@ const THUMB_CACHE_MAX = 600;
 const thumbCache = new Map();
 const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
-const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
+const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
@@ -198,7 +200,7 @@ function sanitizeImportedSourceInput(value) {
 
 function sanitizeImportedContentSetInput(value) {
   if (!value || typeof value !== 'object') return null;
-  const kinds = ['genres', 'moods', 'tags'];
+  const kinds = ['genres', 'moods', 'tags', 'decades'];
   const next = {};
   let hasAny = false;
   for (const kind of kinds) {
@@ -300,10 +302,13 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
   const topMoods = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []), { minShare: 0.18, maxValues: 4 });
 
   const artistTagMap = getArtistTagMap(db);
-  const uniqueArtistNames = Array.from(new Set(matchedTracks.map((track) => String(track?.artistName || '').trim().toLowerCase()).filter(Boolean)));
   const topTags = inferImportedTopValues(
-    uniqueArtistNames.flatMap((artistName) => artistTagMap.get(artistName) || []),
+    matchedTracks.flatMap((track) => getEffectiveTrackTags(track, artistTagMap)),
     { minShare: 0.3, maxValues: 3 },
+  );
+  const topDecades = inferImportedTopValues(
+    matchedTracks.map((track) => getTrackDecadeTag(track)).filter(Boolean),
+    { minShare: 0.18, maxValues: 3 },
   );
   const allDetectedGenres = inferImportedAllValues(
     matchedTracks.flatMap((track) => Array.isArray(track?.genres) ? track.genres : []),
@@ -312,7 +317,10 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []),
   );
   const allDetectedTags = inferImportedAllValues(
-    uniqueArtistNames.flatMap((artistName) => artistTagMap.get(artistName) || []),
+    matchedTracks.flatMap((track) => getEffectiveTrackTags(track, artistTagMap)),
+  );
+  const allDetectedDecades = inferImportedAllValues(
+    matchedTracks.map((track) => getTrackDecadeTag(track)).filter(Boolean),
   );
 
   const importSource = sanitizeImportedSourceInput({
@@ -334,6 +342,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     genres: { include: topGenres, exclude: [], includeMode: 'any' },
     moods: { include: topMoods, exclude: [], includeMode: 'any' },
     tags: { include: topTags, exclude: [], includeMode: 'any' },
+    decades: { include: topDecades, exclude: [], includeMode: 'any' },
     artistTiers: { include: [], exclude: [], includeMode: 'any' },
     trackTiers: { include: [], exclude: [], includeMode: 'any' },
     featurePreset,
@@ -349,6 +358,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     popularityMode: 'all',
     popularityPercent: null,
     topNPerArtist: null,
+    maxTracksPerAlbum: null,
     maxTracks: null,
     sortBy: 'ratingCount',
     finalOrdering: 'none',
@@ -370,11 +380,13 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
       genres: { include: topGenres, exclude: [], includeMode: 'any' },
       moods: { include: topMoods, exclude: [], includeMode: 'any' },
       tags: { include: topTags, exclude: [], includeMode: 'any' },
+      decades: { include: topDecades, exclude: [], includeMode: 'any' },
     },
     importDetectedContent: {
       genres: { include: allDetectedGenres, exclude: [], includeMode: 'any' },
       moods: { include: allDetectedMoods, exclude: [], includeMode: 'any' },
       tags: { include: allDetectedTags, exclude: [], includeMode: 'any' },
+      decades: { include: allDetectedDecades, exclude: [], includeMode: 'any' },
     },
     keepImportedSource: true,
     inferenceSummary: {
@@ -387,6 +399,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
       detectedGenreCount: allDetectedGenres.length,
       detectedMoodCount: allDetectedMoods.length,
       detectedTagCount: allDetectedTags.length,
+      detectedDecadeCount: allDetectedDecades.length,
     },
   };
 }
@@ -4751,7 +4764,9 @@ export function registerApiMusic(app, ctx) {
       genres:          normaliseTriStateInput(req.body?.genres),
       moods:           normaliseTriStateInput(req.body?.moods),
       tags:            normaliseTriStateInput(req.body?.tags),
+      decades:         normaliseTriStateInput(req.body?.decades),
       topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracksPerAlbum: req.body?.maxTracksPerAlbum ? Number(req.body.maxTracksPerAlbum) : null,
       maxTracks:       req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy:          PLAYLIST_SORT_VALUES.includes(String(req.body?.sortBy || '').trim()) ? String(req.body.sortBy).trim() : 'ratingCount',
       finalOrdering:   PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',
@@ -4843,7 +4858,9 @@ export function registerApiMusic(app, ctx) {
       genres:          normaliseTriStateInput(req.body?.genres),
       moods:           normaliseTriStateInput(req.body?.moods),
       tags:            normaliseTriStateInput(req.body?.tags),
+      decades:         normaliseTriStateInput(req.body?.decades),
       topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracksPerAlbum: req.body?.maxTracksPerAlbum ? Number(req.body.maxTracksPerAlbum) : null,
       maxTracks:       req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy:          PLAYLIST_SORT_VALUES.includes(String(req.body?.sortBy || '').trim()) ? String(req.body.sortBy).trim() : 'ratingCount',
       finalOrdering:   PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',

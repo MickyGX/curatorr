@@ -12,6 +12,8 @@ import {
   setPlaylistTracks,
   getPlaylistTracks,
   getArtistTagMap,
+  getEffectiveTrackTags,
+  getTrackDecadeTag,
   parseTriStateFilter,
 } from '../db.js';
 
@@ -63,7 +65,7 @@ const TOP_TRACKS_PERIOD_LABELS = {
   '6month': 'Last 6 Months',
   '12month': 'Last Year',
 };
-const PLAYLIST_BASE_SORT_MODES = new Set(['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow']);
+const PLAYLIST_BASE_SORT_MODES = new Set(['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow']);
 const PLAYLIST_FINAL_ORDERING_MODES = new Set(['none', 'plexSonic', 'loudness', 'plexSonicLoudness']);
 
 function escapeRegex(value) {
@@ -790,6 +792,56 @@ function baseRatingComparator(a, b) {
     || String(a.trackTitle || '').localeCompare(String(b.trackTitle || ''));
 }
 
+function shufflePlaylistTracks(tracks = []) {
+  const items = Array.isArray(tracks) ? [...tracks] : [];
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function playlistAlbumLimitKey(track) {
+  return String(track?.albumName || '').trim().toLowerCase();
+}
+
+function playlistArtistLimitKey(track) {
+  return String(track?.artistName || '').trim().toLowerCase();
+}
+
+function selectLimitedPlaylistTracks(tracks = [], {
+  sortBy = 'ratingCount',
+  topNPerArtist = null,
+  maxTracksPerAlbum = null,
+  maxTracks = null,
+  preserveOrder = false,
+} = {}) {
+  const artistLimit = topNPerArtist ? Math.max(1, Number(topNPerArtist)) : null;
+  const albumLimit = maxTracksPerAlbum ? Math.max(1, Number(maxTracksPerAlbum)) : null;
+  const trackLimit = maxTracks ? Math.max(1, Number(maxTracks)) : null;
+  const orderedTracks = sortBy === 'random'
+    ? shufflePlaylistTracks(tracks)
+    : (preserveOrder ? [...tracks] : [...tracks].sort((a, b) => {
+        if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc) || (b.pc - a.pc);
+        if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc) || (b.tw - a.tw);
+        return baseRatingComparator(a, b);
+      }));
+  const artistCounts = new Map();
+  const albumCounts = new Map();
+  const selected = [];
+  for (const track of orderedTracks) {
+    const artistKey = playlistArtistLimitKey(track);
+    if (artistLimit && artistKey && (artistCounts.get(artistKey) || 0) >= artistLimit) continue;
+    const albumKey = playlistAlbumLimitKey(track);
+    if (albumLimit && albumKey && (albumCounts.get(albumKey) || 0) >= albumLimit) continue;
+    selected.push(track);
+    if (artistLimit && artistKey) artistCounts.set(artistKey, (artistCounts.get(artistKey) || 0) + 1);
+    if (albumLimit && albumKey) albumCounts.set(albumKey, (albumCounts.get(albumKey) || 0) + 1);
+    if (trackLimit && selected.length >= trackLimit) break;
+  }
+  return selected;
+}
+
 function djFlowScore(current, candidate) {
   let score = 0;
   const currentCamelot = normalizeCamelotKey(current?.camelotKey || '');
@@ -881,6 +933,7 @@ function hydratePlaylistTracks(masterTracks, tracks = [], fallbackTrackKeys = []
 function sortPlaylistTracksByMode(db, userPlexId, tracks = [], sortBy = 'default') {
   const mode = normalizePlaylistBaseSort(sortBy, 'default');
   if (mode === 'default' || mode === 'source') return Array.isArray(tracks) ? [...tracks] : [];
+  if (mode === 'random') return shufflePlaylistTracks(tracks);
   const trackStats = buildTrackStatMap(db, userPlexId);
   const items = (Array.isArray(tracks) ? tracks : []).map((track) => {
     const stat = trackStats.get(String(track?.ratingKey || '').trim()) || {};
@@ -1931,9 +1984,11 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const gf = parseTriStateFilter(rules.genres);
   const mf = parseTriStateFilter(rules.moods);
   const tf = parseTriStateFilter(rules.tags);
+  const df = parseTriStateFilter(rules.decades);
   const artistTagMap = (tf.include || tf.exclude) ? getArtistTagMap(db) : null;
   const topN = rules.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
+  const maxPerAlbum = rules.maxTracksPerAlbum ? Math.max(1, Number(rules.maxTracksPerAlbum)) : null;
   const sortBy = rules.sortBy || 'ratingCount';
   const eligibleTracks = applyFeaturePresetFilters(masterTracks, rules);
   const eligibleTrackMap = new Map(eligibleTracks.map((track) => [track.ratingKey, track]));
@@ -1960,17 +2015,23 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
       : (t.moods || []).some((m) => mf.include.has(m)))) continue;
     if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
     if (tf.include || tf.exclude) {
-      const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+      const artistTags = getEffectiveTrackTags(t, artistTagMap);
       if (tf.include && !(tf.includeMode === 'all'
         ? Array.from(tf.include).every((tag) => artistTags.includes(tag))
         : artistTags.some((tag) => tf.include.has(tag)))) continue;
       if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
+    }
+    if (df.include || df.exclude) {
+      const trackDecade = getTrackDecadeTag(t);
+      if (df.include && !df.include.has(trackDecade)) continue;
+      if (df.exclude && trackDecade && df.exclude.has(trackDecade)) continue;
     }
     if (!matchesSeasonalRule(t, rules)) continue;
     matchedTracks.push({
       ratingKey: t.ratingKey,
       artistName: t.artistName || '',
       trackTitle: t.trackTitle || '',
+      albumName: t.albumName || '',
       ratingCount: Number(t.ratingCount || 0),
       viewCount: Number(t.viewCount || 0),
       rc: t.ratingCount || 0,
@@ -1982,46 +2043,38 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const albumFilteredTracks = applyAlbumPopularityMode(matchedTracks, rules?.albumPopularityMode, masterTracks);
   const filteredTracks = applyAbsolutePopularityMode(albumFilteredTracks, rules?.popularityMode, rules?.popularityPercent);
 
-  const byArtist = new Map();
-  for (const track of filteredTracks) {
-    if (!byArtist.has(track.artistName)) byArtist.set(track.artistName, []);
-    byArtist.get(track.artistName).push(track);
-  }
-
   let ratingKeys = [];
   if (isAnalysisSortMode(sortBy)) {
-    const selectedTracks = [];
-    for (const [, tracks] of byArtist) {
-      const qualitySorted = [...tracks].sort(baseRatingComparator);
-      const selected = topN ? qualitySorted.slice(0, topN) : qualitySorted;
-      for (const track of selected) {
-        const fullTrack = eligibleTrackMap.get(track.ratingKey) || {};
-        selectedTracks.push({
-          ...track,
-          artistName: fullTrack.artistName || '',
-          trackTitle: fullTrack.trackTitle || '',
-          bpm: fullTrack.bpm ?? null,
-          camelotKey: fullTrack.camelotKey || '',
-          energy: fullTrack.energy ?? null,
-          danceability: fullTrack.danceability ?? null,
-        });
-      }
-    }
+    const selectedTracks = filteredTracks.map((track) => {
+      const fullTrack = eligibleTrackMap.get(track.ratingKey) || {};
+      return {
+        ...track,
+        artistName: fullTrack.artistName || '',
+        trackTitle: fullTrack.trackTitle || '',
+        albumName: fullTrack.albumName || '',
+        bpm: fullTrack.bpm ?? null,
+        camelotKey: fullTrack.camelotKey || '',
+        energy: fullTrack.energy ?? null,
+        danceability: fullTrack.danceability ?? null,
+      };
+    });
     const orderedTracks = sortPlaylistTracksByAnalysis(selectedTracks, sortBy);
-    const limitedTracks = maxT ? orderedTracks.slice(0, maxT) : orderedTracks;
+    const limitedTracks = selectLimitedPlaylistTracks(orderedTracks, {
+      sortBy,
+      topNPerArtist: topN,
+      maxTracksPerAlbum: maxPerAlbum,
+      maxTracks: maxT,
+      preserveOrder: true,
+    });
     return limitedTracks.map((track) => track.ratingKey);
   }
 
-  for (const [, tracks] of byArtist) {
-    const sorted = [...tracks].sort((a, b) => {
-      if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);
-      if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc);
-      return (b.rc - a.rc) || (b.tw - a.tw);
-    });
-    const selected = topN ? sorted.slice(0, topN) : sorted;
-    ratingKeys.push(...selected.map((track) => track.ratingKey));
-  }
-  if (maxT) ratingKeys = ratingKeys.slice(0, maxT);
+  ratingKeys = selectLimitedPlaylistTracks(filteredTracks, {
+    sortBy,
+    topNPerArtist: topN,
+    maxTracksPerAlbum: maxPerAlbum,
+    maxTracks: maxT,
+  }).map((track) => track.ratingKey);
   return ratingKeys;
 }
 

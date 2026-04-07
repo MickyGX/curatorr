@@ -1,4 +1,4 @@
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
 import { applyFeaturePresetFilters, applyTrackFilters, buildFeaturePresetAvailability } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
@@ -17,10 +17,11 @@ const LEGACY_ANALYSIS_FEATURES_PATH = '/data/track-features.json';
 const LEGACY_ANALYSIS_RESULTS_PATH = '/data/track-features.results.json';
 const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
-const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
+const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
+const JOB_INTERVAL_MAX_MINUTES = 10080;
 
 function normaliseTriStateInput(value) {
   if (!value) return { include: [], exclude: [], includeMode: 'any' };
@@ -532,6 +533,7 @@ export function registerSettings(app, ctx) {
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
       allLastfmTags:    (() => { try { return getAllLastfmTags(db);         } catch { return []; } })(),
+      allTrackDecades:  (() => { try { return getAllTrackDecadeTags(db);    } catch { return []; } })(),
       allLibraryKeys:   (() => {
         try {
           const keys = getDistinctLibraryKeys(db);
@@ -1691,7 +1693,8 @@ export function registerSettings(app, ctx) {
     const updated = {};
     for (const jobId of Object.keys(JOB_DEFS)) {
       if (JOB_DEFS[jobId].manualOnly) continue;
-      const intervalMinutes = Math.max(1, Math.min(1440, Number(req.body?.[`${jobId}_interval`]) || JOB_DEFS[jobId].defaultIntervalMinutes));
+      const maxIntervalMinutes = Math.max(JOB_INTERVAL_MAX_MINUTES, Number(JOB_DEFS[jobId].defaultIntervalMinutes || 0));
+      const intervalMinutes = Math.max(1, Math.min(maxIntervalMinutes, Number(req.body?.[`${jobId}_interval`]) || JOB_DEFS[jobId].defaultIntervalMinutes));
       const enabled = Boolean(req.body?.[`${jobId}_enabled`]);
       updated[jobId] = { ...current[jobId], intervalMinutes, enabled };
       jobService?.reschedule(jobId, intervalMinutes, enabled);
@@ -1749,7 +1752,9 @@ export function registerSettings(app, ctx) {
       genres:      normaliseTriStateInput(req.body?.genres),
       moods:       normaliseTriStateInput(req.body?.moods),
       tags:        normaliseTriStateInput(req.body?.tags),
+      decades:     normaliseTriStateInput(req.body?.decades),
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
+      maxTracksPerAlbum: req.body?.maxTracksPerAlbum ? Number(req.body.maxTracksPerAlbum) : null,
       maxTracks:     req.body?.maxTracks     ? Number(req.body.maxTracks)     : null,
       sortBy: PLAYLIST_SORT_VALUES.includes(String(req.body?.sortBy || '').trim()) ? String(req.body.sortBy).trim() : 'ratingCount',
       finalOrdering: PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',
@@ -1821,7 +1826,9 @@ export function registerSettings(app, ctx) {
         genres:      req.body?.genres      !== undefined ? normaliseTriStateInput(req.body?.genres)      : existing.rules?.genres      || [],
         moods:       req.body?.moods       !== undefined ? normaliseTriStateInput(req.body?.moods)       : existing.rules?.moods       || [],
         tags:        req.body?.tags        !== undefined ? normaliseTriStateInput(req.body?.tags)        : existing.rules?.tags        || [],
+        decades:     req.body?.decades     !== undefined ? normaliseTriStateInput(req.body?.decades)     : existing.rules?.decades     || [],
         topNPerArtist: req.body?.topNPerArtist !== undefined ? (req.body.topNPerArtist ? Number(req.body.topNPerArtist) : null) : existing.rules?.topNPerArtist,
+        maxTracksPerAlbum: req.body?.maxTracksPerAlbum !== undefined ? (req.body.maxTracksPerAlbum ? Number(req.body.maxTracksPerAlbum) : null) : existing.rules?.maxTracksPerAlbum,
         maxTracks:     req.body?.maxTracks     !== undefined ? (req.body.maxTracks     ? Number(req.body.maxTracks)     : null) : existing.rules?.maxTracks,
         sortBy: req.body?.sortBy !== undefined ? (PLAYLIST_SORT_VALUES.includes(String(req.body.sortBy).trim()) ? String(req.body.sortBy).trim() : 'ratingCount') : existing.rules?.sortBy || 'ratingCount',
         finalOrdering: req.body?.finalOrdering !== undefined ? (PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body.finalOrdering).trim()) ? String(req.body.finalOrdering).trim() : 'none') : existing.rules?.finalOrdering || 'none',

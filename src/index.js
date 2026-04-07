@@ -224,6 +224,7 @@ function normalizeVersionTag(value) {
 }
 
 function isSecureEnv() {
+  if (process.env.COOKIE_SECURE === 'true') return true;
   const proto = String(process.env.PROTOCOL || '').trim().toLowerCase();
   if (proto === 'https') return true;
   try { return new URL(BASE_URL).protocol === 'https:'; } catch (err) { return false; }
@@ -2050,15 +2051,13 @@ export async function start() {
     server = listener;
   });
 
-  // Start background jobs after the server is already accepting connections.
-  // getMasterTracks() is a synchronous SQLite query that can take 90 seconds on
-  // a cold NAS page cache — running it before app.listen would block the event
-  // loop and make the container appear unhealthy until the query finishes.
+  // Start background job timers after the server is already accepting connections.
+  // Do not run jobs immediately on container start; NAS installs can become sluggish
+  // if playlist/cache work begins while the app is still warming up.
   const config0 = loadConfig();
   if (config0.wizard?.completed) {
     _routeCtx.jobService.startAll({
-      runImmediately: true,
-      skipImmediate: ['masterTrackRefresh', 'smartPlaylistSync', 'tautulliDailySync', 'lastfmTagSync', 'lastfmHistorySync', 'trackEnrichmentSync', 'trackPlexLoudnessSync', 'trackFeatureImportSync', 'trackAnalysisPipeline'],
+      runImmediately: false,
     });
   }
 

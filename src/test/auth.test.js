@@ -22,6 +22,8 @@ const {
   countTracksMissingPlexLoudness,
   createUserPersonalPlaylist,
   findUserPersonalPlaylistByName,
+  getAllLastfmTags,
+  getAllTrackDecadeTags,
   getMasterTracks,
   getPlaylistTracks,
   getTrackEnrichmentByRatingKeys,
@@ -29,9 +31,13 @@ const {
   listLidarrRequests,
   listTracksMissingPlexLoudness,
   getUserPreferences,
+  rebuildArtistStatsFromEvents,
+  rebuildTrackStatsFromEvents,
+  refreshMasterTracks,
   saveArtistTags,
   saveUserPreferences,
   listUserGeneratedPlaylists,
+  previewGlobalPlaylist,
   saveUserGeneratedPlaylist,
 } = await import('../db.js');
 const { createJobService } = await import('../services/jobs.js');
@@ -178,6 +184,16 @@ function runDbStatement(sql, ...params) {
   } finally {
     db.close();
   }
+}
+
+async function waitForDbRow(sql, predicate, params = [], { timeoutMs = 1000, intervalMs = 20 } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const row = readDbRow(sql, ...params);
+    if (predicate(row)) return row;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return readDbRow(sql, ...params);
 }
 
 function buildPlexWebhookForm(payload) {
@@ -1899,6 +1915,37 @@ describe('security guards', () => {
     const config = await readConfig();
     assert.equal(Number(config?.lidarr?.autoAddQuotas?.weeklyArtists), 1);
     assert.equal(Number(config?.lidarr?.autoAddQuotas?.weeklyAlbums), 1);
+  });
+
+  it('allows the default weekly Last.fm tag sync interval on the jobs page', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      jobs: {
+        ...(originalConfig.jobs || {}),
+        lastfmTagSync: { intervalMinutes: 10080, enabled: true },
+      },
+    });
+
+    try {
+      const { client, response } = await login('testadmin', 'TestPassword1!');
+      assert.equal(response.status, 302);
+
+      const page = await client.request('/settings?tab=jobs');
+      assert.equal(page.status, 200);
+      assert.match(page.text, /name="lastfmTagSync_interval" value="10080" min="1" max="10080"/);
+
+      const saveRes = await client.postForm('/settings/jobs', {
+        lastfmTagSync_interval: '10080',
+        lastfmTagSync_enabled: '1',
+      }, '/settings?tab=jobs');
+      assert.equal(saveRes.status, 302);
+
+      const nextConfig = await readConfig();
+      assert.equal(Number(nextConfig.jobs?.lastfmTagSync?.intervalMinutes || 0), 10080);
+    } finally {
+      await writeConfig(originalConfig);
+    }
   });
 
   it('allows regular users to access Lidarr automation when user quotas are configured', () => {
@@ -3716,6 +3763,132 @@ describe('security guards', () => {
     }
   });
 
+  it('keeps generated track decades separate from Last.fm tags', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-decade-tags-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    refreshMasterTracks(db, [
+      {
+        ratingKey: 'decade-1998',
+        artistName: 'Decade Artist',
+        trackTitle: '1998 Song',
+        albumName: '1998 Album',
+        libraryKey: '1',
+        filePath: '/music/1998.flac',
+        durationMs: 180000,
+        ratingCount: 10,
+        viewCount: 0,
+        trackYear: 1998,
+        originalReleaseDate: '1998-04-20',
+      },
+      {
+        ratingKey: 'decade-2001',
+        artistName: 'Decade Artist',
+        trackTitle: '2001 Song',
+        albumName: '2000s Album',
+        libraryKey: '1',
+        filePath: '/music/2001.flac',
+        durationMs: 180000,
+        ratingCount: 10,
+        viewCount: 0,
+        trackYear: 2001,
+        originalReleaseDate: '2001-03-01',
+      },
+      {
+        ratingKey: 'decade-2009',
+        artistName: 'Decade Artist',
+        trackTitle: '2009 Song',
+        albumName: '2000s Album',
+        libraryKey: '1',
+        filePath: '/music/2009.flac',
+        durationMs: 180000,
+        ratingCount: 10,
+        viewCount: 0,
+        trackYear: 2009,
+        originalReleaseDate: '2009-11-05',
+      },
+      {
+        ratingKey: 'decade-2021',
+        artistName: 'Decade Artist',
+        trackTitle: '2021 Song',
+        albumName: '2021 Album',
+        libraryKey: '1',
+        filePath: '/music/2021.flac',
+        durationMs: 180000,
+        ratingCount: 10,
+        viewCount: 0,
+        trackYear: 2021,
+        originalReleaseDate: '2021-07-10',
+      },
+    ]);
+    saveArtistTags(db, 'Decade Artist', ['indie']);
+
+    try {
+      const tags = getAllLastfmTags(db);
+      assert.deepEqual(tags, ['indie']);
+
+      const decades = getAllTrackDecadeTags(db);
+      assert.deepEqual(decades, ['1990s', '2000s', '2020s']);
+
+      const preview = previewGlobalPlaylist(
+        db,
+        { decades: { include: ['2000s'], exclude: [], includeMode: 'any' } },
+        'decade-user',
+        {},
+      );
+      assert.equal(preview.forUser?.eligibleTrackCount, 2);
+      assert.equal(preview.forUser?.trackCount, 2);
+
+      const preview2020s = previewGlobalPlaylist(
+        db,
+        { decades: { include: ['2020s'], exclude: [], includeMode: 'any' } },
+        'decade-user',
+        {},
+      );
+      assert.equal(preview2020s.forUser?.eligibleTrackCount, 1);
+      assert.equal(preview2020s.forUser?.trackCount, 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('applies random playlist artist and album caps in previews', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-random-playlist-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const now = Date.now();
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertMaster.run('random-shared-a', 'Random Artist A', 'Shared A', 'Shared Album', '', '[]', '1', '/music/random-a.flac', 180000, 10, 0, now);
+    insertMaster.run('random-shared-b', 'Random Artist B', 'Shared B', 'Shared Album', '', '[]', '1', '/music/random-b.flac', 180000, 9, 0, now);
+    insertMaster.run('random-unique-c', 'Random Artist C', 'Unique C', 'Unique Album C', '', '[]', '1', '/music/random-c.flac', 180000, 8, 0, now);
+    insertMaster.run('random-unique-d', 'Random Artist D', 'Unique D', 'Unique Album D', '', '[]', '1', '/music/random-d.flac', 180000, 7, 0, now);
+
+    try {
+      const preview = previewGlobalPlaylist(
+        db,
+        { sortBy: 'random', topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 50 },
+        'random-user',
+        {},
+      );
+      assert.equal(preview.forUser?.eligibleTrackCount, 4);
+      assert.equal(preview.forUser?.trackCount, 3);
+      assert.equal(preview.forUser?.artistCount, 3);
+
+      const cappedPreview = previewGlobalPlaylist(
+        db,
+        { sortBy: 'random', topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 2 },
+        'random-user',
+        {},
+      );
+      assert.equal(cappedPreview.forUser?.trackCount, 2);
+    } finally {
+      db.close();
+    }
+  });
+
   it('imports BPM and key features from a manifest and applies typed filters', async () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-enrichment-${Date.now()}-4.db`);
     const manifestPath = join(testDir, `track-features-${Date.now()}.json`);
@@ -4630,6 +4803,83 @@ describe('security guards', () => {
     assert.ok(logs.some((entry) => entry?.action === 'loudness.ordering'));
   });
 
+  it('replays zero-duration Last.fm scrobbles as plays during stats rebuilds', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-lastfm-rebuild-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userPlexId = 'issue-78-user';
+    const plexRatingKey = 'issue-78-track';
+    const artistName = 'Issue 78 Artist';
+    const smartConfig = {
+      skipThresholdSeconds: 30,
+      completionThresholdSeconds: 30,
+      skipWeight: -1,
+      belterWeight: 1,
+    };
+    const startedAt = Date.now() - 60_000;
+
+    const insertEvent = db.prepare(`
+      INSERT INTO play_events (
+        user_plex_id, plex_rating_key, track_title, artist_name, album_name, library_key,
+        started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertEvent.run(
+      userPlexId,
+      plexRatingKey,
+      'Issue 78 Track',
+      artistName,
+      'Issue 78 Album',
+      '1',
+      startedAt,
+      startedAt,
+      0,
+      240000,
+      0,
+      'lastfm_backfill',
+      'issue-78-backfill',
+    );
+    insertEvent.run(
+      userPlexId,
+      plexRatingKey,
+      'Issue 78 Track',
+      artistName,
+      'Issue 78 Album',
+      '1',
+      startedAt + 1000,
+      startedAt + 1000,
+      0,
+      0,
+      0,
+      'lastfm_sync',
+      'issue-78-sync',
+    );
+
+    try {
+      const trackSnapshot = rebuildTrackStatsFromEvents(db, {
+        userPlexId,
+        plexRatingKey,
+        songSkipLimit: 1,
+        smartConfig,
+      });
+      const artistSnapshot = rebuildArtistStatsFromEvents(db, {
+        userPlexId,
+        artistName,
+        smartConfig,
+      });
+
+      assert.equal(trackSnapshot?.playCount, 2);
+      assert.equal(trackSnapshot?.skipCount, 0);
+      assert.equal(trackSnapshot?.consecutiveSkips, 0);
+      assert.equal(trackSnapshot?.excludedFromSmart, 0);
+      assert.equal(trackSnapshot?.tier, 'belter');
+      assert.equal(artistSnapshot?.playCount, 2);
+      assert.equal(artistSnapshot?.skipCount, 0);
+      assert.equal(artistSnapshot?.consecutiveSkips, 0);
+    } finally {
+      db.close();
+    }
+  });
+
   it('marks stale running jobs as interrupted when the scheduler starts', () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-jobs-${Date.now()}-interrupted.db`);
     const db = initDb(dbPath);
@@ -4756,6 +5006,86 @@ describe('security guards', () => {
     const nextConfig = await readConfig();
     assert.equal(nextConfig?.mediaServer?.type, 'plex');
     assert.equal(nextConfig?.plex?.url, 'http://plex.local');
+  });
+
+  it('starts scheduled jobs and records master refresh status when the server wizard completes', async () => {
+    const originalConfig = await readConfig();
+    runDbStatement('DELETE FROM system_job_runs WHERE job_id = ?', 'masterTrackRefresh');
+    runDbStatement('DELETE FROM master_tracks WHERE rating_key = ?', 'wizard-job-track-1');
+
+    await writeConfig({
+      ...originalConfig,
+      wizard: { completed: false },
+      mediaServer: { ...(originalConfig.mediaServer || {}), type: 'plex' },
+      plex: {
+        ...(originalConfig.plex || {}),
+        url: 'http://plex.local',
+        token: 'plex-secret-token',
+        machineId: 'wizard-machine',
+        libraries: ['12'],
+      },
+      jobs: {
+        ...(originalConfig.jobs || {}),
+        masterTrackRefresh: { intervalMinutes: 360, enabled: true },
+      },
+    });
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+
+      if (target.startsWith('http://plex.local/library/sections/12/all?')) {
+        return new Response(JSON.stringify({
+          MediaContainer: {
+            totalSize: 1,
+            Metadata: [{
+              ratingKey: 'wizard-job-track-1',
+              originalTitle: 'Wizard Job Artist',
+              title: 'Wizard Job Track',
+              parentTitle: 'Wizard Job Album',
+              Genre: [{ tag: 'Rock' }],
+              ratingCount: 0,
+              viewCount: 0,
+            }],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (target.startsWith('http://plex.local/library/sections/12/mood?')) {
+        return new Response(JSON.stringify({ MediaContainer: { Directory: [] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      throw new Error('Unexpected fetch in server wizard jobs test: ' + target);
+    };
+
+    try {
+      const completeRes = await client.postForm('/wizard/lidarr', { skip: '1' }, '/wizard?step=5');
+      assert.equal(completeRes.status, 200);
+
+      const row = await waitForDbRow(
+        'SELECT status, last_run_at, message FROM system_job_runs WHERE job_id = ?',
+        (candidate) => candidate?.status === 'success',
+        ['masterTrackRefresh'],
+        { timeoutMs: 1500 },
+      );
+      assert.equal(row?.status, 'success');
+      assert.ok(Number(row?.last_run_at || 0) > 0);
+    } finally {
+      global.fetch = originalFetch;
+      await writeConfig(originalConfig);
+      runDbStatement('DELETE FROM system_job_runs WHERE job_id = ?', 'masterTrackRefresh');
+      runDbStatement('DELETE FROM master_tracks WHERE rating_key = ?', 'wizard-job-track-1');
+    }
   });
 
   it('fetches and stores the Plex owner token for the server wizard without replacing the current session user', async () => {

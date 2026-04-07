@@ -646,6 +646,7 @@ export function initDb(dbPath) {
   const BUILTIN_TEMPLATES = [
     { id: 'tmpl_favourites', name: 'Favourites',  description: 'Your highest-rated tracks and artists', rules: { artistTiers: { include: ['belter'], exclude: [] }, trackTiers: { include: ['belter'], exclude: [] } } },
     { id: 'tmpl_discovery',  name: 'Discovery',   description: 'Unplayed tracks from unranked artists — surface new favourites', rules: { artistTiers: { include: ['unranked'], exclude: [] }, trackTiers: { include: ['unplayed'], exclude: [] } } },
+    { id: 'tmpl_random_library', name: 'Random Library Mix', description: '50 random library tracks with artist and album variety', rules: { topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'random', finalOrdering: 'none', rebuildSchedule: 'daily' } },
     { id: 'tmpl_workout',    name: 'Workout',      description: 'High BPM, high energy, built for momentum', rules: { featurePreset: 'workout', artistTiers: { include: ['belter', 'decent'], exclude: [] }, trackTiers: { include: [], exclude: [] } } },
     { id: 'tmpl_focus',      name: 'Focus',        description: 'Slow pace, low energy, easy background listening', rules: { featurePreset: 'chill', trackTiers: { include: ['belter', 'decent'], exclude: [] } } },
     { id: 'tmpl_latenight',  name: 'Late Night',   description: 'Club vibes — fast, energetic, dancefloor-ready', rules: { featurePreset: 'club', artistTiers: { include: ['belter', 'decent'], exclude: [] }, trackTiers: { include: [], exclude: [] } } },
@@ -1083,6 +1084,18 @@ function _eventTime(event) {
   return Number(event?.ended_at || event?.started_at || Date.now());
 }
 
+function _classifyReplayedEvent(event, smartConfig) {
+  const eventSource = String(event?.event_source || '').trim().toLowerCase();
+  const isLastfmScrobble = eventSource === 'lastfm_sync' || eventSource === 'lastfm_backfill';
+  if (isLastfmScrobble && Number(event?.is_skip || 0) === 0) {
+    const trackDurationMs = Number(event?.track_duration_ms || 0);
+    return trackDurationMs > 0
+      ? classifyTier(trackDurationMs, trackDurationMs, smartConfig)
+      : 'belter';
+  }
+  return classifyTier(event?.duration_ms || 0, event?.track_duration_ms || 0, smartConfig);
+}
+
 function _rebuildTrackSnapshot(existing, events, { songSkipLimit, smartConfig }) {
   const manualExcluded = Number(existing?.manually_excluded || 0);
   const manualIncluded = Number(existing?.manually_included || 0);
@@ -1099,7 +1112,7 @@ function _rebuildTrackSnapshot(existing, events, { songSkipLimit, smartConfig })
   let tierWeight = existing?.tier_weight ?? 0;
 
   for (const event of events) {
-    const eventTier = classifyTier(event.duration_ms || 0, event.track_duration_ms || 0, smartConfig);
+    const eventTier = _classifyReplayedEvent(event, smartConfig);
     const isSkip = eventTier === 'skip';
     const eventAt = _eventTime(event);
 
@@ -1147,7 +1160,7 @@ export function rebuildTrackStatsFromEvents(db, {
     'SELECT * FROM track_stats WHERE plex_rating_key = ? AND user_plex_id = ?',
   ).get(plexRatingKey, userPlexId);
   const events = db.prepare(`
-    SELECT id, track_title, artist_name, album_name, started_at, ended_at, duration_ms, track_duration_ms
+    SELECT id, track_title, artist_name, album_name, started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source
     FROM play_events
     WHERE user_plex_id = ? AND plex_rating_key = ?
     ORDER BY started_at ASC, id ASC
@@ -1226,7 +1239,7 @@ export function rebuildArtistStatsFromEvents(db, { userPlexId, artistName, smart
     'SELECT * FROM artist_stats WHERE artist_name = ? AND user_plex_id = ?',
   ).get(artistName, userPlexId);
   const events = db.prepare(`
-    SELECT id, started_at, ended_at, duration_ms, track_duration_ms
+    SELECT id, started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source
     FROM play_events
     WHERE user_plex_id = ? AND artist_name = ?
     ORDER BY started_at ASC, id ASC
@@ -1249,7 +1262,7 @@ export function rebuildArtistStatsFromEvents(db, { userPlexId, artistName, smart
   let lastSkippedAt = null;
 
   for (const event of events) {
-    const tier = classifyTier(event.duration_ms || 0, event.track_duration_ms || 0, smartConfig);
+    const tier = _classifyReplayedEvent(event, smartConfig);
     const weight = _tierWeight(tier, smartConfig);
     const isSkip = tier === 'skip';
     const eventAt = _eventTime(event);
@@ -1902,8 +1915,18 @@ export function refreshMasterTracks(db, tracks) {
       duration_ms = excluded.duration_ms, rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
   `);
+  const upsertYear = db.prepare(`
+    INSERT INTO track_enrichment (
+      rating_key, recording_mbid, track_year, original_release_date, payload_json, analysis_source, updated_at
+    ) VALUES (?, ?, ?, ?, '{}', 'media-server', ?)
+    ON CONFLICT(rating_key) DO UPDATE SET
+      recording_mbid = COALESCE(NULLIF(excluded.recording_mbid, ''), track_enrichment.recording_mbid),
+      track_year = COALESCE(excluded.track_year, track_enrichment.track_year),
+      original_release_date = COALESCE(NULLIF(excluded.original_release_date, ''), track_enrichment.original_release_date),
+      updated_at = excluded.updated_at
+  `);
   const run = db.transaction((rows) => {
-    for (const r of rows)
+    for (const r of rows) {
       upsert.run(
         r.ratingKey,
         r.artistName,
@@ -1919,6 +1942,18 @@ export function refreshMasterTracks(db, tracks) {
         r.viewCount ?? 0,
         Date.now(),
       );
+      const trackYear = Number(r.trackYear || 0);
+      const originalReleaseDate = String(r.originalReleaseDate || '').trim();
+      if ((Number.isInteger(trackYear) && trackYear > 0) || originalReleaseDate) {
+        upsertYear.run(
+          r.ratingKey,
+          String(r.recordingMbid || '').trim(),
+          Number.isInteger(trackYear) && trackYear > 0 ? trackYear : null,
+          originalReleaseDate,
+          Date.now(),
+        );
+      }
+    }
   });
   run(tracks);
 }
@@ -2439,9 +2474,51 @@ export function getArtistTagMap(db) {
   );
 }
 
+function normalizeTagValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function resolveTrackYearValue(track = {}) {
+  const direct = Number(track?.trackYear ?? track?.track_year ?? 0);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  const releaseDate = String(track?.originalReleaseDate || track?.original_release_date || '').trim();
+  const match = releaseDate.match(/^(\d{4})/);
+  return match ? Number(match[1]) : 0;
+}
+
+export function getTrackDecadeTag(track = {}) {
+  const year = resolveTrackYearValue(track);
+  if (!Number.isInteger(year) || year < 1900 || year > 2099) return '';
+  return `${Math.floor(year / 10) * 10}s`;
+}
+
+export function getAllTrackDecadeTags(db) {
+  const rows = db.prepare(`
+    SELECT DISTINCT year FROM (
+      SELECT track_year AS year
+      FROM track_enrichment
+      WHERE track_year IS NOT NULL
+      UNION
+      SELECT CAST(substr(original_release_date, 1, 4) AS INTEGER) AS year
+      FROM track_enrichment
+      WHERE original_release_date GLOB '[0-9][0-9][0-9][0-9]*'
+    )
+    WHERE year BETWEEN 1900 AND 2099
+    ORDER BY year
+  `).all();
+  return [...new Set(rows.map((row) => getTrackDecadeTag({ trackYear: Number(row.year || 0) })).filter(Boolean))].sort();
+}
+
+export function getEffectiveTrackTags(track = {}, artistTagMap = new Map()) {
+  const artistKey = String(track?.artistName || track?.artist_name || '').trim().toLowerCase();
+  return (artistTagMap?.get?.(artistKey) || [])
+    .map(normalizeTagValue)
+    .filter(Boolean);
+}
+
 export function getAllLastfmTags(db) {
   const rows = db.prepare('SELECT DISTINCT value FROM artist_tags, json_each(artist_tags.tags) ORDER BY value').all();
-  return rows.map((r) => r.value).filter(Boolean);
+  return [...new Set(rows.map((r) => normalizeTagValue(r.value)).filter(Boolean))].sort();
 }
 
 export function getLastfmTagSyncStats(db) {
@@ -3391,6 +3468,49 @@ function applyAbsolutePopularityMode(tracks, mode, percentValue) {
   return tracks.filter((track) => keepKeys.has(String(track?.ratingKey || '')));
 }
 
+function shufflePreviewTracks(tracks = []) {
+  const items = Array.isArray(tracks) ? [...tracks] : [];
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function previewTrackComparator(sortBy) {
+  return (a, b) => {
+    if (sortBy === 'tierWeight') return (Number(b?.tw || 0) - Number(a?.tw || 0)) || (Number(b?.rc || 0) - Number(a?.rc || 0));
+    if (sortBy === 'playCount') return (Number(b?.pc || 0) - Number(a?.pc || 0)) || (Number(b?.rc || 0) - Number(a?.rc || 0));
+    return (Number(b?.rc || 0) - Number(a?.rc || 0))
+      || (Number(b?.tw || 0) - Number(a?.tw || 0))
+      || String(a?.artistName || '').localeCompare(String(b?.artistName || ''))
+      || String(a?.trackTitle || '').localeCompare(String(b?.trackTitle || ''));
+  };
+}
+
+function selectPreviewTracks(tracks = [], { sortBy = 'ratingCount', topNPerArtist = null, maxTracksPerAlbum = null, maxTracks = null } = {}) {
+  const artistLimit = topNPerArtist ? Math.max(1, Number(topNPerArtist)) : null;
+  const albumLimit = maxTracksPerAlbum ? Math.max(1, Number(maxTracksPerAlbum)) : null;
+  const trackLimit = maxTracks ? Math.max(1, Number(maxTracks)) : null;
+  const orderedTracks = sortBy === 'random'
+    ? shufflePreviewTracks(tracks)
+    : [...tracks].sort(previewTrackComparator(sortBy));
+  const artistCounts = new Map();
+  const albumCounts = new Map();
+  const selected = [];
+  for (const track of orderedTracks) {
+    const artistKey = String(track?.artistName || '').trim().toLowerCase();
+    if (artistLimit && artistKey && (artistCounts.get(artistKey) || 0) >= artistLimit) continue;
+    const albumKey = String(track?.albumName || '').trim().toLowerCase();
+    if (albumLimit && albumKey && (albumCounts.get(albumKey) || 0) >= albumLimit) continue;
+    selected.push(track);
+    if (artistLimit && artistKey) artistCounts.set(artistKey, (artistCounts.get(artistKey) || 0) + 1);
+    if (albumLimit && albumKey) albumCounts.set(albumKey, (albumCounts.get(albumKey) || 0) + 1);
+    if (trackLimit && selected.length >= trackLimit) break;
+  }
+  return selected;
+}
+
 export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, filteredMasterTracks) {
   const masterTracks = filteredMasterTracks ?? getMasterTracks(db);
   const albumPopularityMode = normalizeAlbumPopularityMode(rules?.albumPopularityMode);
@@ -3416,8 +3536,10 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
   const gf = parseTriStateFilter(rules?.genres);
   const mf = parseTriStateFilter(rules?.moods);
   const tf = parseTriStateFilter(rules?.tags);
+  const df = parseTriStateFilter(rules?.decades);
   const topN = rules?.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules?.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
+  const maxPerAlbum = rules?.maxTracksPerAlbum ? Math.max(1, Number(rules.maxTracksPerAlbum)) : null;
 
   function matchesSeasonalRule(track) {
     const seasonalGenres = Array.isArray(rules?.seasonalGenres) ? rules.seasonalGenres.filter(Boolean) : [];
@@ -3478,11 +3600,16 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         : (t.moods || []).some((m) => mf.include.has(m)))) continue;
       if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
       if (tf.include || tf.exclude) {
-        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+        const artistTags = getEffectiveTrackTags(t, artistTagMap);
         if (tf.include && !(tf.includeMode === 'all'
           ? Array.from(tf.include).every((tag) => artistTags.includes(tag))
           : artistTags.some((tag) => tf.include.has(tag)))) continue;
         if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
+      }
+      if (df.include || df.exclude) {
+        const trackDecade = getTrackDecadeTag(t);
+        if (df.include && !df.include.has(trackDecade)) continue;
+        if (df.exclude && trackDecade && df.exclude.has(trackDecade)) continue;
       }
       if (!matchesSeasonalRule(t)) continue;
       if (albumPopularTrackKeys) {
@@ -3494,6 +3621,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         ratingKey: t.ratingKey,
         artistName: t.artistName || '',
         trackTitle: t.trackTitle || '',
+        albumName: t.albumName || '',
         ratingCount: Number(t.ratingCount || 0),
         viewCount: Number(t.viewCount || 0),
         rc: t.ratingCount || 0,
@@ -3503,25 +3631,14 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
     }
 
     const popularityFilteredTracks = applyAbsolutePopularityMode(matchedTracks, popularityMode, rules?.popularityPercent);
-    const byArtist = new Map();
-    for (const track of popularityFilteredTracks) {
-      if (!byArtist.has(track.artistName)) byArtist.set(track.artistName, []);
-      byArtist.get(track.artistName).push(track);
-    }
-
-    const eligibleArtistCount = byArtist.size;
-    const eligibleTrackCount = Array.from(byArtist.values()).reduce((sum, tracks) => sum + tracks.length, 0);
-    const selectedTracks = [];
-    for (const [, tracks] of byArtist) {
-      const sorted = [...tracks].sort((a, b) => {
-        if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc);
-        if (sortBy === 'playCount') return (b.pc - a.pc) || (b.rc - a.rc);
-        return (b.rc - a.rc) || (b.tw - a.tw);
-      });
-      const limited = topN ? sorted.slice(0, topN) : sorted;
-      selectedTracks.push(...limited);
-    }
-    const finalTracks = maxT ? selectedTracks.slice(0, maxT) : selectedTracks;
+    const eligibleArtistCount = new Set(popularityFilteredTracks.map((track) => String(track.artistName || '').trim()).filter(Boolean)).size;
+    const eligibleTrackCount = popularityFilteredTracks.length;
+    const finalTracks = selectPreviewTracks(popularityFilteredTracks, {
+      sortBy,
+      topNPerArtist: topN,
+      maxTracksPerAlbum: maxPerAlbum,
+      maxTracks: maxT,
+    });
     const artistCount = new Set(finalTracks.map((track) => String(track.artistName || '').trim()).filter(Boolean)).size;
     return {
       artistCount,
@@ -3538,7 +3655,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
     );
     const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
+      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
         .map((r) => [r.plex_rating_key, r]),
     );
     const matchedTracks = [];
@@ -3561,11 +3678,16 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         : (t.moods || []).some((m) => mf.include.has(m)))) continue;
       if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
       if (tf.include || tf.exclude) {
-        const artistTags = artistTagMap.get((t.artistName || '').toLowerCase()) || [];
+        const artistTags = getEffectiveTrackTags(t, artistTagMap);
         if (tf.include && !(tf.includeMode === 'all'
           ? Array.from(tf.include).every((tag) => artistTags.includes(tag))
           : artistTags.some((tag) => tf.include.has(tag)))) continue;
         if (tf.exclude && artistTags.some((tag) => tf.exclude.has(tag))) continue;
+      }
+      if (df.include || df.exclude) {
+        const trackDecade = getTrackDecadeTag(t);
+        if (df.include && !df.include.has(trackDecade)) continue;
+        if (df.exclude && trackDecade && df.exclude.has(trackDecade)) continue;
       }
       if (!matchesSeasonalRule(t)) continue;
       if (albumPopularTrackKeys) {
@@ -3575,13 +3697,22 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       }
       matchedTracks.push({
         ratingKey: t.ratingKey,
+        artistName: t.artistName || '',
         trackTitle: t.trackTitle || '',
+        albumName: t.albumName || '',
         ratingCount: Number(t.ratingCount || 0),
         viewCount: Number(t.viewCount || 0),
+        rc: t.ratingCount || 0,
+        tw: stat?.tier_weight || 0,
+        pc: stat?.play_count || 0,
       });
     }
-    const keys = new Set(applyAbsolutePopularityMode(matchedTracks, popularityMode, rules?.popularityPercent)
-      .map((track) => String(track.ratingKey || ''))
+    const keys = new Set(selectPreviewTracks(applyAbsolutePopularityMode(matchedTracks, popularityMode, rules?.popularityPercent), {
+      sortBy,
+      topNPerArtist: topN,
+      maxTracksPerAlbum: maxPerAlbum,
+      maxTracks: maxT,
+    }).map((track) => String(track.ratingKey || ''))
       .filter(Boolean));
     return keys;
   }
@@ -3592,7 +3723,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
     );
     const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
+      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
         .map((r) => [r.plex_rating_key, r]),
     );
     return runWithMaps(artistMap, trackMap);
@@ -3612,7 +3743,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
           if (!artistGroups.has(key)) artistGroups.set(key, []);
           artistGroups.get(key).push(r.ranking_score);
         });
-      db.prepare('SELECT plex_rating_key, tier, tier_weight FROM track_stats WHERE user_plex_id = ?').all(uid)
+      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
         .forEach((r) => {
           if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, { weights: [], tiers: [] });
           const d = trackGroups.get(r.plex_rating_key);
@@ -3653,7 +3784,17 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
     }
     const eligibleTracks = masterTracks.filter((t) => resultKeys.has(t.ratingKey));
     const eligibleArtistCount = new Set(eligibleTracks.map((t) => t.artistName)).size;
-    const finalTracks = maxT ? eligibleTracks.slice(0, maxT) : eligibleTracks;
+    const finalTracks = selectPreviewTracks(eligibleTracks.map((track) => ({
+      ...track,
+      rc: Number(track?.ratingCount || 0),
+      tw: 0,
+      pc: 0,
+    })), {
+      sortBy,
+      topNPerArtist: topN,
+      maxTracksPerAlbum: maxPerAlbum,
+      maxTracks: maxT,
+    });
     const artistCount = new Set(finalTracks.map((t) => t.artistName)).size;
     return {
       forUser: {

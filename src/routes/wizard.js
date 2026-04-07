@@ -907,11 +907,18 @@ export function registerWizard(app, ctx) {
     // Mark server wizard complete
     saveConfig({ ...loadConfig(), wizard: { completed: true, completedAt: new Date().toISOString() } });
 
-    // Build master track cache (background — non-blocking response)
-    refreshMasterTrackCache(ctx).catch(() => {});
+    // Start the normal scheduler now that setup is complete. Without this,
+    // fresh installs do not schedule jobs until the app is restarted.
+    ctx.jobService?.startAll({
+      runImmediately: false,
+    });
 
-    // Schedule periodic refresh every 6 hours
-    setInterval(() => refreshMasterTrackCache(ctx).catch(() => {}), 6 * 60 * 60 * 1000).unref();
+    // Build master track cache (background — non-blocking response)
+    if (ctx.jobService) {
+      ctx.jobService.runJob('masterTrackRefresh').catch(() => {});
+    } else {
+      refreshMasterTrackCache(ctx).catch(() => {});
+    }
 
     pushLog({ level: 'info', app: 'wizard', action: 'server.complete', message: 'Server wizard completed — building master track cache' });
     return renderServerWizard(res, loadConfig(), 6, null);

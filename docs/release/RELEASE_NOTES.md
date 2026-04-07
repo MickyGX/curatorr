@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.65 (2026-04-07)
+
+- Added a Random Library Mix starting point for smart playlists, with random ordering plus per-artist, per-album, and total track limits so users can build daily library samplers without repeat-heavy results.
+- Added Curatorr-generated Decades filters based on each track's year/release-date metadata, including 2020s, while keeping Last.fm tags separate so decade-looking Last.fm tags do not accidentally act like track-year filters.
+- Fixed scheduled jobs and stats edge cases: jobs no longer all fire during container startup, the server wizard starts the scheduler and records the first master refresh through job status, Last.fm zero-duration scrobbles replay as plays during rebuilds, and the weekly Last.fm tag sync interval can be saved from Settings.
+
 ## v0.1.64 (2026-04-04)
 
 - Discover now uses album-level Lidarr/library reconciliation instead of artist-only presence, including variant matching for standard vs deluxe editions and a Lidarr downloaded fallback when the local media cache has not caught up yet.
