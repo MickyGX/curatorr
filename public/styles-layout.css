@@ -503,6 +503,7 @@ html[data-square-corners="1"] .user-menu,
 html[data-square-corners="1"] .plex-modal,
 html[data-square-corners="1"] .plex-modal-close,
 html[data-square-corners="1"] .plex-modal-hero,
+html[data-square-corners="1"] .release-welcome-panel,
 html[data-square-corners="1"] .plex-modal-poster,
 html[data-square-corners="1"] .plex-modal-link,
 html[data-square-corners="1"] .plex-pill2,
@@ -1567,30 +1568,38 @@ html[data-square-corners="1"] .dash-main.dash-main--module-overview .embedded-mo
   color:#fff;
 }
 
-.release-welcome-modal{
+.plex-modal.release-welcome-modal{
   width:min(880px, 96vw);
   max-width:min(880px, 96vw);
 }
 
-.release-welcome-body{
+.plex-modal-body.release-welcome-body{
   padding:0;
   min-height:0;
 }
 
-.release-welcome-scroll{
+.plex-modal-scroll.release-welcome-scroll{
   padding:16px;
 }
 
-.release-welcome-hero{
+.release-welcome-panel{
+  position:relative;
+  height:auto;
   min-height:0;
   background:#121824;
-  border-color:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;
+  overflow:hidden;
 }
 
-.release-welcome-hero::before{
+.release-welcome-panel::before{
+  content:"";
+  position:absolute;
+  inset:0;
   background:
     radial-gradient(760px 340px at 20% 8%, rgba(var(--brand-rgb),.3), transparent 62%),
     linear-gradient(94deg, rgba(18,24,36,.92) 0%, rgba(18,24,36,.72) 56%, rgba(18,24,36,.9) 100%);
+  z-index:1;
 }
 
 .release-welcome-content{
@@ -1695,7 +1704,7 @@ html[data-square-corners="1"] .dash-main.dash-main--module-overview .embedded-mo
   font-weight:700;
 }
 
-.release-welcome-footer{
+.plex-modal-footer.release-welcome-footer{
   flex-wrap:wrap;
   justify-content:flex-end;
 }
@@ -1704,18 +1713,18 @@ html[data-square-corners="1"] .dash-main.dash-main--module-overview .embedded-mo
   font-weight:800;
 }
 
-.release-welcome-nav{
+.plex-modal-link.release-welcome-nav{
   border-color:rgba(var(--brand-rgb),.55);
   background:rgba(var(--brand-rgb),.2);
 }
 
-.release-welcome-support{
+.plex-modal-link.release-welcome-support{
   border-color:rgba(255,197,92,.55);
   background:rgba(255,197,92,.18);
   color:#ffe6b0;
 }
 
-.release-welcome-close{
+.plex-modal-link.release-welcome-close{
   cursor:pointer;
   appearance:none;
   -webkit-appearance:none;
@@ -1834,12 +1843,12 @@ html[data-square-corners="1"] .dash-main.dash-main--module-overview .embedded-mo
   -webkit-appearance:none;
 }
 
-[data-theme="day"] .release-welcome-hero{
+[data-theme="day"] .release-welcome-panel{
   background:#eef2f8;
   border-color:rgba(10,20,30,.16);
 }
 
-[data-theme="day"] .release-welcome-hero::before{
+[data-theme="day"] .release-welcome-panel::before{
   background:
     radial-gradient(760px 340px at 20% 8%, rgba(var(--brand-rgb),.16), transparent 62%),
     linear-gradient(96deg, rgba(241,245,251,.88) 0%, rgba(241,245,251,.62) 56%, rgba(241,245,251,.84) 100%);
@@ -1923,7 +1932,7 @@ html[data-square-corners="1"] .dash-main.dash-main--module-overview .embedded-mo
 }
 
 @media (max-width: 720px){
-  .release-welcome-scroll{
+  .plex-modal-scroll.release-welcome-scroll{
     padding:12px;
   }
 

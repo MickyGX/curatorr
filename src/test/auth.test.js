@@ -42,7 +42,7 @@ const {
 } = await import('../db.js');
 const { createJobService } = await import('../services/jobs.js');
 const { createLidarrService } = await import('../services/lidarr.js');
-const { applyFeaturePresetFilters, applyTrackFilters, createPlaylistService, sortPlaylistTracksByAnalysis } = await import('../services/playlists.js');
+const { applyFeaturePresetFilters, applyTrackFilters, applyTrackFiltersWithReport, createPlaylistService, sortPlaylistTracksByAnalysis } = await import('../services/playlists.js');
 const { createTrackEnrichmentService } = await import('../services/track-enrichment.js');
 const { runTautulliDailySync } = await import('../services/tautulli-sync.js');
 const {
@@ -4015,6 +4015,44 @@ describe('security guards', () => {
 
       const dedupedByTitle = applyTrackFilters(masterTracks, { deduplicateByArtistTitle: true });
       assert.deepEqual(dedupedByTitle.map((track) => track.ratingKey).sort(), ['rel-3', 'rel-4']);
+
+      const titleReport = applyTrackFiltersWithReport(masterTracks, {
+        deduplicateByArtistTitle: true,
+      }, { duplicateLimit: 10 });
+      assert.equal(titleReport.duplicateCount, 3);
+      assert.deepEqual(titleReport.tracks.map((track) => track.ratingKey).sort(), ['rel-3', 'rel-4']);
+      assert.equal(titleReport.duplicateMatches[0].method, 'artist_title');
+      assert.equal(titleReport.duplicateMatches[0].reason, 'Artist/title fuzzy match');
+      assert.equal(titleReport.duplicateMatches[0].kept.ratingKey, 'rel-3');
+      assert.equal(titleReport.duplicateMatches[0].duplicate.ratingKey, 'rel-2');
+
+      const durationGuarded = applyTrackFilters(masterTracks, {
+        deduplicateByArtistTitle: true,
+        deduplicateByDuration: true,
+      });
+      assert.deepEqual(durationGuarded.map((track) => track.ratingKey).sort(), ['rel-2', 'rel-3', 'rel-4']);
+
+      const durationReport = applyTrackFiltersWithReport(masterTracks, {
+        deduplicateByArtistTitle: true,
+        deduplicateByDuration: true,
+      }, { duplicateLimit: 10 });
+      assert.equal(durationReport.duplicateCount, 2);
+      assert.equal(durationReport.duplicateMatches[0].reason, 'Artist/title fuzzy match within 5 seconds');
+
+      const variantGuarded = applyTrackFilters(masterTracks, {
+        deduplicateByArtistTitle: true,
+        deduplicateIgnoreLikelyVariants: true,
+      });
+      assert.deepEqual(variantGuarded.map((track) => track.ratingKey).sort(), ['rel-1', 'rel-2', 'rel-3', 'rel-4']);
+
+      const liveAlbumGuarded = applyTrackFilters([
+        { ratingKey: 'live-album-1', artistName: 'The Beatles', trackTitle: 'Penny Lane', albumName: 'Concert', albumType: 'Live', durationMs: 193000, ratingCount: 260, viewCount: 0 },
+        { ratingKey: 'studio-1', artistName: 'The Beatles', trackTitle: 'Penny Lane', albumName: 'Magical Mystery Tour', albumType: 'Album', durationMs: 193000, ratingCount: 120, viewCount: 0 },
+      ], {
+        deduplicateByArtistTitle: true,
+        deduplicateIgnoreLiveAlbums: true,
+      });
+      assert.deepEqual(liveAlbumGuarded.map((track) => track.ratingKey).sort(), ['live-album-1', 'studio-1']);
     } finally {
       db.close();
     }

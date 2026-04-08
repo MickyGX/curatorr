@@ -76,6 +76,13 @@ function wait(ms) {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
+export function resolveManualPreviewAlbumStatus(album = {}) {
+  const trackFileCount = Number(album?.statistics?.trackFileCount || album?.trackFileCount || 0) || 0;
+  if (trackFileCount > 0) return 'available';
+  if (Boolean(album?.monitored)) return 'pending';
+  return 'missing';
+}
+
 function normalizeStoredRank(value, fallback = 0) {
   const rank = Number(value);
   if (!Number.isFinite(rank)) return fallback;
@@ -816,7 +823,7 @@ export function createLidarrService(ctx) {
     const trackCount = Number(album?.statistics?.trackCount || album?.trackCount || 0) || 0;
     const trackFileCount = Number(album?.statistics?.trackFileCount || album?.trackFileCount || 0) || 0;
     const inLidarr = normalizedSource === 'lidarr' || numericAlbumId > 0;
-    const statusKey = trackFileCount > 0 ? 'available' : (inLidarr ? 'pending' : 'missing');
+    const statusKey = resolveManualPreviewAlbumStatus(album);
     return {
       albumId: numericAlbumId,
       foreignAlbumId,
@@ -1059,6 +1066,31 @@ export function createLidarrService(ctx) {
       monitored: Boolean(monitored),
     });
     return result;
+  }
+
+  async function verifyAlbumMonitored(albumId, monitored = true, options = {}) {
+    const id = Number(albumId || 0);
+    if (!id) throw new Error('albumId is required');
+    const expected = Boolean(monitored);
+    const attempts = Math.max(1, Math.min(5, Number(options.attempts || 3) || 3));
+    const delayMs = Math.max(0, Math.min(3000, Number(options.delayMs || 800) || 800));
+    let lastAlbum = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (attempt > 0 && delayMs > 0) await wait(delayMs);
+      lastAlbum = await getAlbum(id, { timeoutMs: Number(options.timeoutMs || 12000) });
+      if (lastAlbum && Boolean(lastAlbum.monitored) === expected) return lastAlbum;
+    }
+    const err = new Error(`Lidarr did not confirm album ${id} as ${expected ? 'monitored' : 'unmonitored'}.`);
+    err.code = 'ALBUM_MONITOR_VERIFY_FAILED';
+    err.albumId = id;
+    err.expectedMonitored = expected;
+    err.actualMonitored = lastAlbum ? Boolean(lastAlbum.monitored) : null;
+    throw err;
+  }
+
+  async function setAlbumMonitoredAndVerify(albumId, monitored = true, options = {}) {
+    await setAlbumMonitored(albumId, monitored);
+    return verifyAlbumMonitored(albumId, monitored, options);
   }
 
   async function listTags(options = {}) {
@@ -1544,7 +1576,7 @@ export function createLidarrService(ctx) {
 
     let repairedMonitoring = false;
     if (!liveMonitored) {
-      await setAlbumMonitored(albumId, true);
+      await setAlbumMonitoredAndVerify(albumId, true);
       await tagCuratorrManagedItems({
         sourceKind: trackedAlbum?.sourceKind || baseReason?.artistAddedSourceKind || baseReason?.requestSourceKind || 'automatic',
         albumId,
@@ -1816,7 +1848,7 @@ export function createLidarrService(ctx) {
     let searchCommand = null;
     try {
       quota = assertQuotaAvailable(role, usage, { albums: 1 });
-      await setAlbumMonitored(albumId, true);
+      await setAlbumMonitoredAndVerify(albumId, true);
       await tagCuratorrManagedItems({
         sourceKind,
         albumId,
@@ -2190,7 +2222,7 @@ export function createLidarrService(ctx) {
     if (!alreadyMonitored) {
       quota = assertQuotaAvailable(role, getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
       if (autoAdd) assertAutoAddQuotaAvailable(getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
-      await setAlbumMonitored(albumId, true);
+      await setAlbumMonitoredAndVerify(albumId, true);
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: Date.now() });
       const _albumTrackCount2 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
       if (_albumTrackCount2 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount2, createdAt: Date.now() });
@@ -2284,6 +2316,8 @@ export function createLidarrService(ctx) {
           selectionReason: pickedAlbum.selectionReason,
           searchCommandId: Number(searchCommand?.id || 0) || null,
           alreadyMonitored,
+          monitoredConfirmed: true,
+          monitoredConfirmedAt: Date.now(),
           fallbackUsed: pickedAlbum.selectionReason.startsWith('fallback_'),
           requestSource: sourceKind,
           albumSource: albumSourceKind,
@@ -2520,6 +2554,8 @@ export function createLidarrService(ctx) {
     previewManualArtistAlbums,
     previewManualAlbumOverview,
     setAlbumMonitored,
+    verifyAlbumMonitored,
+    setAlbumMonitoredAndVerify,
     triggerAlbumSearch,
     getCommand,
     getAlbum,

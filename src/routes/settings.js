@@ -1,5 +1,5 @@
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
-import { applyFeaturePresetFilters, applyTrackFilters, buildFeaturePresetAvailability } from '../services/playlists.js';
+import { applyFeaturePresetFilters, applyTrackFiltersWithReport, buildFeaturePresetAvailability } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
 import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
@@ -33,8 +33,12 @@ function normaliseTriStateInput(value) {
   };
 }
 
-function buildPlaylistPreviewSnapshot(db, userId, rules, trackFilters, smartSettings) {
-  const baseTracks = trackFilters ? applyTrackFilters(getMasterTracks(db), trackFilters) : getMasterTracks(db);
+function buildPlaylistPreviewSnapshot(db, userId, rules, trackFilters, smartSettings, options = {}) {
+  const duplicateLimit = Math.max(0, Math.min(10000, Number(options.dedupeReportLimit || 0) || 0));
+  const filterResult = trackFilters
+    ? applyTrackFiltersWithReport(getMasterTracks(db), trackFilters, { duplicateLimit })
+    : { tracks: getMasterTracks(db), duplicateCount: 0, duplicateMatches: [] };
+  const baseTracks = filterResult.tracks;
   const filteredTracks = applyFeaturePresetFilters(baseTracks, rules || {});
   const result = previewGlobalPlaylist(db, rules || {}, userId, smartSettings || {}, filteredTracks);
   return {
@@ -45,6 +49,8 @@ function buildPlaylistPreviewSnapshot(db, userId, rules, trackFilters, smartSett
       eligibleTrackCount: 0,
     },
     featureTrackCount: filteredTracks.length,
+    dedupeDuplicateCount: filterResult.duplicateCount || 0,
+    dedupeDuplicateMatches: filterResult.duplicateMatches || [],
   };
 }
 
@@ -924,7 +930,10 @@ export function registerSettings(app, ctx) {
       const excludeLibraryKeys = [].concat(req.body?.[`${prefix}_excludeLibraryKeys`] || []).map(String).filter(Boolean);
       const deduplicateByMbid = req.body?.[`${prefix}_deduplicateByMbid`] === 'on';
       const deduplicateByArtistTitle = req.body?.[`${prefix}_deduplicateByArtistTitle`] === 'on';
-      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle };
+      const deduplicateByDuration = req.body?.[`${prefix}_deduplicateByDuration`] === 'on';
+      const deduplicateIgnoreLikelyVariants = req.body?.[`${prefix}_deduplicateIgnoreLikelyVariants`] === 'on';
+      const deduplicateIgnoreLiveAlbums = req.body?.[`${prefix}_deduplicateIgnoreLiveAlbums`] === 'on';
+      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle, deduplicateByDuration, deduplicateIgnoreLikelyVariants, deduplicateIgnoreLiveAlbums };
     };
     const crescive = {
       capMultiplier:           pct('cr_capMultiplier',        100),
@@ -1775,6 +1784,9 @@ export function registerSettings(app, ctx) {
         excludeFolders,
         deduplicateByMbid: Boolean(tf.deduplicateByMbid),
         deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
+        deduplicateByDuration: Boolean(tf.deduplicateByDuration),
+        deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
+        deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
       };
     })() : undefined;
     const entry = { id: makeGlobalPlaylistId(), name, rules, trackFilters: gpFilters, enabled: true, createdAt: Date.now() };
@@ -1861,6 +1873,9 @@ export function registerSettings(app, ctx) {
           excludeFolders,
           deduplicateByMbid: Boolean(tf.deduplicateByMbid),
           deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
+          deduplicateByDuration: Boolean(tf.deduplicateByDuration),
+          deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
+          deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
         };
       })() : existing.trackFilters,
       updatedAt: Date.now(),
@@ -1912,11 +1927,21 @@ export function registerSettings(app, ctx) {
     const userId = String(req.query?.userId || '').trim() || null;
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || DEFAULT_SMART_PLAYLIST_SETTINGS;
-    const allTracks = getMasterTracks(db);
-    const filteredTracks = trackFilters ? applyTrackFilters(allTracks, trackFilters) : allTracks;
+    const filterResult = trackFilters
+      ? applyTrackFiltersWithReport(getMasterTracks(db), trackFilters, {
+          duplicateLimit: Number(req.query?.dedupeReportLimit || 20),
+        })
+      : { tracks: getMasterTracks(db), duplicateCount: 0, duplicateMatches: [] };
+    const filteredTracks = filterResult.tracks;
     const featureFilteredTracks = applyFeaturePresetFilters(filteredTracks, rules || {});
     const result = previewGlobalPlaylist(db, rules, userId, smartSettings, featureFilteredTracks);
-    res.json({ ok: true, featureTrackCount: featureFilteredTracks.length, ...result });
+    res.json({
+      ok: true,
+      featureTrackCount: featureFilteredTracks.length,
+      dedupeDuplicateCount: filterResult.duplicateCount || 0,
+      dedupeDuplicateMatches: filterResult.duplicateMatches || [],
+      ...result,
+    });
   });
 
   // GET /api/playlists/smart/preview — live artist/track count estimate using all category pcts

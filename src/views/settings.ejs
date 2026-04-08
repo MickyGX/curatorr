@@ -1000,7 +1000,10 @@
                   const exclude = Array.isArray(filterCfg?.excludeLibraryKeys) ? filterCfg.excludeLibraryKeys : [];
                   const dedupe = Boolean(filterCfg?.deduplicateByMbid);
                   const dedupeByArtistTitle = Boolean(filterCfg?.deduplicateByArtistTitle);
-                  const hasRules = rules.length > 0 || exclude.some(k => k) || dedupe || dedupeByArtistTitle;
+                  const dedupeByDuration = Boolean(filterCfg?.deduplicateByDuration);
+                  const dedupeIgnoreLikelyVariants = Boolean(filterCfg?.deduplicateIgnoreLikelyVariants);
+                  const dedupeIgnoreLiveAlbums = Boolean(filterCfg?.deduplicateIgnoreLiveAlbums);
+                  const hasRules = rules.length > 0 || exclude.some(k => k) || dedupe || dedupeByArtistTitle || dedupeByDuration || dedupeIgnoreLikelyVariants || dedupeIgnoreLiveAlbums;
                   let html = `<details class="tf-details"${hasRules ? ' open' : ''}><summary class="tf-summary">Exclusion Filters<span class="tf-rule-count">${rules.length ? ` (${rules.length} rule${rules.length > 1 ? 's' : ''})` : ''}</span></summary><div class="tf-body">`;
                   // Rule rows
                   html += `<div class="tf-rules-list" id="tf-list-${prefix}">`;
@@ -1027,6 +1030,9 @@
                   // MBID dedup
                   html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByMbid" value="on"${dedupe ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Deduplicate by MusicBrainz recording ID</span></label></div>`;
                   html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByArtistTitle" value="on"${dedupeByArtistTitle ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Deduplicate release variants by artist and song title</span></label></div>`;
+                  html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByDuration" value="on"${dedupeByDuration ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Require duplicate durations within 5 seconds</span></label></div>`;
+                  html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateIgnoreLikelyVariants" value="on"${dedupeIgnoreLikelyVariants ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Keep live, demo, acoustic, remix, and instrumental versions separate</span></label></div>`;
+                  html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateIgnoreLiveAlbums" value="on"${dedupeIgnoreLiveAlbums ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Keep live album/subformat tracks separate when tagged</span></label></div>`;
                   html += `</div></details>`;
                   return html;
                 }
@@ -1673,6 +1679,27 @@
                     </label>
                     <div class="settings-help" style="margin-top:6px">Ignores tags like live, radio edit, remaster, mono, or mix and keeps the highest rated copy.</div>
                   </div>
+                  <div style="margin-top:12px">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="gp-dedup-duration" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Require duplicate durations within 5 seconds</span>
+                    </label>
+                  </div>
+                  <div style="margin-top:12px">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="gp-dedup-variant-guard" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Keep live, demo, acoustic, remix, and instrumental versions separate</span>
+                    </label>
+                  </div>
+                  <div style="margin-top:12px">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="gp-dedup-live-album-guard" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Keep live album/subformat tracks separate when tagged</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -1879,6 +1906,9 @@
                 });
                 document.getElementById('gp-dedup-mbid').checked = !!(tf.deduplicateByMbid);
                 document.getElementById('gp-dedup-artist-title').checked = !!(tf.deduplicateByArtistTitle);
+                document.getElementById('gp-dedup-duration').checked = !!(tf.deduplicateByDuration);
+                document.getElementById('gp-dedup-variant-guard').checked = !!(tf.deduplicateIgnoreLikelyVariants);
+                document.getElementById('gp-dedup-live-album-guard').checked = !!(tf.deduplicateIgnoreLiveAlbums);
                 // Populate folder filters
                 var incChips = document.getElementById('gp-include-chips');
                 var excChips = document.getElementById('gp-exclude-chips');
@@ -1913,6 +1943,9 @@
                 gpRenderFolderBrowser('exclude');
                 document.getElementById('gp-dedup-mbid').checked = false;
                 document.getElementById('gp-dedup-artist-title').checked = false;
+                document.getElementById('gp-dedup-duration').checked = false;
+                document.getElementById('gp-dedup-variant-guard').checked = false;
+                document.getElementById('gp-dedup-live-album-guard').checked = false;
                 updateBlendModeVisibility();
                 schedulePreview();
               }
@@ -2121,12 +2154,18 @@
                 document.querySelectorAll('#gp-exclude-chips [data-folder]').forEach(function(c) { excludeFolders.push(c.dataset.folder); });
                 var dedupe = !!(document.getElementById('gp-dedup-mbid') || {}).checked;
                 var dedupeByArtistTitle = !!(document.getElementById('gp-dedup-artist-title') || {}).checked;
+                var dedupeByDuration = !!(document.getElementById('gp-dedup-duration') || {}).checked;
+                var dedupeIgnoreLikelyVariants = !!(document.getElementById('gp-dedup-variant-guard') || {}).checked;
+                var dedupeIgnoreLiveAlbums = !!(document.getElementById('gp-dedup-live-album-guard') || {}).checked;
                 return {
                   rules: rules,
                   includeFolders: includeFolders,
                   excludeFolders: excludeFolders,
                   deduplicateByMbid: dedupe,
                   deduplicateByArtistTitle: dedupeByArtistTitle,
+                  deduplicateByDuration: dedupeByDuration,
+                  deduplicateIgnoreLikelyVariants: dedupeIgnoreLikelyVariants,
+                  deduplicateIgnoreLiveAlbums: dedupeIgnoreLiveAlbums,
                 };
               }
 
@@ -2294,6 +2333,10 @@
               if (_dedupEl) _dedupEl.addEventListener('change', schedulePreview);
               var _dedupTitleEl = document.getElementById('gp-dedup-artist-title');
               if (_dedupTitleEl) _dedupTitleEl.addEventListener('change', schedulePreview);
+              ['gp-dedup-duration','gp-dedup-variant-guard','gp-dedup-live-album-guard'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('change', schedulePreview);
+              });
               document.querySelectorAll('.gp-checklist-search').forEach(function(input) {
                 input.addEventListener('input', function() {
                   var q = input.value.toLowerCase();

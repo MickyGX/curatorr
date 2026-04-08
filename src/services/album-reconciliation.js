@@ -101,7 +101,28 @@ export async function promoteCompletedRequestsFromLidarr(requests = [], lidarrSe
     if (!cache.has(albumId)) {
       cache.set(albumId, lidarrService.getAlbum(albumId, { timeoutMs: 12000 }).catch(() => null));
     }
-    const album = await cache.get(albumId);
+    let album = await cache.get(albumId);
+    if (album && typeof album === 'object') {
+      let monitored = Boolean(album?.monitored);
+      let monitoringRepairFailed = false;
+      if (!monitored && typeof lidarrService.setAlbumMonitoredAndVerify === 'function') {
+        try {
+          const repairedAlbum = await lidarrService.setAlbumMonitoredAndVerify(albumId, true);
+          if (repairedAlbum && typeof repairedAlbum === 'object') {
+            album = repairedAlbum;
+            monitored = Boolean(repairedAlbum.monitored);
+          }
+        } catch (_err) {
+          monitoringRepairFailed = true;
+        }
+      }
+      request = {
+        ...request,
+        lidarrMonitored: monitored,
+        monitoringLost: !monitored,
+        monitoringRepairFailed,
+      };
+    }
     const trackFileCount = Number(album?.statistics?.trackFileCount || album?.trackFileCount || 0) || 0;
     if (trackFileCount <= 0) return request;
 

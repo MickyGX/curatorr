@@ -108,7 +108,7 @@
           }
           function queueStatusLabel(item) {
             const status = String(item?.status || '').trim().toLowerCase();
-            if (status === 'completed') return 'added in lidarr';
+            if (status === 'completed') return item?.monitoringLost === true || item?.lidarrMonitored === false ? 'not monitored in lidarr' : 'monitored in lidarr';
             if (status === 'failed') return 'failed';
             return status === 'processing' ? 'processing now' : 'queued';
           }
@@ -364,7 +364,7 @@
                   <p>Requests that are not fully available in your library yet. This includes queued items, requests currently processing, requests already handed off to Lidarr, and failed requests that still need attention.</p>
                   <ul>
                     <li><strong>Queued</strong> and <strong>processing</strong> rows are still under Curatorr&apos;s control.</li>
-                    <li><strong>Added in Lidarr</strong> means Curatorr submitted the request, but the album is not in your library yet.</li>
+                    <li><strong>Monitored in Lidarr</strong> means Curatorr confirmed Lidarr is monitoring the album, but the album is not in your library yet. <strong>Not monitored in Lidarr</strong> means Curatorr tried to repair a stale handoff and Lidarr still did not confirm monitoring.</li>
                     <li><strong>Failed</strong> means the request did not complete and may need to be retried.</li>
                     <li><strong>Drag</strong> only applies to queued rows that Curatorr has not started yet.</li>
                     <li><strong>Remove</strong> cancels a queued request from this queue only — nothing already in your library is affected.</li>
@@ -411,7 +411,8 @@
                         <div class="cur-discover-row-actions">
                           <button class="btn btn-sm btn-ghost cur-discover-row-menu-toggle" type="button" title="More actions" onclick="event.stopPropagation(); toggleDiscoverRequestMenu(this)">⋯</button>
                           <div class="pl-card-menu cur-discover-row-menu" style="display:none">
-                            <button type="button" onclick="event.stopPropagation(); retryLidarrRequest(<%= item.id %>, this)"<%= item.status === 'failed' ? '' : ' disabled' %>>Retry</button>
+                            <button type="button" onclick="event.stopPropagation(); retryLidarrRequest(<%= item.id %>, this)"<%= ['failed', 'completed'].includes(String(item.status || '').trim().toLowerCase()) ? '' : ' disabled' %>>Retry</button>
+                            <button type="button" onclick="event.stopPropagation(); forceSearchLidarrRequest(<%= item.id %>, this)"<%= Number(item.lidarrAlbumId || 0) > 0 ? '' : ' disabled' %>>Force search</button>
                             <button type="button" onclick="event.stopPropagation(); markQueueRequestAvailable(<%= item.id %>, this)">Mark available</button>
                             <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteQueueRequest(<%= item.id %>, this)">Delete</button>
                           </div>
@@ -537,6 +538,31 @@
         });
     }
 
+    function forceSearchLidarrRequest(id, btn) {
+      if (btn) btn.disabled = true;
+      fetch('/api/music/lidarr/requests/' + id + '/force-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+      }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+        .then(function(result) {
+          if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Force search failed.');
+          var request = result.data.request || null;
+          mergeDiscoverRequestUpdate(request);
+          closeDiscoverRequestMenus();
+          if (request) {
+            var albumTitle = getRequestDisplayAlbumTitle(request);
+            if (albumTitle) markRequestedAlbum(albumTitle, false);
+          }
+          setStatus('discoverQueueStatus', 'Search queued in Lidarr.');
+        })
+        .catch(function(err) {
+          if (btn) btn.disabled = false;
+          var msg = err.message || 'Force search failed.';
+          var status = document.getElementById('discoverQueueStatus') || document.getElementById('artistSuggestionStatus');
+          if (status) { status.textContent = msg; } else { alert(msg); }
+        });
+    }
+
     var currentArtistSelection = null;
     var currentRequestAction = null;
     var queueDragItem = null;
@@ -572,6 +598,14 @@
       } catch (_err) {
         return '—';
       }
+    }
+
+    function fmtClientReleaseDate(value) {
+      var raw = String(value || '').trim();
+      if (!raw) return '';
+      var isoDate = raw.match(/^(\d{4}-\d{2}-\d{2})T/);
+      if (isoDate) return isoDate[1];
+      return raw;
     }
 
     function getRequestDisplayAlbumTitle(item) {
@@ -614,7 +648,7 @@
 
     function getQueueRequestStatusLabel(item) {
       var status = String(item?.status || '').trim().toLowerCase();
-      if (status === 'completed') return 'added in lidarr';
+      if (status === 'completed') return item?.monitoringLost === true || item?.lidarrMonitored === false ? 'not monitored in lidarr' : 'monitored in lidarr';
       if (status === 'failed') return 'failed';
       return status === 'processing' ? 'processing now' : 'queued';
     }
@@ -623,6 +657,20 @@
       return discoverQueueItems.find(function(item) {
         return Number(item?.id || 0) === Number(id || 0);
       }) || null;
+    }
+
+    function mergeDiscoverRequestUpdate(request) {
+      if (!request || !request.id) return;
+      discoverQueueItems = discoverQueueItems.filter(function(item) {
+        return Number(item.id || 0) !== Number(request.id || 0);
+      });
+      discoverHistoryItems = discoverHistoryItems.filter(function(item) {
+        return Number(item.id || 0) !== Number(request.id || 0);
+      });
+      if (isHistoryDiscoverRequest(request)) discoverHistoryItems = [request].concat(discoverHistoryItems);
+      else if (isQueueDiscoverRequest(request)) discoverQueueItems = [request].concat(discoverQueueItems);
+      renderQueueList();
+      renderHistoryList();
     }
 
     function getRequestArtistThumb(item) {
@@ -702,11 +750,13 @@
     function renderQueueRequestActionMenu(item) {
       var id = Number(item?.id || 0);
       var status = String(item?.status || '').trim().toLowerCase();
+      var hasLidarrAlbum = Number(item?.lidarrAlbumId || 0) > 0;
       return '' +
         '<div class="cur-discover-row-actions">' +
           '<button class="btn btn-sm btn-ghost cur-discover-row-menu-toggle" type="button" title="More actions" onclick="event.stopPropagation(); toggleDiscoverRequestMenu(this)">⋯</button>' +
           '<div class="pl-card-menu cur-discover-row-menu" style="display:none">' +
-            '<button type="button" onclick="event.stopPropagation(); retryLidarrRequest(' + id + ', this)"' + (status === 'failed' ? '' : ' disabled') + '>Retry</button>' +
+            '<button type="button" onclick="event.stopPropagation(); retryLidarrRequest(' + id + ', this)"' + (['failed', 'completed'].includes(status) ? '' : ' disabled') + '>Retry</button>' +
+            '<button type="button" onclick="event.stopPropagation(); forceSearchLidarrRequest(' + id + ', this)"' + (hasLidarrAlbum ? '' : ' disabled') + '>Force search</button>' +
             '<button type="button" onclick="event.stopPropagation(); markQueueRequestAvailable(' + id + ', this)">Mark available</button>' +
             '<button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteQueueRequest(' + id + ', this)">Delete</button>' +
           '</div>' +
@@ -806,7 +856,7 @@
         var title = button.getAttribute('data-album-title') || '';
         if (!albumTitle || title !== albumTitle) return;
         button.disabled = true;
-        button.textContent = queued ? 'Queued' : 'Added';
+        button.textContent = queued ? 'Queued' : 'Monitored';
         var card = button.closest('.cur-discover-album-card');
         if (card) card.classList.add('is-in-lidarr');
       });
@@ -925,7 +975,7 @@
         return { key: 'available', label: 'In library', icon: '', selectable: false };
       }
       if (statusKey === 'pending') {
-        return { key: 'pending', label: 'Added to Lidarr', icon: '', selectable: false };
+        return { key: 'pending', label: 'Monitored in Lidarr', icon: '', selectable: false };
       }
       return { key: 'missing', label: 'Not in library', icon: '', selectable: true };
     }
@@ -1002,7 +1052,7 @@
     function setManualAlbumCardBusy(card, busy) {
       if (!card) return;
       card.classList.toggle('is-busy', !!busy);
-      var controls = card.querySelectorAll('.pl-card-btn, .pl-card-checkbox, .cur-discover-card-menu-add');
+      var controls = card.querySelectorAll('.pl-card-btn, .pl-card-checkbox, .cur-discover-card-menu-add, .cur-discover-card-menu-force-search');
       controls.forEach(function(control) {
         if (busy) {
           control.dataset.wasDisabled = control.disabled ? '1' : '0';
@@ -1049,6 +1099,13 @@
       if (addMenuBtn) {
         addMenuBtn.disabled = !meta.selectable || isExcluded;
         addMenuBtn.textContent = meta.selectable ? 'Add album' : meta.label;
+      }
+
+      var forceSearchBtn = card.querySelector('.cur-discover-card-menu-force-search');
+      if (forceSearchBtn) {
+        var canForceSearch = Number(card.dataset.albumId || 0) > 0 && meta.key === 'pending';
+        forceSearchBtn.hidden = !canForceSearch;
+        forceSearchBtn.disabled = !canForceSearch;
       }
 
       var checkbox = card.querySelector('.pl-card-checkbox');
@@ -1172,6 +1229,9 @@
             albumTitle: resultAlbumTitle || title,
             sourceKind: data.request.sourceKind || 'manual',
             status: data.request.status || 'completed',
+            lidarrArtistId: data.request.lidarrArtistId || data.result?.lidarr?.artistId || null,
+            lidarrAlbumId: data.request.lidarrAlbumId || data.result?.album?.albumId || null,
+            lidarrMonitored: true,
             detail: Object.assign({}, data.request.detail || {}, {
               preferredAlbumTitle: title,
               selectedAlbumTitle: resultAlbumTitle || String(data.request?.detail?.selectedAlbumTitle || ''),
@@ -1197,7 +1257,7 @@
             markRequestedAlbum(resultAlbumTitle, false);
           }
         }
-        if (!opts.silent) setStatus('manualAlbumStatus', requestAction ? 'Request updated.' : 'Added.');
+        if (!opts.silent) setStatus('manualAlbumStatus', requestAction ? 'Request updated.' : 'Monitored in Lidarr.');
         currentRequestAction = null;
         syncManualAlbumActionUI();
         return { ok: true, queued: false, data: data };
@@ -1248,8 +1308,8 @@
       }
       clearManualAlbumSelection();
       if (addBtn) addBtn.disabled = false;
-      if (failed) setStatus('manualAlbumStatus', added ? ('Added ' + added + ', failed ' + failed + '.') : ('Failed to add ' + failed + ' selection' + (failed === 1 ? '' : 's') + '.'));
-      else setStatus('manualAlbumStatus', 'Added ' + added + ' selection' + (added === 1 ? '' : 's') + '.');
+      if (failed) setStatus('manualAlbumStatus', added ? ('Monitored ' + added + ', failed ' + failed + '.') : ('Failed to monitor ' + failed + ' selection' + (failed === 1 ? '' : 's') + '.'));
+      else setStatus('manualAlbumStatus', 'Monitored ' + added + ' selection' + (added === 1 ? '' : 's') + ' in Lidarr.');
     }
 
     function addManualAlbumFromMenu(btn) {
@@ -1262,6 +1322,51 @@
         return;
       }
       requestSingleManualAlbum(card.dataset.albumTitle || '');
+    }
+
+    async function forceSearchManualAlbum(btn) {
+      if (!btn || btn.disabled) return;
+      var card = btn.closest('.cur-discover-album-card');
+      if (!card) return;
+      var albumId = Number(card.dataset.albumId || 0) || 0;
+      var albumTitle = String(card.dataset.albumTitle || '').trim();
+      if (!albumId || !albumTitle) {
+        setStatus('manualAlbumStatus', 'This album cannot be searched directly from Lidarr.');
+        return;
+      }
+      closeAllManualAlbumMenus();
+      var originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Searching...';
+      setManualAlbumCardBusy(card, true);
+      setStatus('manualAlbumStatus', 'Queueing Lidarr search...');
+      try {
+        var res = await fetch('/api/music/lidarr/manual/force-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+          body: JSON.stringify({
+            artistName: currentArtistSelection?.artistName || '',
+            albumTitle: albumTitle,
+            lidarrAlbumId: albumId,
+            albumType: card.dataset.albumType || '',
+            releaseDate: card.dataset.albumReleaseDate || '',
+          })
+        });
+        var data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Force search failed.');
+        getManualAlbumCards(albumTitle).forEach(function(albumCard) {
+          setManualAlbumCardBusy(albumCard, false);
+          applyManualAlbumCardState(albumCard, 'pending');
+        });
+        btn.textContent = originalText;
+        if (data.request) mergeDiscoverRequestUpdate(data.request);
+        setStatus('manualAlbumStatus', 'Search queued in Lidarr.');
+      } catch (err) {
+        setManualAlbumCardBusy(card, false);
+        btn.disabled = false;
+        btn.textContent = originalText;
+        setStatus('manualAlbumStatus', err.message || 'Force search failed.');
+      }
     }
 
     window.curatorrOverviewHandleAction = function(kind, payload, button) {
@@ -1343,7 +1448,7 @@
           statusKey: meta.key,
           statusLabel: album.statusLabel || meta.label,
           requestable: album.requestable === true || album.requestable === 'true',
-          meta: [album.albumType || '', album.releaseDate || '', album.source || ''].filter(Boolean).join(' · ') || 'Album option',
+          meta: [album.albumType || '', fmtClientReleaseDate(album.releaseDate), album.source || ''].filter(Boolean).join(' · ') || 'Album option',
         };
       }));
 
@@ -1395,6 +1500,7 @@
         var art = item.image
           ? '<img src="' + escHtml(item.image) + '" alt="" loading="lazy" />'
           : '';
+        var canForceSearch = Number(item.albumId || 0) > 0 && statusMeta.key === 'pending';
         return '' +
           '<div class="plex-card cur-discover-result-card cur-discover-album-card is-status-' + statusMeta.key + (statusMeta.key !== 'missing' ? ' is-in-lidarr' : '') + '"' +
             ' data-album-title="' + escHtml(item.title) + '"' +
@@ -1428,6 +1534,7 @@
                   '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleManualAlbumCardMenu(this)">⋯</button>' +
                   '<div class="pl-card-menu" style="display:none">' +
                     '<button type="button" class="cur-discover-card-menu-add" onclick="event.stopPropagation(); addManualAlbumFromMenu(this)"' + (item.requestable ? '' : ' disabled') + '>' + (item.requestable ? 'Add album' : escHtml(item.statusLabel)) + '</button>' +
+                    '<button type="button" class="cur-discover-card-menu-force-search"' + (canForceSearch ? '' : ' hidden disabled') + ' onclick="event.stopPropagation(); forceSearchManualAlbum(this)">Force search</button>' +
                     '<button type="button" class="cur-discover-card-menu-exclude"' + (statusMeta.selectable ? '' : ' hidden') + ' onclick="event.stopPropagation(); toggleManualAlbumExcluded(this, ' + (item.excluded ? 'false' : 'true') + ')">' + (item.excluded ? 'Include album' : 'Exclude album') + '</button>' +
                   '</div>' +
                 '</div>' +
@@ -1479,7 +1586,7 @@
         });
         var data = await res.json();
         if (!res.ok && res.status !== 202) throw new Error(data.error || 'Request failed.');
-        if (!opts.silent) setStatus('manualAlbumStatus', data.queued ? (data.message || 'Queued.') : 'Added.');
+        if (!opts.silent) setStatus('manualAlbumStatus', data.queued ? (data.message || 'Queued.') : 'Monitored in Lidarr.');
         if (data.queued && data.request) {
           discoverQueueItems = [data.request].concat(discoverQueueItems.filter(function(item) {
             return Number(item.id || 0) !== Number(data.request.id || 0);
@@ -1496,6 +1603,9 @@
             albumTitle: resultAlbumTitle || 'Let Curatorr choose for you',
             sourceKind: data.request.sourceKind || 'manual',
             status: data.request.status || 'completed',
+            lidarrArtistId: data.request.lidarrArtistId || data.result?.lidarr?.artistId || null,
+            lidarrAlbumId: data.request.lidarrAlbumId || data.result?.album?.albumId || null,
+            lidarrMonitored: true,
             detail: Object.assign({}, data.request.detail || {}, {
               preferredAlbumTitle: '',
               selectedAlbumTitle: resultAlbumTitle || String(data.request?.detail?.selectedAlbumTitle || ''),

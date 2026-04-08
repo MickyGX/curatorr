@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.66 (2026-04-08)
+
+- Added stronger Lidarr monitoring verification and repair for Discover requests, so Manual Discovery no longer treats unmonitored Lidarr album metadata as already added and completed queue rows can re-monitor albums that lost monitoring.
+- Added Force Search actions to Discover queue rows and monitored album cards, including a no-reload queue action so manual search state, scroll position, and focus are preserved while Lidarr searches are triggered.
+- Added deeper smart-playlist dedupe controls and inspection tools: optional duration/variant/live-album guards now sit alongside the existing dedupe toggles, and the wizard can copy or download a CSV of skipped duplicate matches.
+- Fixed release and Discover UI rough edges, including release-popup scrolling on long release notes and ISO album card dates showing only the date instead of the raw `T00:00:00Z` timestamp.
+
 ## v0.1.65 (2026-04-07)
 
 - Added a Random Library Mix starting point for smart playlists, with random ordering plus per-artist, per-album, and total track limits so users can build daily library samplers without repeat-heavy results.

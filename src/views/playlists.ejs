@@ -2918,6 +2918,9 @@
         advancedRules: trackFilters.rules,
         deduplicateByMbid: trackFilters.deduplicateByMbid,
         deduplicateByArtistTitle: trackFilters.deduplicateByArtistTitle,
+        deduplicateByDuration: trackFilters.deduplicateByDuration,
+        deduplicateIgnoreLikelyVariants: trackFilters.deduplicateIgnoreLikelyVariants,
+        deduplicateIgnoreLiveAlbums: trackFilters.deduplicateIgnoreLiveAlbums,
         importSource: rules.importSource || null,
         importSuggestedContent: rules.importSuggestedContent || (rules.importSource ? {
           genres: normaliseUiTriState(rules.genres),
@@ -3314,7 +3317,7 @@
           : '/api/music/playlists/personal/' + encodeURIComponent(editId))
         : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
       var payload = Object.assign({ name: name }, rules);
-      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, rules: [] };
+      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, rules: [] };
       if (allowEmptyDraft) payload.allowEmptyDraft = true;
       if (importSource) payload.importSource = importSource;
       if (removeImportedSourcePlaylistKey) payload.removeImportedSourcePlaylistKey = removeImportedSourcePlaylistKey;
@@ -3386,6 +3389,7 @@
     var _wizardState = {};
     var _wizardPreviewSeq = 0;
     var _wizardAudioPreview = { loading: false, error: false, matchingTrackCount: null };
+    var _wizardDedupePreview = { count: 0, matches: [] };
     var _wizardTemplates = [];
     var _wizardPendingPrefill = null;
     var _wizardEditKind = null;
@@ -3467,7 +3471,7 @@
 
     function wizardStarterTrackFilters(trackFilters) {
       var tf = trackFilters && typeof trackFilters === 'object' ? trackFilters : null;
-      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false };
+      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false };
       return {
         includeFolders: Array.isArray(tf.includeFolders) ? tf.includeFolders.slice() : [],
         excludeFolders: Array.isArray(tf.excludeFolders) ? tf.excludeFolders.slice() : [],
@@ -3476,6 +3480,9 @@
         }).map(function(rule) { return cloneWizardValue(rule); }) : [],
         deduplicateByMbid: Boolean(tf.deduplicateByMbid),
         deduplicateByArtistTitle: Boolean(tf.deduplicateByArtistTitle),
+        deduplicateByDuration: Boolean(tf.deduplicateByDuration),
+        deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
+        deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
       };
     }
 
@@ -3674,6 +3681,9 @@
         seasonalKeywordsMode: 'any',
         deduplicateByMbid: false,
         deduplicateByArtistTitle: false,
+        deduplicateByDuration: false,
+        deduplicateIgnoreLikelyVariants: false,
+        deduplicateIgnoreLiveAlbums: false,
       };
     }
 
@@ -3729,6 +3739,9 @@
       var excludeFolders = Array.isArray(ws.excludeFolders) ? ws.excludeFolders.filter(Boolean) : [];
       var deduplicateByMbid = Boolean(ws.deduplicateByMbid);
       var deduplicateByArtistTitle = Boolean(ws.deduplicateByArtistTitle);
+      var deduplicateByDuration = Boolean(ws.deduplicateByDuration);
+      var deduplicateIgnoreLikelyVariants = Boolean(ws.deduplicateIgnoreLikelyVariants);
+      var deduplicateIgnoreLiveAlbums = Boolean(ws.deduplicateIgnoreLiveAlbums);
       var rules = Array.isArray(ws.advancedRules) ? ws.advancedRules.filter(function(rule) {
         return rule && rule.field && rule.operator && rule.value != null && String(rule.value).trim() !== '';
       }).map(function(rule) {
@@ -3739,12 +3752,15 @@
           caseSensitive: Boolean(rule.caseSensitive),
         };
       }) : [];
-      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle) return null;
+      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums) return null;
       return {
         includeFolders: includeFolders,
         excludeFolders: excludeFolders,
         deduplicateByMbid: deduplicateByMbid,
         deduplicateByArtistTitle: deduplicateByArtistTitle,
+        deduplicateByDuration: deduplicateByDuration,
+        deduplicateIgnoreLikelyVariants: deduplicateIgnoreLikelyVariants,
+        deduplicateIgnoreLiveAlbums: deduplicateIgnoreLiveAlbums,
         rules: rules,
       };
     }
@@ -4106,6 +4122,9 @@
         nextState.advancedRules = templateTrackFilters.rules;
         nextState.deduplicateByMbid = templateTrackFilters.deduplicateByMbid;
         nextState.deduplicateByArtistTitle = templateTrackFilters.deduplicateByArtistTitle;
+        nextState.deduplicateByDuration = templateTrackFilters.deduplicateByDuration;
+        nextState.deduplicateIgnoreLikelyVariants = templateTrackFilters.deduplicateIgnoreLikelyVariants;
+        nextState.deduplicateIgnoreLiveAlbums = templateTrackFilters.deduplicateIgnoreLiveAlbums;
       }
       if (nextState.featurePreset) wizardApplyPresetValues(nextState, nextState.featurePreset, false);
       wizardSyncSuggestedName(nextState, false);
@@ -4254,6 +4273,14 @@
             '<span id="wiz-prev-eligible-tracks">…</span> tracks' +
             '<span class="spm-wizard-preview-sep">·</span>' +
             '<span id="wiz-prev-eligible-artists">…</span> artists' +
+          '</div>' +
+          '<div class="spm-wizard-preview-sub" id="wiz-dedupe-report" style="display:none">' +
+            '<span class="spm-preview-label">Dedupe skipped</span>' +
+            '<span id="wiz-dedupe-count">0</span> matches' +
+            '<span class="spm-wizard-preview-sep">·</span>' +
+            '<button class="btn btn-ghost" type="button" id="wiz-dedupe-copy-btn" style="padding:2px 8px;min-height:0;font-size:12px">Copy CSV</button>' +
+            '<button class="btn btn-ghost" type="button" id="wiz-dedupe-download-btn" style="padding:2px 8px;min-height:0;font-size:12px">Download CSV</button>' +
+            '<span id="wiz-dedupe-sample-note"></span>' +
           '</div>' +
         '</div>' +
         '<div class="spm-wizard-footer">' + back + '<span class="spm-wizard-footer-spacer"></span><span id="wiz-msg" style="font-size:13px;color:var(--muted,#888)"></span>' + fwd + '</div>' +
@@ -4586,6 +4613,36 @@
             '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
           '</span>' +
         '</label>' +
+        '<label class="spm-wizard-toggle-row" for="wiz-dedupe-duration">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Require duplicate durations within 5 seconds</span>' +
+            '<span class="spm-wizard-field-hint">Only collapses fuzzy artist/title matches when both copies have close track lengths.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-dedupe-duration"' + (_wizardState.deduplicateByDuration ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
+        '<label class="spm-wizard-toggle-row" for="wiz-dedupe-variant-guard">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Keep live, demo, acoustic, remix, and instrumental versions separate</span>' +
+            '<span class="spm-wizard-field-hint">Treats those title or album keywords as likely distinct recordings rather than duplicates.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-dedupe-variant-guard"' + (_wizardState.deduplicateIgnoreLikelyVariants ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
+        '<label class="spm-wizard-toggle-row" for="wiz-dedupe-live-album-guard">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Keep live album/subformat tracks separate when tagged</span>' +
+            '<span class="spm-wizard-field-hint">Uses album type or subformat metadata when it is available on a track.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-dedupe-live-album-guard"' + (_wizardState.deduplicateIgnoreLiveAlbums ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
       '</div>';
       return html;
     }
@@ -4760,6 +4817,9 @@
       }
       if (ws.deduplicateByMbid) html += row('Deduplicate releases', 'MusicBrainz recording ID');
       if (ws.deduplicateByArtistTitle) html += row('Deduplicate release variants', 'Artist + fuzzy song title');
+      if (ws.deduplicateByDuration) html += row('Dedupe duration guard', 'Within 5 seconds');
+      if (ws.deduplicateIgnoreLikelyVariants) html += row('Dedupe variant guard', 'Keep live/demo/remix-style versions');
+      if (ws.deduplicateIgnoreLiveAlbums) html += row('Dedupe album guard', 'Keep live album/subformat tracks');
       html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
       if (ws.finalOrdering && ws.finalOrdering !== 'none') html += row('Final ordering', escH(wizardFinalOrderingLabel(ws.finalOrdering)));
       html += '</div>';
@@ -4868,6 +4928,9 @@
         _wizardState.finalOrdering = document.getElementById('wiz-final-ordering') ? document.getElementById('wiz-final-ordering').value : 'none';
         _wizardState.deduplicateByMbid = !!(document.getElementById('wiz-dedupe-mbid') && document.getElementById('wiz-dedupe-mbid').checked);
         _wizardState.deduplicateByArtistTitle = !!(document.getElementById('wiz-dedupe-artist-title') && document.getElementById('wiz-dedupe-artist-title').checked);
+        _wizardState.deduplicateByDuration = !!(document.getElementById('wiz-dedupe-duration') && document.getElementById('wiz-dedupe-duration').checked);
+        _wizardState.deduplicateIgnoreLikelyVariants = !!(document.getElementById('wiz-dedupe-variant-guard') && document.getElementById('wiz-dedupe-variant-guard').checked);
+        _wizardState.deduplicateIgnoreLiveAlbums = !!(document.getElementById('wiz-dedupe-live-album-guard') && document.getElementById('wiz-dedupe-live-album-guard').checked);
       } else if (step === 4 && IS_ACTUAL_ADMIN) {
         ['include', 'exclude'].forEach(function(kind) {
           var container = document.getElementById('wiz-folder-' + kind + '-chips');
@@ -4896,36 +4959,43 @@
 
     function wizardRunPreview() {
       try { wizardSaveStateFromStep(_wizardState.step || 1); } catch (_) {}
-      var rules = wizardAssembleRules(_wizardState);
-      var trackFilters = wizardAssembleTrackFilters(_wizardState);
-      var target = _wizardState.playlistTarget || 'personal';
-      var isGlobal = target === 'global' && IS_ACTUAL_ADMIN;
-      var endpoint = isGlobal ? '/api/playlists/global/preview' : '/api/music/playlists/personal/preview';
-      var params = new URLSearchParams();
-      params.set('rules', JSON.stringify(rules));
-      if (trackFilters) params.set('trackFilters', JSON.stringify(trackFilters));
-      if (isGlobal && CURRENT_USER_ID) params.set('userId', CURRENT_USER_ID);
+      var request = wizardBuildPreviewRequest(25);
       var atEl = document.getElementById('wiz-prev-artists');
       var trEl = document.getElementById('wiz-prev-tracks');
       var eatEl = document.getElementById('wiz-prev-eligible-artists');
       var etrEl = document.getElementById('wiz-prev-eligible-tracks');
+      var dedupeReportEl = document.getElementById('wiz-dedupe-report');
+      var dedupeCountEl = document.getElementById('wiz-dedupe-count');
+      var dedupeNoteEl = document.getElementById('wiz-dedupe-sample-note');
       var previewSeq = ++_wizardPreviewSeq;
       _wizardAudioPreview.loading = true;
       _wizardAudioPreview.error = false;
+      _wizardDedupePreview = { count: 0, matches: [] };
       if (atEl) atEl.textContent = '…';
       if (trEl) trEl.textContent = '…';
       if (eatEl) eatEl.textContent = '…';
       if (etrEl) etrEl.textContent = '…';
+      if (dedupeReportEl) dedupeReportEl.style.display = 'none';
       wizardRefreshAudioProfileStatus();
-      fetch(endpoint + '?' + params.toString())
+      fetch(request.endpoint + '?' + request.params.toString())
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (previewSeq !== _wizardPreviewSeq) return;
-          var counts = isGlobal ? (data.forUser || data.average || { artistCount: 0, trackCount: 0 }) : data;
+          var counts = request.isGlobal ? (data.forUser || data.average || { artistCount: 0, trackCount: 0 }) : data;
+          var dedupeCount = Number(data.dedupeDuplicateCount || 0) || 0;
+          var dedupeMatches = Array.isArray(data.dedupeDuplicateMatches) ? data.dedupeDuplicateMatches : [];
           if (atEl) atEl.textContent = (counts.artistCount || 0).toLocaleString();
           if (trEl) trEl.textContent = (counts.trackCount || 0).toLocaleString();
           if (eatEl) eatEl.textContent = (counts.eligibleArtistCount || counts.artistCount || 0).toLocaleString();
           if (etrEl) etrEl.textContent = (counts.eligibleTrackCount || counts.trackCount || 0).toLocaleString();
+          _wizardDedupePreview = { count: dedupeCount, matches: dedupeMatches };
+          if (dedupeReportEl) dedupeReportEl.style.display = dedupeCount > 0 ? '' : 'none';
+          if (dedupeCountEl) dedupeCountEl.textContent = dedupeCount.toLocaleString();
+          if (dedupeNoteEl) {
+            dedupeNoteEl.textContent = dedupeCount > dedupeMatches.length
+              ? 'preview loaded ' + dedupeMatches.length.toLocaleString() + '; CSV fetches up to 10,000'
+              : '';
+          }
           _wizardAudioPreview.loading = false;
           _wizardAudioPreview.error = false;
           _wizardAudioPreview.matchingTrackCount = Number(counts.eligibleTrackCount || counts.trackCount || 0);
@@ -4938,12 +5008,154 @@
           if (trEl) trEl.textContent = '?';
           if (eatEl) eatEl.textContent = '?';
           if (etrEl) etrEl.textContent = '?';
+          if (dedupeReportEl) dedupeReportEl.style.display = 'none';
           _wizardAudioPreview.loading = false;
           _wizardAudioPreview.error = true;
           _wizardAudioPreview.matchingTrackCount = null;
           wizardRefreshAudioProfileStatus();
           wizardRefreshDraftAction();
         });
+    }
+
+    function wizardBuildPreviewRequest(dedupeReportLimit) {
+      var rules = wizardAssembleRules(_wizardState);
+      var trackFilters = wizardAssembleTrackFilters(_wizardState);
+      var target = _wizardState.playlistTarget || 'personal';
+      var isGlobal = target === 'global' && IS_ACTUAL_ADMIN;
+      var endpoint = isGlobal ? '/api/playlists/global/preview' : '/api/music/playlists/personal/preview';
+      var params = new URLSearchParams();
+      params.set('rules', JSON.stringify(rules));
+      if (trackFilters) params.set('trackFilters', JSON.stringify(trackFilters));
+      if (isGlobal && CURRENT_USER_ID) params.set('userId', CURRENT_USER_ID);
+      if (dedupeReportLimit != null) params.set('dedupeReportLimit', String(dedupeReportLimit));
+      return { endpoint: endpoint, params: params, isGlobal: isGlobal };
+    }
+
+    function wizardCsvCell(value) {
+      var text = String(value == null ? '' : value);
+      return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+    }
+
+    function wizardFormatDurationMs(ms) {
+      var totalSeconds = Math.round((Number(ms || 0) || 0) / 1000);
+      if (!totalSeconds) return '';
+      var minutes = Math.floor(totalSeconds / 60);
+      var seconds = totalSeconds % 60;
+      return minutes + ':' + String(seconds).padStart(2, '0');
+    }
+
+    function wizardDedupeMatchesToCsv(matches) {
+      var headers = [
+        'method','reason','key',
+        'kept_rating_key','kept_artist','kept_title','kept_album','kept_album_type','kept_recording_mbid','kept_duration','kept_rating_count','kept_view_count','kept_file_path',
+        'duplicate_rating_key','duplicate_artist','duplicate_title','duplicate_album','duplicate_album_type','duplicate_recording_mbid','duplicate_duration','duplicate_rating_count','duplicate_view_count','duplicate_file_path',
+      ];
+      var rows = [headers];
+      (matches || []).forEach(function(match) {
+        var kept = match && match.kept || {};
+        var dup = match && match.duplicate || {};
+        rows.push([
+          match && match.method || '',
+          match && match.reason || '',
+          match && match.key || '',
+          kept.ratingKey || '',
+          kept.artistName || '',
+          kept.trackTitle || '',
+          kept.albumName || '',
+          kept.albumType || '',
+          kept.recordingMbid || '',
+          wizardFormatDurationMs(kept.durationMs),
+          kept.ratingCount || 0,
+          kept.viewCount || 0,
+          kept.filePath || '',
+          dup.ratingKey || '',
+          dup.artistName || '',
+          dup.trackTitle || '',
+          dup.albumName || '',
+          dup.albumType || '',
+          dup.recordingMbid || '',
+          wizardFormatDurationMs(dup.durationMs),
+          dup.ratingCount || 0,
+          dup.viewCount || 0,
+          dup.filePath || '',
+        ]);
+      });
+      return rows.map(function(row) { return row.map(wizardCsvCell).join(','); }).join('\n') + '\n';
+    }
+
+    function wizardFetchDedupeReport(limit) {
+      try { wizardSaveStateFromStep(_wizardState.step || 1); } catch (_) {}
+      var request = wizardBuildPreviewRequest(limit || 10000);
+      return fetch(request.endpoint + '?' + request.params.toString())
+        .then(function(r) {
+          if (!r.ok) throw new Error('Preview failed');
+          return r.json();
+        })
+        .then(function(data) {
+          var matches = Array.isArray(data.dedupeDuplicateMatches) ? data.dedupeDuplicateMatches : [];
+          var count = Number(data.dedupeDuplicateCount || 0) || 0;
+          _wizardDedupePreview = { count: count, matches: matches };
+          return { count: count, matches: matches };
+        });
+    }
+
+    function wizardSetMessage(text) {
+      var msgEl = document.getElementById('wiz-msg');
+      if (msgEl) msgEl.textContent = text || '';
+    }
+
+    function wizardWriteClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+      return new Promise(function(resolve, reject) {
+        var area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', 'readonly');
+        area.style.position = 'fixed';
+        area.style.left = '-9999px';
+        document.body.appendChild(area);
+        area.select();
+        try {
+          if (document.execCommand('copy')) resolve();
+          else reject(new Error('Copy failed'));
+        } catch (err) {
+          reject(err);
+        } finally {
+          document.body.removeChild(area);
+        }
+      });
+    }
+
+    function wizardCopyDedupeCsv() {
+      wizardSetMessage('Building duplicate report...');
+      wizardFetchDedupeReport(10000)
+        .then(function(report) {
+          return wizardWriteClipboard(wizardDedupeMatchesToCsv(report.matches)).then(function() { return report; });
+        })
+        .then(function(report) {
+          var suffix = report.count > report.matches.length ? ' first ' + report.matches.length.toLocaleString() + ' copied' : ' copied';
+          wizardSetMessage('Duplicate CSV' + suffix + '.');
+        })
+        .catch(function() { wizardSetMessage('Could not copy duplicate CSV.'); });
+    }
+
+    function wizardDownloadDedupeCsv() {
+      wizardSetMessage('Building duplicate report...');
+      wizardFetchDedupeReport(10000)
+        .then(function(report) {
+          var csv = wizardDedupeMatchesToCsv(report.matches);
+          var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+          var url = URL.createObjectURL(blob);
+          var link = document.createElement('a');
+          link.href = url;
+          link.download = 'curatorr-dedupe-duplicates-' + new Date().toISOString().slice(0, 10) + '.csv';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          var suffix = report.count > report.matches.length ? ' first ' + report.matches.length.toLocaleString() + ' downloaded' : ' downloaded';
+          wizardSetMessage('Duplicate CSV' + suffix + '.');
+        })
+        .catch(function() { wizardSetMessage('Could not download duplicate CSV.'); });
     }
 
     function clearWizardAutoloadParams(keys) {
@@ -5093,6 +5305,10 @@
           importSource: _wizardState.importSource || null,
         });
       });
+      var copyDedupeBtn = document.getElementById('wiz-dedupe-copy-btn');
+      if (copyDedupeBtn) copyDedupeBtn.addEventListener('click', wizardCopyDedupeCsv);
+      var downloadDedupeBtn = document.getElementById('wiz-dedupe-download-btn');
+      if (downloadDedupeBtn) downloadDedupeBtn.addEventListener('click', wizardDownloadDedupeCsv);
 
       // Step 1: basics
       if (step === 1) {
@@ -5204,7 +5420,7 @@
 
       // Step 3: output rules
       if (step === 3) {
-        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title'].forEach(function(id) {
+        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title','wiz-dedupe-duration','wiz-dedupe-variant-guard','wiz-dedupe-live-album-guard'].forEach(function(id) {
           var el = document.getElementById(id);
           if (!el) return;
           var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };

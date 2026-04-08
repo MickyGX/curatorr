@@ -71,7 +71,7 @@ import {
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
-import { applyFeaturePresetFilters, applyTrackFilters } from '../services/playlists.js';
+import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -132,11 +132,23 @@ function normaliseTrackFiltersInput(value) {
   const excludeFolders = Array.isArray(value.excludeFolders) ? value.excludeFolders.map(String).filter(Boolean) : [];
   const deduplicateByMbid = Boolean(value.deduplicateByMbid);
   const deduplicateByArtistTitle = Boolean(value.deduplicateByArtistTitle);
+  const deduplicateByDuration = Boolean(value.deduplicateByDuration);
+  const deduplicateIgnoreLikelyVariants = Boolean(value.deduplicateIgnoreLikelyVariants);
+  const deduplicateIgnoreLiveAlbums = Boolean(value.deduplicateIgnoreLiveAlbums);
   const rules = (Array.isArray(value.rules) ? value.rules : [])
     .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
     .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
-  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !rules.length) return null;
-  return { includeFolders, excludeFolders, deduplicateByMbid, deduplicateByArtistTitle, rules };
+  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !rules.length) return null;
+  return {
+    includeFolders,
+    excludeFolders,
+    deduplicateByMbid,
+    deduplicateByArtistTitle,
+    deduplicateByDuration,
+    deduplicateIgnoreLikelyVariants,
+    deduplicateIgnoreLiveAlbums,
+    rules,
+  };
 }
 
 function buildPlaylistFeatureRules(payload = {}) {
@@ -167,8 +179,12 @@ function buildPlaylistFeatureRules(payload = {}) {
   };
 }
 
-function buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings) {
-  const baseTracks = trackFilters ? applyTrackFilters(getMasterTracks(db), trackFilters) : getMasterTracks(db);
+function buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings, options = {}) {
+  const duplicateLimit = Math.max(0, Math.min(10000, Number(options.dedupeReportLimit || 0) || 0));
+  const filterResult = trackFilters
+    ? applyTrackFiltersWithReport(getMasterTracks(db), trackFilters, { duplicateLimit })
+    : { tracks: getMasterTracks(db), duplicateCount: 0, duplicateMatches: [] };
+  const baseTracks = filterResult.tracks;
   const filteredTracks = applyFeaturePresetFilters(baseTracks, rules || {});
   const result = previewGlobalPlaylist(db, rules || {}, userPlexId, smartSettings || {}, filteredTracks);
   const counts = result.forUser || result.average || {
@@ -180,6 +196,8 @@ function buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smart
   return {
     counts,
     featureTrackCount: filteredTracks.length,
+    dedupeDuplicateCount: filterResult.duplicateCount || 0,
+    dedupeDuplicateMatches: filterResult.duplicateMatches || [],
   };
 }
 
@@ -375,6 +393,9 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     advancedRules: [],
     deduplicateByMbid: false,
     deduplicateByArtistTitle: false,
+    deduplicateByDuration: false,
+    deduplicateIgnoreLikelyVariants: false,
+    deduplicateIgnoreLiveAlbums: false,
     importSource,
     importSuggestedContent: {
       genres: { include: topGenres, exclude: [], includeMode: 'any' },
@@ -864,7 +885,7 @@ function getManualAlbumStatusMeta(statusKey) {
     return { key: 'available', label: 'In library', selectable: false };
   }
   if (statusKey === 'pending') {
-    return { key: 'pending', label: 'Added to Lidarr', selectable: false };
+    return { key: 'pending', label: 'Monitored in Lidarr', selectable: false };
   }
   return { key: 'missing', label: 'Not in library', selectable: true };
 }
@@ -900,7 +921,13 @@ function buildManualAlbumStateMap(db, userPlexId, artistName) {
     if (String(request?.artistName || '').trim().toLowerCase() !== artistKey) return;
     const albumKey = normalizeManualAlbumTitle(getResolvedRequestAlbumTitle(request));
     if (!albumKey) return;
-    const nextStatus = libraryAlbumSet.has(albumKey) ? 'available' : 'pending';
+    const requestStatus = String(request?.status || '').trim().toLowerCase();
+    const detail = request?.detail && typeof request.detail === 'object' ? request.detail : {};
+    const monitoringConfirmed = detail.monitoredConfirmed === true || detail.alreadyMonitored === true;
+    const nextStatus = libraryAlbumSet.has(albumKey) || request?.inLibrary === true
+      ? 'available'
+      : ((requestStatus === 'queued' || requestStatus === 'processing' || (requestStatus === 'completed' && monitoringConfirmed)) ? 'pending' : 'missing');
+    if (nextStatus === 'missing') return;
     const current = map.get(albumKey) || { excluded: false, status: 'missing' };
     if (current.status === 'available') return;
     if (nextStatus === 'available' || current.status === 'missing') {
@@ -943,6 +970,21 @@ function findSuggestedAlbumRecord(db, userPlexId, artistName, albumTitle) {
     return String(album?.artistName || '').trim().toLowerCase() === artistKey
       && normalizeManualAlbumTitle(album?.albumTitle) === albumKey;
   }) || null;
+}
+
+function findLidarrRequestForManualAlbum(db, userPlexId, { artistName = '', albumTitle = '', albumId = 0 } = {}) {
+  const normalizedArtist = String(artistName || '').trim().toLowerCase();
+  const normalizedAlbum = normalizeManualAlbumTitle(albumTitle);
+  const numericAlbumId = Number(albumId || 0) || 0;
+  return listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed', 'failed'], limit: 500 })
+    .find((request) => {
+      const detail = request?.detail && typeof request.detail === 'object' ? request.detail : {};
+      const requestAlbumId = Number(request?.lidarrAlbumId || detail.albumId || detail.lidarrAlbumId || 0) || 0;
+      if (numericAlbumId > 0 && requestAlbumId === numericAlbumId) return true;
+      if (!normalizedArtist || !normalizedAlbum) return false;
+      return String(request?.artistName || '').trim().toLowerCase() === normalizedArtist
+        && normalizeManualAlbumTitle(getResolvedRequestAlbumTitle(request)) === normalizedAlbum;
+    }) || null;
 }
 
 // ── Smart playlist rebuild ────────────────────────────────────────────────────
@@ -2079,6 +2121,107 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
+  app.post('/api/music/lidarr/manual/force-search', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+    const albumId = Number(req.body?.lidarrAlbumId || req.body?.albumId || 0) || 0;
+    if (!albumId) return res.status(400).json({ error: 'lidarrAlbumId is required.' });
+
+    try {
+      const album = await lidarrService.getAlbum(albumId, { timeoutMs: 12000 });
+      if (!album) return res.status(404).json({ error: 'Album not found in Lidarr.' });
+
+      const artistName = String(
+        req.body?.artistName
+        || album?.artist?.artistName
+        || album?.artistMetadata?.artistName
+        || ''
+      ).trim();
+      const albumTitle = String(req.body?.albumTitle || album?.title || '').trim();
+      const matchingRequest = findLidarrRequestForManualAlbum(db, userPlexId, { artistName, albumTitle, albumId });
+      if (!album.monitored && !matchingRequest) {
+        return res.status(400).json({ error: 'Use Add album first so Curatorr can monitor it and track the request.' });
+      }
+
+      if (!album.monitored) {
+        await lidarrService.setAlbumMonitoredAndVerify(albumId, true);
+      }
+      const command = await lidarrService.triggerAlbumSearch([albumId]);
+      const now = Date.now();
+      let updatedRequest = null;
+      if (matchingRequest) {
+        updatedRequest = updateLidarrRequest(db, matchingRequest.id, {
+          albumTitle: albumTitle || matchingRequest.albumTitle,
+          lidarrArtistId: Number(album?.artistId || matchingRequest.lidarrArtistId || 0) || matchingRequest.lidarrArtistId || null,
+          lidarrAlbumId: albumId,
+          status: 'completed',
+          processedAt: matchingRequest.processedAt || now,
+          updatedAt: now,
+          detail: {
+            ...(matchingRequest.detail || {}),
+            selectedAlbumTitle: albumTitle || matchingRequest.detail?.selectedAlbumTitle || '',
+            forcedManualSearch: true,
+            forcedManualSearchAt: now,
+            forcedSearchCommandId: Number(command?.id || 0) || null,
+            searchCommandId: Number(command?.id || matchingRequest.detail?.searchCommandId || 0) || null,
+            lastManualSearchStatus: 'queued',
+            monitoredConfirmed: true,
+            monitoredConfirmedAt: now,
+            lastError: '',
+            lastErrorCode: '',
+          },
+        }, matchingRequest.userPlexId);
+        updatedRequest = enrichDiscoverRequests(db, matchingRequest.userPlexId, [updatedRequest])[0] || updatedRequest;
+      }
+
+      if (artistName && albumTitle) {
+        upsertSuggestedAlbum(db, userPlexId, {
+          artistName,
+          albumTitle,
+          albumType: String(req.body?.albumType || album?.albumType || ''),
+          releaseDate: String(req.body?.releaseDate || album?.releaseDate || ''),
+          selectionReason: 'Manual force search from Discover.',
+          rankScore: Number(album?.ratings?.value || 0),
+          status: album.monitored ? 'already_monitored' : 'added_to_lidarr',
+          lidarrAlbumId: albumId,
+          updatedAt: now,
+        });
+
+        const existingProgress = getLidarrArtistProgress(db, userPlexId, artistName);
+        saveLidarrArtistProgress(db, userPlexId, {
+          artistName,
+          lidarrArtistId: Number(album?.artistId || existingProgress?.lidarrArtistId || 0) || null,
+          currentStage: 'search_queued',
+          albumsAddedCount: Number(existingProgress?.albumsAddedCount || 0),
+          highestObservedRank: Number(existingProgress?.highestObservedRank || 0),
+          lastAlbumAddedAt: existingProgress?.lastAlbumAddedAt ?? null,
+          nextReviewAt: now + DAY_MS,
+          lastManualSearchAt: now,
+          lastManualSearchStatus: 'queued',
+          updatedAt: now,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        request: updatedRequest,
+        command,
+        album: {
+          albumId,
+          albumTitle: albumTitle || String(album?.title || ''),
+          monitored: true,
+        },
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
   app.get('/api/music/lidarr/requests', requireUser, async (req, res) => {
     const userPlexId = resolveQueryUserId(req);
     const buckets = splitDiscoverRequestBuckets(
@@ -2187,7 +2330,9 @@ export function registerApiMusic(app, ctx) {
     }
     const existing = getLidarrRequest(db, req.params.id, userPlexId);
     if (!existing) return res.status(404).json({ error: 'Request not found.' });
-    if (existing.status !== 'failed') return res.status(400).json({ error: 'Only failed requests can be retried.' });
+    if (!['failed', 'completed'].includes(String(existing.status || '').trim().toLowerCase())) {
+      return res.status(400).json({ error: 'Only failed or completed requests can be retried.' });
+    }
     updateLidarrRequest(db, existing.id, {
       status: 'queued',
       processedAt: null,
@@ -2200,6 +2345,66 @@ export function registerApiMusic(app, ctx) {
     }, existing.userPlexId);
     lidarrService.processQueuedRequests({ userPlexId: existing.userPlexId, limit: 1 }).catch(() => {});
     return res.json({ ok: true, request: getLidarrRequest(db, existing.id, existing.userPlexId) });
+  });
+
+  app.post('/api/music/lidarr/requests/:id/force-search', requireUser, async (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    if (!canUserAccessLidarrAutomation(loadConfig(), req.session?.user)) {
+      return res.status(403).json({ error: 'Lidarr automation is not enabled for this account.' });
+    }
+    if (!lidarrService?.isConfigured()) {
+      return res.status(400).json({ error: 'Lidarr is not configured.' });
+    }
+    const existing = getLidarrRequest(db, req.params.id, userPlexId);
+    if (!existing) return res.status(404).json({ error: 'Request not found.' });
+    const albumId = Number(existing.lidarrAlbumId || existing.detail?.albumId || 0) || 0;
+    if (!albumId) return res.status(400).json({ error: 'This request does not have a Lidarr album id yet.' });
+
+    try {
+      const album = await lidarrService.getAlbum(albumId, { timeoutMs: 12000 });
+      if (!album) return res.status(404).json({ error: 'Album not found in Lidarr.' });
+      if (!album.monitored) {
+        await lidarrService.setAlbumMonitoredAndVerify(albumId, true);
+      }
+      const command = await lidarrService.triggerAlbumSearch([albumId]);
+      const now = Date.now();
+      const updated = updateLidarrRequest(db, existing.id, {
+        status: 'completed',
+        processedAt: existing.processedAt || now,
+        updatedAt: now,
+        detail: {
+          ...(existing.detail || {}),
+          forcedManualSearch: true,
+          forcedManualSearchAt: now,
+          forcedSearchCommandId: Number(command?.id || 0) || null,
+          searchCommandId: Number(command?.id || existing.detail?.searchCommandId || 0) || null,
+          lastManualSearchStatus: 'queued',
+          monitoredConfirmed: true,
+          monitoredConfirmedAt: now,
+          lastError: '',
+          lastErrorCode: '',
+        },
+      }, existing.userPlexId);
+
+      const existingProgress = getLidarrArtistProgress(db, existing.userPlexId, existing.artistName);
+      saveLidarrArtistProgress(db, existing.userPlexId, {
+        artistName: existing.artistName,
+        lidarrArtistId: existingProgress?.lidarrArtistId ?? existing.lidarrArtistId ?? null,
+        currentStage: 'search_queued',
+        albumsAddedCount: Number(existingProgress?.albumsAddedCount || 0),
+        highestObservedRank: Number(existingProgress?.highestObservedRank || 0),
+        lastAlbumAddedAt: existingProgress?.lastAlbumAddedAt ?? null,
+        nextReviewAt: now + DAY_MS,
+        lastManualSearchAt: now,
+        lastManualSearchStatus: 'queued',
+        updatedAt: now,
+      });
+
+      const responseRequest = enrichDiscoverRequests(db, existing.userPlexId, [updated])[0] || updated;
+      return res.json({ ok: true, request: responseRequest, command });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
   });
 
   app.post('/api/music/lidarr/requests/:id/delete', requireUser, (req, res) => {
@@ -2839,7 +3044,7 @@ export function registerApiMusic(app, ctx) {
             });
             if (!alreadyMonitored) {
               albumQuota = lidarrService.assertQuotaAvailable(role, latestUsage, { albums: 1 });
-              await lidarrService.setAlbumMonitored(albumId, true);
+              await lidarrService.setAlbumMonitoredAndVerify(albumId, true);
               recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1 });
               const _albumTrackCount3 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
               if (_albumTrackCount3 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount3 });
@@ -2872,6 +3077,8 @@ export function registerApiMusic(app, ctx) {
               commandId: Number(searchCommand?.id || 0) || null,
               sourceKind: 'manual',
               addedByCuratorr: !alreadyMonitored,
+              monitoredConfirmed: true,
+              monitoredConfirmedAt: Date.now(),
             };
             nextProgress = {
               ...nextProgress,
@@ -2977,6 +3184,10 @@ export function registerApiMusic(app, ctx) {
         detail: {
           selectionReason: String(starterAlbum?.selectionReason || ''),
           commandId: Number(starterAlbum?.commandId || 0) || null,
+          monitoredConfirmed: Boolean(starterAlbum?.monitoredConfirmed || starterAlbum?.alreadyMonitored || starterAlbum?.addedByCuratorr),
+          monitoredConfirmedAt: starterAlbum?.monitoredConfirmed || starterAlbum?.alreadyMonitored || starterAlbum?.addedByCuratorr
+            ? Number(starterAlbum?.monitoredConfirmedAt || Date.now())
+            : null,
           requestSource: 'manual',
           note: 'Completed from manual suggested artist add.',
         },
@@ -4722,7 +4933,9 @@ export function registerApiMusic(app, ctx) {
     try { trackFilters = req.query?.trackFilters ? normaliseTrackFiltersInput(JSON.parse(String(req.query.trackFilters))) : null; } catch { trackFilters = null; }
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
-    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
+    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings, {
+      dedupeReportLimit: Number(req.query?.dedupeReportLimit || 20),
+    });
     const counts = preview.counts;
     res.json({
       ok: true,
@@ -4731,6 +4944,8 @@ export function registerApiMusic(app, ctx) {
       eligibleArtistCount: counts.eligibleArtistCount,
       eligibleTrackCount: counts.eligibleTrackCount,
       featureTrackCount: preview.featureTrackCount,
+      dedupeDuplicateCount: preview.dedupeDuplicateCount,
+      dedupeDuplicateMatches: preview.dedupeDuplicateMatches,
     });
   });
 

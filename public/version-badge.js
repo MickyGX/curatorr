@@ -112,7 +112,7 @@
         '</div>' +
         '<div class="plex-modal-body release-welcome-body">' +
           '<div class="plex-modal-scroll release-welcome-scroll">' +
-            '<div class="plex-modal-hero release-welcome-hero">' +
+            '<div class="release-welcome-panel release-welcome-hero">' +
               '<div class="release-welcome-content">' +
                 '<div class="release-welcome-brand">' +
                   '<img class="release-welcome-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="eager" />' +

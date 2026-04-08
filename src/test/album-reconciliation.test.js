@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
+import { resolveManualPreviewAlbumStatus } from '../services/lidarr.js';
 
 function createDb() {
   const db = new Database(':memory:');
@@ -98,5 +99,65 @@ describe('promoteCompletedRequestsFromLidarr', () => {
     assert.equal(result.inLibrary, true);
     assert.equal(result.inLibraryKind, 'lidarr_downloaded');
     assert.equal(result.matchedAlbumTitle, 'Revival');
+  });
+
+  it('repairs completed requests when Lidarr shows the album is no longer monitored', async () => {
+    const lidarrService = {
+      isConfigured() { return true; },
+      async getAlbum(albumId) {
+        return {
+          id: albumId,
+          title: 'Power to the People',
+          monitored: false,
+          statistics: { trackFileCount: 0 },
+        };
+      },
+      async setAlbumMonitoredAndVerify(albumId) {
+        return {
+          id: albumId,
+          title: 'Power to the People',
+          monitored: true,
+          statistics: { trackFileCount: 0 },
+        };
+      },
+    };
+
+    const [result] = await promoteCompletedRequestsFromLidarr([
+      {
+        id: 54,
+        status: 'completed',
+        lidarrAlbumId: 5150,
+        inLibrary: false,
+      },
+    ], lidarrService);
+
+    assert.equal(result.inLibrary, false);
+    assert.equal(result.lidarrMonitored, true);
+    assert.equal(result.monitoringLost, false);
+    assert.equal(result.monitoringRepairFailed, false);
+  });
+});
+
+describe('resolveManualPreviewAlbumStatus', () => {
+  it('does not treat unmonitored Lidarr catalog metadata as added', () => {
+    const status = resolveManualPreviewAlbumStatus({
+      id: 5150,
+      title: 'Power to the People',
+      monitored: false,
+      statistics: { trackFileCount: 0 },
+    });
+
+    assert.equal(status, 'missing');
+  });
+
+  it('treats monitored albums without files as pending', () => {
+    const status = resolveManualPreviewAlbumStatus({
+      id: 5150,
+      title: 'Power to the People',
+      monitored: true,
+      statistics: { trackFileCount: 0 },
+    });
+
+    assert.equal(status, 'pending');
   });
 });

@@ -1532,16 +1532,58 @@ function buildReleaseDedupeTitleKey(track) {
   return artistKey && titleKey ? `${artistKey}|${titleKey}` : '';
 }
 
-export function applyTrackFilters(tracks, filterConfig) {
-  if (!filterConfig) return tracks;
+const LIKELY_DISTINCT_RECORDING_PATTERN = /\b(?:live|demo|reprise|instrumental|commentary|acoustic|remix|radio\s+edit|single\s+edit|session\s+version)\b/i;
+
+function hasLikelyDistinctRecordingMarker(track) {
+  return [track?.trackTitle, track?.albumName]
+    .map((value) => String(value || '').trim())
+    .some((value) => value && LIKELY_DISTINCT_RECORDING_PATTERN.test(value));
+}
+
+function hasLiveAlbumType(track) {
+  const albumType = String(track?.albumType || track?.albumSubformat || track?.albumSubformats || '').trim();
+  return /\blive\b/i.test(albumType);
+}
+
+function canDedupeByTrackDuration(left, right, toleranceMs) {
+  const a = Number(left?.durationMs || 0) || 0;
+  const b = Number(right?.durationMs || 0) || 0;
+  return a > 0 && b > 0 && Math.abs(a - b) <= toleranceMs;
+}
+
+function summarizeDedupeTrack(track = {}) {
+  return {
+    ratingKey: String(track?.ratingKey || ''),
+    artistName: String(track?.artistName || ''),
+    trackTitle: String(track?.trackTitle || ''),
+    albumName: String(track?.albumName || ''),
+    albumType: String(track?.albumType || track?.albumSubformat || track?.albumSubformats || ''),
+    recordingMbid: String(track?.recordingMbid || ''),
+    durationMs: Number(track?.durationMs || 0),
+    ratingCount: Number(track?.ratingCount || 0),
+    viewCount: Number(track?.viewCount || 0),
+    filePath: String(track?.filePath || ''),
+  };
+}
+
+export function applyTrackFiltersWithReport(tracks, filterConfig, options = {}) {
+  if (!filterConfig) {
+    return { tracks, duplicateCount: 0, duplicateMatches: [] };
+  }
   const {
     rules = [],
     excludeLibraryKeys = [],
     deduplicateByMbid = false,
     deduplicateByArtistTitle = false,
+    deduplicateByDuration = false,
+    deduplicateIgnoreLikelyVariants = false,
+    deduplicateIgnoreLiveAlbums = false,
     includeFolders = [],
     excludeFolders = [],
   } = filterConfig;
+  const duplicateLimit = Math.max(0, Math.min(10000, Number(options.duplicateLimit || 0) || 0));
+  const duplicateMatches = [];
+  let duplicateCount = 0;
 
   let result = tracks;
 
@@ -1578,25 +1620,78 @@ export function applyTrackFilters(tracks, filterConfig) {
   if (deduplicateByMbid || deduplicateByArtistTitle) {
     const keepKeys = new Set();
     const keptByRecordingMbid = new Set();
-    const keptByTitle = new Set();
+    const keptTrackByRecordingMbid = new Map();
+    const keptByTitle = new Map();
+    const durationToleranceMs = 5000;
 
     // Prefer the strongest library copy first, then suppress the duplicate keys the
     // caller has asked for.
     for (const track of [...result].sort(compareTrackPreferenceForDedupe)) {
       const recordingMbid = String(track?.recordingMbid || '').trim().toLowerCase();
-      if (deduplicateByMbid && recordingMbid && keptByRecordingMbid.has(recordingMbid)) continue;
+      if (deduplicateByMbid && recordingMbid && keptByRecordingMbid.has(recordingMbid)) {
+        duplicateCount += 1;
+        if (duplicateMatches.length < duplicateLimit) {
+          duplicateMatches.push({
+            method: 'mbid',
+            key: recordingMbid,
+            reason: 'MusicBrainz recording ID',
+            kept: summarizeDedupeTrack(keptTrackByRecordingMbid.get(recordingMbid) || {}),
+            duplicate: summarizeDedupeTrack(track),
+          });
+        }
+        continue;
+      }
 
-      const titleKey = deduplicateByArtistTitle ? buildReleaseDedupeTitleKey(track) : '';
-      if (titleKey && keptByTitle.has(titleKey)) continue;
+      let titleKey = deduplicateByArtistTitle ? buildReleaseDedupeTitleKey(track) : '';
+      if (titleKey && deduplicateIgnoreLikelyVariants && hasLikelyDistinctRecordingMarker(track)) titleKey = '';
+      if (titleKey && deduplicateIgnoreLiveAlbums && hasLiveAlbumType(track)) titleKey = '';
+      let duplicateTitleTrack = null;
+      if (titleKey) {
+        const titleMatches = keptByTitle.get(titleKey) || [];
+        duplicateTitleTrack = titleMatches.find((keptTrack) => {
+          if (deduplicateIgnoreLikelyVariants && hasLikelyDistinctRecordingMarker(keptTrack)) return false;
+          if (deduplicateIgnoreLiveAlbums && hasLiveAlbumType(keptTrack)) return false;
+          if (deduplicateByDuration && !canDedupeByTrackDuration(track, keptTrack, durationToleranceMs)) return false;
+          return true;
+        }) || null;
+        if (duplicateTitleTrack) {
+          duplicateCount += 1;
+          if (duplicateMatches.length < duplicateLimit) {
+            duplicateMatches.push({
+              method: 'artist_title',
+              key: titleKey,
+              reason: deduplicateByDuration ? 'Artist/title fuzzy match within 5 seconds' : 'Artist/title fuzzy match',
+              kept: summarizeDedupeTrack(duplicateTitleTrack),
+              duplicate: summarizeDedupeTrack(track),
+            });
+          }
+          continue;
+        }
+      }
 
-      if (deduplicateByMbid && recordingMbid) keptByRecordingMbid.add(recordingMbid);
-      if (titleKey) keptByTitle.add(titleKey);
+      if (deduplicateByMbid && recordingMbid) {
+        keptByRecordingMbid.add(recordingMbid);
+        keptTrackByRecordingMbid.set(recordingMbid, track);
+      }
+      if (titleKey) {
+        const titleMatches = keptByTitle.get(titleKey) || [];
+        titleMatches.push(track);
+        keptByTitle.set(titleKey, titleMatches);
+      }
       keepKeys.add(String(track?.ratingKey || ''));
     }
     result = result.filter((track) => keepKeys.has(String(track?.ratingKey || '')));
   }
 
-  return result;
+  return {
+    tracks: result,
+    duplicateCount,
+    duplicateMatches,
+  };
+}
+
+export function applyTrackFilters(tracks, filterConfig) {
+  return applyTrackFiltersWithReport(tracks, filterConfig).tracks;
 }
 
 function normalizeAlbumPopularityMode(value) {
