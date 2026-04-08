@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolveUserFilter, summarizeAdminPlaylistCounts } from '../routes/pages.js';
+import { resolveUserFilter, summarizeAdminLidarrCounts, summarizeAdminPlaylistCounts } from '../routes/pages.js';
 
 const testDir = join(tmpdir(), `curatorr-test-${process.pid}`);
 process.env.CONFIG_PATH = join(testDir, 'config.json');
@@ -547,6 +547,32 @@ describe('page scoping', () => {
     assert.equal(counts.systemPlaylistCount, 1);
     assert.equal(counts.userPlaylistCount, 1);
     assert.equal(counts.draftPlaylistCount, 1);
+  });
+
+  it('aggregates Lidarr usage across identity aliases without counting progress placeholders', () => {
+    const counts = summarizeAdminLidarrCounts([
+      { usageKey: 'artists', total: 1 },
+      { usageKey: 'albums', total: 1 },
+      { usageKey: 'artists', total: 2 },
+      { usageKey: 'albums', total: 1 },
+      { usageKey: 'tracks', total: 24 },
+      { usageKey: 'auto_artists', total: 1 },
+    ]);
+
+    assert.equal(counts.artistsAdded, 3);
+    assert.equal(counts.albumsAdded, 2);
+    assert.equal(counts.tracksAdded, 24);
+  });
+
+  it('keeps Lidarr tracks blank when no tracked usage rows exist yet', () => {
+    const counts = summarizeAdminLidarrCounts([
+      { usageKey: 'artists', total: 1 },
+      { usageKey: 'albums', total: 1 },
+    ]);
+
+    assert.equal(counts.artistsAdded, 1);
+    assert.equal(counts.albumsAdded, 1);
+    assert.equal(counts.tracksAdded, null);
   });
 });
 
@@ -2071,6 +2097,56 @@ describe('security guards', () => {
           return true;
         },
       );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('falls back to track listing when Lidarr album payload omits track counts', async () => {
+    const lidarrService = createLidarrService({
+      db: null,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      if (target === 'http://lidarr.local/api/v1/album/42') {
+        return new Response(JSON.stringify({
+          id: 42,
+          title: 'No Count Album',
+          statistics: { trackFileCount: 0 },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/track?albumId=42') {
+        return new Response(JSON.stringify([
+          { title: 'One', trackNumber: 1, mediumNumber: 1 },
+          { title: 'Two', trackNumber: 2, mediumNumber: 1 },
+          { title: 'Three', trackNumber: 3, mediumNumber: 1 },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in test: ${target}`);
+    };
+
+    try {
+      const trackCount = await lidarrService.getAlbumTrackCount({ id: 42 });
+      assert.equal(trackCount, 3);
     } finally {
       global.fetch = originalFetch;
     }

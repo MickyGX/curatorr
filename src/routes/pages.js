@@ -323,6 +323,21 @@ function fetchPersonalPlaylistsByIdentityKeys(db, identityKeys = []) {
   }));
 }
 
+function fetchLidarrUsageByIdentityKeys(db, identityKeys = []) {
+  const keys = normalizeIdentityKeys(identityKeys);
+  if (!keys.length) return [];
+  const placeholders = keys.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT usage_key, COALESCE(SUM(amount), 0) AS total
+    FROM lidarr_usage
+    WHERE LOWER(user_plex_id) IN (${placeholders})
+    GROUP BY usage_key
+  `).all(...keys).map((row) => ({
+    usageKey: String(row.usage_key || '').trim(),
+    total: Number(row.total || 0),
+  }));
+}
+
 export function summarizeAdminPlaylistCounts(generatedPlaylists = [], personalPlaylists = []) {
   const personalMap = new Map(
     (Array.isArray(personalPlaylists) ? personalPlaylists : [])
@@ -370,6 +385,21 @@ export function summarizeAdminPlaylistCounts(generatedPlaylists = [], personalPl
     otherPlaylistCount,
     draftPlaylistCount,
     playlistTotalCount: generatedByKey.size + draftPlaylistCount,
+  };
+}
+
+export function summarizeAdminLidarrCounts(usageRows = []) {
+  const totals = new Map();
+  (Array.isArray(usageRows) ? usageRows : []).forEach((row) => {
+    const usageKey = String(row?.usageKey || row?.usage_key || '').trim().toLowerCase();
+    if (!usageKey) return;
+    totals.set(usageKey, (totals.get(usageKey) || 0) + Number(row?.total || row?.amount || 0));
+  });
+  const tracksAdded = Number(totals.get('tracks') || 0);
+  return {
+    artistsAdded: Number(totals.get('artists') || 0),
+    albumsAdded: Number(totals.get('albums') || 0),
+    tracksAdded: tracksAdded > 0 ? tracksAdded : null,
   };
 }
 
@@ -547,39 +577,9 @@ async function buildAdminUsersPageData({
   const since7d = now - 7 * 24 * 60 * 60 * 1000;
   const since30d = now - 30 * 24 * 60 * 60 * 1000;
   const lastPlayStmt = db.prepare('SELECT MAX(started_at) AS last_play_at FROM play_events WHERE user_plex_id = ?');
-  const lidarrUsageTotalsStmt = db.prepare(`
-    SELECT
-      COALESCE(SUM(CASE WHEN usage_key = 'artists' THEN amount ELSE 0 END), 0) AS artists_added,
-      COALESCE(SUM(CASE WHEN usage_key = 'albums' THEN amount ELSE 0 END), 0) AS albums_added,
-      COALESCE(SUM(CASE WHEN usage_key = 'tracks' THEN amount ELSE 0 END), 0) AS tracks_added
-    FROM lidarr_usage
-    WHERE user_plex_id = ?
-  `);
-  const lidarrProgressTotalsStmt = db.prepare(`
-    SELECT
-      COUNT(DISTINCT CASE
-        WHEN TRIM(COALESCE(artist_name, '')) != ''
-          AND (
-            lidarr_artist_id IS NOT NULL
-            OR current_stage IN ('artist_added', 'starter_album_added', 'starter_album_linked', 'catalog_expanded', 'catalog_complete')
-          )
-        THEN LOWER(TRIM(artist_name))
-        ELSE NULL
-      END) AS artists_added,
-      COALESCE(SUM(COALESCE(albums_added_count, 0)), 0) AS albums_added
-    FROM lidarr_artist_progress
-    WHERE user_plex_id = ?
-  `);
-  const resolveLidarrStats = (userId) => {
-    const usage = lidarrUsageTotalsStmt.get(userId) || {};
-    const progress = lidarrProgressTotalsStmt.get(userId) || {};
-    const tracksAdded = Number(usage.tracks_added || 0);
-    return {
-      artistsAdded: Math.max(Number(usage.artists_added || 0), Number(progress.artists_added || 0)),
-      albumsAdded: Math.max(Number(usage.albums_added || 0), Number(progress.albums_added || 0)),
-      tracksAdded: tracksAdded > 0 ? tracksAdded : null,
-    };
-  };
+  const resolveLidarrStats = (identityKeys) => summarizeAdminLidarrCounts(
+    fetchLidarrUsageByIdentityKeys(db, identityKeys),
+  );
   const livePlexUsers = [];
   const homeThumbByKey = new Map();
   const homeUserKeySet = new Set();
@@ -711,7 +711,7 @@ async function buildAdminUsersPageData({
     const topArtist = getTopArtists(db, dbId, 1)[0]?.artist_name || '';
     const lastSync = getLastPlaylistSync(db, dbId);
     const lastPlayAt = Number(lastPlayStmt.get(dbId)?.last_play_at || 0);
-    const lidarrStats = resolveLidarrStats(dbId);
+    const lidarrStats = resolveLidarrStats(playlistIdentityKeys);
     const plays7d = Number(stats7d.total_plays || 0);
     const plays30d = Number(stats30d.total_plays || 0);
     const playsAll = Number(statsAll.total_plays || 0);
@@ -772,7 +772,7 @@ async function buildAdminUsersPageData({
       const topArtist = getTopArtists(db, userId, 1)[0]?.artist_name || '';
       const lastSync = getLastPlaylistSync(db, userId);
       const lastPlayAt = Number(lastPlayStmt.get(userId)?.last_play_at || 0);
-      const lidarrStats = resolveLidarrStats(userId);
+      const lidarrStats = resolveLidarrStats(ids);
       const plays7d = Number(stats7d.total_plays || 0);
       const plays30d = Number(stats30d.total_plays || 0);
       const playsAll = Number(statsAll.total_plays || 0);

@@ -3046,8 +3046,8 @@ export function registerApiMusic(app, ctx) {
               albumQuota = lidarrService.assertQuotaAvailable(role, latestUsage, { albums: 1 });
               await lidarrService.setAlbumMonitoredAndVerify(albumId, true);
               recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1 });
-              const _albumTrackCount3 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
-              if (_albumTrackCount3 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount3 });
+              const albumTrackCount = await lidarrService.getAlbumTrackCount(album, { timeoutMs: 12000 });
+              if (albumTrackCount > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: albumTrackCount });
               latestUsage = getCurrentLidarrUsage(db, userPlexId).usage || {};
               albumQuota = lidarrService.getRoleQuota(role, latestUsage);
               if (autoTriggerManualSearch) {

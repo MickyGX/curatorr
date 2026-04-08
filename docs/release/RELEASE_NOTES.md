@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.67 (2026-04-08)
+
+- Fixed the Admin Users page so playlist totals no longer double-count synced personal playlists, now aggregate across user identity aliases, and show clearer system/user/linked breakdowns with draft counts separated out.
+- Fixed Admin Users Lidarr stats so they come from recorded Curatorr usage instead of placeholder progress rows, preventing false `1 / 1 / —` totals for users who had not actually added new content through Curatorr.
+- Fixed Lidarr album usage tracking so future album adds reliably record track totals even when the first Lidarr album payload omits `trackCount`, allowing the Admin Users Lidarr tracks column to populate over time.
+
 ## v0.1.66 (2026-04-08)
 
 - Added stronger Lidarr monitoring verification and repair for Discover requests, so Manual Discovery no longer treats unmonitored Lidarr album metadata as already added and completed queue rows can re-monitor albums that lost monitoring.

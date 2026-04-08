@@ -867,6 +867,42 @@ export function createLidarrService(ctx) {
       });
   }
 
+  async function getAlbumTrackCount(albumInput, options = {}) {
+    const album = albumInput && typeof albumInput === 'object' ? albumInput : null;
+    const albumId = Number(album?.id || albumInput || 0);
+    if (!albumId) return 0;
+
+    const directCount = Number(album?.statistics?.trackCount || album?.trackCount || 0) || 0;
+    if (directCount > 0) return directCount;
+
+    const timeoutMs = Number(options.timeoutMs || 12000);
+
+    try {
+      const liveAlbum = await getAlbum(albumId, { timeoutMs });
+      const liveCount = Number(liveAlbum?.statistics?.trackCount || liveAlbum?.trackCount || 0) || 0;
+      if (liveCount > 0) return liveCount;
+    } catch (err) {
+      logEvent('warn', 'album.track_count.album_lookup_failed', `Failed to fetch Lidarr album ${albumId} while resolving track count`, {
+        albumId,
+        error: safeMessage(err),
+        code: err?.code || '',
+      });
+    }
+
+    try {
+      const tracks = await listAlbumTracks(albumId, { timeoutMs });
+      return Array.isArray(tracks) ? tracks.length : 0;
+    } catch (err) {
+      logEvent('warn', 'album.track_count.track_lookup_failed', `Failed to fetch Lidarr album tracks for ${albumId}`, {
+        albumId,
+        error: safeMessage(err),
+        code: err?.code || '',
+      });
+    }
+
+    return 0;
+  }
+
   async function listMusicBrainzReleaseGroupTracks(releaseGroupId, options = {}) {
     const id = String(releaseGroupId || '').trim();
     if (!id) return [];
@@ -1855,8 +1891,8 @@ export function createLidarrService(ctx) {
         tagAlbum: true,
       });
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: now });
-      const _albumTrackCount1 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
-      if (_albumTrackCount1 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount1, createdAt: now });
+      const albumTrackCount = await getAlbumTrackCount(album, { timeoutMs: 12000 });
+      if (albumTrackCount > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: albumTrackCount, createdAt: now });
       quota = getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {});
       if (settings.autoTriggerManualSearch) {
         searchCommand = await triggerAlbumSearch([albumId]);
@@ -2224,8 +2260,8 @@ export function createLidarrService(ctx) {
       if (autoAdd) assertAutoAddQuotaAvailable(getCurrentLidarrUsage(db, userPlexId).usage || {}, { albums: 1 });
       await setAlbumMonitoredAndVerify(albumId, true);
       recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'albums', amount: 1, createdAt: Date.now() });
-      const _albumTrackCount2 = Number(album?.statistics?.trackCount || album?.trackCount || 0);
-      if (_albumTrackCount2 > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: _albumTrackCount2, createdAt: Date.now() });
+      const albumTrackCount = await getAlbumTrackCount(album, { timeoutMs: 12000 });
+      if (albumTrackCount > 0) recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'tracks', amount: albumTrackCount, createdAt: Date.now() });
       if (autoAdd) {
         recordLidarrUsage(db, userPlexId, { roleName: role, usageKey: 'auto_albums', amount: 1, createdAt: Date.now() });
       }
@@ -2559,6 +2595,7 @@ export function createLidarrService(ctx) {
     triggerAlbumSearch,
     getCommand,
     getAlbum,
+    getAlbumTrackCount,
     getArtist,
     setArtistMonitored,
     searchAlbumReleases,
