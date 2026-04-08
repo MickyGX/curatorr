@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolveUserFilter } from '../routes/pages.js';
+import { resolveUserFilter, summarizeAdminPlaylistCounts } from '../routes/pages.js';
 
 const testDir = join(tmpdir(), `curatorr-test-${process.pid}`);
 process.env.CONFIG_PATH = join(testDir, 'config.json');
@@ -515,6 +515,38 @@ describe('page scoping', () => {
   it('scopes Plex-backed admin accounts to their Plex username', () => {
     const filter = resolveUserFilter({ username: 'MickyGX', source: 'plex' }, 'admin');
     assert.equal(filter, 'MickyGX');
+  });
+
+  it('counts synced personal playlists once on the admin users page', () => {
+    const counts = summarizeAdminPlaylistCounts([
+      { playlistKey: 'curatorr', playlistType: 'curatorr', active: true },
+      { playlistKey: 'crescive', playlistType: 'crescive', active: true },
+      { playlistKey: 'curative', playlistType: 'curative', active: true },
+      { playlistKey: 'daily-mix', playlistType: 'daily-mix', active: true },
+      { playlistKey: 'personal:pp_britpop', playlistType: 'personal', active: true },
+      { playlistKey: 'personal:pp_soul', playlistType: 'personal', active: true },
+    ], [
+      { id: 'pp_britpop', rules: {} },
+      { id: 'pp_soul', rules: {} },
+    ]);
+
+    assert.equal(counts.playlistTotalCount, 6);
+    assert.equal(counts.systemPlaylistCount, 4);
+    assert.equal(counts.userPlaylistCount, 2);
+    assert.equal(counts.draftPlaylistCount, 0);
+  });
+
+  it('includes unsynced personal drafts in admin users playlist counts', () => {
+    const counts = summarizeAdminPlaylistCounts([
+      { playlistKey: 'curatorr', playlistType: 'curatorr', active: true },
+    ], [
+      { id: 'pp_draft', rules: {} },
+    ]);
+
+    assert.equal(counts.playlistTotalCount, 2);
+    assert.equal(counts.systemPlaylistCount, 1);
+    assert.equal(counts.userPlaylistCount, 1);
+    assert.equal(counts.draftPlaylistCount, 1);
   });
 });
 

@@ -307,7 +307,7 @@
                   <div class="cur-stat-body">
                     <div class="cur-stat-label">Total playlists</div>
                     <div class="cur-stat-value"><%= Number(_summary.totalPlaylists || 0).toLocaleString() %></div>
-                    <div class="cur-stat-sub">auto and user playlists combined</div>
+                    <div class="cur-stat-sub">system, user, and linked playlists combined</div>
                   </div>
                   <div class="cur-stat-icon"><%- _summaryIcons.playlistOwners %></div>
                 </div>
@@ -386,9 +386,9 @@
                       data-sort-skip-all="<%= Number(entry.skipRateAll || 0) %>"
                       data-sort-artists="<%= Number(entry.uniqueArtists || 0) %>"
                       data-sort-tracks="<%= Number(entry.uniqueTracks || 0) %>"
-                      data-sort-playlists-total="<%= Number((entry.playlistCount || 0) + (entry.personalPlaylistCount || 0)) %>"
-                      data-sort-playlists-auto="<%= Number(entry.playlistCount || 0) %>"
-                      data-sort-playlists-user="<%= Number(entry.personalPlaylistCount || 0) %>"
+                      data-sort-playlists-total="<%= Number(entry.playlistTotalCount || 0) %>"
+                      data-sort-playlists-auto="<%= Number(entry.systemPlaylistCount || entry.playlistCount || 0) %>"
+                      data-sort-playlists-user="<%= Number(entry.userPlaylistCount || entry.personalPlaylistCount || 0) %>"
                       data-sort-lidarr-artists="<%= Number(entry.lidarrArtistsAdded || 0) %>"
                       data-sort-lidarr-albums="<%= Number(entry.lidarrAlbumsAdded || 0) %>"
                       data-sort-lidarr-tracks="<%= entry.lidarrTracksAdded == null ? -1 : Number(entry.lidarrTracksAdded || 0) %>"
@@ -435,9 +435,12 @@
                         <% } %>
                       </div>
                       <div class="cur-admin-user-cell">
-                        <strong><%= Number((entry.playlistCount || 0) + (entry.personalPlaylistCount || 0)).toLocaleString() %></strong>
-                        <% if ((entry.playlistCount || 0) > 0 || (entry.personalPlaylistCount || 0) > 0) { %>
-                          <span class="cur-admin-user-cell-note"><%= Number(entry.playlistCount || 0).toLocaleString() %> auto<% if (entry.personalPlaylistCount) { %> · <%= Number(entry.personalPlaylistCount || 0).toLocaleString() %> user<% } %></span>
+                        <strong><%= Number(entry.playlistTotalCount || 0).toLocaleString() %></strong>
+                        <% if ((entry.playlistTotalCount || 0) > 0) { %>
+                          <span class="cur-admin-user-cell-note"><%= Number(entry.systemPlaylistCount || 0).toLocaleString() %> system<% if (entry.userPlaylistCount) { %> · <%= Number(entry.userPlaylistCount || 0).toLocaleString() %> user<% } %><% if (entry.otherPlaylistCount) { %> · <%= Number(entry.otherPlaylistCount || 0).toLocaleString() %> other<% } %></span>
+                          <% if (entry.draftPlaylistCount) { %>
+                            <span class="cur-admin-user-cell-note cur-admin-user-cell-muted"><%= Number(entry.draftPlaylistCount || 0).toLocaleString() %> unsynced draft<%= Number(entry.draftPlaylistCount || 0) === 1 ? '' : 's' %></span>
+                          <% } %>
                         <% } else { %>
                           <span class="cur-admin-user-cell-note cur-admin-user-cell-muted">No playlists yet</span>
                         <% } %>

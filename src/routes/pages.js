@@ -283,6 +283,96 @@ function buildPlexIdentityLookup(entries, normalizeIdentityList) {
   return lookup;
 }
 
+function normalizeIdentityKeys(values = []) {
+  return [...new Set(
+    (Array.isArray(values) ? values : [values])
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean),
+  )];
+}
+
+function fetchGeneratedPlaylistsByIdentityKeys(db, identityKeys = []) {
+  const keys = normalizeIdentityKeys(identityKeys);
+  if (!keys.length) return [];
+  const placeholders = keys.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT playlist_key, playlist_type, source_type, active
+    FROM user_generated_playlists
+    WHERE active = 1 AND LOWER(user_plex_id) IN (${placeholders})
+  `).all(...keys).map((row) => ({
+    playlistKey: String(row.playlist_key || '').trim(),
+    playlistType: String(row.playlist_type || '').trim(),
+    sourceType: String(row.source_type || '').trim(),
+    active: Boolean(row.active),
+  }));
+}
+
+function fetchPersonalPlaylistsByIdentityKeys(db, identityKeys = []) {
+  const keys = normalizeIdentityKeys(identityKeys);
+  if (!keys.length) return [];
+  const placeholders = keys.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT id, rules
+    FROM user_personal_playlists
+    WHERE LOWER(user_plex_id) IN (${placeholders})
+  `).all(...keys).map((row) => ({
+    id: String(row.id || '').trim(),
+    rules: (() => {
+      try { return JSON.parse(String(row.rules || '{}')); } catch { return {}; }
+    })(),
+  }));
+}
+
+export function summarizeAdminPlaylistCounts(generatedPlaylists = [], personalPlaylists = []) {
+  const personalMap = new Map(
+    (Array.isArray(personalPlaylists) ? personalPlaylists : [])
+      .map((playlist) => [String(playlist?.id || '').trim(), playlist])
+      .filter(([id]) => Boolean(id)),
+  );
+  const generatedByKey = new Map();
+  (Array.isArray(generatedPlaylists) ? generatedPlaylists : []).forEach((playlist) => {
+    if (!playlist || playlist.active === false) return;
+    const playlistKey = String(playlist.playlistKey || '').trim();
+    if (!playlistKey || generatedByKey.has(playlistKey)) return;
+    generatedByKey.set(playlistKey, playlist);
+  });
+
+  let systemPlaylistCount = 0;
+  let userPlaylistCount = 0;
+  let otherPlaylistCount = 0;
+  generatedByKey.forEach((playlist) => {
+    const audience = resolvePlaylistAudience(
+      playlist.playlistType,
+      playlist.playlistKey,
+      personalMap,
+      playlist.sourceType,
+    );
+    if (audience === 'personal' || audience === 'blend') {
+      userPlaylistCount += 1;
+    } else if (audience === 'system') {
+      systemPlaylistCount += 1;
+    } else {
+      otherPlaylistCount += 1;
+    }
+  });
+
+  let draftPlaylistCount = 0;
+  personalMap.forEach((_playlist, id) => {
+    if (!generatedByKey.has(`personal:${id}`)) draftPlaylistCount += 1;
+  });
+  userPlaylistCount += draftPlaylistCount;
+
+  return {
+    playlistCount: systemPlaylistCount + otherPlaylistCount,
+    systemPlaylistCount,
+    userPlaylistCount,
+    personalPlaylistCount: userPlaylistCount,
+    otherPlaylistCount,
+    draftPlaylistCount,
+    playlistTotalCount: generatedByKey.size + draftPlaylistCount,
+  };
+}
+
 async function fetchLivePlexUsersWithHomeData({
   config,
   normalizeIdentityList,
@@ -456,8 +546,6 @@ async function buildAdminUsersPageData({
   const now = Date.now();
   const since7d = now - 7 * 24 * 60 * 60 * 1000;
   const since30d = now - 30 * 24 * 60 * 60 * 1000;
-  const playlistCountStmt = db.prepare('SELECT COUNT(*) AS n FROM user_generated_playlists WHERE user_plex_id = ? AND active = 1');
-  const personalPlaylistCountStmt = db.prepare('SELECT COUNT(*) AS n FROM user_personal_playlists WHERE user_plex_id = ?');
   const lastPlayStmt = db.prepare('SELECT MAX(started_at) AS last_play_at FROM play_events WHERE user_plex_id = ?');
   const lidarrUsageTotalsStmt = db.prepare(`
     SELECT
@@ -611,12 +699,15 @@ async function buildAdminUsersPageData({
       String(user?.id || ''),
       String(user?.uuid || ''),
     ]).map((value) => value.toLowerCase());
+    const playlistIdentityKeys = normalizeIdentityKeys([...ids, dbId]);
     // dbId is the exact value stored in the DB — use it for all stat queries (correct case/format)
     const stats7d = getPlayStats(db, dbId, since7d) || {};
     const stats30d = getPlayStats(db, dbId, since30d) || {};
     const statsAll = getPlayStats(db, dbId, 0) || {};
-    const playlistCount = Number(playlistCountStmt.get(dbId)?.n || 0);
-    const personalPlaylistCount = Number(personalPlaylistCountStmt.get(dbId)?.n || 0);
+    const playlistCounts = summarizeAdminPlaylistCounts(
+      fetchGeneratedPlaylistsByIdentityKeys(db, playlistIdentityKeys),
+      fetchPersonalPlaylistsByIdentityKeys(db, playlistIdentityKeys),
+    );
     const topArtist = getTopArtists(db, dbId, 1)[0]?.artist_name || '';
     const lastSync = getLastPlaylistSync(db, dbId);
     const lastPlayAt = Number(lastPlayStmt.get(dbId)?.last_play_at || 0);
@@ -654,8 +745,7 @@ async function buildAdminUsersPageData({
       uniqueArtists: Number(statsAll.unique_artists || 0),
       uniqueTracks: Number(statsAll.unique_tracks || 0),
       totalListenMs: Number(statsAll.total_listen_ms || 0),
-      playlistCount,
-      personalPlaylistCount,
+      ...playlistCounts,
       lidarrArtistsAdded: lidarrStats.artistsAdded,
       lidarrAlbumsAdded: lidarrStats.albumsAdded,
       lidarrTracksAdded: lidarrStats.tracksAdded,
@@ -675,8 +765,10 @@ async function buildAdminUsersPageData({
       const stats7d = getPlayStats(db, userId, since7d) || {};
       const stats30d = getPlayStats(db, userId, since30d) || {};
       const statsAll = getPlayStats(db, userId, 0) || {};
-      const playlistCount = Number(playlistCountStmt.get(userId)?.n || 0);
-      const personalPlaylistCount = Number(personalPlaylistCountStmt.get(userId)?.n || 0);
+      const playlistCounts = summarizeAdminPlaylistCounts(
+        fetchGeneratedPlaylistsByIdentityKeys(db, ids),
+        fetchPersonalPlaylistsByIdentityKeys(db, ids),
+      );
       const topArtist = getTopArtists(db, userId, 1)[0]?.artist_name || '';
       const lastSync = getLastPlaylistSync(db, userId);
       const lastPlayAt = Number(lastPlayStmt.get(userId)?.last_play_at || 0);
@@ -706,8 +798,7 @@ async function buildAdminUsersPageData({
         uniqueArtists: Number(statsAll.unique_artists || 0),
         uniqueTracks: Number(statsAll.unique_tracks || 0),
         totalListenMs: Number(statsAll.total_listen_ms || 0),
-        playlistCount,
-        personalPlaylistCount,
+        ...playlistCounts,
         lidarrArtistsAdded: lidarrStats.artistsAdded,
         lidarrAlbumsAdded: lidarrStats.albumsAdded,
         lidarrTracksAdded: lidarrStats.tracksAdded,
@@ -747,7 +838,7 @@ async function buildAdminUsersPageData({
     totalPlexPlays7d: plexUsers.reduce((sum, entry) => sum + entry.plays7d, 0),
     totalPlexPlays30d: plexUsers.reduce((sum, entry) => sum + entry.plays30d, 0),
     totalPlexPlaysAll: plexUsers.reduce((sum, entry) => sum + entry.playsAll, 0),
-    totalPlaylists: plexUsers.reduce((sum, entry) => sum + Number(entry.playlistCount || 0) + Number(entry.personalPlaylistCount || 0), 0),
+    totalPlaylists: plexUsers.reduce((sum, entry) => sum + Number(entry.playlistTotalCount || 0), 0),
     totalLidarrArtistsAdded: plexUsers.reduce((sum, entry) => sum + Number(entry.lidarrArtistsAdded || 0), 0),
     totalLidarrAlbumsAdded: plexUsers.reduce((sum, entry) => sum + Number(entry.lidarrAlbumsAdded || 0), 0),
     totalLidarrTracksAdded: plexUsers.some((entry) => entry.lidarrTracksAdded != null)
