@@ -10,6 +10,7 @@
 // and accumulate the durations rather than inserting a duplicate entry.
 
 import {
+  classifyTier,
   recordPlayEvent,
   updateTrackStats,
   updateArtistStats,
@@ -99,11 +100,65 @@ function isPlexRecordedSource(eventSource) {
   return String(eventSource || '').trim().toLowerCase() === 'plex_webhook';
 }
 
+function isGuardedRepairEnabled(config) {
+  return Boolean(config?.tautulli?.enableHistoryRepair);
+}
+
+function resolveRefinedTrackDurationMs(existing, nextTrackDurationMs) {
+  const existingDuration = Math.max(0, Number(existing?.track_duration_ms || 0));
+  const nextDuration = Math.max(0, Number(nextTrackDurationMs || 0));
+  return existingDuration > 0 ? existingDuration : nextDuration;
+}
+
+function capListenedMs(listenedMs, trackDurationMs) {
+  const nextListenedMs = Math.max(0, Number(listenedMs || 0));
+  const nextTrackDurationMs = Math.max(0, Number(trackDurationMs || 0));
+  return nextTrackDurationMs > 0 ? Math.min(nextListenedMs, nextTrackDurationMs) : nextListenedMs;
+}
+
+function shouldGuardedlyRepairRecordedPlay(existing, { listenedMs, trackDurationMs, smartSettings, isWatched }) {
+  const nextTrackDurationMs = resolveRefinedTrackDurationMs(existing, trackDurationMs);
+  const nextListenedMs = capListenedMs(listenedMs, nextTrackDurationMs);
+  if (!isPlausibleNearbyRefinement(existing, nextListenedMs, nextTrackDurationMs)) return false;
+
+  const existingDurationMs = Math.max(0, Number(existing?.duration_ms || 0));
+  const existingTier = classifyTier(existingDurationMs, nextTrackDurationMs, smartSettings);
+  const nextTier = classifyTier(nextListenedMs, nextTrackDurationMs, smartSettings);
+  const completionThresholdMs = (Number(smartSettings?.completionThresholdSeconds) || 20) * 1000;
+  const isCompletion = nextTrackDurationMs > 0 && nextListenedMs >= nextTrackDurationMs - completionThresholdMs;
+
+  return Boolean(
+    isWatched
+    || isCompletion
+    || (existingTier === 'skip' && nextTier !== 'skip')
+  );
+}
+
+function refineRecordedPlay(db, existing, { listenedMs, trackDurationMs, stoppedAtMs, skipThresholdMs, isWatched }) {
+  const nextTrackDurationMs = resolveRefinedTrackDurationMs(existing, trackDurationMs);
+  const nextListenedMs = capListenedMs(listenedMs, nextTrackDurationMs);
+  const nextIsSkip = Boolean(
+    nextTrackDurationMs > 0
+    && nextListenedMs < skipThresholdMs
+    && !isWatched
+  );
+  db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ?, track_duration_ms = COALESCE(NULLIF(?, 0), track_duration_ms) WHERE id = ?')
+    .run(
+      nextListenedMs,
+      stoppedAtMs || (Number(existing?.started_at || 0) + nextListenedMs) || null,
+      nextIsSkip ? 1 : 0,
+      nextTrackDurationMs,
+      existing.id,
+    );
+  return { listenedMs: nextListenedMs, trackDurationMs: nextTrackDurationMs, isSkip: nextIsSkip };
+}
+
 export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
   const { db, loadConfig, pushLog, safeMessage } = ctx;
   const config = loadConfig();
   const tautulliUrl = config.tautulli?.url;
   const apiKey = config.tautulli?.apiKey;
+  const allowGuardedRepair = isGuardedRepairEnabled(config);
 
   if (!tautulliUrl || !apiKey) {
     pushLog({ level: 'info', app: 'tautulli-sync', action: 'sync.skip', message: 'Tautulli not configured — skipping sync' });
@@ -182,15 +237,31 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         const existing = findExistingPlay(db, userPlexId, plexRatingKey, startedAtMs);
 
         if (existing) {
-          if (isPlexRecordedSource(existing.event_source)) {
+          if (isPlexRecordedSource(existing.event_source) && !allowGuardedRepair) {
+            skipped++;
+            continue;
+          }
+          const canRepairPlexRow = isPlexRecordedSource(existing.event_source)
+            && shouldGuardedlyRepairRecordedPlay(existing, {
+              listenedMs,
+              trackDurationMs,
+              smartSettings,
+              isWatched,
+            });
+          if (isPlexRecordedSource(existing.event_source) && !canRepairPlexRow) {
             skipped++;
             continue;
           }
           // Tautulli's history can be more accurate (pauses excluded) than the
           // viewOffset the webhook captured — update if it shows more listen time.
           if (listenedMs > existing.duration_ms) {
-            db.prepare('UPDATE play_events SET duration_ms = ?, is_skip = ? WHERE id = ?')
-              .run(listenedMs, isSkip ? 1 : 0, existing.id);
+            refineRecordedPlay(db, existing, {
+              listenedMs,
+              trackDurationMs,
+              stoppedAtMs,
+              skipThresholdMs,
+              isWatched,
+            });
             if (artistName) {
               rebuildTrackStatsFromEvents(db, {
                 userPlexId, plexRatingKey, songSkipLimit, smartConfig: smartSettings,
@@ -211,16 +282,30 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         const resumed = findResumedPlay(db, userPlexId, plexRatingKey, startedAtMs);
 
         if (resumed) {
-          if (isPlexRecordedSource(resumed.event_source)) {
+          if (isPlexRecordedSource(resumed.event_source) && !allowGuardedRepair) {
             skipped++;
             continue;
           }
-          const combined = resumed.duration_ms + listenedMs;
-          // Cap at full track duration if known, to guard against drift/overlap
-          const cappedMs = trackDurationMs > 0 ? Math.min(combined, trackDurationMs) : combined;
-          const combinedIsSkip = Boolean(trackDurationMs > 0 && cappedMs < skipThresholdMs && !isWatched);
-          db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ? WHERE id = ?')
-            .run(cappedMs, stoppedAtMs || (startedAtMs + listenedMs), combinedIsSkip ? 1 : 0, resumed.id);
+          const combinedTrackDurationMs = resolveRefinedTrackDurationMs(resumed, trackDurationMs);
+          const combined = Math.max(0, Number(resumed.duration_ms || 0)) + listenedMs;
+          const canRepairPlexRow = isPlexRecordedSource(resumed.event_source)
+            && shouldGuardedlyRepairRecordedPlay(resumed, {
+              listenedMs: combined,
+              trackDurationMs: combinedTrackDurationMs,
+              smartSettings,
+              isWatched,
+            });
+          if (isPlexRecordedSource(resumed.event_source) && !canRepairPlexRow) {
+            skipped++;
+            continue;
+          }
+          const refined = refineRecordedPlay(db, resumed, {
+            listenedMs: combined,
+            trackDurationMs: combinedTrackDurationMs,
+            stoppedAtMs: stoppedAtMs || (startedAtMs + listenedMs),
+            skipThresholdMs,
+            isWatched,
+          });
           if (artistName) {
             rebuildTrackStatsFromEvents(db, {
               userPlexId, plexRatingKey, songSkipLimit, smartConfig: smartSettings,
@@ -231,7 +316,7 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
           }
           pushLog({
             level: 'info', app: 'tautulli-sync', action: 'sync.resume-merge',
-            message: `Merged resumed session for "${trackTitle}" — ${resumed.duration_ms}ms + ${listenedMs}ms = ${cappedMs}ms`,
+            message: `Merged resumed session for "${trackTitle}" — ${resumed.duration_ms}ms + ${listenedMs}ms = ${refined.listenedMs}ms`,
           });
           inserted++;
           continue;
@@ -250,19 +335,37 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         );
 
         if (nearby) {
+          if (isPlexRecordedSource(nearby.event_source) && !allowGuardedRepair) {
+            pushLog({
+              level: 'info', app: 'tautulli-sync', action: 'sync.nearby-skip',
+              message: `Skipped nearby Plex-recorded play for "${trackTitle}" because guarded repair is disabled`,
+            });
+            skipped++;
+            continue;
+          }
+          const canRepairPlexRow = isPlexRecordedSource(nearby.event_source)
+            && shouldGuardedlyRepairRecordedPlay(nearby, {
+              listenedMs,
+              trackDurationMs,
+              smartSettings,
+              isWatched,
+            });
+          if (isPlexRecordedSource(nearby.event_source) && !canRepairPlexRow) {
+            pushLog({
+              level: 'info', app: 'tautulli-sync', action: 'sync.nearby-skip',
+              message: `Skipped nearby Plex-recorded play for "${trackTitle}" because the Tautulli row was not a safe repair candidate`,
+            });
+            skipped++;
+            continue;
+          }
           if (isPlausibleNearbyRefinement(nearby, listenedMs, trackDurationMs)) {
-            const nextDurationMs = listenedMs;
-            const nextTrackDurationMs = Number(nearby.track_duration_ms || 0) > 0
-              ? Number(nearby.track_duration_ms || 0)
-              : trackDurationMs;
-            db.prepare('UPDATE play_events SET duration_ms = ?, ended_at = ?, is_skip = ?, track_duration_ms = COALESCE(NULLIF(?, 0), track_duration_ms) WHERE id = ?')
-              .run(
-                nextDurationMs,
-                stoppedAtMs || (startedAtMs + listenedMs),
-                isSkip ? 1 : 0,
-                nextTrackDurationMs,
-                nearby.id,
-              );
+            refineRecordedPlay(db, nearby, {
+              listenedMs,
+              trackDurationMs,
+              stoppedAtMs: stoppedAtMs || (startedAtMs + listenedMs),
+              skipThresholdMs,
+              isWatched,
+            });
             if (artistName) {
               rebuildTrackStatsFromEvents(db, {
                 userPlexId, plexRatingKey, songSkipLimit, smartConfig: smartSettings,

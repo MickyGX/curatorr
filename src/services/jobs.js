@@ -50,7 +50,7 @@ export const JOB_DEFS = {
   },
   tautulliDailySync: {
     label: 'Tautulli Gap-Fill Sync',
-    description: 'Optional backup job that fetches recent Tautulli history and fills in plays missed by webhooks without overwriting already-recorded listens.',
+    description: 'Optional backup job that fetches recent Tautulli history, fills in plays missed by webhooks, and can optionally perform guarded repairs on shorter Plex-recorded listens.',
     defaultIntervalMinutes: 1440,
   },
   lastfmTagSync: {

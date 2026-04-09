@@ -740,7 +740,7 @@ export function registerSettings(app, ctx) {
     const localUrl = normalizeBaseUrl(String(req.body?.tautulliLocalUrl || '').trim());
     const remoteUrl = normalizeBaseUrl(String(req.body?.tautulliRemoteUrl || '').trim());
     const apiKey = String(req.body?.apiKey || '').trim();
-    const updated = { ...config, tautulli: { url: localUrl, localUrl, remoteUrl, apiKey } };
+    const updated = { ...config, tautulli: { ...config.tautulli, url: localUrl, localUrl, remoteUrl, apiKey } };
     saveConfig(updated);
     return res.redirect('/settings?tab=tautulli&success=1');
   });
@@ -1708,12 +1708,21 @@ export function registerSettings(app, ctx) {
       updated[jobId] = { ...current[jobId], intervalMinutes, enabled };
       jobService?.reschedule(jobId, intervalMinutes, enabled);
     }
+    const enableHistoryRepair = Boolean(req.body?.tautulli_enableHistoryRepair);
     // keep smartPlaylist.syncIntervalMinutes in sync for backwards compatibility
     const syncInterval = updated.smartPlaylistSync?.intervalMinutes;
     const nextSmartPlaylist = syncInterval
       ? { ...config.smartPlaylist, syncIntervalMinutes: syncInterval }
       : config.smartPlaylist;
-    saveConfig({ ...config, jobs: updated, smartPlaylist: nextSmartPlaylist });
+    saveConfig({
+      ...config,
+      jobs: updated,
+      smartPlaylist: nextSmartPlaylist,
+      tautulli: {
+        ...config.tautulli,
+        enableHistoryRepair,
+      },
+    });
     return res.redirect('/settings?tab=jobs&success=1');
   });
 

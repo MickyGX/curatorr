@@ -24,6 +24,7 @@ const {
   findUserPersonalPlaylistByName,
   getAllLastfmTags,
   getAllTrackDecadeTags,
+  getLidarrArtistProgress,
   getMasterTracks,
   getPlaylistTracks,
   getTrackEnrichmentByRatingKeys,
@@ -34,8 +35,10 @@ const {
   rebuildArtistStatsFromEvents,
   rebuildTrackStatsFromEvents,
   refreshMasterTracks,
+  saveLidarrArtistProgress,
   saveArtistTags,
   saveUserPreferences,
+  upsertSuggestedArtist,
   listUserGeneratedPlaylists,
   previewGlobalPlaylist,
   saveUserGeneratedPlaylist,
@@ -932,7 +935,7 @@ describe('security guards', () => {
     }
   });
 
-  it('does not let Tautulli gap-fill overwrite a play already recorded by Plex', async () => {
+  it('does not let Tautulli gap-fill overwrite a play already recorded by Plex when guarded repair is disabled', async () => {
     const user = `plex-user-${Date.now()}`;
     const ratingKey = `plex-track-${Date.now()}`;
     const startedAt = Date.now() - 10 * 60 * 1000;
@@ -1014,6 +1017,174 @@ describe('security guards', () => {
     assert.equal(eventRow.event_source, 'plex_webhook');
     assert.equal(Number(eventRow.duration_ms || 0), 120000);
     assert.equal(Number(eventRow.is_skip || 0), 0);
+  });
+
+  it('does not let nearby Tautulli refinement overwrite a Plex play when guarded repair is disabled', async () => {
+    const user = `plex-user-${Date.now()}`;
+    const ratingKey = `plex-track-${Date.now()}`;
+    const startedAt = Date.now() - 20 * 60 * 1000;
+    const endedAt = startedAt + 20000;
+    const tautulliStartedAt = startedAt + 6 * 60 * 1000;
+
+    runDbStatement(
+      `INSERT INTO play_events (
+        user_plex_id, plex_rating_key, track_title, artist_name, album_name,
+        started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      user,
+      ratingKey,
+      'Nearby Plex Song',
+      'Nearby Plex Artist',
+      'Nearby Plex Album',
+      startedAt,
+      endedAt,
+      20000,
+      240000,
+      1,
+      'plex_webhook',
+      `plex-nearby-${user}-${ratingKey}`,
+    );
+
+    const config = await readConfig();
+    const originalFetch = global.fetch;
+    global.fetch = async () => new Response(JSON.stringify({
+      response: {
+        data: {
+          data: [{
+            media_type: 'track',
+            user,
+            rating_key: ratingKey,
+            started: Math.floor(tautulliStartedAt / 1000),
+            stopped: Math.floor((tautulliStartedAt + 220000) / 1000),
+            play_duration: 220,
+            full_duration: 240,
+            title: 'Nearby Plex Song',
+            original_title: 'Nearby Plex Artist',
+            parent_title: 'Nearby Plex Album',
+            section_id: '1',
+            watched_status: 1,
+          }],
+        },
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const result = await runTautulliDailySync({
+        db,
+        loadConfig: () => ({ ...config, tautulli: { ...config.tautulli, enableHistoryRepair: false } }),
+        pushLog: () => {},
+        safeMessage: (err) => String(err?.message || err || ''),
+      });
+      assert.equal(result.inserted, 0);
+      assert.equal(result.skipped, 1);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const eventRow = readDbRow(
+      'SELECT duration_ms, is_skip, event_source FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ? ORDER BY id DESC LIMIT 1',
+      user,
+      ratingKey,
+    );
+    assert.ok(eventRow);
+    assert.equal(eventRow.event_source, 'plex_webhook');
+    assert.equal(Number(eventRow.duration_ms || 0), 20000);
+    assert.equal(Number(eventRow.is_skip || 0), 1);
+  });
+
+  it('guardedly repairs a shorter Plex play when Tautulli shows a longer completed listen', async () => {
+    const user = `plex-user-${Date.now()}`;
+    const ratingKey = `plex-track-${Date.now()}`;
+    const startedAt = Date.now() - 10 * 60 * 1000;
+    const endedAt = startedAt + 20000;
+
+    runDbStatement(
+      `INSERT INTO play_events (
+        user_plex_id, plex_rating_key, track_title, artist_name, album_name,
+        started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      user,
+      ratingKey,
+      'Repair Plex Song',
+      'Repair Plex Artist',
+      'Repair Plex Album',
+      startedAt,
+      endedAt,
+      20000,
+      240000,
+      1,
+      'plex_webhook',
+      `plex-repair-${user}-${ratingKey}`,
+    );
+
+    const config = await readConfig();
+    const originalFetch = global.fetch;
+    global.fetch = async () => new Response(JSON.stringify({
+      response: {
+        data: {
+          data: [{
+            media_type: 'track',
+            user,
+            rating_key: ratingKey,
+            started: Math.floor(startedAt / 1000),
+            stopped: Math.floor((startedAt + 220000) / 1000),
+            play_duration: 220,
+            full_duration: 240,
+            title: 'Repair Plex Song',
+            original_title: 'Repair Plex Artist',
+            parent_title: 'Repair Plex Album',
+            section_id: '1',
+            watched_status: 1,
+          }],
+        },
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const result = await runTautulliDailySync({
+        db,
+        loadConfig: () => ({ ...config, tautulli: { ...config.tautulli, enableHistoryRepair: true } }),
+        pushLog: () => {},
+        safeMessage: (err) => String(err?.message || err || ''),
+      });
+      assert.equal(result.inserted, 1);
+      assert.equal(result.skipped, 0);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const eventRow = readDbRow(
+      'SELECT duration_ms, is_skip, event_source, track_duration_ms FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ? ORDER BY id DESC LIMIT 1',
+      user,
+      ratingKey,
+    );
+    assert.ok(eventRow);
+    assert.equal(eventRow.event_source, 'plex_webhook');
+    assert.equal(Number(eventRow.duration_ms || 0), 220000);
+    assert.equal(Number(eventRow.track_duration_ms || 0), 240000);
+    assert.equal(Number(eventRow.is_skip || 0), 0);
+
+    const trackRow = readDbRow(
+      'SELECT tier, play_count, skip_count FROM track_stats WHERE user_plex_id = ? AND plex_rating_key = ?',
+      user,
+      ratingKey,
+    );
+    assert.ok(trackRow);
+    assert.equal(trackRow.tier, 'belter');
+    assert.equal(Number(trackRow.play_count || 0), 1);
+    assert.equal(Number(trackRow.skip_count || 0), 0);
   });
 
   it('ignores Tautulli gap-fill rows from Plex libraries that are not selected', async () => {
@@ -1694,6 +1865,97 @@ describe('security guards', () => {
     assert.equal(Number(eventRow.is_skip || 0), 0);
   });
 
+  it('treats a same-track Plex play from the start as a fresh replay instead of resuming old progress', async () => {
+    const client = createClient();
+    const user = `plex-restart-${Date.now()}`;
+    const ratingKey = `plex-restart-track-${Date.now()}`;
+    const playerUuid = `restart-player-${Date.now()}`;
+
+    const events = [
+      {
+        event: 'media.play',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Restart Song',
+          grandparentTitle: 'Restart Artist',
+          parentTitle: 'Restart Album',
+          duration: 240000,
+          viewOffset: 0,
+        },
+      },
+      {
+        event: 'media.pause',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Restart Song',
+          grandparentTitle: 'Restart Artist',
+          parentTitle: 'Restart Album',
+          duration: 240000,
+          viewOffset: 180000,
+        },
+      },
+      {
+        event: 'media.play',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Restart Song',
+          grandparentTitle: 'Restart Artist',
+          parentTitle: 'Restart Album',
+          duration: 240000,
+          viewOffset: 0,
+        },
+      },
+      {
+        event: 'media.stop',
+        Account: { title: user },
+        Player: { uuid: playerUuid },
+        Metadata: {
+          type: 'track',
+          ratingKey,
+          title: 'Restart Song',
+          grandparentTitle: 'Restart Artist',
+          parentTitle: 'Restart Album',
+          duration: 240000,
+          viewOffset: 60000,
+        },
+      },
+    ];
+
+    for (const payload of events) {
+      const res = await client.request(`/webhook/plex?key=${encodeURIComponent(webhookKey)}`, {
+        method: 'POST',
+        body: buildPlexWebhookForm(payload),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+    }
+
+    const rows = (() => {
+      const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+      const db = initDb(dbPath);
+      try {
+        return db.prepare(
+          'SELECT duration_ms, is_skip FROM play_events WHERE user_plex_id = ? AND plex_rating_key = ? ORDER BY id ASC',
+        ).all(user, ratingKey);
+      } finally {
+        db.close();
+      }
+    })();
+
+    assert.equal(rows.length, 1);
+    assert.equal(Number(rows[0].duration_ms || 0), 240000);
+    assert.equal(Number(rows[0].is_skip || 0), 0);
+  });
+
   it('consolidates a resumed Plex play using only the additional listened time', async () => {
     const client = createClient();
     const user = `plex-resume-merge-${Date.now()}`;
@@ -1979,6 +2241,10 @@ describe('security guards', () => {
     const originalConfig = await readConfig();
     await writeConfig({
       ...originalConfig,
+      tautulli: {
+        ...(originalConfig.tautulli || {}),
+        enableHistoryRepair: false,
+      },
       jobs: {
         ...(originalConfig.jobs || {}),
         lastfmTagSync: { intervalMinutes: 10080, enabled: true },
@@ -1992,15 +2258,18 @@ describe('security guards', () => {
       const page = await client.request('/settings?tab=jobs');
       assert.equal(page.status, 200);
       assert.match(page.text, /name="lastfmTagSync_interval" value="10080" min="1" max="10080"/);
+      assert.match(page.text, /name="tautulli_enableHistoryRepair" value="1"/);
 
       const saveRes = await client.postForm('/settings/jobs', {
         lastfmTagSync_interval: '10080',
         lastfmTagSync_enabled: '1',
+        tautulli_enableHistoryRepair: '1',
       }, '/settings?tab=jobs');
       assert.equal(saveRes.status, 302);
 
       const nextConfig = await readConfig();
       assert.equal(Number(nextConfig.jobs?.lastfmTagSync?.intervalMinutes || 0), 10080);
+      assert.equal(Boolean(nextConfig.tautulli?.enableHistoryRepair), true);
     } finally {
       await writeConfig(originalConfig);
     }
@@ -2149,6 +2418,128 @@ describe('security guards', () => {
       assert.equal(trackCount, 3);
     } finally {
       global.fetch = originalFetch;
+    }
+  });
+
+  it('stops artist progression when the tracked album is already present in the local library', async () => {
+    const dbPath = join(process.env.DATA_DIR, `lidarr-progress-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `lidarr-progress-${Date.now()}`;
+    const artistName = 'Passion Pit';
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO artist_stats (artist_name, user_plex_id, ranking_score, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(artistName, userId, 10, now);
+    db.prepare(`
+      INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, library_key, rating_count, view_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'rk-lidarr-progress-1',
+      artistName,
+      'Moth\'s Wings',
+      'Manners',
+      '',
+      '[]',
+      '1',
+      0,
+      0,
+      now,
+    );
+    upsertSuggestedArtist(db, userId, {
+      artistName,
+      status: 'added_to_lidarr',
+      lidarrArtistId: 358,
+      reason: {
+        latestAlbum: {
+          albumId: 42,
+          albumTitle: 'Manners',
+          commandId: 99,
+          sourceKind: 'manual',
+          addedByCuratorr: true,
+        },
+      },
+    });
+    saveLidarrArtistProgress(db, userId, {
+      artistName,
+      lidarrArtistId: 358,
+      currentStage: 'catalog_expanded',
+      albumsAddedCount: 1,
+      lastAlbumAddedAt: now - (2 * 24 * 60 * 60 * 1000),
+      nextReviewAt: now - 1000,
+      highestObservedRank: 10,
+      lastManualSearchAt: now - (60 * 60 * 1000),
+      lastManualSearchStatus: 'started',
+      updatedAt: now - 1000,
+    });
+
+    const lidarrService = createLidarrService({
+      db,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+          automationEnabled: true,
+          automationScope: 'global',
+          roleQuotas: {
+            user: { weeklyArtists: 10, weeklyAlbums: 10 },
+          },
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      if (target === 'http://lidarr.local/api/v1/album/42') {
+        return new Response(JSON.stringify({
+          id: 42,
+          title: 'Manners',
+          artistId: 358,
+          monitored: true,
+          statistics: { trackFileCount: 0 },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/artist/358') {
+        return new Response(JSON.stringify({
+          id: 358,
+          artistName,
+          monitored: true,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in Lidarr progression test: ${target}`);
+    };
+
+    try {
+      const result = await lidarrService.reviewArtistProgression({
+        userPlexId: userId,
+        artistName,
+        role: 'user',
+      });
+
+      assert.equal(result.status, 'downloaded_media_server');
+      assert.equal(result.progress?.currentStage, 'album_acquired');
+      assert.equal(result.progress?.lastManualSearchStatus, 'completed');
+
+      const progress = getLidarrArtistProgress(db, userId, artistName);
+      assert.equal(progress?.currentStage, 'album_acquired');
+      assert.equal(progress?.lastManualSearchStatus, 'completed');
+      assert.ok(Number(progress?.nextReviewAt || 0) > now);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
     }
   });
 

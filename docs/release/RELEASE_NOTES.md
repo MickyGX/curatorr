@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.68 (2026-04-09)
+
+- Added an optional guarded Tautulli repair mode for the daily gap-fill job, allowing Tautulli to upgrade obviously-short Plex listens only when it has a close timestamp match and a longer credible completed play.
+- Fixed Plex webhook replay handling so quickly restarting the same track from the beginning no longer traps the earlier partial session as a skip when the combined rolled-up play should count as a proper listen.
+- Fixed Lidarr artist progression so Curatorr stops expanding an artist once the tracked album is already present in the local library, including media-server matched cases.
+- Fixed analyzer Docker publishing so changes to `scripts/analyze-track-features.py` now trigger a fresh `curatorr-analyzer` image release instead of reusing a stale sidecar image.
+
 ## v0.1.67 (2026-04-08)
 
 - Fixed the Admin Users page so playlist totals no longer double-count synced personal playlists, now aggregate across user identity aliases, and show clearer system/user/linked breakdowns with draft counts separated out.

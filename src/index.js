@@ -653,7 +653,7 @@ const DEFAULT_CONFIG = {
   wizard: { completed: false },
   webhooks: { sharedSecret: '' },
   plex: { url: '', token: '', machineId: '', libraries: [] },
-  tautulli: { url: '', apiKey: '' },
+  tautulli: { url: '', localUrl: '', remoteUrl: '', apiKey: '', enableHistoryRepair: false },
   lidarr: { url: '', localUrl: '', remoteUrl: '', apiKey: '', ...DEFAULT_LIDARR_AUTOMATION_SETTINGS },
   smartPlaylist: { ...DEFAULT_SMART_PLAYLIST_SETTINGS },
   discovery: { lastfmApiKey: '', region: 'united states', showTrendingArtists: true, showTrendingTracks: true, showSimilarArtists: true },

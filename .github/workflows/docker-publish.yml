@@ -26,6 +26,7 @@ jobs:
           ANALYZER_PATHS=(
             docker/analyzer/Dockerfile
             docker/analyzer/requirements.txt
+            scripts/analyze-track-features.py
             scripts/analyzer-sidecar.py
           )
 

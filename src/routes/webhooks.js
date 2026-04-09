@@ -349,6 +349,19 @@ export function registerWebhooks(app, ctx) {
     };
   }
 
+  function shouldRestartSameTrackPlayback(session, { eventName = '', observedPositionMs = 0 }) {
+    if (String(eventName || '').trim().toLowerCase() !== 'media.play') return false;
+    if (!session) return false;
+    const observed = Math.max(0, Number(observedPositionMs || 0));
+    if (observed > 3000) return false;
+    const priorProgressMs = Math.max(
+      Math.max(0, Number(session.max_position_ms || 0)),
+      Math.max(0, Number(session.last_position_ms || 0)),
+      Math.max(0, Number(session.accumulated_ms || 0)),
+    );
+    return priorProgressMs >= 15000;
+  }
+
   function normalizeHistoryText(value) {
     return String(value || '')
       .normalize('NFKD')
@@ -454,7 +467,7 @@ export function registerWebhooks(app, ctx) {
     let rebuildRatingKey = session.plex_rating_key;
 
     const isExistingRowContinuation = existing
-      ? Number(session.started_at || 0) <= Number(existing.ended_at || 0)
+      ? Number(session.started_at || 0) < Number(existing.ended_at || 0)
       : false;
 
     if (existing && isExistingRowContinuation) {
@@ -971,11 +984,28 @@ export function registerWebhooks(app, ctx) {
       }
 
       if (event === 'media.play' || event === 'media.resume') {
-        const existingSession = getOpenSession(db, sessionKey);
+        let existingSession = getOpenSession(db, sessionKey);
         const hydratedTrackDurationMs = await resolvePlexTrackDurationMs(
           plexRatingKey,
           trackDurationMs || existingSession?.track_duration_ms || 0,
         );
+        if (shouldRestartSameTrackPlayback(existingSession, { eventName: event, observedPositionMs })) {
+          recordOrUpdateSessionPlay({
+            session: {
+              ...existingSession,
+              track_duration_ms: hydratedTrackDurationMs || existingSession?.track_duration_ms || 0,
+            },
+            endedAt: now,
+            playbackPositionMs: Math.max(
+              Math.max(0, Number(existingSession?.max_position_ms || 0)),
+              Math.max(0, Number(existingSession?.last_position_ms || 0)),
+            ),
+            smartSettings,
+            eventSource: 'plex_webhook',
+            allowRecentPlayReuse: false,
+          });
+          existingSession = null;
+        }
         const resumedPositionMs = observedPositionMs > 0
           ? observedPositionMs
           : Math.max(0, Number(existingSession?.last_position_ms || 0));

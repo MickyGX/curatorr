@@ -1776,7 +1776,7 @@ export function createLidarrService(ctx) {
       'album_acquired',
     ].includes(acquisitionStage)) {
       const recovery = await reconcileArtistAcquisition({ userPlexId, artistName, role, force });
-      if (recovery?.status && recovery.status !== 'no_tracked_album' && recovery.status !== 'downloaded') {
+      if (recovery?.status && recovery.status !== 'no_tracked_album') {
         return { ...recovery, role, lidarrArtistId };
       }
     }

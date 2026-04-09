@@ -411,7 +411,7 @@
               <div class="settings-card plex-settings-card">
                 <div class="settings-card-title">Tautulli Access</div>
                 <div class="settings-card-sub">
-                  Tautulli is optional and works best as a daily gap-fill backup. Curatorr can register the webhook automatically, and the scheduled sync will fill in missed plays without overwriting Plex-recorded listens.<br />
+                  Tautulli is optional and works best as a daily gap-fill backup. Curatorr can register the webhook automatically, and the scheduled sync will fill in missed plays. Guarded repair is optional if you want Tautulli to upgrade obviously-short Plex listens when it has a longer credible match for the same play.<br />
                   <% if (canViewServiceSecrets && webhookUrls?.tautulli) { %>
                     URL: <code class="settings-inline-code"><%= webhookUrls.tautulli %></code><br />
                   <% } else { %>
@@ -3043,6 +3043,16 @@
                       <span class="settings-toggle-slider" aria-hidden="true"></span>
                     </span>
                   </label>
+                </div>
+                <% } %>
+                <% if (_jid === 'tautulliDailySync') { %>
+                <div style="margin-top:12px">
+                  <label class="settings-toggle">
+                    <input type="checkbox" name="tautulli_enableHistoryRepair" value="1" <%= config.tautulli?.enableHistoryRepair ? 'checked' : '' %> />
+                    <span class="settings-toggle-slider" aria-hidden="true"></span>
+                    <span class="settings-toggle-text">Enable guarded Tautulli repair for shorter Plex plays</span>
+                  </label>
+                  <small class="settings-smart-helper">Off: Tautulli only fills missing plays. On: Tautulli may upgrade an existing Plex play when the timestamps match closely and Tautulli shows a longer, plausible completed listen.</small>
                 </div>
                 <% } %>
               </div>
