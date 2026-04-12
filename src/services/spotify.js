@@ -17,6 +17,127 @@ function getSpotifyPlaylistEntryMedia(item) {
   return item?.track || item?.item || null;
 }
 
+function parseSpotifyUriId(value, kind) {
+  const match = String(value || '').trim().match(new RegExp(`^spotify:${kind}:([A-Za-z0-9]+)$`, 'i'));
+  return match ? String(match[1] || '').trim() : '';
+}
+
+export function parseSpotifyPublicPlaylistPage(html, playlistId) {
+  const body = String(html || '');
+  const id = String(playlistId || '').trim();
+  if (!body || !id) return null;
+  const stateMatch = body.match(/<script id="initialState" type="text\/plain">([^<]+)<\/script>/i);
+  if (!stateMatch) return null;
+  let state = null;
+  try {
+    state = JSON.parse(Buffer.from(String(stateMatch[1] || '').trim(), 'base64').toString('utf8'));
+  } catch (_err) {
+    state = null;
+  }
+  const playlist = state?.entities?.items?.[`spotify:playlist:${id}`];
+  const page = playlist?.content;
+  const rawItems = Array.isArray(page?.items) ? page.items : [];
+  const items = rawItems.map((entry, index) => {
+    const track = entry?.itemV2?.data;
+    const trackUri = String(track?.uri || '').trim();
+    const albumUri = String(track?.albumOfTrack?.uri || '').trim();
+    const trackId = parseSpotifyUriId(trackUri, 'track');
+    const albumId = parseSpotifyUriId(albumUri, 'album');
+    return {
+      position: index,
+      addedAt: '',
+      isLocal: false,
+      trackId,
+      title: String(track?.name || '').trim(),
+      durationMs: Number(track?.duration?.totalMilliseconds || 0),
+      explicit: String(track?.contentRating?.label || '').trim().toUpperCase() === 'EXPLICIT',
+      popularity: 0,
+      previewUrl: String(track?.previews?.audioPreviews?.items?.[0]?.url || '').trim(),
+      externalUrl: trackId ? `https://open.spotify.com/track/${encodeURIComponent(trackId)}` : '',
+      isrc: '',
+      artists: (Array.isArray(track?.artists?.items) ? track.artists.items : []).map((artist) => ({
+        id: parseSpotifyUriId(artist?.uri, 'artist'),
+        name: String(artist?.profile?.name || '').trim(),
+      })).filter((artist) => artist.name),
+      album: {
+        id: albumId,
+        title: String(track?.albumOfTrack?.name || '').trim(),
+        albumType: '',
+        releaseDate: '',
+        imageUrl: String(track?.albumOfTrack?.coverArt?.sources?.[0]?.url || '').trim(),
+        externalUrl: albumId ? `https://open.spotify.com/album/${encodeURIComponent(albumId)}` : '',
+      },
+    };
+  }).filter((item) => item.title);
+  const totalCount = Math.max(items.length, Number(page?.totalCount || 0));
+  const owner = playlist?.ownerV2?.data || {};
+  const partial = totalCount > items.length;
+  const warning = partial
+    ? `Spotify only exposed the first ${items.length} of ${totalCount} tracks for this shared playlist URL. Add or copy it in Spotify and import it from your Library for the full set.`
+    : '';
+  return {
+    playlist: {
+      id,
+      name: String(playlist?.name || '').trim(),
+      description: String(playlist?.description || '').trim(),
+      ownerId: parseSpotifyUriId(owner?.uri, 'user') || String(owner?.username || '').trim(),
+      ownerName: String(owner?.name || owner?.username || '').trim(),
+      public: true,
+      collaborative: false,
+      trackCount: totalCount,
+      snapshotId: '',
+      imageUrl: String(playlist?.images?.items?.[0]?.sources?.[0]?.url || '').trim(),
+      externalUrl: `https://open.spotify.com/playlist/${encodeURIComponent(id)}`,
+    },
+    items,
+    total: items.length,
+    totalCount,
+    partial,
+    warning,
+    nextOffset: Number(page?.pagingInfo?.nextOffset || 0),
+  };
+}
+
+export function parseSpotifyPlaylistReference(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const uriMatch = raw.match(/^spotify:playlist:([A-Za-z0-9]+)$/i);
+  if (uriMatch) {
+    return {
+      id: String(uriMatch[1] || '').trim(),
+      kind: 'uri',
+      raw,
+    };
+  }
+
+  if (/^[A-Za-z0-9]{10,}$/i.test(raw)) {
+    return {
+      id: raw,
+      kind: 'id',
+      raw,
+    };
+  }
+
+  let parsedUrl = null;
+  try {
+    parsedUrl = new URL(raw);
+  } catch (_err) {
+    parsedUrl = null;
+  }
+  if (!parsedUrl) return null;
+
+  const hostname = String(parsedUrl.hostname || '').trim().toLowerCase();
+  if (!hostname.endsWith('spotify.com')) return null;
+  const match = String(parsedUrl.pathname || '').match(/\/playlist\/([A-Za-z0-9]+)/i);
+  if (!match) return null;
+  return {
+    id: String(match[1] || '').trim(),
+    kind: 'url',
+    raw,
+  };
+}
+
 export function createSpotifyService(ctx = {}) {
   const clientId = String(process.env.SPOTIFY_CLIENT_ID || '').trim();
   const clientSecret = String(process.env.SPOTIFY_CLIENT_SECRET || '').trim();
@@ -108,6 +229,22 @@ export function createSpotifyService(ctx = {}) {
       throw err;
     }
     return payload || {};
+  }
+
+  async function fetchText(url) {
+    const response = await fetch(String(url), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+      },
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const err = new Error(String(text || `Spotify HTTP ${response.status}`).trim());
+      err.status = response.status;
+      throw err;
+    }
+    return text;
   }
 
   function normalizeTokenPayload(payload = {}, fallbackRefreshToken = '') {
@@ -206,7 +343,7 @@ export function createSpotifyService(ctx = {}) {
       'owner(id,display_name)',
       'images(url)',
       'external_urls(spotify)',
-      'items(total)',
+      'tracks(total)',
     ].join(','));
     const item = await fetchJson(url.toString(), accessToken);
     return {
@@ -250,11 +387,10 @@ export function createSpotifyService(ctx = {}) {
       'album(id,name,album_type,release_date,images(url),external_urls(spotify))',
       ')',
       ')',
-      ',next,total',
     ].join('');
     let nextUrl = new URL(`https://api.spotify.com/v1/playlists/${encodeURIComponent(id)}`);
-    nextUrl.searchParams.set('fields', playlistFields);
     nextUrl.searchParams.set('limit', String(pageSize));
+    nextUrl.searchParams.set('fields', playlistFields);
     const allItems = [];
     let total = 0;
     let isFirstPage = true;
@@ -300,8 +436,23 @@ export function createSpotifyService(ctx = {}) {
     };
   }
 
+  async function getPlaylistFromPublicPage(playlistId) {
+    const id = String(playlistId || '').trim();
+    if (!id) throw new Error('playlistId is required.');
+    const html = await fetchText(`https://open.spotify.com/playlist/${encodeURIComponent(id)}`);
+    const parsed = parseSpotifyPublicPlaylistPage(html, id);
+    if (!parsed?.playlist?.id) {
+      const err = new Error('Spotify did not expose public playlist data for this URL.');
+      err.code = 'SPOTIFY_PUBLIC_PLAYLIST_UNAVAILABLE';
+      throw err;
+    }
+    return parsed;
+  }
+
   return {
     isConfigured,
+    parsePlaylistReference: parseSpotifyPlaylistReference,
+    parsePublicPlaylistPage: parseSpotifyPublicPlaylistPage,
     buildRedirectUri,
     getAuthorizationUrl,
     getDefaultScopes: () => defaultScopes.slice(),
@@ -312,6 +463,7 @@ export function createSpotifyService(ctx = {}) {
     listCurrentUserPlaylists,
     getPlaylist,
     getPlaylistItems,
+    getPlaylistFromPublicPage,
     log,
   };
 }

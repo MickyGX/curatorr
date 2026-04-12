@@ -106,6 +106,29 @@ function formatOverviewReleaseDate(value) {
   return raw;
 }
 
+function formatOverviewDuration(ms) {
+  const totalMs = Number(ms || 0);
+  if (!Number.isFinite(totalMs) || totalMs <= 0) return '';
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+function formatOverviewNumber(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '';
+  return num.toLocaleString();
+}
+
+function formatOverviewMetric(value, digits = 2) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '';
+  return String(Number(num.toFixed(digits)));
+}
+
 function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField = 'ratingKey') {
   return (Array.isArray(items) ? items : []).map((item) => {
     const popularity = popularityByKey.get(String(item?.[keyField] || '')) || null;
@@ -1315,6 +1338,51 @@ export function registerApiMusic(app, ctx) {
       });
     }
     return auth;
+  }
+
+  function isSpotifySharedPlaylistFallbackError(err) {
+    const status = Number(err?.status || 0);
+    return status === 403 || status === 404;
+  }
+
+  async function fetchSpotifyPlaylistImportSource(accessToken, playlistId) {
+    try {
+      const [playlistMeta, playlistItems] = await Promise.all([
+        spotifyService.getPlaylist(accessToken, playlistId),
+        spotifyService.getPlaylistItems(accessToken, playlistId, { limit: 100 }),
+      ]);
+      return {
+        playlistMeta,
+        playlistItems,
+        warning: '',
+        partial: false,
+        source: 'api',
+      };
+    } catch (err) {
+      if (!isSpotifySharedPlaylistFallbackError(err) || typeof spotifyService?.getPlaylistFromPublicPage !== 'function') throw err;
+      const fallback = await spotifyService.getPlaylistFromPublicPage(playlistId);
+      return {
+        playlistMeta: fallback.playlist,
+        playlistItems: {
+          total: Number(fallback.total || 0),
+          items: Array.isArray(fallback.items) ? fallback.items : [],
+        },
+        warning: String(fallback.warning || '').trim(),
+        partial: fallback.partial === true,
+        source: 'public-page',
+        playlistTrackCount: Number(fallback.totalCount || 0),
+      };
+    }
+  }
+
+  function resolveSpotifyPlaylistId(value) {
+    const parsed = spotifyService?.parsePlaylistReference?.(value) || null;
+    if (!parsed?.id) {
+      const err = new Error('Enter a valid Spotify playlist URL or playlist id.');
+      err.status = 400;
+      throw err;
+    }
+    return parsed.id;
   }
 
   function makeImportedCustomPlaylistKey() {
@@ -2796,6 +2864,68 @@ export function registerApiMusic(app, ctx) {
             LIMIT 1
           `).get(trackTitle, artistName, albumName, albumName) || {})
         : {};
+      const masterRow = db.prepare(`
+        SELECT
+          m.rating_key,
+          m.genres,
+          m.moods,
+          m.file_path,
+          m.duration_ms,
+          m.rating_count,
+          e.track_year,
+          e.original_release_date,
+          e.bpm,
+          e.musical_key,
+          e.camelot_key,
+          e.energy,
+          e.danceability,
+          e.loudness,
+          e.loudness_range,
+          e.peak,
+          e.track_gain,
+          e.album_gain,
+          e.album_peak,
+          e.album_range,
+          e.analysis_source,
+          e.analysis_confidence
+        FROM master_tracks m
+        LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+        WHERE m.rating_key = ?
+        LIMIT 1
+      `).get(ratingKey) || ((trackTitle && artistName)
+        ? db.prepare(`
+          SELECT
+            m.rating_key,
+            m.genres,
+            m.moods,
+            m.file_path,
+            m.duration_ms,
+            m.rating_count,
+            e.track_year,
+            e.original_release_date,
+            e.bpm,
+            e.musical_key,
+            e.camelot_key,
+            e.energy,
+            e.danceability,
+            e.loudness,
+            e.loudness_range,
+            e.peak,
+            e.track_gain,
+            e.album_gain,
+            e.album_peak,
+            e.album_range,
+            e.analysis_source,
+            e.analysis_confidence
+          FROM master_tracks m
+          LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+          WHERE LOWER(m.track_title) = LOWER(?)
+            AND LOWER(m.artist_name) = LOWER(?)
+            AND (? = '' OR LOWER(m.album_name) = LOWER(?))
+          ORDER BY m.rating_count DESC, m.updated_at DESC
+          LIMIT 1
+        `).get(trackTitle, artistName, albumName, albumName) || {}
+        : {});
       const effectiveStats = Object.keys(stats).length ? stats : fallbackStats;
       const playCount = Math.max(
         Number(stats.play_count || 0),
@@ -2810,17 +2940,70 @@ export function registerApiMusic(app, ctx) {
         Number(fallbackHistoryStats.skip_count || 0),
       );
       const tier = normalizeTierKey(effectiveStats.excluded_from_smart ? 'skip' : effectiveStats.tier || 'curatorr');
+      let genres = [];
+      let moods = [];
+      try { genres = JSON.parse(masterRow.genres || '[]'); } catch { genres = []; }
+      try { moods = JSON.parse(masterRow.moods || '[]'); } catch { moods = []; }
+      genres = Array.isArray(genres) ? genres.map((value) => String(value || '').trim()).filter(Boolean) : [];
+      moods = Array.isArray(moods) ? moods.map((value) => String(value || '').trim()).filter(Boolean) : [];
+      const popularity = getAlbumPopularTrackRanks(db, [ratingKey]).get(String(ratingKey || '')) || null;
+      const topAlbumTrackPill = popularity?.rank && Number(popularity.rank || 0) > 0 && Number(popularity.rank || 0) <= 3
+        ? `🔥 Top ${Number(popularity.rank || 0)} on album`
+        : '';
+      const detailSections = [];
+      const metadataRows = [
+        genres.length ? { label: 'Genre', value: genres.join(', ') } : null,
+        moods.length ? { label: 'Mood', value: moods.join(', ') } : null,
+        Number(masterRow.track_year || 0) > 0 ? { label: 'Year', value: String(Number(masterRow.track_year || 0)) } : null,
+        formatOverviewReleaseDate(masterRow.original_release_date) ? { label: 'Original release', value: formatOverviewReleaseDate(masterRow.original_release_date) } : null,
+        formatOverviewDuration(masterRow.duration_ms || trackMeta?.duration || 0) ? { label: 'Duration', value: formatOverviewDuration(masterRow.duration_ms || trackMeta?.duration || 0) } : null,
+        Number(masterRow.rating_count || 0) > 0 ? { label: 'Plex rating count', value: formatOverviewNumber(masterRow.rating_count || 0) } : null,
+        popularity?.rank && Number(popularity.rank || 0) > 0 ? { label: 'Album popularity', value: `Top ${Number(popularity.rank || 0)} on album` } : null,
+      ].filter(Boolean);
+      if (metadataRows.length) detailSections.push({ title: 'Metadata', rows: metadataRows });
+      const audioRows = [
+        Number.isFinite(Number(masterRow.bpm)) ? { label: 'BPM', value: formatOverviewMetric(masterRow.bpm, 0) } : null,
+        String(masterRow.musical_key || '').trim() ? { label: 'Musical key', value: String(masterRow.musical_key || '').trim() } : null,
+        String(masterRow.camelot_key || '').trim() ? { label: 'Camelot', value: String(masterRow.camelot_key || '').trim() } : null,
+        Number.isFinite(Number(masterRow.energy)) ? { label: 'Energy', value: formatOverviewMetric(masterRow.energy, 2) } : null,
+        Number.isFinite(Number(masterRow.danceability)) ? { label: 'Danceability', value: formatOverviewMetric(masterRow.danceability, 2) } : null,
+        Number.isFinite(Number(masterRow.loudness)) ? { label: 'Loudness', value: `${formatOverviewMetric(masterRow.loudness, 1)} LUFS` } : null,
+        Number.isFinite(Number(masterRow.loudness_range)) ? { label: 'Loudness range', value: formatOverviewMetric(masterRow.loudness_range, 1) } : null,
+        Number.isFinite(Number(masterRow.peak)) ? { label: 'Peak', value: `${formatOverviewMetric(masterRow.peak, 2)} dB` } : null,
+        Number.isFinite(Number(masterRow.track_gain)) ? { label: 'Track gain', value: `${formatOverviewMetric(masterRow.track_gain, 1)} dB` } : null,
+        Number.isFinite(Number(masterRow.album_gain)) ? { label: 'Album gain', value: `${formatOverviewMetric(masterRow.album_gain, 1)} dB` } : null,
+        Number.isFinite(Number(masterRow.album_peak)) ? { label: 'Album peak', value: `${formatOverviewMetric(masterRow.album_peak, 2)} dB` } : null,
+        Number.isFinite(Number(masterRow.album_range)) ? { label: 'Album range', value: formatOverviewMetric(masterRow.album_range, 1) } : null,
+        String(masterRow.analysis_source || '').trim() ? { label: 'Analysis source', value: String(masterRow.analysis_source || '').trim() } : null,
+      ].filter(Boolean);
+      if (audioRows.length) detailSections.push({ title: 'Audio Profile', rows: audioRows });
+      const libraryRows = [
+        String(masterRow.rating_key || ratingKey || '').trim() ? { label: 'Rating key', value: String(masterRow.rating_key || ratingKey || '').trim() } : null,
+        String(masterRow.file_path || '').trim() ? { label: 'File', value: String(masterRow.file_path || '').trim() } : null,
+      ].filter(Boolean);
+      if (libraryRows.length) detailSections.push({ title: 'Library', rows: libraryRows });
       return res.json({
         ok: true,
         item: {
           kind: 'track',
           title: trackTitle || 'Unknown track',
           subtitle: [artistName, albumName].filter(Boolean).join(' · '),
-          overview: buildOverviewText(trackMeta?.summary, `${trackTitle || 'This track'} currently has ${playCount} plays and ${skipCount} skips in Curatorr.`),
+          overview: buildOverviewText(trackMeta?.summary, 'No overview available for this item yet.'),
           thumb: `/api/music/thumb/track/${encodeURIComponent(ratingKey)}`,
           art: artistName ? `/api/music/thumb/artist/${encodeURIComponent(artistName)}` : `/api/music/thumb/track/${encodeURIComponent(ratingKey)}`,
           posterRatio: 'square',
-          pills: ['Track', formatTierLabel(tier)],
+          pills: ['Track', formatTierLabel(tier), topAlbumTrackPill].filter(Boolean),
+          detailSections,
+          actions: [
+            {
+              kind: 'track-pin-toggle',
+              label: Number(effectiveStats.manually_included || 0) ? 'Unpin track' : 'Pin track',
+              payload: {
+                ratingKey,
+                included: Number(effectiveStats.manually_included || 0) ? false : true,
+              },
+            },
+          ],
           stats: [
             { label: 'Plays', value: playCount },
             { label: 'Skips', value: skipCount },
@@ -3814,8 +3997,13 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveCanonicalUserId(req);
     try {
       const auth = await getSpotifyAuthForUser(userPlexId);
+      const prefs = getUserPreferences(db, userPlexId);
+      const spotifyUserId = String(prefs?.spotifyUserId || '').trim();
       const playlists = await spotifyService.listCurrentUserPlaylists(auth.accessToken, { limit: 50 });
-      return res.json({ ok: true, playlists });
+      const ownedPlaylists = spotifyUserId
+        ? playlists.filter((playlist) => String(playlist?.ownerId || '').trim() === spotifyUserId)
+        : playlists;
+      return res.json({ ok: true, playlists: ownedPlaylists });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
     }
@@ -3823,14 +4011,17 @@ export function registerApiMusic(app, ctx) {
 
   app.get('/api/music/import/spotify/preview', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
-    const playlistId = String(req.query?.playlistId || '').trim();
-    if (!playlistId) return res.status(400).json({ error: 'playlistId is required.' });
+    let playlistId = '';
+    try {
+      playlistId = resolveSpotifyPlaylistId(req.query?.playlistId || req.query?.playlistRef || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
     try {
       const auth = await getSpotifyAuthForUser(userPlexId);
-      const [playlistMeta, playlistItems] = await Promise.all([
-        spotifyService.getPlaylist(auth.accessToken, playlistId),
-        spotifyService.getPlaylistItems(auth.accessToken, playlistId, { limit: 100 }),
-      ]);
+      const playlistSource = await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId);
+      const playlistMeta = playlistSource.playlistMeta;
+      const playlistItems = playlistSource.playlistItems;
       const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
       const matched = [];
       const unmatched = [];
@@ -3877,10 +4068,14 @@ export function registerApiMusic(app, ctx) {
         ok: true,
         playlist: playlistMeta,
         totalSourceTracks: Number(playlistItems.total || (playlistItems.items || []).length || 0),
+        playlistTrackCount: Number(playlistSource.playlistTrackCount || playlistMeta?.trackCount || playlistItems.total || 0),
         matchedCount: matched.length,
         unmatchedCount: unmatched.length,
         unmatchedArtistCount: unmatchedArtists.length,
         duplicateCount: duplicateMatches.length,
+        warning: String(playlistSource.warning || '').trim(),
+        partial: playlistSource.partial === true,
+        source: playlistSource.source || 'api',
         matched: matched.slice(0, 100),
         unmatchedArtists,
         unmatched: unmatched.slice(0, 100),
@@ -3893,15 +4088,23 @@ export function registerApiMusic(app, ctx) {
 
   app.post('/api/music/import/spotify', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
-    const playlistId = String(req.body?.playlistId || '').trim();
+    let playlistId = '';
     const title = normaliseImportedPlaylistTitle(req.body?.title, 'Imported Spotify Playlist');
-    if (!playlistId) return res.status(400).json({ error: 'playlistId is required.' });
+    try {
+      playlistId = resolveSpotifyPlaylistId(req.body?.playlistId || req.body?.playlistRef || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
     try {
       const auth = await getSpotifyAuthForUser(userPlexId);
-      const [playlistMeta, playlistItems] = await Promise.all([
-        spotifyService.getPlaylist(auth.accessToken, playlistId),
-        spotifyService.getPlaylistItems(auth.accessToken, playlistId, { limit: 100 }),
-      ]);
+      const playlistSource = await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId);
+      if (playlistSource.partial) {
+        return res.status(409).json({
+          error: String(playlistSource.warning || 'Spotify only exposed part of this shared playlist. Import it from your own Spotify library instead.').trim(),
+        });
+      }
+      const playlistMeta = playlistSource.playlistMeta;
+      const playlistItems = playlistSource.playlistItems;
       const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
       const trackRefs = [];
       const unmatched = [];

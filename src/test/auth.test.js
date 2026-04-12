@@ -25,6 +25,7 @@ const {
   getAllLastfmTags,
   getAllTrackDecadeTags,
   getLidarrArtistProgress,
+  getSuggestedArtist,
   getMasterTracks,
   getPlaylistTracks,
   getTrackEnrichmentByRatingKeys,
@@ -2537,6 +2538,263 @@ describe('security guards', () => {
       assert.equal(progress?.currentStage, 'album_acquired');
       assert.equal(progress?.lastManualSearchStatus, 'completed');
       assert.ok(Number(progress?.nextReviewAt || 0) > now);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+  });
+
+  it('repairs a stale tracked Lidarr album without requiring a database reset', async () => {
+    const dbPath = join(process.env.DATA_DIR, `lidarr-stale-album-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `lidarr-stale-album-${Date.now()}`;
+    const artistName = 'Passion Pit';
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO artist_stats (artist_name, user_plex_id, ranking_score, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(artistName, userId, 10, now);
+    upsertSuggestedArtist(db, userId, {
+      artistName,
+      status: 'added_to_lidarr',
+      lidarrArtistId: 358,
+      reason: {
+        latestAlbum: {
+          albumId: 42,
+          albumTitle: 'Manners',
+          commandId: 99,
+          sourceKind: 'manual',
+          addedByCuratorr: true,
+        },
+      },
+    });
+    saveLidarrArtistProgress(db, userId, {
+      artistName,
+      lidarrArtistId: 358,
+      currentStage: 'catalog_expanded',
+      albumsAddedCount: 1,
+      lastAlbumAddedAt: now - (2 * 24 * 60 * 60 * 1000),
+      nextReviewAt: now - 1000,
+      highestObservedRank: 10,
+      lastManualSearchAt: now - (60 * 60 * 1000),
+      lastManualSearchStatus: 'started',
+      updatedAt: now - 1000,
+    });
+
+    const lidarrService = createLidarrService({
+      db,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+          automationEnabled: true,
+          automationScope: 'global',
+          autoTriggerManualSearch: false,
+          roleQuotas: {
+            user: { weeklyArtists: 10, weeklyAlbums: 10 },
+          },
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      const method = String(options?.method || 'GET').toUpperCase();
+      if (target === 'http://lidarr.local/api/v1/album/42') {
+        return new Response(JSON.stringify({
+          message: 'Album with ID 42 does not exist',
+        }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/artist/358') {
+        return new Response(JSON.stringify({
+          id: 358,
+          artistName,
+          monitored: true,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album?artistId=358&page=1&pageSize=200') {
+        return new Response(JSON.stringify([
+          {
+            id: 77,
+            title: 'Chunk of Change',
+            artistId: 358,
+            albumType: 'EP',
+            monitored: false,
+            releaseDate: '2008-09-16',
+            statistics: { trackCount: 5, trackFileCount: 0 },
+            ratings: { value: 8.1, votes: 40 },
+            tags: [],
+          },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album/monitor' && method === 'PUT') {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album/77') {
+        return new Response(JSON.stringify({
+          id: 77,
+          title: 'Chunk of Change',
+          artistId: 358,
+          monitored: true,
+          albumType: 'EP',
+          releaseDate: '2008-09-16',
+          statistics: { trackCount: 5, trackFileCount: 0 },
+          ratings: { value: 8.1, votes: 40 },
+          tags: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/tag') {
+        return new Response(JSON.stringify([
+          { id: 11, label: 'curatorr-auto-album' },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album/editor' && method === 'PUT') {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in stale Lidarr album test: ${method} ${target}`);
+    };
+
+    try {
+      const result = await lidarrService.reviewArtistProgression({
+        userPlexId: userId,
+        artistName,
+        role: 'user',
+      });
+
+      assert.equal(result.status, 'album_added');
+      assert.equal(result.progress?.currentStage, 'catalog_expanded');
+
+      const progress = getLidarrArtistProgress(db, userId, artistName);
+      assert.equal(progress?.lidarrArtistId, 358);
+      assert.equal(progress?.currentStage, 'catalog_expanded');
+      assert.equal(progress?.lastManualSearchStatus, '');
+
+      const suggestion = getSuggestedArtist(db, userId, artistName);
+      assert.equal(suggestion?.status, 'added_to_lidarr');
+      assert.equal(suggestion?.lidarrArtistId, 358);
+      assert.equal(suggestion?.reason?.latestAlbum?.albumId, 77);
+      assert.equal(suggestion?.reason?.latestAlbum?.albumTitle, 'Chunk of Change');
+      assert.equal(suggestion?.reason?.latestAlbum?.commandId ?? null, null);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+  });
+
+  it('clears stale Lidarr artist links instead of leaving due reviews stuck forever', async () => {
+    const dbPath = join(process.env.DATA_DIR, `lidarr-stale-artist-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `lidarr-stale-artist-${Date.now()}`;
+    const artistName = 'Passion Pit';
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO artist_stats (artist_name, user_plex_id, ranking_score, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(artistName, userId, 10, now);
+    upsertSuggestedArtist(db, userId, {
+      artistName,
+      status: 'added_to_lidarr',
+      lidarrArtistId: 358,
+      reason: {
+        latestAlbum: {
+          albumId: null,
+          albumTitle: 'Manners',
+          commandId: null,
+          sourceKind: 'manual',
+          addedByCuratorr: true,
+        },
+      },
+    });
+    saveLidarrArtistProgress(db, userId, {
+      artistName,
+      lidarrArtistId: 358,
+      currentStage: 'added',
+      albumsAddedCount: 1,
+      lastAlbumAddedAt: now - (2 * 24 * 60 * 60 * 1000),
+      nextReviewAt: now - 1000,
+      highestObservedRank: 10,
+      lastManualSearchAt: now - (60 * 60 * 1000),
+      lastManualSearchStatus: '',
+      updatedAt: now - 1000,
+    });
+
+    const lidarrService = createLidarrService({
+      db,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+          automationEnabled: true,
+          automationScope: 'global',
+          roleQuotas: {
+            user: { weeklyArtists: 10, weeklyAlbums: 10 },
+          },
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      if (target === 'http://lidarr.local/api/v1/album?artistId=358&page=1&pageSize=200') {
+        return new Response(JSON.stringify({
+          message: 'Artist with ID 358 does not exist',
+        }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in stale Lidarr artist test: ${target}`);
+    };
+
+    try {
+      const result = await lidarrService.reviewArtistProgression({
+        userPlexId: userId,
+        artistName,
+        role: 'user',
+      });
+
+      assert.equal(result.status, 'artist_not_linked');
+      assert.equal(getLidarrArtistProgress(db, userId, artistName), null);
+
+      const suggestion = getSuggestedArtist(db, userId, artistName);
+      assert.equal(suggestion?.status, 'suggested');
+      assert.equal(suggestion?.lidarrArtistId, null);
+      assert.equal(suggestion?.reason?.acquisition?.lastRecoveryStatus, 'artist_missing');
     } finally {
       global.fetch = originalFetch;
       db.close();
@@ -5445,6 +5703,147 @@ describe('security guards', () => {
       assert.ok(logs.some((entry) => entry?.action === 'job.interrupted'));
     } finally {
       db.close();
+    }
+  });
+
+  it('returns summary-first track overview data with metadata and audio sections', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const ratingKey = `overview-track-${Date.now()}`;
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      plex: {
+        ...(originalConfig.plex || {}),
+        url: 'http://plex.local',
+        token: 'plex-secret-token',
+      },
+    });
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, moods, library_key, file_path, duration_ms, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      ratingKey,
+      'Bruce Springsteen',
+      'Darlington County',
+      'Born in the U.S.A.',
+      '',
+      JSON.stringify(['Heartland Rock', 'Pop/Rock']),
+      JSON.stringify(['Earnest', 'Driving']),
+      '1',
+      '/music/Bruce Springsteen/Born in the U.S.A./Darlington County.flac',
+      304000,
+      12438,
+      0,
+      now,
+    );
+    db.prepare(`
+      INSERT INTO track_enrichment (
+        rating_key, recording_mbid, track_year, original_release_date, bpm,
+        musical_key, camelot_key, energy, danceability, loudness, loudness_range,
+        peak, track_gain, album_gain, album_peak, album_range,
+        analysis_source, analysis_confidence, payload_json, updated_at
+      ) VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?)
+    `).run(
+      ratingKey,
+      1984,
+      '1984-06-04',
+      128,
+      'D major',
+      '10B',
+      0.78,
+      0.54,
+      -8.9,
+      7.2,
+      -0.3,
+      -6.1,
+      -5.8,
+      -0.2,
+      8.0,
+      'curatorr_analyzer',
+      1,
+      now,
+    );
+    db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        manually_included, tier, tier_weight, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+    `).run(
+      ratingKey,
+      'testadmin',
+      'Darlington County',
+      'Bruce Springsteen',
+      'Born in the U.S.A.',
+      4,
+      1,
+      0,
+      'belter',
+      1.5,
+      now,
+    );
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === `http://plex.local/library/metadata/${encodeURIComponent(ratingKey)}`) {
+        return new Response(JSON.stringify({
+          MediaContainer: {
+            Metadata: [{
+              ratingKey,
+              title: 'Darlington County',
+              summary: 'A widescreen highway song with a weary, reflective pull.',
+              originalTitle: 'Bruce Springsteen',
+              grandparentTitle: 'Bruce Springsteen',
+              parentTitle: 'Born in the U.S.A.',
+              duration: 304000,
+            }],
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in track overview test: ${target}`);
+    };
+
+    try {
+      const overviewRes = await client.request(`/api/music/overview/track/${encodeURIComponent(ratingKey)}`);
+      assert.equal(overviewRes.status, 200);
+      assert.equal(overviewRes.json?.item?.overview, 'A widescreen highway song with a weary, reflective pull.');
+      assert.ok((overviewRes.json?.item?.pills || []).includes('🔥 Top 1 on album'));
+      assert.deepEqual(
+        overviewRes.json?.item?.actions,
+        [{ kind: 'track-pin-toggle', label: 'Pin track', payload: { ratingKey, included: true } }],
+      );
+      assert.deepEqual(
+        (overviewRes.json?.item?.detailSections || []).map((section) => section.title),
+        ['Metadata', 'Audio Profile', 'Library'],
+      );
+      const metadataSection = overviewRes.json?.item?.detailSections?.find((section) => section.title === 'Metadata');
+      assert.ok(metadataSection);
+      assert.ok(metadataSection.rows.some((row) => row.label === 'Genre' && row.value.includes('Heartland Rock')));
+      assert.ok(metadataSection.rows.some((row) => row.label === 'Mood' && row.value.includes('Driving')));
+      assert.ok(metadataSection.rows.some((row) => row.label === 'Plex rating count' && row.value === '12,438'));
+      const audioSection = overviewRes.json?.item?.detailSections?.find((section) => section.title === 'Audio Profile');
+      assert.ok(audioSection);
+      assert.ok(audioSection.rows.some((row) => row.label === 'BPM' && row.value === '128'));
+      assert.ok(audioSection.rows.some((row) => row.label === 'Analysis source' && row.value === 'curatorr_analyzer'));
+      const librarySection = overviewRes.json?.item?.detailSections?.find((section) => section.title === 'Library');
+      assert.ok(librarySection.rows.some((row) => row.label === 'File' && row.value.includes('Darlington County.flac')));
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+      await writeConfig(originalConfig);
     }
   });
 

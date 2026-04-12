@@ -143,6 +143,7 @@
                 <ul>
                   <li><strong>Plays / Skips</strong> — total lifetime counts from your media server.</li>
                   <li><strong>Status</strong> — your current tier for that track: <strong>Belter</strong> (top tier), <strong>Decent</strong>, <strong>Pinned</strong> (force-included in playlists), or no badge if unranked.</li>
+                  <li><strong>Pin</strong> — force-includes the track in smart playlists even if its normal score would leave it out. <strong>Unpin</strong> removes that manual override.</li>
                   <li><strong>Exclude</strong> — removes the track from smart playlist scoring. Use this to hide tracks you never want suggested. <strong>Re-include</strong> reverses it.</li>
                 </ul>
               </div>
@@ -337,6 +338,12 @@
       return parts.length ? parts.join('') : '<span class="cur-pl-cell-empty">—</span>';
     }
 
+    function renderTrackPinButton(track) {
+      const action = track.force_included ? 'Unpin' : 'Pin';
+      const tone = track.force_included ? 'btn-ghost' : 'btn-primary';
+      return '<button class="btn btn-sm ' + tone + '" onclick="toggleTrackPin(\'' + encodeURIComponent(track.rating_key || '') + '\', ' + (track.force_included ? 'false' : 'true') + ', this)">' + action + '</button>';
+    }
+
     function renderTrackRow(track) {
       const trackName = escapeHtml(track.track_title || 'Untitled track');
       const artistName = escapeAttr(track.artist_name || '');
@@ -345,7 +352,7 @@
       const flame = Number(track.popularRank || 0) > 0 && Number(track.popularRank || 0) <= 3 && Number(track.ratingCount || 0) > 0
         ? '<span class="cur-track-flame" title="' + escapeAttr('Popular on this album — Top ' + Number(track.popularRank) + ' by Plex rating count (' + Number(track.ratingCount).toLocaleString() + ')') + '" aria-label="Popular on this album">🔥</span>'
         : '';
-      const actionButton = track.excluded
+      const excludeButton = track.excluded
         ? '<button class="btn btn-sm btn-primary" onclick="toggleTrackExclusion(\'' + encodeURIComponent(track.rating_key || '') + '\', false, this)">Re-include</button>'
         : '<button class="btn btn-sm btn-ghost-danger" onclick="toggleTrackExclusion(\'' + encodeURIComponent(track.rating_key || '') + '\', true, this)">Exclude</button>';
 
@@ -357,7 +364,7 @@
           '<span class="cur-tr-col-num">' + escapeHtml(track.total_plays) + '</span>',
           '<span class="cur-tr-col-num">' + escapeHtml(track.total_skips) + '</span>',
           '<span class="cur-tr-col-status">' + renderStatusBadges(track) + '</span>',
-          '<span class="cur-tr-col-actions">' + actionButton + '</span>',
+          '<span class="cur-tr-col-actions">' + renderTrackPinButton(track) + excludeButton + '</span>',
         '</div>'
       ].join('');
     }
@@ -424,6 +431,14 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
         body: JSON.stringify({ excluded: exclude }),
+      }).then(function(r) { if (r.ok) location.reload(); });
+    }
+
+    function toggleTrackPin(key, include, btn) {
+      fetch('/api/music/tracks/' + key + '/include', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
+        body: JSON.stringify({ included: include }),
       }).then(function(r) { if (r.ok) location.reload(); });
     }
 

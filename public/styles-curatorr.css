@@ -5008,7 +5008,7 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 .cur-tr-head,
 .cur-tr-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(230px, 1.15fr) minmax(220px, 1.05fr) 72px 72px minmax(140px, .9fr) 116px;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(230px, 1.15fr) minmax(220px, 1.05fr) 72px 72px minmax(140px, .9fr) 196px;
   align-items: center;
   gap: 10px;
 }
@@ -5123,10 +5123,12 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 .cur-tr-col-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .cur-tr-col-actions .btn {
-  min-width: 84px;
+  min-width: 88px;
   font-size: 10px;
   padding: 4px 8px;
 }
@@ -6777,6 +6779,41 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   text-shadow: 0 2px 12px rgba(0,0,0,.45);
 }
 
+.cur-overview-detail-text {
+  margin: 0;
+  color: rgba(232,238,247,.84);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.cur-overview-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 18px;
+}
+
+.cur-overview-detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cur-overview-detail-label {
+  color: rgba(232,238,247,.62);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.cur-overview-detail-value {
+  color: rgba(248,251,255,.94);
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .plex-modal-footer {
   flex: 0 0 auto;
   display: flex;
@@ -7113,6 +7150,10 @@ body.modal-open {
   text-shadow: 0 1px 0 rgba(255,255,255,.65), 0 2px 8px rgba(0,0,0,.08);
 }
 
+[data-theme="day"] .cur-overview-detail-text {
+  color: rgba(31,43,56,.82);
+}
+
 [data-theme="day"] .plex-pill2,
 [data-theme="day"] .cur-overview-stat,
 [data-theme="day"] .plex-modal-link {
@@ -7141,6 +7182,14 @@ body.modal-open {
 [data-theme="day"] .plex-section h4,
 [data-theme="day"] .cur-overview-stat-label {
   color: #1f2b38;
+}
+
+[data-theme="day"] .cur-overview-detail-label {
+  color: rgba(31,43,56,.62);
+}
+
+[data-theme="day"] .cur-overview-detail-value {
+  color: #0f1722;
 }
 
 @media (max-width: 900px) {

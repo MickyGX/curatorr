@@ -1,4 +1,5 @@
 import {
+  deleteLidarrArtistProgress,
   getArtistRankSnapshot,
   getCurrentLidarrUsage,
   getLidarrArtistProgress,
@@ -117,6 +118,14 @@ function summarizeLidarrErrorBody(body, status) {
       retryable: true,
     };
   }
+  if (status === 404 || /\bdoes not exist\b|\bnot found\b/i.test(normalized)) {
+    return {
+      message: 'The requested Lidarr item no longer exists.',
+      detail: normalized,
+      code: 'LIDARR_NOT_FOUND',
+      retryable: false,
+    };
+  }
   if (status >= 500) {
     return {
       message: 'Lidarr returned a server error. Check Curatorr logs for details.',
@@ -141,6 +150,25 @@ function wrapErrorWithMetadata(err, { message = '', code = '', ...extra } = {}) 
     if (value !== undefined) wrapped[key] = value;
   });
   return wrapped;
+}
+
+function isLidarrMissingError(err) {
+  if (!err) return false;
+  if (String(err?.code || '').trim().toUpperCase() === 'LIDARR_NOT_FOUND') return true;
+  if (Number(err?.status || 0) === 404) return true;
+  const haystack = `${String(err?.message || '')} ${String(err?.detail || '')}`;
+  return /\bdoes not exist\b|\bnot found\b/i.test(haystack);
+}
+
+function clearTrackedAlbumReference(album, missingAlbumId = 0) {
+  if (!album || typeof album !== 'object') return album || null;
+  const albumId = Number(album?.albumId || 0);
+  if (missingAlbumId > 0 && albumId > 0 && albumId !== missingAlbumId) return album;
+  return {
+    ...album,
+    albumId: null,
+    commandId: null,
+  };
 }
 
 function scoreRelease(release, settings) {
@@ -1493,6 +1521,126 @@ export function createLidarrService(ctx) {
     return latestAlbum || starterAlbum || null;
   }
 
+  function buildStaleLidarrReason(baseReason = {}, { missingAlbumId = 0, error = null, lastRecoveryStatus = '' } = {}) {
+    const reason = baseReason && typeof baseReason === 'object' ? baseReason : {};
+    const acquisition = reason?.acquisition && typeof reason.acquisition === 'object' ? reason.acquisition : {};
+    return {
+      ...reason,
+      starterAlbum: clearTrackedAlbumReference(reason?.starterAlbum, missingAlbumId),
+      latestAlbum: clearTrackedAlbumReference(reason?.latestAlbum, missingAlbumId),
+      acquisition: {
+        ...acquisition,
+        lastRecoveryStatus: String(lastRecoveryStatus || acquisition.lastRecoveryStatus || '').trim(),
+        lastCheckedAt: Date.now(),
+        lastError: error ? safeMessage(error) : '',
+        lastErrorCode: error?.code || '',
+      },
+    };
+  }
+
+  function repairMissingTrackedAlbumState(options = {}) {
+    const userPlexId = String(options.userPlexId || '').trim();
+    const artistName = String(options.artistName || '').trim();
+    if (!db || !userPlexId || !artistName) {
+      return { ok: false, status: 'no_tracked_album' };
+    }
+
+    const now = Date.now();
+    const existingSuggestion = options.existingSuggestion || getSuggestedArtist(db, userPlexId, artistName);
+    const existingProgress = options.existingProgress || getLidarrArtistProgress(db, userPlexId, artistName);
+    const lidarrArtistId = Number(options.lidarrArtistId || existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || 0) || null;
+    const nextReason = buildStaleLidarrReason(options.baseReason || existingSuggestion?.reason || {}, {
+      missingAlbumId: Number(options.missingAlbumId || 0) || 0,
+      error: options.error,
+      lastRecoveryStatus: 'tracked_album_missing',
+    });
+
+    if (existingSuggestion) {
+      setSuggestedArtistStatus(
+        db,
+        userPlexId,
+        artistName,
+        lidarrArtistId ? (existingSuggestion.status === 'dismissed' ? 'dismissed' : 'added_to_lidarr') : 'suggested',
+        {
+          reason: nextReason,
+          lidarrArtistId,
+        },
+      );
+    }
+
+    if (existingProgress || lidarrArtistId) {
+      saveLidarrArtistProgress(db, userPlexId, {
+        artistName,
+        lidarrArtistId,
+        currentStage: lidarrArtistId ? 'added' : 'suggested',
+        albumsAddedCount: Number(existingProgress?.albumsAddedCount || 0),
+        lastAlbumAddedAt: existingProgress?.lastAlbumAddedAt ?? null,
+        nextReviewAt: lidarrArtistId ? now : null,
+        highestObservedRank: normalizeStoredRank(existingProgress?.highestObservedRank, 0),
+        lastManualSearchAt: existingProgress?.lastManualSearchAt ?? null,
+        lastManualSearchStatus: '',
+        updatedAt: now,
+      });
+    }
+
+    logEvent('warn', 'acquisition.stale_album', `Tracked Lidarr album no longer exists for ${userPlexId}: ${artistName}`, {
+      missingAlbumId: Number(options.missingAlbumId || 0) || null,
+      lidarrArtistId,
+      error: safeMessage(options.error),
+      code: options.error?.code || '',
+    });
+
+    return {
+      ok: false,
+      status: 'no_tracked_album',
+      repaired: true,
+      progress: getLidarrArtistProgress(db, userPlexId, artistName),
+    };
+  }
+
+  function repairMissingArtistState(options = {}) {
+    const userPlexId = String(options.userPlexId || '').trim();
+    const artistName = String(options.artistName || '').trim();
+    if (!db || !userPlexId || !artistName) {
+      return { ok: false, status: 'artist_not_linked' };
+    }
+
+    const existingSuggestion = options.existingSuggestion || getSuggestedArtist(db, userPlexId, artistName);
+    const nextReason = buildStaleLidarrReason(options.baseReason || existingSuggestion?.reason || {}, {
+      missingAlbumId: 0,
+      error: options.error,
+      lastRecoveryStatus: 'artist_missing',
+    });
+
+    if (existingSuggestion) {
+      setSuggestedArtistStatus(
+        db,
+        userPlexId,
+        artistName,
+        existingSuggestion.status === 'dismissed' ? 'dismissed' : 'suggested',
+        {
+          reason: nextReason,
+          lidarrArtistId: null,
+        },
+      );
+    }
+
+    deleteLidarrArtistProgress(db, userPlexId, artistName);
+
+    logEvent('warn', 'review.stale_artist', `Stored Lidarr artist no longer exists for ${userPlexId}: ${artistName}`, {
+      lidarrArtistId: Number(options.lidarrArtistId || 0) || null,
+      error: safeMessage(options.error),
+      code: options.error?.code || '',
+    });
+
+    return {
+      ok: false,
+      status: 'artist_not_linked',
+      repaired: true,
+      progress: null,
+    };
+  }
+
   async function reconcileArtistAcquisition(options = {}) {
     const userPlexId = String(options.userPlexId || '').trim();
     const artistName = String(options.artistName || '').trim();
@@ -1511,11 +1659,53 @@ export function createLidarrService(ctx) {
       return { ok: false, status: 'no_tracked_album', progress: existingProgress };
     }
 
-    const album = await getAlbum(albumId, { timeoutMs: 12000 });
-    if (!album) return { ok: false, status: 'album_not_found', albumId };
+    let album = null;
+    try {
+      album = await getAlbum(albumId, { timeoutMs: 12000 });
+    } catch (err) {
+      if (isLidarrMissingError(err)) {
+        return repairMissingTrackedAlbumState({
+          userPlexId,
+          artistName,
+          existingSuggestion,
+          existingProgress,
+          baseReason,
+          lidarrArtistId: Number(existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || 0) || null,
+          missingAlbumId: albumId,
+          error: err,
+        });
+      }
+      throw err;
+    }
+    if (!album) {
+      return repairMissingTrackedAlbumState({
+        userPlexId,
+        artistName,
+        existingSuggestion,
+        existingProgress,
+        baseReason,
+        lidarrArtistId: Number(existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || 0) || null,
+        missingAlbumId: albumId,
+      });
+    }
     const lidarrArtistId = Number(existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || album?.artistId || 0);
     if (lidarrArtistId > 0) {
-      const liveArtist = await getArtist(lidarrArtistId, { timeoutMs: 12000 });
+      let liveArtist = null;
+      try {
+        liveArtist = await getArtist(lidarrArtistId, { timeoutMs: 12000 });
+      } catch (err) {
+        if (isLidarrMissingError(err)) {
+          return repairMissingArtistState({
+            userPlexId,
+            artistName,
+            existingSuggestion,
+            baseReason,
+            lidarrArtistId,
+            error: err,
+          });
+        }
+        throw err;
+      }
       if (liveArtist && !liveArtist.monitored) {
         await setArtistMonitored(lidarrArtistId, true, { artist: liveArtist, timeoutMs: 15000 });
       }
@@ -1843,7 +2033,22 @@ export function createLidarrService(ctx) {
       };
     }
 
-    const albumList = await listArtistAlbums(lidarrArtistId, { timeoutMs: 15000, pageSize: 200 });
+    let albumList = [];
+    try {
+      albumList = await listArtistAlbums(lidarrArtistId, { timeoutMs: 15000, pageSize: 200 });
+    } catch (err) {
+      if (isLidarrMissingError(err)) {
+        return repairMissingArtistState({
+          userPlexId,
+          artistName,
+          existingSuggestion,
+          baseReason,
+          lidarrArtistId,
+          error: err,
+        });
+      }
+      throw err;
+    }
     const nextAlbumPick = pickNextExpansionAlbum(albumList);
     if (!nextAlbumPick?.album) {
       const nextProgress = {
@@ -1951,7 +2156,7 @@ export function createLidarrService(ctx) {
       lastAlbumAddedAt: now,
       nextReviewAt: now + getManualFallbackDelayMs(),
       lastManualSearchAt: searchCommand ? now : (existingProgress?.lastManualSearchAt ?? null),
-      lastManualSearchStatus: searchCommand ? String(searchCommand?.status || 'queued').toLowerCase() : (existingProgress?.lastManualSearchStatus || ''),
+      lastManualSearchStatus: searchCommand ? String(searchCommand?.status || 'queued').toLowerCase() : '',
     };
     saveLidarrArtistProgress(db, userPlexId, nextProgress);
 
@@ -2296,7 +2501,7 @@ export function createLidarrService(ctx) {
       lastAlbumAddedAt: alreadyMonitored ? (existingProgress?.lastAlbumAddedAt ?? null) : Date.now(),
       nextReviewAt: Date.now() + fallbackDelayMs,
       lastManualSearchAt: searchCommand ? Date.now() : (existingProgress?.lastManualSearchAt ?? null),
-      lastManualSearchStatus: searchCommand ? 'queued' : (existingProgress?.lastManualSearchStatus || ''),
+      lastManualSearchStatus: searchCommand ? 'queued' : '',
       updatedAt: Date.now(),
     };
     saveLidarrArtistProgress(db, userPlexId, nextProgress);

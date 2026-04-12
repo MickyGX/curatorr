@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.69 (2026-04-12)
+
+- Fixed the animated Music Notes background so disabling it now stops the render loop entirely, tab visibility pauses the effect correctly, and Curatorr no longer burns CPU repainting hidden or disabled canvas frames across the app.
+- Fixed stale Lidarr artist and album references so deleted upstream items no longer leave Discover/Lidarr progression stuck until `curatorr.db` is wiped; Curatorr now clears broken links, repairs stored state, and keeps review jobs moving.
+- Improved track and playlist workflows: track overview popups now show richer metadata/audio details with pin or unpin actions, Spotify owned-playlist imports work again for larger playlists, and the Spotify import picker is simplified back to owned playlists only.
+
 ## v0.1.68 (2026-04-09)
 
 - Added an optional guarded Tautulli repair mode for the daily gap-fill job, allowing Tautulli to upgrade obviously-short Plex listens only when it has a close timestamp match and a longer credible completed play.

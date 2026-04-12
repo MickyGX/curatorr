@@ -2806,6 +2806,7 @@ export function setSuggestedArtistStatus(db, userPlexId, artistName, status, ext
   const now = Date.now();
   const nextReason = extra.reason ? JSON.stringify(extra.reason) : existing.reason_json;
   const nextStatus = String(status || existing.status || 'suggested');
+  const hasLidarrArtistId = Object.prototype.hasOwnProperty.call(extra, 'lidarrArtistId');
   const acceptedAt = Object.prototype.hasOwnProperty.call(extra, 'acceptedAt')
     ? extra.acceptedAt
     : (nextStatus === 'queued_for_lidarr' || nextStatus === 'added_to_lidarr' ? (existing.accepted_at || now) : existing.accepted_at);
@@ -2817,7 +2818,7 @@ export function setSuggestedArtistStatus(db, userPlexId, artistName, status, ext
     UPDATE suggested_artists SET
       status = ?,
       reason_json = ?,
-      lidarr_artist_id = COALESCE(?, lidarr_artist_id),
+      lidarr_artist_id = CASE WHEN ? THEN ? ELSE lidarr_artist_id END,
       accepted_at = ?,
       dismissed_at = ?,
       last_evaluated_at = ?
@@ -2825,7 +2826,8 @@ export function setSuggestedArtistStatus(db, userPlexId, artistName, status, ext
   `).run(
     nextStatus,
     nextReason,
-    extra.lidarrArtistId ?? null,
+    hasLidarrArtistId ? 1 : 0,
+    hasLidarrArtistId ? (extra.lidarrArtistId ?? null) : null,
     acceptedAt ?? null,
     dismissedAt ?? null,
     now,
@@ -3106,6 +3108,7 @@ export function saveLidarrArtistProgress(db, userPlexId, artist) {
   const now = Date.now();
   const artistName = String(artist?.artistName || '').trim();
   if (!artistName) throw new Error('artistName is required');
+  const hasLidarrArtistId = Object.prototype.hasOwnProperty.call(artist || {}, 'lidarrArtistId');
   db.prepare(`
     INSERT INTO lidarr_artist_progress (
       user_plex_id, artist_name, lidarr_artist_id, current_stage,
@@ -3114,7 +3117,7 @@ export function saveLidarrArtistProgress(db, userPlexId, artist) {
       created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id, artist_name) DO UPDATE SET
-      lidarr_artist_id = COALESCE(excluded.lidarr_artist_id, lidarr_artist_progress.lidarr_artist_id),
+      lidarr_artist_id = CASE WHEN ? THEN excluded.lidarr_artist_id ELSE lidarr_artist_progress.lidarr_artist_id END,
       current_stage = excluded.current_stage,
       albums_added_count = excluded.albums_added_count,
       last_album_added_at = COALESCE(excluded.last_album_added_at, lidarr_artist_progress.last_album_added_at),
@@ -3136,7 +3139,18 @@ export function saveLidarrArtistProgress(db, userPlexId, artist) {
     String(artist?.lastManualSearchStatus || ''),
     Number(artist?.createdAt || now),
     Number(artist?.updatedAt || now),
+    hasLidarrArtistId ? 1 : 0,
   );
+}
+
+export function deleteLidarrArtistProgress(db, userPlexId, artistName) {
+  const existing = getLidarrArtistProgress(db, userPlexId, artistName);
+  if (!existing) return null;
+  db.prepare(`
+    DELETE FROM lidarr_artist_progress
+    WHERE user_plex_id = ? AND artist_name = ?
+  `).run(userPlexId, artistName);
+  return existing;
 }
 
 function _weekStartTimestamp(timestamp = Date.now()) {

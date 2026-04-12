@@ -46,6 +46,33 @@
     return '';
   }
 
+  function getCsrfToken() {
+    var field = document.querySelector('[name="_csrf"]');
+    return field ? String(field.value || '').trim() : '';
+  }
+
+  function handleBuiltInAction(kind, payload, button) {
+    if (kind !== 'track-pin-toggle') return false;
+    if (!payload || !payload.ratingKey || (button && button.disabled)) return true;
+    var csrfToken = getCsrfToken();
+    if (!csrfToken) return true;
+    if (button) button.disabled = true;
+    fetch('/api/music/tracks/' + encodeURIComponent(String(payload.ratingKey || '')) + '/include', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({ included: payload.included !== false }),
+    }).then(function(response) {
+      if (!response.ok) throw new Error('Track pin update failed.');
+      window.location.reload();
+    }).catch(function() {
+      if (button) button.disabled = false;
+    });
+    return true;
+  }
+
   function ensureModal() {
     if (modalState.backdrop) return modalState.backdrop;
     var backdrop = document.createElement('div');
@@ -66,10 +93,7 @@
                 '<div class="plex-modal-meta">' +
                   '<div class="plex-pills"></div>' +
                   '<div class="plex-modal-meta-scroll">' +
-                    '<div class="plex-section">' +
-                      '<h4>Overview</h4>' +
-                      '<p class="plex-overview-text"></p>' +
-                    '</div>' +
+                    '<div class="cur-overview-details"></div>' +
                     '<div class="plex-section plex-section--tracks plex-hidden">' +
                       '<h4>Tracks</h4>' +
                       '<div class="cur-overview-track-list"></div>' +
@@ -93,14 +117,15 @@
     backdrop.addEventListener('click', function(event) {
       var actionBtn = event.target.closest('[data-cur-overview-action-kind]');
       if (!actionBtn || actionBtn.disabled) return;
-      var handler = window.curatorrOverviewHandleAction;
-      if (typeof handler !== 'function') return;
       var payload = {};
       try {
         payload = JSON.parse(actionBtn.dataset.curOverviewActionPayload || '{}');
       } catch (_err) {
         payload = {};
       }
+      if (handleBuiltInAction(actionBtn.dataset.curOverviewActionKind || '', payload, actionBtn)) return;
+      var handler = window.curatorrOverviewHandleAction;
+      if (typeof handler !== 'function') return;
       handler(actionBtn.dataset.curOverviewActionKind || '', payload, actionBtn, modalState.lastTrigger);
     });
     modalState.backdrop = backdrop;
@@ -150,6 +175,32 @@
         '<span class="plex-pill2-stat-label">' + escHtml(stat.label) + '</span>' +
         '<strong class="plex-pill2-stat-value">' + escHtml(stat.value) + '</strong>' +
       '</span>';
+    }).join('');
+  }
+
+  function renderDetailSections(container, sections) {
+    var items = Array.isArray(sections) ? sections.filter(Boolean) : [];
+    if (!items.length) {
+      container.innerHTML = '';
+      return;
+    }
+    container.innerHTML = items.map(function(section) {
+      var rows = Array.isArray(section.rows) ? section.rows.filter(function(row) {
+        return row && row.label && typeof row.value !== 'undefined' && row.value !== null && row.value !== '';
+      }) : [];
+      var text = String(section.text || '').trim();
+      return '<div class="plex-section">' +
+        (section.title ? '<h4>' + escHtml(section.title) + '</h4>' : '') +
+        (text ? '<p class="cur-overview-detail-text">' + escHtml(text) + '</p>' : '') +
+        (rows.length
+          ? '<div class="cur-overview-detail-grid">' + rows.map(function(row) {
+            return '<div class="cur-overview-detail-row">' +
+              '<span class="cur-overview-detail-label">' + escHtml(row.label) + '</span>' +
+              '<span class="cur-overview-detail-value">' + escHtml(row.value) + '</span>' +
+            '</div>';
+          }).join('') + '</div>'
+          : '') +
+      '</div>';
     }).join('');
   }
 
@@ -226,7 +277,7 @@
     var pills = modal.querySelector('.plex-pills');
     var statsPills = modal.querySelector('.plex-pills--stats');
     var actions = modal.querySelector('.plex-modal-actions');
-    var overview = modal.querySelector('.plex-overview-text');
+    var detailSections = modal.querySelector('.cur-overview-details');
     var scroll = modal.querySelector('.plex-modal-meta-scroll');
     var trackList = modal.querySelector('.cur-overview-track-list');
     var trackHeading = modal.querySelector('.plex-section--tracks h4');
@@ -239,7 +290,7 @@
     title.textContent = item.title || 'Untitled';
     subtitle.textContent = item.subtitle || '';
     renderPills(kindPills, item.pills);
-    overview.textContent = item.overview || 'No overview available for this item yet.';
+    renderDetailSections(detailSections, item.detailSections);
     renderStats(statsPills, item.stats);
     if (trackHeading) trackHeading.textContent = item.trackSectionTitle || 'Tracks';
     renderTrackList(trackList, item.trackList);

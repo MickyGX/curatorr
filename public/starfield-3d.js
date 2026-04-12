@@ -52,7 +52,7 @@
   let noteCount = 0;
   let rafId = 0;
   let lastTs = 0;
-  let lastSettingsTs = 0;
+  let pageVisible = !document.hidden;
 
   const state = {
     motionEnabled: true,
@@ -158,17 +158,41 @@
     state.speedFactor = speedToFactor(speedSec);
     state.size = size;
     state.color = pickColor();
+    syncRendering();
+  }
+
+  function stopRendering(clearCanvas = true) {
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+    lastTs = 0;
+    if (clearCanvas) ctx.clearRect(0, 0, width, height);
+  }
+
+  function shouldRender() {
+    return state.motionEnabled && pageVisible;
+  }
+
+  function syncRendering() {
+    if (!shouldRender()) {
+      stopRendering(true);
+      return;
+    }
+    if (!rafId) {
+      rafId = window.requestAnimationFrame(drawFrame);
+    }
   }
 
   function drawFrame(ts) {
-    rafId = window.requestAnimationFrame(drawFrame);
+    rafId = 0;
+    if (!shouldRender()) {
+      stopRendering(true);
+      return;
+    }
+
     const dt = clamp(((ts - lastTs) || 16) / 1000, 0.001, 0.05);
     lastTs = ts;
-
-    if ((ts - lastSettingsTs) > 220) {
-      readSettings(false);
-      lastSettingsTs = ts;
-    }
 
     ctx.clearRect(0, 0, width, height);
 
@@ -213,6 +237,8 @@
       ctx.fillText(note.glyph, 0, 0);
       ctx.restore();
     }
+
+    rafId = window.requestAnimationFrame(drawFrame);
   }
 
   function handleResize() {
@@ -226,8 +252,13 @@
 
   mutationObserver.observe(root, {
     attributes: true,
-    attributeFilter: ['data-bg-motion', 'data-maximized', 'style', 'data-brand-theme'],
+    attributeFilter: ['data-bg-motion', 'data-maximized', 'style', 'data-brand-theme', 'data-theme'],
   });
+
+  function handleVisibilityChange() {
+    pageVisible = !document.hidden;
+    syncRendering();
+  }
 
   if (prefersReducedMotion) {
     prefersReducedMotion.addEventListener('change', () => readSettings(false));
@@ -242,11 +273,13 @@
 
   window.addEventListener('resize', handleResize, { passive: true });
   window.addEventListener('orientationchange', handleResize, { passive: true });
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener('pagehide', () => {
-    if (rafId) window.cancelAnimationFrame(rafId);
+    stopRendering(false);
     mutationObserver.disconnect();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, { once: true });
 
   handleResize();
-  drawFrame(performance.now());
+  syncRendering();
 })();

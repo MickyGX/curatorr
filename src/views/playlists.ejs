@@ -301,10 +301,6 @@
                       <span>Find a Spotify playlist</span>
                       <input id="importSpotifySearch" class="cur-input" type="search" placeholder="Filter Spotify playlists…" oninput="renderImportSpotifySources()" />
                     </label>
-                    <div class="import-pl-owner-toggle" role="tablist" aria-label="Spotify ownership filter">
-                      <button type="button" class="import-pl-owner-btn is-active" id="importSpotifyMineBtn" onclick="setImportSpotifyOwnerFilter('mine')">Mine</button>
-                      <button type="button" class="import-pl-owner-btn" id="importSpotifyAllBtn" onclick="setImportSpotifyOwnerFilter('all')">All</button>
-                    </div>
                     <div id="importSpotifyStatus" class="cur-panel-meta import-pl-status">Loading Spotify playlists…</div>
                     <div id="importSpotifyList" class="import-pl-list" aria-live="polite"></div>
                     <div id="importSpotifyEmpty" class="cur-empty" style="display:none">No Spotify playlists match that search.</div>
@@ -396,9 +392,6 @@
     .import-pl-panel { margin-top:8px; }
     .import-pl-field { display:flex; flex-direction:column; gap:6px; margin:14px 0 0; }
     .import-pl-field span { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted,#94a3b8); }
-    .import-pl-owner-toggle { display:flex; gap:8px; margin-top:12px; }
-    .import-pl-owner-btn { appearance:none; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:var(--muted,#a0aec0); border-radius:999px; padding:7px 12px; cursor:pointer; font-size:12px; font-weight:600; }
-    .import-pl-owner-btn.is-active { border-color:rgba(74,222,128,.72); color:#f8fafc; background:rgba(74,222,128,.12); }
     .import-pl-status { min-height:18px; margin:12px 0 0; }
     .import-pl-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-top:14px; max-height:360px; overflow:auto; }
     .import-pl-option { display:flex; flex-direction:column; gap:6px; width:100%; text-align:left; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.03); color:var(--text,#e5e7eb); cursor:pointer; transition:border-color .16s ease, background .16s ease, transform .16s ease; }
@@ -431,8 +424,6 @@
     .imported-missing-toggle { width:16px; height:16px; accent-color:var(--brand,#8b5cf6); }
     .imported-missing-group-toggle { margin-top:1px; }
     [data-theme="day"] .import-pl-field span { color:#6b7a8d; }
-    [data-theme="day"] .import-pl-owner-btn { border-color:rgba(10,20,30,.12); background:rgba(255,255,255,.88); color:#5e6d80; }
-    [data-theme="day"] .import-pl-owner-btn.is-active { border-color:rgba(34,197,94,.55); background:rgba(34,197,94,.08); color:#1f2d3d; }
     [data-theme="day"] .import-pl-tab { border-color:rgba(10,20,30,.12); background:rgba(255,255,255,.88); color:#5e6d80; }
     [data-theme="day"] .import-pl-tab.is-active { border-color:rgba(34,197,94,.55); background:rgba(34,197,94,.08); color:#1f2d3d; }
     [data-theme="day"] .import-pl-option { background:rgba(255,255,255,.88); border-color:rgba(10,20,30,.12); color:#223043; }
@@ -856,7 +847,6 @@
     var _importSpotifySources = [];
     var _importSpotifySelection = null;
     var _importSpotifyPreview = null;
-    var _importSpotifyOwnerFilter = 'mine';
     var _importSourceTab = IMPORT_HAS_PLEX ? 'plex' : 'spotify';
     var _playlistCardFilterState = {
       type: 'all',
@@ -1680,9 +1670,10 @@
       var submitBtn = document.getElementById('importPlexSubmitBtn');
       if (!submitBtn) return;
       if (_importSourceTab === 'spotify') {
-        var canImportSpotify = Boolean(_importSpotifySelection && _importSpotifyPreview && Number(_importSpotifyPreview.matchedCount || 0) > 0);
+        var canImportSpotify = Boolean(_importSpotifySelection && _importSpotifyPreview && _importSpotifyPreview.partial !== true && Number(_importSpotifyPreview.matchedCount || 0) > 0);
         if (!_importSpotifySelection) submitBtn.textContent = 'Select a playlist';
         else if (!_importSpotifyPreview) submitBtn.textContent = 'Checking matches…';
+        else if (_importSpotifyPreview.partial === true) submitBtn.textContent = 'Preview only';
         else if (!Number(_importSpotifyPreview.totalSourceTracks || 0) && Number(_importSpotifySelection.trackCount || 0) > 0) submitBtn.textContent = 'Preview unavailable';
         else if (!Number(_importSpotifyPreview.totalSourceTracks || 0)) submitBtn.textContent = 'Playlist is empty';
         else if (!Number(_importSpotifyPreview.matchedCount || 0)) submitBtn.textContent = 'No matched tracks';
@@ -1694,6 +1685,32 @@
       }
     }
 
+    function upsertImportSpotifySource(item) {
+      if (!item || !item.id) return null;
+      var nextItem = {
+        id: String(item.id || '').trim(),
+        name: String(item.name || '').trim(),
+        description: String(item.description || '').trim(),
+        ownerId: String(item.ownerId || '').trim(),
+        ownerName: String(item.ownerName || '').trim(),
+        public: item.public === true,
+        collaborative: item.collaborative === true,
+        trackCount: Number(item.trackCount || 0),
+        snapshotId: String(item.snapshotId || '').trim(),
+        imageUrl: String(item.imageUrl || '').trim(),
+        externalUrl: String(item.externalUrl || '').trim(),
+      };
+      var existingIndex = _importSpotifySources.findIndex(function(entry) {
+        return String(entry && entry.id || '') === nextItem.id;
+      });
+      if (existingIndex === -1) _importSpotifySources.push(nextItem);
+      else _importSpotifySources[existingIndex] = nextItem;
+      _importSpotifySources.sort(function(a, b) {
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+      return nextItem;
+    }
+
     function resetImportedTitleField() {
       var titleInput = document.getElementById('importPlexTitle');
       if (!titleInput) return;
@@ -1702,15 +1719,6 @@
       } else if (_importSourceTab === 'plex' && _importPlexSelection && !_importPlexTitleTouched) {
         titleInput.value = _importPlexSelection.title || '';
       }
-    }
-
-    function setImportSpotifyOwnerFilter(mode) {
-      _importSpotifyOwnerFilter = mode === 'all' ? 'all' : 'mine';
-      var mineBtn = document.getElementById('importSpotifyMineBtn');
-      var allBtn = document.getElementById('importSpotifyAllBtn');
-      if (mineBtn) mineBtn.classList.toggle('is-active', _importSpotifyOwnerFilter === 'mine');
-      if (allBtn) allBtn.classList.toggle('is-active', _importSpotifyOwnerFilter === 'all');
-      renderImportSpotifySources();
     }
 
     function ensureModalAtRoot(modalId) {
@@ -1747,7 +1755,6 @@
       _importSpotifySources = [];
       _importSpotifySelection = null;
       _importSpotifyPreview = null;
-      _importSpotifyOwnerFilter = 'mine';
       _importPlexTitleTouched = false;
       var titleInput = document.getElementById('importPlexTitle');
       var searchInput = document.getElementById('importPlexSearch');
@@ -1766,7 +1773,6 @@
       if (document.getElementById('importPlexEmpty')) document.getElementById('importPlexEmpty').style.display = 'none';
       if (document.getElementById('importSpotifyEmpty')) document.getElementById('importSpotifyEmpty').style.display = 'none';
       if (document.getElementById('importSpotifyPreview')) document.getElementById('importSpotifyPreview').style.display = 'none';
-      setImportSpotifyOwnerFilter('mine');
       setImportSourceTab(IMPORT_HAS_PLEX ? 'plex' : 'spotify');
       if (IMPORT_HAS_PLEX) loadImportPlexSources();
       if (SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED) loadImportSpotifySources();
@@ -1869,7 +1875,6 @@
       var emptyEl = document.getElementById('importSpotifyEmpty');
       var search = String(document.getElementById('importSpotifySearch').value || '').trim().toLowerCase();
       var visibleItems = _importSpotifySources.filter(function(item) {
-        if (_importSpotifyOwnerFilter === 'mine' && SPOTIFY_USER_ID && String(item.ownerId || '').trim() !== SPOTIFY_USER_ID) return false;
         if (!search) return true;
         return String(item.name || '').toLowerCase().indexOf(search) !== -1
           || String(item.ownerName || '').toLowerCase().indexOf(search) !== -1;
@@ -1878,9 +1883,8 @@
       emptyEl.style.display = visibleItems.length ? 'none' : '';
       if (!visibleItems.length) {
         if (statusEl) {
-          if (!_importSpotifySources.length) statusEl.textContent = 'No Spotify playlists found.';
-          else if (_importSpotifyOwnerFilter === 'mine') statusEl.textContent = 'No Spotify playlists owned by you match that search.';
-          else statusEl.textContent = 'No matching Spotify playlists.';
+          if (!_importSpotifySources.length) statusEl.textContent = 'No Spotify playlists owned by you were found.';
+          else statusEl.textContent = 'No Spotify playlists you own match that search.';
         }
         return;
       }
@@ -2030,12 +2034,14 @@
             statsEl.textContent = Number(data.totalSourceTracks || 0).toLocaleString() + ' source tracks • '
               + Number(data.matchedCount || 0).toLocaleString() + ' matched • '
               + Number(data.unmatchedCount || 0).toLocaleString() + ' unmatched'
-              + (Number(data.duplicateCount || 0) ? (' • ' + Number(data.duplicateCount || 0).toLocaleString() + ' duplicates skipped') : '');
+              + (Number(data.duplicateCount || 0) ? (' • ' + Number(data.duplicateCount || 0).toLocaleString() + ' duplicates skipped') : '')
+              + (data.warning ? (' • shared URL preview limited') : '');
           }
           renderImportSpotifyPreviewDetails(data);
           if (previewEl) previewEl.style.display = '';
           if (statusEl) {
-            if (!Number(data.totalSourceTracks || 0) && Number(item.trackCount || 0) > 0) {
+            if (data.warning) statusEl.textContent = data.warning;
+            else if (!Number(data.totalSourceTracks || 0) && Number(item.trackCount || 0) > 0) {
               statusEl.textContent = 'Spotify did not expose track details for this playlist.';
             } else if (!Number(data.totalSourceTracks || 0)) statusEl.textContent = 'This Spotify playlist is empty.';
             else if (!Number(data.matchedCount || 0)) statusEl.textContent = 'No tracks from this Spotify playlist matched your local library.';
