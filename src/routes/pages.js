@@ -33,6 +33,7 @@ import {
   getSkipTierArtists,
   getAllUserIds,
   getDistinctPathSegments,
+  classifyTier,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
@@ -73,7 +74,7 @@ function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField
 function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map(), sourceType = '') {
   const type = String(playlistType || '').trim().toLowerCase();
   const source = String(sourceType || '').trim().toLowerCase();
-  if (source === 'spotify-playlist' || source.startsWith('plex-')) return 'imported';
+  if (['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist'].includes(source) || source.startsWith('plex-')) return 'imported';
   if (type === 'global') return 'global';
   if (['lastfm-station', 'listenbrainz-playlist'].includes(type)) return 'external';
   if (['legacy', 'curatorred', 'curatorr', 'curative', 'crescive', 'daily-mix'].includes(type)) return 'system';
@@ -1372,6 +1373,7 @@ export function registerPages(app, ctx) {
     lidarrService,
     fetchPlexPlaylistsForToken,
     spotifyService,
+    youtubeService,
     fetchPlexUser,
     fetchPlexHomeUsers,
     parsePlexUsers,
@@ -1765,6 +1767,7 @@ export function registerPages(app, ctx) {
         sourceType: String(playlist.sourceType || ''),
         sourceTitle: String(playlist.sourceTitle || ''),
         sourceOwner: String(playlist.sourceOwner || ''),
+        importedSyncPeriod: String(playlist.importedSyncPeriod || 'disabled'),
         trackCount: Number(playlist.trackCount || 0),
         missingCount: Number(playlist.missingCount || 0),
         curatorrUpdatedAt: Number(playlist.lastBuiltAt || playlist.lastSyncedAt || playlist.updatedAt || playlist.createdAt || 0),
@@ -1846,9 +1849,12 @@ export function registerPages(app, ctx) {
       allPathSegments: (() => { try { return getDistinctPathSegments(db); } catch { return []; } })(),
       playlistFeatureCoverage: (() => { try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
+      lastfmUsername: String(userPrefs?.lastfmUsername || ''),
+      listenbrainzUsername: String(userPrefs?.listenbrainzUsername || ''),
       spotifyUserId: String(userPrefs?.spotifyUserId || ''),
       spotifyConnected: Boolean(userPrefs?.spotifyRefreshToken || userPrefs?.spotifyAccessToken),
       spotifyConfigured: Boolean(spotifyService?.isConfigured?.()),
+      youtubeConfigured: Boolean(youtubeService?.isConfigured?.()),
       spotifyDisplayName: String(userPrefs?.spotifyDisplayName || ''),
       lidarrAutomationEligible,
       lidarrConfigured,
@@ -2028,16 +2034,17 @@ function deriveTrackTier(track) {
   return null; // never played — show nothing
 }
 
-function deriveHistoryTier(event, config = {}) {
+export function deriveHistoryTier(event, config = {}) {
   if (!event || typeof event !== 'object') return buildTierBadge('decent');
-  if (event.is_skip) return buildTierBadge('skip');
   const listenedMs = Number(event.duration_ms || 0);
   const trackDurationMs = Number(event.track_duration_ms || 0);
-  const completionThresholdMs = (Number(config?.smartPlaylist?.completionThresholdSeconds) || 30) * 1000;
+  const smartSettings = config?.smartPlaylist || {};
+  const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 30) * 1000;
   if (trackDurationMs > 0) {
-    if (listenedMs >= Math.max(0, trackDurationMs - completionThresholdMs)) return buildTierBadge('belter');
-    if (listenedMs >= trackDurationMs * 0.5) return buildTierBadge('decent');
-    return buildTierBadge('half-decent');
+    return buildTierBadge(classifyTier(listenedMs, trackDurationMs, smartSettings));
+  }
+  if (listenedMs > 0 && listenedMs < skipThresholdMs) {
+    return buildTierBadge('skip');
   }
   return deriveTrackTier({
     excluded: Boolean(event.current_excluded),
@@ -2139,6 +2146,26 @@ function deriveLidarrStateLabel(suggestion, progress, liveCommand = null, liveAl
   if (suggestionStatus === 'quota_blocked' || albumWarning?.type === 'album_quota') {
     return { key: 'quota_blocked', label: 'Quota blocked', tone: 'warn', detail: albumWarning?.message || 'Weekly quota reached.' };
   }
+  if (currentStage === 'catalog_complete') {
+    return { key: 'catalog_complete', label: 'Catalog complete', tone: 'neutral', detail: 'No further album unlocks pending.' };
+  }
+  if (currentStage === 'catalog_expanded') {
+    return { key: 'catalog_expanded', label: 'Next album added', tone: 'curatorr', detail: albumLabel };
+  }
+  if (currentStage === 'awaiting_belter') {
+    return {
+      key: 'awaiting_belter',
+      label: 'Awaiting belter',
+      tone: 'neutral',
+      detail: albumLabel ? `${albumLabel} · starter album downloaded` : 'Starter album downloaded · waiting for a stronger listening signal.',
+    };
+  }
+  if (currentStage === 'starter_album_added') {
+    return { key: 'starter_album_added', label: 'Starter album added', tone: 'belter', detail: albumLabel };
+  }
+  if (currentStage === 'starter_album_linked') {
+    return { key: 'starter_album_linked', label: 'Starter album linked', tone: 'neutral', detail: albumLabel };
+  }
   if (liveTrackFileCount > 0 || currentStage === 'album_acquired') {
     return { key: 'downloaded', label: 'Downloaded', tone: 'belter', detail: albumLabel };
   }
@@ -2183,21 +2210,6 @@ function deriveLidarrStateLabel(suggestion, progress, liveCommand = null, liveAl
   }
   if (currentStage === 'manual_search_failed') {
     return { key: 'manual_search_failed', label: 'Manual fallback failed', tone: 'warn', detail: albumLabel || 'Release lookup or grab failed.' };
-  }
-  if (currentStage === 'starter_album_added') {
-    return { key: 'starter_album_added', label: 'Starter album added', tone: 'belter', detail: albumLabel };
-  }
-  if (currentStage === 'starter_album_linked') {
-    return { key: 'starter_album_linked', label: 'Starter album linked', tone: 'neutral', detail: albumLabel };
-  }
-  if (currentStage === 'catalog_expanded') {
-    return { key: 'catalog_expanded', label: 'Next album added', tone: 'curatorr', detail: albumLabel };
-  }
-  if (currentStage === 'awaiting_belter') {
-    return { key: 'awaiting_belter', label: 'Awaiting belter', tone: 'neutral', detail: 'Waiting for a stronger listening signal.' };
-  }
-  if (currentStage === 'catalog_complete') {
-    return { key: 'catalog_complete', label: 'Catalog complete', tone: 'neutral', detail: 'No further album unlocks pending.' };
   }
   if (currentStage === 'added' || String(suggestion?.status || '').trim().toLowerCase() === 'added_to_lidarr') {
     return { key: 'artist_added', label: 'Artist added', tone: 'curatorr', detail: albumLabel };
@@ -2302,7 +2314,7 @@ async function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedA
     };
   });
 
-  const actionableSuggestions = enrichedSuggestions.filter((artist) => !artist.isInLidarr);
+  const actionableSuggestions = enrichedSuggestions.filter((artist) => artist.lidarrStatusKey !== 'already_in_lidarr');
   const activityMap = new Map();
 
   enrichedSuggestions.forEach((artist) => {

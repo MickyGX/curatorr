@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.70 (2026-04-13)
+
+- Added broader import and refresh workflows for external playlists: the Playlists page can now import YouTube playlist URLs, Last.fm generated playlists, and ListenBrainz generated playlists, while imported playlists now support configurable automatic refresh periods.
+- Reworked the Playlists and User Profile flow so Spotify, Last.fm, and ListenBrainz playlist imports live in one place, imported playlists behave more like first-class editable Curatorr playlists, and profile pages keep only the account-level settings that still matter.
+- Clarified discovery and overview behavior across the app with a cleaner Discover artist/request split, non-working queue drag controls removed, stronger overview popup rendering and fallback handling, and more reliable dashboard activity popups for admin sessions and non-library artist rows.
+
 ## v0.1.69 (2026-04-12)
 
 - Fixed the animated Music Notes background so disabling it now stops the render loop entirely, tab visibility pauses the effect correctly, and Curatorr no longer burns CPU repainting hidden or disabled canvas frames across the app.

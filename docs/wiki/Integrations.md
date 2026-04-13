@@ -175,6 +175,30 @@ URL, for example:
 These credentials identify the Curatorr app, not a single Spotify account. Each Curatorr
 user still connects their own Spotify account separately through OAuth.
 
+## YouTube
+
+YouTube playlist URL import is optional and server-level.
+
+Current support is for:
+
+- previewing public YouTube playlists from the Playlists page URL import tab
+- importing matched tracks from public YouTube playlists into Curatorr as managed custom playlists
+- refreshing imported YouTube playlists against the current library
+
+YouTube requires a container-level API key:
+
+- `YOUTUBE_API_KEY`
+
+### YouTube API setup
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create or select a project.
+3. Enable `YouTube Data API v3`.
+4. Create an API key credential.
+5. Put that key into `YOUTUBE_API_KEY` on the Curatorr container.
+
+Unlike Spotify, YouTube playlist URL import does not require each Curatorr user to connect a personal YouTube account. It works against public playlist metadata exposed by the YouTube Data API.
+
 ## ListenBrainz
 
 ListenBrainz is optional and user-specific.

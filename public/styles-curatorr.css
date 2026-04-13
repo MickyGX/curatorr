@@ -6203,7 +6203,7 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-discover-ledger-head--queue,
 .cur-discover-ledger-row--queue {
-  grid-template-columns: 40px minmax(160px, 1.1fr) minmax(220px, 1.4fr) 110px 110px 72px;
+  grid-template-columns: minmax(160px, 1.1fr) minmax(220px, 1.4fr) 110px 110px 72px;
 }
 
 .cur-discover-ledger-head--queue > :last-child,
@@ -6252,10 +6252,6 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-discover-ledger-row:last-child {
   border-bottom: none;
-}
-
-.cur-discover-ledger-row.is-dragging {
-  opacity: .55;
 }
 
 .cur-discover-ledger-cell {
@@ -6415,16 +6411,6 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
   cursor: not-allowed;
 }
 
-.cur-discover-drag {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border, rgba(255,255,255,.08));
-  border-radius: 10px;
-  background: rgba(255,255,255,.03);
-  color: var(--text-muted, rgba(255,255,255,.55));
-  cursor: grab;
-}
-
 [data-theme="day"] .cur-discover-ledger-head {
   border-bottom-color: rgba(0,0,0,.08);
   color: rgba(11,21,30,.45);
@@ -6445,24 +6431,6 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 [data-theme="day"] .cur-discover-ledger-thumb {
   background: rgba(0,0,0,.03);
   border-color: rgba(0,0,0,.12);
-}
-
-[data-theme="day"] .cur-discover-drag {
-  background: rgba(0,0,0,.03);
-  border-color: rgba(0,0,0,.08);
-  color: rgba(11,21,30,.45);
-}
-
-@media (hover: none), (pointer: coarse) {
-  .cur-discover-ledger-head--queue,
-  .cur-discover-ledger-row--queue {
-    grid-template-columns: minmax(160px, 1.1fr) minmax(220px, 1.4fr) 110px 110px 72px;
-  }
-
-  .cur-discover-ledger-head--queue > :first-child,
-  .cur-discover-ledger-row--queue > :first-child {
-    display: none;
-  }
 }
 
 [data-theme="day"] .cur-discover-retry-btn {

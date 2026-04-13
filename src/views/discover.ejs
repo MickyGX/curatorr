@@ -290,7 +290,7 @@
         <% if (_suggestedArtists.length || _lidarrAutomationEligible) { %>
         <div class="cur-panel">
           <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Suggested Artists <span class="cur-count"><%= _suggestedArtists.length %></span></h3>
+            <h3 class="cur-panel-title">Artist Pipeline <span class="cur-count"><%= _suggestedArtists.length %></span></h3>
             <div class="cur-panel-actions">
               <% if (_lidarrAutomationEligible && _lidarrQuota) { %>
                 <span class="cur-status-chip" title="Artists this week"><img src="/icons/user-profile.svg" alt="Artists" style="width:12px;height:12px;opacity:.7;vertical-align:middle;margin-right:3px" /><strong><%= fmtQuota(_lidarrQuota.weeklyArtists) %></strong></span>
@@ -302,13 +302,15 @@
             <details class="cur-score-explainer">
               <summary>What is this table?</summary>
               <div class="cur-score-explainer-body">
-                <p>Artists Curatorr has identified as a strong match based on your listening habits, waiting to be added to your library.</p>
+                <p>One row per artist in Curatorr&apos;s discovery pipeline. This is the artist-level view of where each recommendation currently sits.</p>
                 <ul>
                   <li><strong>Score</strong> — how well this artist fits your taste profile. Higher is a stronger match.</li>
-                  <li><strong>Search Queued</strong> — Curatorr has approved this artist and queued them for download.</li>
-                  <li><strong>Awaiting Belter</strong> — Curatorr is waiting for a stronger listening signal (a Belter-tier play) before unlocking this artist.</li>
-                  <li>Click <strong>Add to library</strong> to skip the queue and add an artist to your library immediately.</li>
-                  <li>Artists are added automatically based on your weekly quota. Once approved they move into the Queue below.</li>
+                  <li><strong>Suggested</strong> — Curatorr recommends the artist, but no Lidarr action has started yet.</li>
+                  <li><strong>Queued</strong> / <strong>Search running</strong> — Curatorr has handed the artist off for acquisition.</li>
+                  <li><strong>Downloaded</strong> — a starter release has been acquired, but no later progression stage has taken over yet.</li>
+                  <li><strong>Awaiting Belter</strong> — the starter release is already in your library and Curatorr is waiting for a stronger listening signal before expanding the artist further.</li>
+                  <li>This table is artist-level. The <strong>Request Queue</strong> below is request-level and only shows unresolved Lidarr work.</li>
+                  <li>Click <strong>Add to library</strong> to skip the queue and add a suggested artist immediately.</li>
                 </ul>
               </div>
             </details>
@@ -343,7 +345,7 @@
                 <% }) %>
               </ul>
             <% } else { %>
-              <div class="cur-empty">No actionable artist suggestions right now. Curatorr checks this list automatically and moves existing Lidarr artists into the Queue below.</div>
+              <div class="cur-empty">No artist pipeline rows right now.</div>
             <% } %>
             <div class="cur-panel-foot">
               <span id="artistSuggestionStatus" class="cur-panel-meta"></span>
@@ -355,13 +357,13 @@
         <div class="cur-discover-ledger-stack">
           <div class="cur-panel">
             <div class="cur-panel-header">
-              <h3 class="cur-panel-title">Queue <span id="discoverQueueCount" class="cur-count"><%= _queuedRequests.length %></span></h3>
+              <h3 class="cur-panel-title">Request Queue <span id="discoverQueueCount" class="cur-count"><%= _queuedRequests.length %></span></h3>
             </div>
             <div class="cur-panel-body">
               <details class="cur-score-explainer">
                 <summary>What is this table?</summary>
                 <div class="cur-score-explainer-body">
-                  <p>Requests that are not fully available in your library yet. This includes queued items, requests currently processing, requests already handed off to Lidarr, and failed requests that still need attention.</p>
+                  <p>Request-level work that is still unresolved. Unlike the artist pipeline above, this table tracks individual Lidarr requests and handoffs.</p>
                   <ul>
                     <li><strong>Queued</strong> and <strong>processing</strong> rows are still under Curatorr&apos;s control.</li>
                     <li><strong>Monitored in Lidarr</strong> means Curatorr confirmed Lidarr is monitoring the album, but the album is not in your library yet. <strong>Not monitored in Lidarr</strong> means Curatorr tried to repair a stale handoff and Lidarr still did not confirm monitoring.</li>
@@ -376,7 +378,6 @@
               </details>
               <div class="cur-discover-ledger-table cur-discover-ledger-table--queue">
                 <div class="cur-discover-ledger-head cur-discover-ledger-head--queue" aria-hidden="true">
-                  <span></span>
                   <span>Artist</span>
                   <span>Album Choice</span>
                   <span>Source</span>
@@ -387,9 +388,8 @@
                 <div id="discoverQueueList" class="<%= _queuedRequests.length ? 'cur-discover-ledger cur-discover-ledger--queue' : 'cur-empty' %>">
                   <% if (_queuedRequests.length) { %>
                     <% _queuedRequests.forEach(function(item) { %>
-                      <% const _queueAlbumTitle = displayAlbumTitle(item); const _queueForeignArtistId = String(item?.foreignArtistId || item?.detail?.foreignArtistId || '').trim(); const _queueLidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0; const _queueCanReorder = item.status === 'queued'; %>
-                      <div class="cur-discover-ledger-row cur-discover-ledger-row--queue" draggable="<%= _queueCanReorder ? 'true' : 'false' %>" data-request-id="<%= item.id %>">
-                        <button class="cur-discover-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder"<%= _queueCanReorder ? '' : ' disabled style="visibility:hidden"' %>>&#x2630;</button>
+                      <% const _queueAlbumTitle = displayAlbumTitle(item); const _queueForeignArtistId = String(item?.foreignArtistId || item?.detail?.foreignArtistId || '').trim(); const _queueLidarrAlbumId = Number(item?.lidarrAlbumId || 0) || 0; %>
+                      <div class="cur-discover-ledger-row cur-discover-ledger-row--queue" data-request-id="<%= item.id %>">
                         <span class="cur-discover-ledger-media">
                           <span class="cur-discover-ledger-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= item.artistName %>">
                             <img src="<%= artistThumb(item) %>" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />
@@ -565,7 +565,6 @@
 
     var currentArtistSelection = null;
     var currentRequestAction = null;
-    var queueDragItem = null;
     var discoverQueueItems = <%- JSON.stringify(_queuedRequests) %>;
     var discoverHistoryItems = <%- JSON.stringify(_requestHistory) %>;
 
@@ -784,12 +783,9 @@
         var curatorrChosen = isCuratorrChosenRequest(item);
         var albumLabel = getRequestAlbumLabel(item);
         var albumOverviewAttrs = getRequestAlbumOverviewAttrs(item);
-        var rawStatus = String(item?.status || '').trim().toLowerCase();
-        var canReorder = rawStatus === 'queued';
         var actionHtml = renderQueueRequestActionMenu(item);
         return '' +
-          '<div class="cur-discover-ledger-row cur-discover-ledger-row--queue" draggable="' + (canReorder ? 'true' : 'false') + '" data-request-id="' + Number(item.id || 0) + '">' +
-            '<button class="cur-discover-drag" type="button" title="Drag to reorder" aria-label="Drag to reorder"' + (canReorder ? '' : ' disabled style="visibility:hidden"') + '>&#x2630;</button>' +
+          '<div class="cur-discover-ledger-row cur-discover-ledger-row--queue" data-request-id="' + Number(item.id || 0) + '">' +
             '<span class="cur-discover-ledger-media">' +
               '<span class="cur-discover-ledger-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escHtml(item.artistName || '') + '"><img src="' + escHtml(artistThumb) + '" data-fallback-src="" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" /></span>' +
               '<span class="cur-discover-ledger-cell cur-discover-ledger-cell--artist cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="' + escHtml(item.artistName || '') + '">' + escHtml(item.artistName || '') + '</span>' +
@@ -805,7 +801,6 @@
             actionHtml +
           '</div>';
       }).join('');
-      bindQueueDrag();
     }
 
     function renderHistoryList() {
@@ -1733,52 +1728,6 @@
       });
     }
 
-    function bindQueueDrag() {
-      var queue = document.getElementById('discoverQueueList');
-      if (!queue || queue.classList.contains('cur-empty')) return;
-      Array.from(queue.querySelectorAll('.cur-discover-ledger-row--queue')).forEach(function(item) {
-        item.addEventListener('dragstart', function(event) {
-          queueDragItem = item;
-          item.classList.add('is-dragging');
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-        });
-        item.addEventListener('dragend', function() {
-          item.classList.remove('is-dragging');
-          queueDragItem = null;
-          persistQueueOrder();
-        });
-        item.addEventListener('dragover', function(event) {
-          event.preventDefault();
-          if (!queueDragItem || queueDragItem === item) return;
-          var rect = item.getBoundingClientRect();
-          var insertBefore = event.clientY < rect.top + (rect.height / 2);
-          item.parentNode.insertBefore(queueDragItem, insertBefore ? item : item.nextSibling);
-        });
-      });
-    }
-
-    async function persistQueueOrder() {
-      var queue = document.getElementById('discoverQueueList');
-      if (!queue || !queue.querySelector('.cur-discover-ledger-row--queue')) return;
-      var ids = Array.from(queue.querySelectorAll('.cur-discover-ledger-row--queue')).map(function(item) {
-        return Number(item.getAttribute('data-request-id') || 0);
-      }).filter(Boolean);
-      if (!ids.length) return;
-      setStatus('discoverQueueStatus', 'Saving queue order…');
-      try {
-        var res = await fetch('/api/music/lidarr/requests/reorder', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
-          body: JSON.stringify({ requestIds: ids })
-        });
-        var data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to save queue order.');
-        setStatus('discoverQueueStatus', 'Queue order updated.');
-      } catch (err) {
-        setStatus('discoverQueueStatus', err.message || 'Failed to save queue order.');
-      }
-    }
-
     var searchBtn = document.getElementById('manualArtistSearchBtn');
     if (searchBtn) searchBtn.addEventListener('click', runArtistSearch);
     var artistPrevBtn = document.getElementById('discoverArtistPrev');
@@ -1805,8 +1754,6 @@
       closeAllManualAlbumMenus();
       closeDiscoverRequestMenus();
     });
-    bindQueueDrag();
-
     // ── Discovery carousels ────────────────────────────────────────────────
     var DISCOVERY_CONFIG = <%- JSON.stringify(_disc) %>;
     var DISCOVERY_STATE = Object.create(null);

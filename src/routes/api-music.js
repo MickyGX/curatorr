@@ -68,6 +68,7 @@ import {
   saveRuleTemplate,
   updateRuleTemplate,
   deleteRuleTemplate,
+  classifyTier,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
@@ -88,6 +89,41 @@ const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
+const LASTFM_STATION_LABELS = {
+  recommended: 'Recommended',
+  mix: 'Mix',
+  library: 'Library',
+  neighbours: 'Neighbours',
+  loved: 'Loved',
+};
+const TOP_TRACKS_PERIOD_LABELS = {
+  overall: 'All Time',
+  '7day': 'Last 7 Days',
+  '1month': 'Last Month',
+  '3month': 'Last 3 Months',
+  '6month': 'Last 6 Months',
+  '12month': 'Last Year',
+};
+const LISTENBRAINZ_PLAYLIST_LABELS = {
+  'daily-jams': 'Daily Jams',
+  'weekly-jams': 'Weekly Jams',
+  'weekly-exploration': 'Weekly Exploration',
+};
+const IMPORTED_SYNC_PERIOD_LABELS = {
+  disabled: 'Disabled',
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+};
+const IMPORTED_SYNC_PERIOD_MS = {
+  disabled: 0,
+  daily: DAY_MS,
+  weekly: 7 * DAY_MS,
+  monthly: 30 * DAY_MS,
+};
+const LASTFM_IMPORT_SOURCE_KEYS = ['recommended', 'mix', 'library', 'neighbours', 'loved'];
+const LASTFM_TOP_TRACKS_PERIODS = ['overall', '7day', '1month', '3month', '6month', '12month'];
+const LISTENBRAINZ_IMPORT_SOURCE_KEYS = ['daily-jams', 'weekly-jams', 'weekly-exploration'];
 // Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
 const msUserIdCache = new Map();
 const MS_USERID_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -228,7 +264,7 @@ function sanitizeImportedSourceInput(value) {
   if (!value || typeof value !== 'object') return null;
   const sourceType = String(value.sourceType || '').trim().toLowerCase();
   const playlistKey = String(value.playlistKey || '').trim();
-  if (!playlistKey || !['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(sourceType)) return null;
+  if (!playlistKey || !['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(sourceType)) return null;
   return {
     playlistKey,
     sourceType,
@@ -542,14 +578,15 @@ function deriveTrackTier(track) {
 
 function deriveHistoryTier(event, config = {}) {
   if (!event || typeof event !== 'object') return buildTierBadge('decent');
-  if (event.is_skip) return buildTierBadge('skip');
   const listenedMs = Number(event.duration_ms || 0);
   const trackDurationMs = Number(event.track_duration_ms || 0);
-  const completionThresholdMs = (Number(config?.smartPlaylist?.completionThresholdSeconds) || 30) * 1000;
+  const smartSettings = config?.smartPlaylist || {};
+  const skipThresholdMs = (Number(smartSettings.skipThresholdSeconds) || 30) * 1000;
   if (trackDurationMs > 0) {
-    if (listenedMs >= Math.max(0, trackDurationMs - completionThresholdMs)) return buildTierBadge('belter');
-    if (listenedMs >= trackDurationMs * 0.5) return buildTierBadge('decent');
-    return buildTierBadge('half-decent');
+    return buildTierBadge(classifyTier(listenedMs, trackDurationMs, smartSettings));
+  }
+  if (listenedMs > 0 && listenedMs < skipThresholdMs) {
+    return buildTierBadge('skip');
   }
   return deriveTrackTier({
     excluded: Boolean(event.current_excluded),
@@ -1169,6 +1206,7 @@ export function registerApiMusic(app, ctx) {
     recommendationService,
     playlistService,
     spotifyService,
+    youtubeService,
     lidarrService,
     canUserAccessLidarrAutomation,
     getPreviewUserId,
@@ -1184,7 +1222,7 @@ export function registerApiMusic(app, ctx) {
     if (previewUserId) return previewUserId;
     const user = req.session?.user || {};
     const role = String(user.role || '').trim().toLowerCase();
-    if (role === 'admin') return String(req.query?.user || '').trim();
+    if (role === 'admin') return String(req.query?.user || user.username || '').trim();
     return String(user.username || '').trim();
   }
 
@@ -1310,6 +1348,343 @@ export function registerApiMusic(app, ctx) {
       }));
   }
 
+  function buildGenericImportMatchResult(items = [], trackLookups) {
+    const trackRefs = [];
+    const unmatched = [];
+    const duplicateMatches = [];
+    const seenRatingKeys = new Set();
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      const result = pickSpotifyTrackMatch(trackLookups, item);
+      const ratingKey = String(result?.match?.ratingKey || '').trim();
+      if (ratingKey && !seenRatingKeys.has(ratingKey)) {
+        seenRatingKeys.add(ratingKey);
+        trackRefs.push({
+          ratingKey,
+          artistName: String(result.match.artistName || '').trim(),
+        });
+        return;
+      }
+      const row = {
+        sourceTrackId: String(item?.id || '').trim(),
+        position: Number(item?.position || 0),
+        title: String(item?.title || '').trim(),
+        artistName: String((Array.isArray(item?.artists) && item.artists[0]?.name) || '').trim(),
+        artists: (Array.isArray(item?.artists) ? item.artists : []).map((artist) => ({ name: String(artist?.name || artist || '').trim() })).filter((artist) => artist.name),
+        albumTitle: String(item?.album?.title || '').trim(),
+        albumType: String(item?.album?.albumType || '').trim(),
+        albumImageUrl: String(item?.album?.imageUrl || '').trim(),
+        durationMs: Number(item?.durationMs || 0),
+      };
+      if (ratingKey) {
+        duplicateMatches.push(row);
+      } else {
+        unmatched.push({
+          ...row,
+          artists: row.artists.map((artist) => artist.name),
+        });
+      }
+    });
+    return { trackRefs, unmatched, duplicateMatches };
+  }
+
+  function buildGenericImportPreview(items = [], resolveMatch) {
+    const matched = [];
+    const unmatched = [];
+    const duplicateMatches = [];
+    const seenRatingKeys = new Set();
+    (Array.isArray(items) ? items : []).forEach((item, index) => {
+      const result = typeof resolveMatch === 'function' ? resolveMatch(item, index) : { method: 'unmatched', match: null };
+      const ratingKey = String(result?.match?.ratingKey || '').trim();
+      const summary = {
+        position: Number(item?.position || 0),
+        ratingKey,
+        artistName: String(result?.match?.artistName || '').trim(),
+        trackTitle: String(result?.match?.trackTitle || item?.title || '').trim(),
+        albumName: String(result?.match?.albumName || '').trim(),
+        spotifyTitle: String(item?.title || '').trim(),
+        spotifyArtists: (Array.isArray(item?.artists) ? item.artists : []).map((artist) => String(artist?.name || artist || '').trim()).filter(Boolean),
+        durationMs: Number(item?.durationMs || 0),
+        matchMethod: String(result?.method || '').trim(),
+      };
+      if (ratingKey) {
+        if (seenRatingKeys.has(ratingKey)) duplicateMatches.push(summary);
+        else {
+          seenRatingKeys.add(ratingKey);
+          matched.push(summary);
+        }
+        return;
+      }
+      unmatched.push({
+        sourceTrackId: String(item?.id || '').trim(),
+        position: Number(item?.position || 0),
+        title: String(item?.title || '').trim(),
+        artistName: String((Array.isArray(item?.artists) && item.artists[0]?.name) || '').trim(),
+        artists: (Array.isArray(item?.artists) ? item.artists : []).map((artist) => String(artist?.name || artist || '').trim()).filter(Boolean),
+        albumTitle: String(item?.album?.title || '').trim(),
+        albumType: String(item?.album?.albumType || '').trim(),
+        albumImageUrl: String(item?.album?.imageUrl || '').trim(),
+        durationMs: Number(item?.durationMs || 0),
+      });
+    });
+    return {
+      matched,
+      unmatched,
+      duplicateMatches,
+      unmatchedArtists: buildSpotifyUnmatchedArtistGroups(unmatched, {
+        groupLimit: 100,
+        sampleLimit: 3,
+      }),
+    };
+  }
+
+  function normalizeLastfmImportSourceKey(value) {
+    const raw = String(value || '').trim();
+    if (LASTFM_IMPORT_SOURCE_KEYS.includes(raw)) return raw;
+    if (raw.startsWith('topTracks:')) {
+      const period = raw.slice('topTracks:'.length);
+      if (LASTFM_TOP_TRACKS_PERIODS.includes(period)) return `topTracks:${period}`;
+    }
+    throw Object.assign(new Error('Unsupported Last.fm source.'), { status: 400 });
+  }
+
+  function buildLastfmSourceTitle(sourceKey) {
+    if (String(sourceKey || '').startsWith('topTracks:')) {
+      const period = String(sourceKey || '').slice('topTracks:'.length);
+      return `Last.fm Top Tracks (${TOP_TRACKS_PERIOD_LABELS[period] || period})`;
+    }
+    return `Last.fm ${LASTFM_STATION_LABELS[sourceKey] || sourceKey}`;
+  }
+
+  async function fetchJson(url, options = {}) {
+    const response = await fetch(String(url || ''), options);
+    if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
+    return response.json();
+  }
+
+  async function fetchLastfmImportSource(userPlexId, rawSourceKey) {
+    const sourceKey = normalizeLastfmImportSourceKey(rawSourceKey);
+    const prefs = getUserPreferences(db, userPlexId);
+    const lastfmUsername = String(prefs?.lastfmUsername || '').trim();
+    if (!lastfmUsername) throw Object.assign(new Error('Last.fm username is not configured.'), { status: 400 });
+    const apiKey = String(loadConfig()?.discovery?.lastfmApiKey || '').trim();
+    let items = [];
+    if (sourceKey === 'loved' || sourceKey.startsWith('topTracks:')) {
+      if (!apiKey) throw Object.assign(new Error('Last.fm API key is not configured.'), { status: 400 });
+      const url = new URL('https://ws.audioscrobbler.com/2.0/');
+      url.searchParams.set('method', sourceKey === 'loved' ? 'user.getLovedTracks' : 'user.getTopTracks');
+      url.searchParams.set('user', lastfmUsername);
+      url.searchParams.set('api_key', apiKey);
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('limit', '500');
+      if (sourceKey.startsWith('topTracks:')) {
+        url.searchParams.set('period', sourceKey.slice('topTracks:'.length));
+      }
+      const data = await fetchJson(url.toString());
+      const rawTracks = sourceKey === 'loved'
+        ? (Array.isArray(data?.lovedtracks?.track) ? data.lovedtracks.track : [])
+        : (Array.isArray(data?.toptracks?.track) ? data.toptracks.track : []);
+      items = rawTracks.map((track, index) => ({
+        id: String(track?.mbid || `${sourceKey}-${index}`),
+        position: index + 1,
+        title: String(track?.name || '').trim(),
+        artists: [{ name: String(track?.artist?.name || track?.artist || '').trim() }],
+        album: { title: '' },
+        durationMs: Number(track?.duration || 0) > 0 ? Number(track.duration) * 1000 : 0,
+      })).filter((track) => track.title);
+    } else {
+      const data = await fetchJson(`https://www.last.fm/player/station/user/${encodeURIComponent(lastfmUsername)}/${encodeURIComponent(sourceKey)}`);
+      const rawTracks = Array.isArray(data?.playlist) ? data.playlist : [];
+      items = rawTracks.map((track, index) => ({
+        id: String(track?.identifier || `${sourceKey}-${index}`),
+        position: index + 1,
+        title: String(track?._name || '').trim(),
+        artists: [{ name: String(track?.artists?.[0]?._name || '').trim() }],
+        album: { title: String(track?.album?._name || '').trim() },
+        durationMs: Number(track?.duration || 0) > 0 ? Number(track.duration) * 1000 : 0,
+      })).filter((track) => track.title);
+    }
+    const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+    const matchResult = buildGenericImportMatchResult(items, trackLookups);
+    return {
+      sourceKey,
+      sourceType: 'lastfm-station',
+      sourceTitle: buildLastfmSourceTitle(sourceKey),
+      sourceOwner: lastfmUsername,
+      items,
+      matchResult,
+    };
+  }
+
+  function normalizeListenbrainzImportSourceKey(value) {
+    const raw = String(value || '').trim();
+    if (!LISTENBRAINZ_IMPORT_SOURCE_KEYS.includes(raw)) {
+      throw Object.assign(new Error('Unsupported ListenBrainz playlist source.'), { status: 400 });
+    }
+    return raw;
+  }
+
+  function buildListenbrainzHeaders(token = '') {
+    const headers = { Accept: 'application/json' };
+    if (token) headers.Authorization = `Token ${token}`;
+    return headers;
+  }
+
+  function extractMusicbrainzUuid(value) {
+    const match = String(value || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return match ? match[0].toLowerCase() : '';
+  }
+
+  function extractListenbrainzPlaylistUuid(playlistEntry) {
+    const identifier = Array.isArray(playlistEntry?.playlist?.identifier)
+      ? playlistEntry.playlist.identifier[0]
+      : playlistEntry?.playlist?.identifier;
+    return extractMusicbrainzUuid(identifier);
+  }
+
+  function getListenbrainzSourcePatch(playlistEntry) {
+    return String(
+      playlistEntry?.playlist?.extension?.['https://musicbrainz.org/doc/jspf#playlist']?.additional_metadata?.algorithm_metadata?.source_patch
+      || '',
+    ).trim();
+  }
+
+  function getListenbrainzTrackArtist(track) {
+    const artists = track?.extension?.['https://musicbrainz.org/doc/jspf#track']?.additional_metadata?.artists;
+    const firstArtist = Array.isArray(artists) ? artists[0] : null;
+    return String(
+      firstArtist?.artist_credit_name
+      || firstArtist?.artist_name
+      || track?.creator
+      || '',
+    ).trim();
+  }
+
+  function getListenbrainzRecordingMbid(track) {
+    const identifiers = Array.isArray(track?.identifier) ? track.identifier : [track?.identifier];
+    for (const identifier of identifiers) {
+      const mbid = extractMusicbrainzUuid(identifier);
+      if (mbid) return mbid;
+    }
+    return '';
+  }
+
+  function buildListenbrainzTrackLookups(masterTracks) {
+    const byText = buildSpotifyTrackLookups(masterTracks);
+    const byRecordingMbid = new Map();
+    for (const track of Array.isArray(masterTracks) ? masterTracks : []) {
+      const recordingMbid = String(track?.recordingMbid || '').trim().toLowerCase();
+      const ratingKey = String(track?.ratingKey || '').trim();
+      if (!recordingMbid || !ratingKey || !byRecordingMbid.has(recordingMbid)) {
+        if (recordingMbid && ratingKey) byRecordingMbid.set(recordingMbid, {
+          ratingKey,
+          artistName: String(track?.artistName || '').trim(),
+          trackTitle: String(track?.trackTitle || '').trim(),
+          albumName: String(track?.albumName || '').trim(),
+        });
+      }
+    }
+    return { byText, byRecordingMbid };
+  }
+
+  function buildListenbrainzImportMatchResult(tracks = [], trackLookups) {
+    const trackRefs = [];
+    const unmatched = [];
+    const seenRatingKeys = new Set();
+    (Array.isArray(tracks) ? tracks : []).forEach((track, index) => {
+      const recordingMbid = getListenbrainzRecordingMbid(track);
+      const mbidMatch = recordingMbid ? trackLookups.byRecordingMbid.get(recordingMbid) : null;
+      const item = {
+        id: String(track?.identifier?.[0] || track?.identifier || `${index}`),
+        position: index + 1,
+        title: String(track?.title || '').trim(),
+        artists: [{ name: getListenbrainzTrackArtist(track) }],
+        album: { title: String(track?.album || '').trim() },
+        durationMs: Number(track?.duration || 0) > 0 ? Number(track.duration) : 0,
+      };
+      const ratingKey = String(mbidMatch?.ratingKey || '').trim();
+      if (ratingKey && !seenRatingKeys.has(ratingKey)) {
+        seenRatingKeys.add(ratingKey);
+        trackRefs.push({ ratingKey, artistName: String(mbidMatch?.artistName || '').trim() });
+        return;
+      }
+      if (ratingKey) return;
+      const textResult = pickSpotifyTrackMatch(trackLookups.byText, item);
+      const textRatingKey = String(textResult?.match?.ratingKey || '').trim();
+      if (textRatingKey && !seenRatingKeys.has(textRatingKey)) {
+        seenRatingKeys.add(textRatingKey);
+        trackRefs.push({
+          ratingKey: textRatingKey,
+          artistName: String(textResult.match.artistName || '').trim(),
+        });
+        return;
+      }
+      if (textRatingKey) return;
+      unmatched.push({
+        sourceTrackId: item.id,
+        position: item.position,
+        title: item.title,
+        artistName: item.artists[0]?.name || '',
+        artists: item.artists.map((artist) => artist.name).filter(Boolean),
+        albumTitle: item.album.title,
+        albumType: '',
+        albumImageUrl: '',
+        durationMs: item.durationMs,
+      });
+    });
+    return { trackRefs, unmatched };
+  }
+
+  function pickListenbrainzTrackMatch(trackLookups, track, index = 0) {
+    const recordingMbid = getListenbrainzRecordingMbid(track);
+    const mbidMatch = recordingMbid ? trackLookups.byRecordingMbid.get(recordingMbid) : null;
+    if (mbidMatch?.ratingKey) {
+      return {
+        method: 'recordingMbid',
+        match: mbidMatch,
+      };
+    }
+    const item = {
+      id: String(track?.identifier?.[0] || track?.identifier || `${index}`),
+      position: index + 1,
+      title: String(track?.title || '').trim(),
+      artists: [{ name: getListenbrainzTrackArtist(track) }],
+      album: { title: String(track?.album || '').trim() },
+      durationMs: Number(track?.duration || 0) > 0 ? Number(track.duration) : 0,
+    };
+    return pickSpotifyTrackMatch(trackLookups.byText, item);
+  }
+
+  async function fetchListenbrainzImportSource(userPlexId, rawSourceKey) {
+    const sourceKey = normalizeListenbrainzImportSourceKey(rawSourceKey);
+    const prefs = getUserPreferences(db, userPlexId);
+    const listenbrainzUsername = String(prefs?.listenbrainzUsername || '').trim();
+    if (!listenbrainzUsername) throw Object.assign(new Error('ListenBrainz username is not configured.'), { status: 400 });
+    const listenbrainzToken = String(prefs?.listenbrainzToken || '').trim();
+    const createdForJson = await fetchJson(
+      `https://api.listenbrainz.org/1/user/${encodeURIComponent(listenbrainzUsername)}/playlists/createdfor`,
+      { headers: buildListenbrainzHeaders(listenbrainzToken) },
+    );
+    const playlistEntry = (Array.isArray(createdForJson?.playlists) ? createdForJson.playlists : [])
+      .find((entry) => getListenbrainzSourcePatch(entry) === sourceKey);
+    const playlistUuid = extractListenbrainzPlaylistUuid(playlistEntry);
+    if (!playlistUuid) throw Object.assign(new Error('That ListenBrainz playlist is not currently available.'), { status: 404 });
+    const payload = await fetchJson(
+      `https://api.listenbrainz.org/1/playlist/${encodeURIComponent(playlistUuid)}`,
+      { headers: buildListenbrainzHeaders(listenbrainzToken) },
+    );
+    const tracks = Array.isArray(payload?.playlist?.track) ? payload.playlist.track : [];
+    const trackLookups = buildListenbrainzTrackLookups(getMasterTracks(db));
+    const matchResult = buildListenbrainzImportMatchResult(tracks, trackLookups);
+    return {
+      sourceKey,
+      sourceType: 'listenbrainz-playlist',
+      sourceTitle: String(playlistEntry?.playlist?.title || `ListenBrainz ${LISTENBRAINZ_PLAYLIST_LABELS[sourceKey] || sourceKey}`).trim(),
+      sourceOwner: listenbrainzUsername,
+      items: tracks,
+      matchResult,
+    };
+  }
+
   async function getSpotifyAuthForUser(userPlexId) {
     if (!spotifyService?.isConfigured?.()) {
       const err = new Error('Spotify integration is not configured.');
@@ -1345,6 +1720,66 @@ export function registerApiMusic(app, ctx) {
     return status === 403 || status === 404;
   }
 
+  function normalizeYouTubeImportTitle(value) {
+    return String(value || '')
+      .replace(/\b(official music video|official video|official audio|official lyric video|official lyrics video|lyrics video|lyric video|visualizer|audio|video|hd|4k)\b/ig, ' ')
+      .replace(/["'`]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function parseYouTubeTrackCandidates(item) {
+    const rawTitle = normalizeYouTubeImportTitle(item?.title || '');
+    const channelTitle = String((Array.isArray(item?.artists) && item.artists[0]?.name) || '').trim();
+    const titleCandidates = new Set();
+    const artistCandidates = new Set();
+    if (channelTitle) artistCandidates.add(channelTitle);
+    if (rawTitle) titleCandidates.add(rawTitle);
+    const separators = [' - ', ' – ', ' — ', ' | ', ': '];
+    separators.forEach((separator) => {
+      const index = rawTitle.indexOf(separator);
+      if (index <= 0) return;
+      const left = rawTitle.slice(0, index).trim();
+      const right = rawTitle.slice(index + separator.length).trim();
+      if (left && right) {
+        artistCandidates.add(left);
+        titleCandidates.add(right);
+      }
+    });
+    return {
+      titleCandidates: Array.from(titleCandidates).map((value) => normalizeImportMatchText(value)).filter(Boolean),
+      artistCandidates: Array.from(artistCandidates).map((value) => normalizeImportMatchText(value)).filter(Boolean),
+    };
+  }
+
+  function pickYouTubeTrackMatch(trackLookups, item) {
+    const parsed = parseYouTubeTrackCandidates(item);
+    const seenCandidates = new Set();
+    const candidates = [];
+    parsed.artistCandidates.forEach((artistKey) => {
+      parsed.titleCandidates.forEach((titleKey) => {
+        const key = `${artistKey}::${titleKey}`;
+        if (seenCandidates.has(key)) return;
+        seenCandidates.add(key);
+        (trackLookups.byArtistTitle.get(key) || []).forEach((entry) => candidates.push({ entry, method: 'artistTitle', score: 220 }));
+      });
+    });
+    parsed.titleCandidates.forEach((titleKey) => {
+      (trackLookups.byTitle.get(titleKey) || []).forEach((entry) => candidates.push({
+        entry,
+        method: 'title',
+        score: parsed.artistCandidates.length && parsed.artistCandidates.some((artistKey) => normalizeImportMatchText(entry.artistName) === artistKey) ? 180 : 120,
+      }));
+    });
+    if (!candidates.length) return { method: 'unmatched', match: null, candidates: [] };
+    candidates.sort((a, b) => b.score - a.score);
+    return {
+      method: candidates[0].method,
+      match: candidates[0].entry,
+      candidates: candidates.map((candidate) => candidate.entry),
+    };
+  }
+
   async function fetchSpotifyPlaylistImportSource(accessToken, playlistId) {
     try {
       const [playlistMeta, playlistItems] = await Promise.all([
@@ -1359,6 +1794,27 @@ export function registerApiMusic(app, ctx) {
         source: 'api',
       };
     } catch (err) {
+      if (
+        isSpotifySharedPlaylistFallbackError(err)
+        && typeof spotifyService?.getClientCredentialsToken === 'function'
+      ) {
+        try {
+          const clientToken = await spotifyService.getClientCredentialsToken();
+          const [playlistMeta, playlistItems] = await Promise.all([
+            spotifyService.getPlaylist(clientToken, playlistId),
+            spotifyService.getPlaylistItems(clientToken, playlistId, { limit: 100 }),
+          ]);
+          return {
+            playlistMeta,
+            playlistItems,
+            warning: '',
+            partial: false,
+            source: 'api',
+          };
+        } catch (clientErr) {
+          if (!isSpotifySharedPlaylistFallbackError(clientErr)) throw clientErr;
+        }
+      }
       if (!isSpotifySharedPlaylistFallbackError(err) || typeof spotifyService?.getPlaylistFromPublicPage !== 'function') throw err;
       const fallback = await spotifyService.getPlaylistFromPublicPage(playlistId);
       return {
@@ -1385,6 +1841,79 @@ export function registerApiMusic(app, ctx) {
     return parsed.id;
   }
 
+  async function fetchYouTubePlaylistImportSource(playlistId) {
+    if (!youtubeService?.isConfigured?.()) {
+      const err = new Error('YouTube integration is not configured.');
+      err.status = 400;
+      throw err;
+    }
+    const [playlistMeta, playlistItems] = await Promise.all([
+      youtubeService.getPlaylist(playlistId),
+      youtubeService.getPlaylistItems(playlistId, { limit: 250 }),
+    ]);
+    return {
+      playlistMeta,
+      playlistItems,
+      warning: '',
+      partial: false,
+      source: 'api',
+      playlistTrackCount: Number(playlistMeta?.trackCount || playlistItems?.total || 0),
+    };
+  }
+
+  function resolveYouTubePlaylistId(value) {
+    const parsed = youtubeService?.parsePlaylistReference?.(value) || null;
+    if (!parsed?.id) {
+      const err = new Error('Enter a valid YouTube playlist URL or playlist id.');
+      err.status = 400;
+      throw err;
+    }
+    return parsed.id;
+  }
+
+  function buildYouTubeImportMatchResult(items = [], trackLookups) {
+    const trackRefs = [];
+    const unmatched = [];
+    const duplicateMatches = [];
+    const seenRatingKeys = new Set();
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      const result = pickYouTubeTrackMatch(trackLookups, item);
+      const ratingKey = String(result?.match?.ratingKey || '').trim();
+      if (ratingKey && !seenRatingKeys.has(ratingKey)) {
+        seenRatingKeys.add(ratingKey);
+        trackRefs.push({
+          ratingKey,
+          artistName: String(result.match.artistName || '').trim(),
+        });
+        return;
+      }
+      if (ratingKey) {
+        duplicateMatches.push({
+          sourceTrackId: String(item?.id || '').trim(),
+          position: Number(item?.position || 0),
+          title: String(item?.title || '').trim(),
+          artistName: String((Array.isArray(item?.artists) && item.artists[0]?.name) || '').trim(),
+          artists: (Array.isArray(item?.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+          albumTitle: '',
+          durationMs: Number(item?.durationMs || 0),
+        });
+        return;
+      }
+      unmatched.push({
+        sourceTrackId: String(item?.id || '').trim(),
+        position: Number(item?.position || 0),
+        title: String(item?.title || '').trim(),
+        artistName: String((Array.isArray(item?.artists) && item.artists[0]?.name) || '').trim(),
+        artists: (Array.isArray(item?.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+        albumTitle: '',
+        albumType: '',
+        albumImageUrl: String(item?.album?.imageUrl || '').trim(),
+        durationMs: Number(item?.durationMs || 0),
+      });
+    });
+    return { trackRefs, unmatched, duplicateMatches };
+  }
+
   function makeImportedCustomPlaylistKey() {
     return 'custom-import-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
@@ -1393,6 +1922,33 @@ export function registerApiMusic(app, ctx) {
     const title = String(value || '').trim();
     if (title) return title.slice(0, 120);
     return String(fallback || 'Imported Playlist').trim().slice(0, 120) || 'Imported Playlist';
+  }
+
+  function findExistingImportedCustomPlaylist(userPlexId, sourceType, sourceRef) {
+    const normalizedType = String(sourceType || '').trim().toLowerCase();
+    const normalizedRef = String(sourceRef || '').trim();
+    if (!normalizedType || !normalizedRef) return null;
+    return listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false }).find((entry) => (
+      String(entry?.playlistType || '').trim().toLowerCase() === 'custom'
+      && String(entry?.sourceType || '').trim().toLowerCase() === normalizedType
+      && String(entry?.sourceRef || '').trim() === normalizedRef
+    )) || null;
+  }
+
+  function normalizeImportedSyncPeriod(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(IMPORTED_SYNC_PERIOD_MS, normalized)
+      ? normalized
+      : 'disabled';
+  }
+
+  function isImportedCustomSourceType(sourceType) {
+    return ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist']
+      .includes(String(sourceType || '').trim().toLowerCase());
+  }
+
+  function getImportedPlaylistRefreshIntervalMs(period) {
+    return Number(IMPORTED_SYNC_PERIOD_MS[normalizeImportedSyncPeriod(period)] || 0);
   }
 
   async function fetchPlexMusicLibrariesForUser(userPlexId, tokenOverride = '') {
@@ -1547,6 +2103,39 @@ export function registerApiMusic(app, ctx) {
   }
 
   async function createImportedCustomPlaylist(userPlexId, playlistTitle, trackRefs, sourceMeta = {}) {
+    const sourceType = String(sourceMeta?.sourceType || '').trim();
+    const sourceRef = String(sourceMeta?.sourceRef || '').trim();
+    const existing = findExistingImportedCustomPlaylist(userPlexId, sourceType, sourceRef);
+    if (existing) {
+      const now = Date.now();
+      const unmatchedTracks = Array.isArray(sourceMeta?.unmatchedTracks) ? sourceMeta.unmatchedTracks : [];
+      saveUserGeneratedPlaylist(db, userPlexId, {
+        ...existing,
+        playlistTitle,
+        sourceType,
+        sourceRef,
+        sourceTitle: String(sourceMeta?.sourceTitle || playlistTitle).trim(),
+        sourceOwner: String(sourceMeta?.sourceOwner || '').trim(),
+        importedSyncPeriod: existing.importedSyncPeriod || 'disabled',
+        trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
+        missingCount: unmatchedTracks.length,
+        lastBuiltAt: now,
+        updatedAt: now,
+      });
+      setPlaylistTracks(db, userPlexId, existing.playlistKey, Array.isArray(trackRefs) ? trackRefs : []);
+      setImportedPlaylistUnmatched(db, userPlexId, existing.playlistKey, unmatchedTracks);
+      const updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+        .find((entry) => String(entry?.playlistKey || '') === String(existing.playlistKey || ''));
+      if (!updated) return null;
+      const synced = updated.active === false ? updated : await playlistService?.syncCustomPlaylist(userPlexId, updated);
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'import.playlist.refresh',
+        message: `Refreshed imported ${sourceType || 'source'} "${sourceMeta?.sourceTitle || playlistTitle}" for ${userPlexId}`,
+      });
+      return synced || updated;
+    }
     const playlistKey = makeImportedCustomPlaylistKey();
     const now = Date.now();
     const unmatchedTracks = Array.isArray(sourceMeta?.unmatchedTracks) ? sourceMeta.unmatchedTracks : [];
@@ -1555,10 +2144,11 @@ export function registerApiMusic(app, ctx) {
       playlistTitle,
       playlistType: 'custom',
       plexPlaylistId: '',
-      sourceType: String(sourceMeta?.sourceType || '').trim(),
-      sourceRef: String(sourceMeta?.sourceRef || '').trim(),
+      sourceType,
+      sourceRef,
       sourceTitle: String(sourceMeta?.sourceTitle || playlistTitle).trim(),
       sourceOwner: String(sourceMeta?.sourceOwner || '').trim(),
+      importedSyncPeriod: 'disabled',
       active: false,
       trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
       missingCount: unmatchedTracks.length,
@@ -1670,6 +2260,31 @@ export function registerApiMusic(app, ctx) {
       const matchResult = mapSpotifyPlaylistItems(playlistItems.items || []);
       trackRefs = matchResult.trackRefs;
       unmatched = matchResult.unmatched;
+    } else if (sourceType === 'youtube-playlist') {
+      if (!youtubeService?.isConfigured?.()) throw new Error('YouTube integration is not configured.');
+      if (!sourceRef) throw new Error('Original YouTube playlist could not be resolved.');
+      const [playlistMeta, playlistItems] = await Promise.all([
+        youtubeService.getPlaylist(sourceRef),
+        youtubeService.getPlaylistItems(sourceRef, { limit: 250 }),
+      ]);
+      sourceTitle = String(playlistMeta?.name || sourceTitle || playlist.playlistTitle || '').trim();
+      sourceOwner = String(playlistMeta?.ownerName || sourceOwner || '').trim();
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const matchResult = buildYouTubeImportMatchResult(playlistItems.items || [], trackLookups);
+      trackRefs = matchResult.trackRefs;
+      unmatched = matchResult.unmatched;
+    } else if (sourceType === 'lastfm-station') {
+      const source = await fetchLastfmImportSource(userPlexId, sourceRef);
+      sourceTitle = String(source?.sourceTitle || sourceTitle || playlist.playlistTitle || '').trim();
+      sourceOwner = String(source?.sourceOwner || sourceOwner || '').trim();
+      trackRefs = source?.matchResult?.trackRefs || [];
+      unmatched = source?.matchResult?.unmatched || [];
+    } else if (sourceType === 'listenbrainz-playlist') {
+      const source = await fetchListenbrainzImportSource(userPlexId, sourceRef);
+      sourceTitle = String(source?.sourceTitle || sourceTitle || playlist.playlistTitle || '').trim();
+      sourceOwner = String(source?.sourceOwner || sourceOwner || '').trim();
+      trackRefs = source?.matchResult?.trackRefs || [];
+      unmatched = source?.matchResult?.unmatched || [];
     } else {
       throw new Error('This imported playlist source cannot be refreshed.');
     }
@@ -1679,6 +2294,7 @@ export function registerApiMusic(app, ctx) {
       sourceRef,
       sourceTitle,
       sourceOwner,
+      importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
       trackCount: trackRefs.length,
       missingCount: unmatched.length,
       lastBuiltAt: now,
@@ -1692,6 +2308,39 @@ export function registerApiMusic(app, ctx) {
     if (updated.active === false) return updated;
     return playlistService?.syncCustomPlaylist(userPlexId, updated);
   }
+
+  async function refreshScheduledImportedPlaylistsForUser(userPlexId, options = {}) {
+    const now = Number(options?.now || Date.now());
+    const playlists = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .filter((playlist) => String(playlist?.playlistType || '').trim().toLowerCase() === 'custom')
+      .filter((playlist) => isImportedCustomSourceType(playlist?.sourceType))
+      .filter((playlist) => playlist?.active !== false)
+      .filter((playlist) => normalizeImportedSyncPeriod(playlist?.importedSyncPeriod) !== 'disabled');
+    let refreshed = 0;
+    let skipped = 0;
+    for (const playlist of playlists) {
+      const intervalMs = getImportedPlaylistRefreshIntervalMs(playlist.importedSyncPeriod);
+      const baseline = Number(playlist?.lastBuiltAt || playlist?.lastSyncedAt || playlist?.updatedAt || playlist?.createdAt || 0);
+      if (!intervalMs || (baseline > 0 && (now - baseline) < intervalMs)) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        await refreshImportedCustomPlaylist(userPlexId, playlist);
+        refreshed += 1;
+      } catch (err) {
+        pushLog({
+          level: 'warn',
+          app: 'playlist',
+          action: 'import.refresh.error',
+          message: `Scheduled import refresh failed for ${playlist.playlistTitle || playlist.playlistKey} (${userPlexId}): ${safeMessage(err)}`,
+        });
+      }
+    }
+    return { refreshed, skipped };
+  }
+
+  ctx.refreshScheduledImportedPlaylistsForUser = refreshScheduledImportedPlaylistsForUser;
 
   function isLookupArtistAlreadyAdded(item) {
     const addedValue = String(item?.added || '').trim();
@@ -1815,6 +2464,22 @@ export function registerApiMusic(app, ctx) {
   function buildOverviewText(summary, fallback) {
     const text = String(summary || '').trim();
     return text || String(fallback || '').trim() || 'No overview available for this item yet.';
+  }
+
+  function buildArtistActivityOverview(status = '', progressStage = '') {
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    const normalizedStage = String(progressStage || '').trim().toLowerCase();
+    if (normalizedStage === 'awaiting_belter') return 'Starter release acquired. Curatorr is waiting for a stronger listening signal before expanding this artist further.';
+    if (normalizedStage === 'catalog_expanded') return 'Curatorr has already expanded this artist beyond the starter release.';
+    if (normalizedStage === 'catalog_complete') return 'Curatorr has completed the planned artist expansion.';
+    if (normalizedStage === 'starter_album_added' || normalizedStage === 'album_acquired') return 'Starter release acquired and now available in your library.';
+    if (normalizedStage === 'queued_for_lidarr' || normalizedStatus === 'queued_for_lidarr') return 'Queued for Lidarr processing.';
+    if (normalizedStage === 'queued') return 'Curatorr is currently handing this artist off to Lidarr.';
+    if (normalizedStage === 'manual_grab_queued') return 'A manual fallback release grab has been queued for this artist.';
+    if (normalizedStage === 'search_retry_queued') return 'Curatorr has queued another search attempt for this artist.';
+    if (normalizedStatus === 'added_to_lidarr' || normalizedStage === 'added') return 'Artist added to Lidarr and awaiting the next progression step.';
+    if (normalizedStatus === 'already_in_lidarr') return 'This artist is already in Lidarr.';
+    return 'Curatorr is tracking this artist as part of your discovery pipeline.';
   }
 
   // ── Dashboard stats ───────────────────────────────────────────────────────
@@ -2636,9 +3301,11 @@ export function registerApiMusic(app, ctx) {
       ORDER BY album_name ASC, track_title ASC
       LIMIT 1
     `).get(artistName);
-    if (!sampleTrack?.rating_key) return res.status(404).json({ error: 'Artist not found.' });
+    const suggestion = userPlexId ? getSuggestedArtist(db, userPlexId, artistName) : null;
+    const progress = userPlexId ? getLidarrArtistProgress(db, userPlexId, artistName) : null;
+    if (!sampleTrack?.rating_key && !suggestion && !progress) return res.status(404).json({ error: 'Artist not found.' });
     try {
-      const sampleMeta = await fetchPlexMetadata(base, token, sampleTrack.rating_key);
+      const sampleMeta = sampleTrack?.rating_key ? await fetchPlexMetadata(base, token, sampleTrack.rating_key) : null;
       const artistMeta = sampleMeta?.grandparentRatingKey
         ? await fetchPlexMetadata(base, token, sampleMeta.grandparentRatingKey)
         : null;
@@ -2663,6 +3330,8 @@ export function registerApiMusic(app, ctx) {
         FROM master_tracks
         WHERE artist_name = ?
       `).get(artistName) || {};
+      const suggestionScore = Number(suggestion?.total_score || 0);
+      const statusLabel = String(progress?.currentStage || suggestion?.status || '').trim();
       const tier = deriveArtistTier({
         excluded: stats.excluded_from_smart,
         rankingScore: stats.ranking_score,
@@ -2673,15 +3342,21 @@ export function registerApiMusic(app, ctx) {
           kind: 'artist',
           title: artistName,
           subtitle: `${Number(libraryStats.album_count || 0)} album${Number(libraryStats.album_count || 0) === 1 ? '' : 's'} · ${Number(libraryStats.track_count || 0)} track${Number(libraryStats.track_count || 0) === 1 ? '' : 's'}`,
-          overview: buildOverviewText(artistMeta?.summary, `${artistName} currently has ${Number(stats.play_count || 0)} plays and ${Number(stats.skip_count || 0)} skips in Curatorr.`),
+          overview: buildOverviewText(
+            artistMeta?.summary,
+            sampleTrack?.rating_key
+              ? `${artistName} currently has ${Number(stats.play_count || 0)} plays and ${Number(stats.skip_count || 0)} skips in Curatorr.`
+              : buildArtistActivityOverview(suggestion?.status, progress?.currentStage),
+          ),
           thumb: `/api/music/thumb/artist/${encodeURIComponent(artistName)}`,
           art: `/api/music/thumb/artist/${encodeURIComponent(artistName)}`,
-          pills: ['Artist', formatTierLabel(tier)],
+          pills: ['Artist', formatTierLabel(tier), statusLabel ? statusLabel.replace(/_/g, ' ') : ''].filter(Boolean),
           stats: [
             { label: 'Plays', value: Number(stats.play_count || 0) },
             { label: 'Skips', value: Number(stats.skip_count || 0) },
             { label: 'Ranking', value: `${Number(Number(stats.ranking_score || 5).toFixed(1))}/10` },
             { label: 'Albums', value: Number(libraryStats.album_count || 0) },
+            ...(suggestionScore > 0 ? [{ label: 'Score', value: Number(suggestionScore.toFixed(1)) }] : []),
           ],
         },
       });
@@ -3671,7 +4346,7 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Only imported custom playlists can be refreshed.' });
     }
     const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    if (!['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(sourceType)) {
+    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(sourceType)) {
       return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
     }
 
@@ -3707,7 +4382,7 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Only imported custom playlists can be converted.' });
     }
     const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    if (!['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(sourceType)) {
+    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(sourceType)) {
       return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
     }
 
@@ -3786,6 +4461,41 @@ export function registerApiMusic(app, ctx) {
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
     }
+  });
+
+  app.post('/api/music/playlists/imported-sync-period', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    const importedSyncPeriod = normalizeImportedSyncPeriod(req.body?.importedSyncPeriod);
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required' });
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (String(playlist.playlistType || '').trim().toLowerCase() !== 'custom' || !isImportedCustomSourceType(playlist.sourceType)) {
+      return res.status(400).json({ error: 'Only imported custom playlists can set a sync period.' });
+    }
+
+    saveUserGeneratedPlaylist(db, userPlexId, {
+      ...playlist,
+      importedSyncPeriod,
+      updatedAt: Date.now(),
+    });
+    const updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    pushLog({
+      level: 'info',
+      app: 'playlist',
+      action: 'import.sync-period',
+      message: `Set imported sync period for ${playlistKey} to ${IMPORTED_SYNC_PERIOD_LABELS[importedSyncPeriod] || importedSyncPeriod} for ${userPlexId}`,
+    });
+    return res.json({
+      ok: true,
+      playlistKey,
+      importedSyncPeriod,
+      importedSyncPeriodLabel: IMPORTED_SYNC_PERIOD_LABELS[importedSyncPeriod] || importedSyncPeriod,
+      active: updated?.active !== false,
+    });
   });
 
   app.post('/api/music/playlist/job/dismiss', requireUser, (req, res) => {
@@ -4086,6 +4796,155 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
+  app.get('/api/music/import/youtube/preview', requireUser, async (req, res) => {
+    let playlistId = '';
+    try {
+      playlistId = resolveYouTubePlaylistId(req.query?.playlistId || req.query?.playlistRef || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
+    try {
+      const playlistSource = await fetchYouTubePlaylistImportSource(playlistId);
+      const playlistMeta = playlistSource.playlistMeta;
+      const playlistItems = playlistSource.playlistItems;
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const matched = [];
+      const unmatched = [];
+      const duplicateMatches = [];
+      const seenRatingKeys = new Set();
+      for (const item of playlistItems.items || []) {
+        const result = pickYouTubeTrackMatch(trackLookups, item);
+        if (result.match?.ratingKey) {
+          const summary = {
+            position: Number(item.position || 0),
+            ratingKey: String(result.match.ratingKey || ''),
+            artistName: String(result.match.artistName || ''),
+            trackTitle: String(result.match.trackTitle || item.title || ''),
+            albumName: String(result.match.albumName || ''),
+            spotifyTitle: String(item.title || ''),
+            spotifyArtists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+            durationMs: Number(item.durationMs || 0),
+            matchMethod: result.method,
+          };
+          if (seenRatingKeys.has(summary.ratingKey)) duplicateMatches.push(summary);
+          else {
+            seenRatingKeys.add(summary.ratingKey);
+            matched.push(summary);
+          }
+        } else {
+          unmatched.push({
+            sourceTrackId: String(item?.id || '').trim(),
+            position: Number(item.position || 0),
+            title: String(item.title || ''),
+            artistName: String((Array.isArray(item.artists) && item.artists[0]?.name) || '').trim(),
+            artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || '').trim()).filter(Boolean),
+            albumTitle: '',
+            albumType: '',
+            albumImageUrl: String(item?.album?.imageUrl || '').trim(),
+            durationMs: Number(item.durationMs || 0),
+          });
+        }
+      }
+      const unmatchedArtists = buildSpotifyUnmatchedArtistGroups(unmatched, {
+        groupLimit: 100,
+        sampleLimit: 3,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlistMeta,
+        totalSourceTracks: Number(playlistItems.total || (playlistItems.items || []).length || 0),
+        playlistTrackCount: Number(playlistSource.playlistTrackCount || playlistMeta?.trackCount || playlistItems.total || 0),
+        matchedCount: matched.length,
+        unmatchedCount: unmatched.length,
+        unmatchedArtistCount: unmatchedArtists.length,
+        duplicateCount: duplicateMatches.length,
+        warning: '',
+        partial: false,
+        source: playlistSource.source || 'api',
+        matched: matched.slice(0, 100),
+        unmatchedArtists,
+        unmatched: unmatched.slice(0, 100),
+        duplicateMatches: duplicateMatches.slice(0, 100),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/import/lastfm/preview', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const sourceKey = String(req.query?.sourceKey || '').trim();
+    if (!sourceKey) return res.status(400).json({ error: 'sourceKey is required.' });
+    try {
+      const source = await fetchLastfmImportSource(userPlexId, sourceKey);
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const preview = buildGenericImportPreview(source.items || [], (item) => pickSpotifyTrackMatch(trackLookups, item));
+      return res.json({
+        ok: true,
+        playlist: {
+          name: String(source.sourceTitle || 'Last.fm Playlist').trim(),
+          ownerName: String(source.sourceOwner || '').trim(),
+        },
+        totalSourceTracks: Number((source.items || []).length || 0),
+        playlistTrackCount: Number((source.items || []).length || 0),
+        matchedCount: preview.matched.length,
+        unmatchedCount: preview.unmatched.length,
+        unmatchedArtistCount: preview.unmatchedArtists.length,
+        duplicateCount: preview.duplicateMatches.length,
+        warning: '',
+        partial: false,
+        source: 'api',
+        matched: preview.matched.slice(0, 100),
+        unmatchedArtists: preview.unmatchedArtists,
+        unmatched: preview.unmatched.slice(0, 100),
+        duplicateMatches: preview.duplicateMatches.slice(0, 100),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/import/listenbrainz/preview', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const sourceKey = String(req.query?.sourceKey || '').trim();
+    if (!sourceKey) return res.status(400).json({ error: 'sourceKey is required.' });
+    try {
+      const source = await fetchListenbrainzImportSource(userPlexId, sourceKey);
+      const trackLookups = buildListenbrainzTrackLookups(getMasterTracks(db));
+      const previewItems = (Array.isArray(source.items) ? source.items : []).map((track, index) => ({
+        id: String(track?.identifier?.[0] || track?.identifier || `${index}`),
+        position: index + 1,
+        title: String(track?.title || '').trim(),
+        artists: [{ name: getListenbrainzTrackArtist(track) }],
+        album: { title: String(track?.album || '').trim() },
+        durationMs: Number(track?.duration || 0) > 0 ? Number(track.duration) : 0,
+      }));
+      const preview = buildGenericImportPreview(previewItems, (_item, index) => pickListenbrainzTrackMatch(trackLookups, source.items[index], index));
+      return res.json({
+        ok: true,
+        playlist: {
+          name: String(source.sourceTitle || 'ListenBrainz Playlist').trim(),
+          ownerName: String(source.sourceOwner || '').trim(),
+        },
+        totalSourceTracks: Number((source.items || []).length || 0),
+        playlistTrackCount: Number((source.items || []).length || 0),
+        matchedCount: preview.matched.length,
+        unmatchedCount: preview.unmatched.length,
+        unmatchedArtistCount: preview.unmatchedArtists.length,
+        duplicateCount: preview.duplicateMatches.length,
+        warning: '',
+        partial: false,
+        source: 'api',
+        matched: preview.matched.slice(0, 100),
+        unmatchedArtists: preview.unmatchedArtists,
+        unmatched: preview.unmatched.slice(0, 100),
+        duplicateMatches: preview.duplicateMatches.slice(0, 100),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
   app.post('/api/music/import/spotify', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     let playlistId = '';
@@ -4098,11 +4957,6 @@ export function registerApiMusic(app, ctx) {
     try {
       const auth = await getSpotifyAuthForUser(userPlexId);
       const playlistSource = await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId);
-      if (playlistSource.partial) {
-        return res.status(409).json({
-          error: String(playlistSource.warning || 'Spotify only exposed part of this shared playlist. Import it from your own Spotify library instead.').trim(),
-        });
-      }
       const playlistMeta = playlistSource.playlistMeta;
       const playlistItems = playlistSource.playlistItems;
       const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
@@ -4147,6 +5001,109 @@ export function registerApiMusic(app, ctx) {
         importedTrackCount: trackRefs.length,
         unmatchedCount: unmatched.length,
         importedMissingCount: unmatched.length,
+        warning: String(playlistSource.warning || '').trim(),
+        partial: playlistSource.partial === true,
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/youtube', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    let playlistId = '';
+    const title = normaliseImportedPlaylistTitle(req.body?.title, 'Imported YouTube Playlist');
+    try {
+      playlistId = resolveYouTubePlaylistId(req.body?.playlistId || req.body?.playlistRef || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
+    try {
+      const playlistSource = await fetchYouTubePlaylistImportSource(playlistId);
+      const playlistMeta = playlistSource.playlistMeta;
+      const playlistItems = playlistSource.playlistItems;
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const matchResult = buildYouTubeImportMatchResult(playlistItems.items || [], trackLookups);
+      if (!matchResult.trackRefs.length) return res.status(404).json({ error: 'No YouTube tracks matched your local library.' });
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, matchResult.trackRefs, {
+        sourceType: 'youtube-playlist',
+        sourceRef: playlistId,
+        sourceTitle: String(playlistMeta?.name || title).trim(),
+        sourceOwner: String(playlistMeta?.ownerName || '').trim(),
+        unmatchedTracks: matchResult.unmatched,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: matchResult.trackRefs.length,
+        unmatchedCount: matchResult.unmatched.length,
+        importedMissingCount: matchResult.unmatched.length,
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/lastfm', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    let sourceKey = '';
+    try {
+      sourceKey = normalizeLastfmImportSourceKey(req.body?.sourceKey || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
+    try {
+      const source = await fetchLastfmImportSource(userPlexId, sourceKey);
+      if (!source.matchResult.trackRefs.length) {
+        return res.status(404).json({ error: 'No Last.fm tracks matched your local library.' });
+      }
+      const title = normaliseImportedPlaylistTitle(req.body?.title, source.sourceTitle);
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, source.matchResult.trackRefs, {
+        sourceType: source.sourceType,
+        sourceRef: source.sourceKey,
+        sourceTitle: source.sourceTitle,
+        sourceOwner: source.sourceOwner,
+        unmatchedTracks: source.matchResult.unmatched,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: source.matchResult.trackRefs.length,
+        unmatchedCount: source.matchResult.unmatched.length,
+        importedMissingCount: source.matchResult.unmatched.length,
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/listenbrainz', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    let sourceKey = '';
+    try {
+      sourceKey = normalizeListenbrainzImportSourceKey(req.body?.sourceKey || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
+    try {
+      const source = await fetchListenbrainzImportSource(userPlexId, sourceKey);
+      if (!source.matchResult.trackRefs.length) {
+        return res.status(404).json({ error: 'No ListenBrainz tracks matched your local library.' });
+      }
+      const title = normaliseImportedPlaylistTitle(req.body?.title, source.sourceTitle);
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, source.matchResult.trackRefs, {
+        sourceType: source.sourceType,
+        sourceRef: source.sourceKey,
+        sourceTitle: source.sourceTitle,
+        sourceOwner: source.sourceOwner,
+        unmatchedTracks: source.matchResult.unmatched,
+      });
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: source.matchResult.trackRefs.length,
+        unmatchedCount: source.matchResult.unmatched.length,
+        importedMissingCount: source.matchResult.unmatched.length,
       });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
@@ -5222,7 +6179,7 @@ export function registerApiMusic(app, ctx) {
         .find((entry) => entry.playlistKey === removeImportedSourcePlaylistKey);
       if (importedPlaylist && String(importedPlaylist.playlistType || '').trim().toLowerCase() === 'custom') {
         const importedSourceType = String(importedPlaylist.sourceType || '').trim().toLowerCase();
-        if (['spotify-playlist', 'plex-playlist', 'plex-collection'].includes(importedSourceType)) {
+        if (['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(importedSourceType)) {
           await deleteGeneratedPlaylistWithRemote({
             db,
             loadConfig,

@@ -22,6 +22,80 @@ function parseSpotifyUriId(value, kind) {
   return match ? String(match[1] || '').trim() : '';
 }
 
+export function parseSpotifyEmbedPlaylistPage(html, playlistId) {
+  const body = String(html || '');
+  const id = String(playlistId || '').trim();
+  if (!body || !id) return null;
+  const scriptMatch = body.match(/<script id="__NEXT_DATA__"[^>]*>([^<]+)<\/script>/i);
+  if (!scriptMatch) return null;
+  let data = null;
+  try {
+    data = JSON.parse(String(scriptMatch[1] || '').trim());
+  } catch (_err) {
+    data = null;
+  }
+  const entity = data?.props?.pageProps?.state?.data?.entity;
+  if (!entity) return null;
+  const rawTracks = Array.isArray(entity.trackList) ? entity.trackList : [];
+  const items = rawTracks.map((track, index) => {
+    const trackUri = String(track?.uri || '').trim();
+    const trackId = String(track?.id || parseSpotifyUriId(trackUri, 'track') || '').trim();
+    const artistNames = String(track?.subtitle || '').trim().split(',').map((s) => s.trim()).filter(Boolean);
+    return {
+      position: index,
+      addedAt: '',
+      isLocal: false,
+      trackId,
+      title: String(track?.title || '').trim(),
+      durationMs: Number(track?.duration || 0),
+      explicit: false,
+      popularity: 0,
+      previewUrl: '',
+      externalUrl: trackId ? `https://open.spotify.com/track/${encodeURIComponent(trackId)}` : '',
+      isrc: '',
+      artists: artistNames.map((name) => ({ id: '', name })),
+      album: {
+        id: '',
+        title: '',
+        albumType: '',
+        releaseDate: '',
+        imageUrl: '',
+        externalUrl: '',
+      },
+    };
+  }).filter((item) => item.title);
+  const totalCount = Math.max(items.length, Number(entity.totalCount || entity.trackCount || 0));
+  const ownerUrl = String(entity.author_url || '').trim();
+  const ownerIdMatch = ownerUrl.match(/\/user\/([A-Za-z0-9_]+)/i);
+  const ownerId = ownerIdMatch ? ownerIdMatch[1] : '';
+  const imageUrl = String(entity.cover_url || '').trim();
+  const partial = totalCount > items.length;
+  const warning = partial
+    ? `Spotify only exposed the first ${items.length} of ${totalCount} tracks for this shared playlist URL. Add or copy it in Spotify and import it from your Library for the full set.`
+    : '';
+  return {
+    playlist: {
+      id,
+      name: String(entity.name || entity.title || '').trim(),
+      description: String(entity.description || entity.playlist_description || '').trim(),
+      ownerId,
+      ownerName: String(entity.author || '').trim(),
+      public: true,
+      collaborative: false,
+      trackCount: totalCount,
+      snapshotId: '',
+      imageUrl,
+      externalUrl: `https://open.spotify.com/playlist/${encodeURIComponent(id)}`,
+    },
+    items,
+    total: items.length,
+    totalCount,
+    partial,
+    warning,
+    nextOffset: 0,
+  };
+}
+
 export function parseSpotifyPublicPlaylistPage(html, playlistId) {
   const body = String(html || '');
   const id = String(playlistId || '').trim();
@@ -257,6 +331,14 @@ export function createSpotifyService(ctx = {}) {
     };
   }
 
+  async function getClientCredentialsToken() {
+    if (!isConfigured()) throw new Error('Spotify integration is not configured.');
+    const payload = await fetchForm('https://accounts.spotify.com/api/token', {
+      grant_type: 'client_credentials',
+    });
+    return String(payload.access_token || '').trim();
+  }
+
   async function exchangeCode({ code, redirectUri } = {}) {
     if (!isConfigured()) throw new Error('Spotify integration is not configured.');
     const payload = await fetchForm('https://accounts.spotify.com/api/token', {
@@ -439,6 +521,16 @@ export function createSpotifyService(ctx = {}) {
   async function getPlaylistFromPublicPage(playlistId) {
     const id = String(playlistId || '').trim();
     if (!id) throw new Error('playlistId is required.');
+    // Try the embed URL first — it is always publicly accessible without auth and
+    // embeds the full track list in a __NEXT_DATA__ JSON script tag.
+    try {
+      const embedHtml = await fetchText(`https://open.spotify.com/embed/playlist/${encodeURIComponent(id)}`);
+      const embedParsed = parseSpotifyEmbedPlaylistPage(embedHtml, id);
+      if (embedParsed?.playlist?.id) return embedParsed;
+    } catch (_embedErr) {
+      // fall through to main page
+    }
+    // Fallback: scrape the main playlist page for the initialState blob.
     const html = await fetchText(`https://open.spotify.com/playlist/${encodeURIComponent(id)}`);
     const parsed = parseSpotifyPublicPlaylistPage(html, id);
     if (!parsed?.playlist?.id) {
@@ -453,9 +545,11 @@ export function createSpotifyService(ctx = {}) {
     isConfigured,
     parsePlaylistReference: parseSpotifyPlaylistReference,
     parsePublicPlaylistPage: parseSpotifyPublicPlaylistPage,
+    parseEmbedPlaylistPage: parseSpotifyEmbedPlaylistPage,
     buildRedirectUri,
     getAuthorizationUrl,
     getDefaultScopes: () => defaultScopes.slice(),
+    getClientCredentialsToken,
     exchangeCode,
     refreshAccessToken,
     ensureAccessToken,

@@ -18,6 +18,7 @@ Curatorr is configured through container environment variables and the Settings 
 | `LOCAL_AUTH_MIN_PASSWORD` | No | Minimum password length for local Curatorr accounts. Default: `12` |
 | `SPOTIFY_CLIENT_ID` | No | Spotify app client ID used for Spotify playlist import and refresh. |
 | `SPOTIFY_CLIENT_SECRET` | No | Spotify app client secret used for Spotify playlist import and refresh. |
+| `YOUTUBE_API_KEY` | No | YouTube Data API v3 key used for public YouTube playlist URL import. |
 
 For Spotify:
 
@@ -25,6 +26,13 @@ For Spotify:
 2. Add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
 3. Put the app `Client ID` into `SPOTIFY_CLIENT_ID`.
 4. Put the app `Client Secret` into `SPOTIFY_CLIENT_SECRET`.
+
+For YouTube:
+
+1. Create or select a project in the [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable the `YouTube Data API v3` for that project.
+3. Create an API key credential.
+4. Put the API key into `YOUTUBE_API_KEY`.
 
 ## Settings UI
 

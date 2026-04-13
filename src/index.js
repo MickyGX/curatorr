@@ -28,6 +28,7 @@ import { runLastfmHistorySync } from './services/lastfm-sync.js';
 import { runLastfmHistoryBackfill } from './services/lastfm-backfill.js';
 import { createTrackEnrichmentService } from './services/track-enrichment.js';
 import { createSpotifyService } from './services/spotify.js';
+import { createYouTubeService } from './services/youtube.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1873,6 +1874,7 @@ export async function start() {
     _routeCtx.playlistService = createPlaylistService(_routeCtx);
     _routeCtx.trackEnrichmentService = createTrackEnrichmentService(_routeCtx);
     _routeCtx.spotifyService = createSpotifyService(_routeCtx);
+    _routeCtx.youtubeService = createYouTubeService(_routeCtx);
 
     // Middleware: redirect Plex users who haven't completed the personal wizard.
     // Locally created Curatorr users can still launch it manually if they want.
@@ -1909,6 +1911,7 @@ export async function start() {
           if (_sp.enableCurative !== false) await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
           await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
           await _routeCtx.playlistService.syncListenbrainzPlaylists(userId).catch(() => {});
+          await _routeCtx.refreshScheduledImportedPlaylistsForUser?.(userId).catch(() => {});
           const regularGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && !p.rules?.blendUsers?.length);
           for (const gp of regularGlobal) {
             await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});

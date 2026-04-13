@@ -92,6 +92,8 @@ Curatorr supports an optional analyzer sidecar for `BPM`, `musical key`, `Camelo
 
 Spotify support is optional and user-specific. Users can connect Spotify accounts to browse and import playlists after app-level credentials are configured on the Curatorr container. For setup details, see [Spotify in Integrations](docs/wiki/Integrations.md#spotify).
 
+YouTube playlist URL import is optional and server-level. Public YouTube playlists can be previewed and imported when `YOUTUBE_API_KEY` is configured on the Curatorr container. For setup details, see [Integrations](docs/wiki/Integrations.md#youtube).
+
 ## Documentation
 
 For installation, setup, configuration, and troubleshooting:

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpotifyService, parseSpotifyPlaylistReference, parseSpotifyPublicPlaylistPage } from '../services/spotify.js';
+import { createSpotifyService, parseSpotifyPlaylistReference, parseSpotifyPublicPlaylistPage, parseSpotifyEmbedPlaylistPage } from '../services/spotify.js';
 
 describe('Spotify playlist reference parsing', () => {
   it('accepts Spotify share links with query strings', () => {
@@ -49,13 +49,23 @@ describe('Spotify playlist API requests', () => {
         ok: true,
         status: 200,
         async text() {
-          if (String(url).includes('/tracks?')) {
-            return JSON.stringify({
+          return JSON.stringify({
+            id: '37i9dQZF1DXaVgr4Tx5kRF',
+            name: 'Playlist',
+            description: '',
+            public: true,
+            collaborative: false,
+            owner: { id: 'spotify', display_name: 'Spotify' },
+            images: [{ url: 'https://i.scdn.co/image/playlist' }],
+            external_urls: { spotify: 'https://open.spotify.com/playlist/37i9dQZF1DXaVgr4Tx5kRF' },
+            tracks: { total: 1 },
+            snapshot_id: 'snap',
+            items: {
               total: 1,
               items: [{
                 added_at: '2025-04-12T00:00:00Z',
                 is_local: false,
-                track: {
+                item: {
                   id: 'track-1',
                   name: 'Song',
                   duration_ms: 180000,
@@ -76,19 +86,7 @@ describe('Spotify playlist API requests', () => {
                 },
               }],
               next: null,
-            });
-          }
-          return JSON.stringify({
-            id: '37i9dQZF1DXaVgr4Tx5kRF',
-            name: 'Playlist',
-            description: '',
-            public: true,
-            collaborative: false,
-            owner: { id: 'spotify', display_name: 'Spotify' },
-            images: [{ url: 'https://i.scdn.co/image/playlist' }],
-            external_urls: { spotify: 'https://open.spotify.com/playlist/37i9dQZF1DXaVgr4Tx5kRF' },
-            tracks: { total: 1 },
-            snapshot_id: 'snap',
+            },
           });
         },
       };
@@ -103,8 +101,8 @@ describe('Spotify playlist API requests', () => {
       assert.equal(items.items[0].trackId, 'track-1');
       assert.match(requests[0], /\/v1\/playlists\/37i9dQZF1DXaVgr4Tx5kRF\?/);
       assert.match(requests[0], /tracks%28total%29/);
-      assert.match(requests[1], /\/v1\/playlists\/37i9dQZF1DXaVgr4Tx5kRF\/tracks\?/);
-      assert.match(requests[1], /track%28/);
+      assert.match(requests[1], /\/v1\/playlists\/37i9dQZF1DXaVgr4Tx5kRF\?/);
+      assert.match(requests[1], /items%28/);
     } finally {
       global.fetch = originalFetch;
       if (originalClientId === undefined) delete process.env.SPOTIFY_CLIENT_ID;
@@ -112,6 +110,148 @@ describe('Spotify playlist API requests', () => {
       if (originalClientSecret === undefined) delete process.env.SPOTIFY_CLIENT_SECRET;
       else process.env.SPOTIFY_CLIENT_SECRET = originalClientSecret;
     }
+  });
+});
+
+describe('Spotify client credentials token', () => {
+  it('requests an app token with the client_credentials grant', async () => {
+    const originalFetch = global.fetch;
+    const originalClientId = process.env.SPOTIFY_CLIENT_ID;
+    const originalClientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+    process.env.SPOTIFY_CLIENT_ID = 'client-id';
+    process.env.SPOTIFY_CLIENT_SECRET = 'client-secret';
+    let request = null;
+    global.fetch = async (url, options = {}) => {
+      request = {
+        url: String(url),
+        method: String(options.method || 'GET').toUpperCase(),
+        auth: String(options.headers?.Authorization || ''),
+        body: String(options.body || ''),
+      };
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            access_token: 'client-token',
+            token_type: 'Bearer',
+            expires_in: 3600,
+          });
+        },
+      };
+    };
+
+    try {
+      const spotify = createSpotifyService();
+      const token = await spotify.getClientCredentialsToken();
+      assert.equal(token, 'client-token');
+      assert.equal(request.url, 'https://accounts.spotify.com/api/token');
+      assert.equal(request.method, 'POST');
+      assert.match(request.auth, /^Basic /);
+      assert.match(request.body, /grant_type=client_credentials/);
+    } finally {
+      global.fetch = originalFetch;
+      if (originalClientId === undefined) delete process.env.SPOTIFY_CLIENT_ID;
+      else process.env.SPOTIFY_CLIENT_ID = originalClientId;
+      if (originalClientSecret === undefined) delete process.env.SPOTIFY_CLIENT_SECRET;
+      else process.env.SPOTIFY_CLIENT_SECRET = originalClientSecret;
+    }
+  });
+});
+
+describe('Spotify embed playlist page parser', () => {
+  it('parses __NEXT_DATA__ from the embed URL and extracts tracks', () => {
+    const nextData = {
+      props: {
+        pageProps: {
+          state: {
+            data: {
+              entity: {
+                name: 'Hot Hits UK',
+                description: 'The biggest songs right now.',
+                author: 'Spotify',
+                author_url: 'https://open.spotify.com/user/spotify',
+                cover_url: 'https://i.scdn.co/image/playlist',
+                totalCount: 2,
+                trackList: [
+                  {
+                    id: 'track1',
+                    uri: 'spotify:track:track1',
+                    title: 'Song One',
+                    duration: 180000,
+                    subtitle: 'Artist One, Artist Two',
+                  },
+                  {
+                    id: 'track2',
+                    uri: 'spotify:track:track2',
+                    title: 'Song Two',
+                    duration: 210000,
+                    subtitle: 'Artist Three',
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    };
+    const html = `<html><head><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(nextData)}</script></head></html>`;
+    const parsed = parseSpotifyEmbedPlaylistPage(html, '37i9dQZF1DXcBWIGoYBM5M');
+    assert.equal(parsed.playlist.id, '37i9dQZF1DXcBWIGoYBM5M');
+    assert.equal(parsed.playlist.name, 'Hot Hits UK');
+    assert.equal(parsed.playlist.ownerName, 'Spotify');
+    assert.equal(parsed.playlist.ownerId, 'spotify');
+    assert.equal(parsed.playlist.imageUrl, 'https://i.scdn.co/image/playlist');
+    assert.equal(parsed.items.length, 2);
+    assert.equal(parsed.items[0].trackId, 'track1');
+    assert.equal(parsed.items[0].title, 'Song One');
+    assert.equal(parsed.items[0].durationMs, 180000);
+    assert.equal(parsed.items[0].artists.length, 2);
+    assert.equal(parsed.items[0].artists[0].name, 'Artist One');
+    assert.equal(parsed.items[0].artists[1].name, 'Artist Two');
+    assert.equal(parsed.items[1].artists[0].name, 'Artist Three');
+    assert.equal(parsed.totalCount, 2);
+    assert.equal(parsed.partial, false);
+    assert.equal(parsed.warning, '');
+  });
+
+  it('marks result as partial when totalCount exceeds the trackList length', () => {
+    const nextData = {
+      props: {
+        pageProps: {
+          state: {
+            data: {
+              entity: {
+                name: 'Big Playlist',
+                author: 'Spotify',
+                author_url: 'https://open.spotify.com/user/spotify',
+                totalCount: 100,
+                trackList: [
+                  { id: 'track1', uri: 'spotify:track:track1', title: 'Song One', duration: 180000, subtitle: 'Artist' },
+                ],
+              },
+            },
+          },
+        },
+      },
+    };
+    const html = `<html><head><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(nextData)}</script></head></html>`;
+    const parsed = parseSpotifyEmbedPlaylistPage(html, 'abc123');
+    assert.equal(parsed.items.length, 1);
+    assert.equal(parsed.totalCount, 100);
+    assert.equal(parsed.partial, true);
+    assert.match(parsed.warning, /first 1 of 100 tracks/i);
+  });
+
+  it('returns null when __NEXT_DATA__ script is absent', () => {
+    const parsed = parseSpotifyEmbedPlaylistPage('<html><body>Login</body></html>', 'abc123');
+    assert.equal(parsed, null);
+  });
+
+  it('returns null when entity path is missing in __NEXT_DATA__', () => {
+    const html = `<html><head><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: {} })}</script></head></html>`;
+    const parsed = parseSpotifyEmbedPlaylistPage(html, 'abc123');
+    assert.equal(parsed, null);
   });
 });
 

@@ -293,6 +293,7 @@ CREATE TABLE IF NOT EXISTS user_generated_playlists (
   source_ref          TEXT NOT NULL DEFAULT '',
   source_title        TEXT NOT NULL DEFAULT '',
   source_owner        TEXT NOT NULL DEFAULT '',
+  imported_sync_period TEXT NOT NULL DEFAULT 'disabled',
   algorithm_version   TEXT NOT NULL DEFAULT 'phase2a',
   last_built_at       INTEGER,
   last_synced_at      INTEGER,
@@ -543,6 +544,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_title TEXT NOT NULL DEFAULT ''");
   if (!generatedCols.includes('source_owner'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_owner TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('imported_sync_period'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN imported_sync_period TEXT NOT NULL DEFAULT 'disabled'");
   if (!generatedCols.includes('missing_count'))
     db.exec('ALTER TABLE user_generated_playlists ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0');
 
@@ -2964,6 +2967,7 @@ export function listUserGeneratedPlaylists(db, userPlexId, { activeOnly = true }
     sourceRef: row.source_ref,
     sourceTitle: row.source_title,
     sourceOwner: row.source_owner,
+    importedSyncPeriod: String(row.imported_sync_period || 'disabled').trim() || 'disabled',
     algorithmVersion: row.algorithm_version,
     lastBuiltAt: row.last_built_at,
     lastSyncedAt: row.last_synced_at,
@@ -2989,13 +2993,24 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
   const now = Date.now();
   const playlistKey = String(playlist?.playlistKey || '').trim();
   if (!playlistKey) throw new Error('playlistKey is required');
+  const existing = db.prepare(`
+    SELECT imported_sync_period
+    FROM user_generated_playlists
+    WHERE user_plex_id = ? AND playlist_key = ?
+  `).get(userPlexId, playlistKey);
+  const rawImportedSyncPeriod = Object.prototype.hasOwnProperty.call(playlist || {}, 'importedSyncPeriod')
+    ? String(playlist?.importedSyncPeriod || '').trim().toLowerCase()
+    : String(existing?.imported_sync_period || 'disabled').trim().toLowerCase();
+  const importedSyncPeriod = ['disabled', 'daily', 'weekly', 'monthly'].includes(rawImportedSyncPeriod)
+    ? rawImportedSyncPeriod
+    : 'disabled';
   db.prepare(`
     INSERT INTO user_generated_playlists (
       user_plex_id, playlist_type, playlist_key, plex_playlist_id,
-      playlist_title, title_override, source_type, source_ref, source_title, source_owner,
+      playlist_title, title_override, source_type, source_ref, source_title, source_owner, imported_sync_period,
       algorithm_version, last_built_at, last_synced_at,
       track_count, missing_count, active, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id, playlist_key) DO UPDATE SET
       playlist_type = excluded.playlist_type,
       plex_playlist_id = excluded.plex_playlist_id,
@@ -3005,6 +3020,7 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
       source_ref = excluded.source_ref,
       source_title = excluded.source_title,
       source_owner = excluded.source_owner,
+      imported_sync_period = excluded.imported_sync_period,
       algorithm_version = excluded.algorithm_version,
       last_built_at = COALESCE(excluded.last_built_at, user_generated_playlists.last_built_at),
       last_synced_at = COALESCE(excluded.last_synced_at, user_generated_playlists.last_synced_at),
@@ -3023,6 +3039,7 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     String(playlist?.sourceRef || ''),
     String(playlist?.sourceTitle || ''),
     String(playlist?.sourceOwner || ''),
+    importedSyncPeriod,
     String(playlist?.algorithmVersion || 'phase2a'),
     playlist?.lastBuiltAt ?? null,
     playlist?.lastSyncedAt ?? null,
@@ -3379,7 +3396,7 @@ export function updateLidarrRequest(db, requestId, changes = {}, userPlexId = ''
 export function removeQueuedLidarrRequest(db, requestId, userPlexId = '') {
   const existing = getLidarrRequest(db, requestId, userPlexId);
   if (!existing) return null;
-  if (!['queued', 'processing'].includes(String(existing.status || ''))) return existing;
+  if (!['queued', 'processing', 'failed'].includes(String(existing.status || ''))) return existing;
   return updateLidarrRequest(db, existing.id, {
     status: 'removed',
     processedAt: Date.now(),

@@ -89,6 +89,7 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 ## Optional integrations
 
 - Spotify playlist import requires `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the Curatorr container. Setup details: [Integrations](Integrations.md#spotify).
+- YouTube playlist URL import requires `YOUTUBE_API_KEY` on the Curatorr container. Setup details: [Integrations](Integrations.md#youtube).
 - Track analysis enrichment is optional and uses the separate analyzer sidecar or a custom command workflow. Setup details: [Track Analysis](Track-Analysis.md).
 
 ## What to expect

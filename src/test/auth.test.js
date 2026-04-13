@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolveUserFilter, summarizeAdminLidarrCounts, summarizeAdminPlaylistCounts } from '../routes/pages.js';
+import { deriveHistoryTier, resolveUserFilter, summarizeAdminLidarrCounts, summarizeAdminPlaylistCounts } from '../routes/pages.js';
 
 const testDir = join(tmpdir(), `curatorr-test-${process.pid}`);
 process.env.CONFIG_PATH = join(testDir, 'config.json');
@@ -299,6 +299,28 @@ describe('auth flows', () => {
     const { response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
     assert.ok(response.location.includes('/dashboard'));
+  });
+
+  it('derives history tier from listened duration instead of a stale skip flag', () => {
+    const tier = deriveHistoryTier({
+      duration_ms: 160000,
+      track_duration_ms: 180000,
+      is_skip: 1,
+      current_tier: 'skip',
+      current_excluded: 0,
+      current_force_included: 0,
+    }, {
+      smartPlaylist: {
+        skipThresholdSeconds: 30,
+        completionThresholdSeconds: 30,
+      },
+    });
+
+    assert.deepEqual(tier, {
+      key: 'belter',
+      label: 'Belter',
+      tone: 'belter',
+    });
   });
 
   it('POST /login returns 429 after 10 failed attempts', async () => {

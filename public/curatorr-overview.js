@@ -282,6 +282,11 @@
     var trackList = modal.querySelector('.cur-overview-track-list');
     var trackHeading = modal.querySelector('.plex-section--tracks h4');
     var kindPills = pills;
+    var sections = Array.isArray(item.detailSections) ? item.detailSections.slice() : [];
+    var overviewText = String(item.overview || '').trim();
+    if (!sections.length && overviewText) {
+      sections = [{ text: overviewText }];
+    }
 
     bg.style.backgroundImage = item.art ? 'url("' + String(item.art).replace(/"/g, '&quot;') + '")' : '';
     poster.classList.toggle('is-square', item.posterRatio === 'square');
@@ -290,7 +295,7 @@
     title.textContent = item.title || 'Untitled';
     subtitle.textContent = item.subtitle || '';
     renderPills(kindPills, item.pills);
-    renderDetailSections(detailSections, item.detailSections);
+    renderDetailSections(detailSections, sections);
     renderStats(statsPills, item.stats);
     if (trackHeading) trackHeading.textContent = item.trackSectionTitle || 'Tracks';
     renderTrackList(trackList, item.trackList);
@@ -315,7 +320,13 @@
     });
     fetch(url)
       .then(function(response) {
-        return response.json().then(function(data) {
+        return response.text().then(function(text) {
+          var data = null;
+          try {
+            data = text ? JSON.parse(text) : {};
+          } catch (_err) {
+            data = { error: text || 'Failed to load item overview.' };
+          }
           return { ok: response.ok, data: data };
         });
       })

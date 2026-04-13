@@ -1535,35 +1535,12 @@ export function registerSettings(app, ctx) {
     const userPlexId = String(req.session?.user?.username || '').trim();
     if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     const lastfmUsername = String(req.body?.lastfmUsername || '').trim();
-    const rawStations = req.body?.lastfmStations;
-    const VALID_UNDOCUMENTED = ['recommended', 'mix', 'library', 'neighbours', 'loved'];
-    const VALID_PERIODS = ['overall', '7day', '1month', '3month', '6month', '12month'];
-    const lastfmEnabledStations = (Array.isArray(rawStations) ? rawStations : rawStations ? [rawStations] : [])
-      .filter((s) => VALID_UNDOCUMENTED.includes(s) || (s.startsWith('topTracks:') && VALID_PERIODS.includes(s.slice('topTracks:'.length))));
-    const topTracksPeriod = String(req.body?.lastfmTopTracks || '').trim();
-    if (topTracksPeriod && VALID_PERIODS.includes(topTracksPeriod)) {
-      lastfmEnabledStations.push(`topTracks:${topTracksPeriod}`);
-    }
-    const rawStrictStations = req.body?.lastfmStrictMatchStations;
-    const lastfmStrictMatchStations = (Array.isArray(rawStrictStations) ? rawStrictStations : rawStrictStations ? [rawStrictStations] : [])
-      .filter((s) => VALID_UNDOCUMENTED.includes(s) || (s.startsWith('topTracks:') && VALID_PERIODS.includes(s.slice('topTracks:'.length))));
     const prefs = getUserPreferences(db, userPlexId);
-    const lastfmStationSorts = { ...(prefs.lastfmStationSorts || {}) };
-    const lastfmStationFinalOrderings = { ...(prefs.lastfmStationFinalOrderings || {}) };
-    for (const key of VALID_UNDOCUMENTED) {
-      const sortValue = String(req.body?.[`lastfmSort_${key}`] || '').trim();
-      const finalOrderingValue = String(req.body?.[`lastfmFinalOrdering_${key}`] || '').trim();
-      lastfmStationSorts[key] = PLAYLIST_SORT_VALUES.includes(sortValue) ? sortValue : 'source';
-      lastfmStationFinalOrderings[key] = PLAYLIST_FINAL_ORDERING_VALUES.includes(finalOrderingValue) ? finalOrderingValue : 'none';
-    }
-    if (topTracksPeriod && VALID_PERIODS.includes(topTracksPeriod)) {
-      const topTracksKey = `topTracks:${topTracksPeriod}`;
-      const topTracksSort = String(req.body?.lastfmTopTracksSort || '').trim();
-      const topTracksFinalOrdering = String(req.body?.lastfmTopTracksFinalOrdering || '').trim();
-      lastfmStationSorts[topTracksKey] = PLAYLIST_SORT_VALUES.includes(topTracksSort) ? topTracksSort : 'source';
-      lastfmStationFinalOrderings[topTracksKey] = PLAYLIST_FINAL_ORDERING_VALUES.includes(topTracksFinalOrdering) ? topTracksFinalOrdering : 'none';
-    }
-    saveUserPreferences(db, userPlexId, { ...prefs, lastfmUsername, lastfmEnabledStations, lastfmStrictMatchStations, lastfmStationSorts, lastfmStationFinalOrderings });
+    saveUserPreferences(db, userPlexId, {
+      ...prefs,
+      lastfmUsername,
+      lastfmEnabledStations: [],
+    });
     return res.redirect('/user-settings?success=lastfm-updated');
   });
 
@@ -1572,24 +1549,12 @@ export function registerSettings(app, ctx) {
     if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     const listenbrainzUsername = String(req.body?.listenbrainzUsername || '').trim();
     const listenbrainzToken = String(req.body?.listenbrainzToken || '').trim();
-    const rawPlaylists = req.body?.listenbrainzPlaylists;
-    const VALID_PLAYLISTS = ['daily-jams', 'weekly-jams', 'weekly-exploration'];
-    const listenbrainzEnabledPlaylists = (Array.isArray(rawPlaylists) ? rawPlaylists : rawPlaylists ? [rawPlaylists] : [])
-      .filter((playlistKey) => VALID_PLAYLISTS.includes(String(playlistKey || '').trim()));
-    const rawStrictPlaylists = req.body?.listenbrainzStrictMatchPlaylists;
-    const listenbrainzStrictMatchPlaylists = (Array.isArray(rawStrictPlaylists) ? rawStrictPlaylists : rawStrictPlaylists ? [rawStrictPlaylists] : [])
-      .filter((playlistKey) => VALID_PLAYLISTS.includes(String(playlistKey || '').trim()));
-    const listenbrainzPlaylistSorts = Object.fromEntries(VALID_PLAYLISTS.map((key) => [key, PLAYLIST_SORT_VALUES.includes(String(req.body?.[`listenbrainzSort_${key}`] || '').trim()) ? String(req.body[`listenbrainzSort_${key}`]).trim() : 'source']));
-    const listenbrainzPlaylistFinalOrderings = Object.fromEntries(VALID_PLAYLISTS.map((key) => [key, PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.[`listenbrainzFinalOrdering_${key}`] || '').trim()) ? String(req.body[`listenbrainzFinalOrdering_${key}`]).trim() : 'none']));
     const prefs = getUserPreferences(db, userPlexId);
     saveUserPreferences(db, userPlexId, {
       ...prefs,
       listenbrainzUsername,
       listenbrainzToken,
-      listenbrainzEnabledPlaylists,
-      listenbrainzStrictMatchPlaylists,
-      listenbrainzPlaylistSorts,
-      listenbrainzPlaylistFinalOrderings,
+      listenbrainzEnabledPlaylists: [],
     });
     pushLog({
       level: 'info',
@@ -1598,7 +1563,7 @@ export function registerSettings(app, ctx) {
       message: `ListenBrainz settings saved for ${userPlexId}.`,
       meta: {
         username: listenbrainzUsername,
-        enabledPlaylists: listenbrainzEnabledPlaylists,
+        enabledPlaylists: [],
         tokenConfigured: Boolean(listenbrainzToken),
       },
     });

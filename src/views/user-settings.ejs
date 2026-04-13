@@ -477,92 +477,6 @@
                   </div>
                   <div id="lastfmBackfillStatus" style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted);display:none;"></div>
                 </div>
-                <div class="field-group-label" style="margin-top:1rem;">Last.fm Station Playlists</div>
-                <div class="settings-card-sub" style="margin-bottom:0.75rem;">Sync Last.fm's generated stations as playlists in your media server. Updated with each playlist sync.</div>
-                <% [['recommended','Recommended'],['mix','Mix'],['library','Library'],['neighbours','Neighbours'],['loved','Loved']].forEach(([key, label]) => { %>
-                  <div class="settings-access-row">
-                    <label class="settings-toggle">
-                      <input type="checkbox" name="lastfmStations" value="<%= key %>" <%= (lastfmEnabledStations || []).includes(key) ? 'checked' : '' %> />
-                      <span class="settings-toggle-slider" aria-hidden="true"></span>
-                      <span class="settings-toggle-text">Last.fm <%= label %></span>
-                    </label>
-                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-left:auto">
-                      <select class="settings-select" name="lastfmSort_<%= key %>">
-                        <option value="source" <%= (lastfmStationSorts?.[key] || 'source') === 'source' ? 'selected' : '' %>>Source order</option>
-                        <option value="ratingCount" <%= lastfmStationSorts?.[key] === 'ratingCount' ? 'selected' : '' %>>Global rating count</option>
-                        <option value="tierWeight" <%= lastfmStationSorts?.[key] === 'tierWeight' ? 'selected' : '' %>>Tier weight</option>
-                        <option value="playCount" <%= lastfmStationSorts?.[key] === 'playCount' ? 'selected' : '' %>>Play count</option>
-                        <option value="bpmAsc" <%= lastfmStationSorts?.[key] === 'bpmAsc' ? 'selected' : '' %>>BPM low to high</option>
-                        <option value="bpmDesc" <%= lastfmStationSorts?.[key] === 'bpmDesc' ? 'selected' : '' %>>BPM high to low</option>
-                        <option value="energyAsc" <%= lastfmStationSorts?.[key] === 'energyAsc' ? 'selected' : '' %>>Energy low to high</option>
-                        <option value="energyDesc" <%= lastfmStationSorts?.[key] === 'energyDesc' ? 'selected' : '' %>>Energy high to low</option>
-                        <option value="danceabilityDesc" <%= lastfmStationSorts?.[key] === 'danceabilityDesc' ? 'selected' : '' %>>Danceability high to low</option>
-                        <option value="camelot" <%= lastfmStationSorts?.[key] === 'camelot' ? 'selected' : '' %>>Camelot wheel</option>
-                        <option value="djFlow" <%= lastfmStationSorts?.[key] === 'djFlow' ? 'selected' : '' %>>DJ flow</option>
-                      </select>
-                      <select class="settings-select" name="lastfmFinalOrdering_<%= key %>">
-                        <option value="none" <%= (lastfmStationFinalOrderings?.[key] || 'none') === 'none' ? 'selected' : '' %>>No final ordering</option>
-                        <option value="plexSonic" <%= lastfmStationFinalOrderings?.[key] === 'plexSonic' ? 'selected' : '' %>>Plex sonic</option>
-                        <option value="loudness" <%= lastfmStationFinalOrderings?.[key] === 'loudness' ? 'selected' : '' %>>Loudness smoothing</option>
-                        <option value="plexSonicLoudness" <%= lastfmStationFinalOrderings?.[key] === 'plexSonicLoudness' ? 'selected' : '' %>>Plex sonic then loudness</option>
-                      </select>
-                    </div>
-                  </div>
-                <% }) %>
-                <% var topTracksStation = (lastfmEnabledStations || []).find(function(s) { return s.startsWith('topTracks:'); }); %>
-                <% var topTracksPeriod = topTracksStation ? topTracksStation.slice('topTracks:'.length) : ''; %>
-                <% var _lastfmTopTracksSortMap = {
-                  overall: lastfmStationSorts?.['topTracks:overall'] || 'source',
-                  '7day': lastfmStationSorts?.['topTracks:7day'] || 'source',
-                  '1month': lastfmStationSorts?.['topTracks:1month'] || 'source',
-                  '3month': lastfmStationSorts?.['topTracks:3month'] || 'source',
-                  '6month': lastfmStationSorts?.['topTracks:6month'] || 'source',
-                  '12month': lastfmStationSorts?.['topTracks:12month'] || 'source',
-                }; %>
-                <% var _lastfmTopTracksFinalOrderingMap = {
-                  overall: lastfmStationFinalOrderings?.['topTracks:overall'] || 'none',
-                  '7day': lastfmStationFinalOrderings?.['topTracks:7day'] || 'none',
-                  '1month': lastfmStationFinalOrderings?.['topTracks:1month'] || 'none',
-                  '3month': lastfmStationFinalOrderings?.['topTracks:3month'] || 'none',
-                  '6month': lastfmStationFinalOrderings?.['topTracks:6month'] || 'none',
-                  '12month': lastfmStationFinalOrderings?.['topTracks:12month'] || 'none',
-                }; %>
-                <div class="settings-access-row" style="flex-wrap:wrap;gap:0.5rem;">
-                  <label class="settings-toggle" style="flex-shrink:0;">
-                    <input type="checkbox" id="topTracksToggle" <%= topTracksPeriod ? 'checked' : '' %> />
-                    <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    <span class="settings-toggle-text">Last.fm Top Tracks</span>
-                  </label>
-                  <select class="settings-select" name="lastfmTopTracks" id="topTracksPeriodSelect" style="margin-left:0.5rem;" <%= topTracksPeriod ? '' : 'disabled' %>>
-                    <option value="">Disabled</option>
-                    <option value="overall" <%= topTracksPeriod === 'overall' ? 'selected' : '' %>>All Time</option>
-                    <option value="7day" <%= topTracksPeriod === '7day' ? 'selected' : '' %>>Last 7 Days</option>
-                    <option value="1month" <%= topTracksPeriod === '1month' ? 'selected' : '' %>>Last Month</option>
-                    <option value="3month" <%= topTracksPeriod === '3month' ? 'selected' : '' %>>Last 3 Months</option>
-                    <option value="6month" <%= topTracksPeriod === '6month' ? 'selected' : '' %>>Last 6 Months</option>
-                    <option value="12month" <%= topTracksPeriod === '12month' ? 'selected' : '' %>>Last Year</option>
-                  </select>
-                  <% const _topTracksSortKey = topTracksPeriod ? `topTracks:${topTracksPeriod}` : 'topTracks:overall'; %>
-                  <select class="settings-select" name="lastfmTopTracksSort" id="topTracksSortSelect" data-sort-map='<%- JSON.stringify(_lastfmTopTracksSortMap) %>'>
-                    <option value="source" <%= (lastfmStationSorts?.[_topTracksSortKey] || 'source') === 'source' ? 'selected' : '' %>>Source order</option>
-                    <option value="ratingCount" <%= lastfmStationSorts?.[_topTracksSortKey] === 'ratingCount' ? 'selected' : '' %>>Global rating count</option>
-                    <option value="tierWeight" <%= lastfmStationSorts?.[_topTracksSortKey] === 'tierWeight' ? 'selected' : '' %>>Tier weight</option>
-                    <option value="playCount" <%= lastfmStationSorts?.[_topTracksSortKey] === 'playCount' ? 'selected' : '' %>>Play count</option>
-                    <option value="bpmAsc" <%= lastfmStationSorts?.[_topTracksSortKey] === 'bpmAsc' ? 'selected' : '' %>>BPM low to high</option>
-                    <option value="bpmDesc" <%= lastfmStationSorts?.[_topTracksSortKey] === 'bpmDesc' ? 'selected' : '' %>>BPM high to low</option>
-                    <option value="energyAsc" <%= lastfmStationSorts?.[_topTracksSortKey] === 'energyAsc' ? 'selected' : '' %>>Energy low to high</option>
-                    <option value="energyDesc" <%= lastfmStationSorts?.[_topTracksSortKey] === 'energyDesc' ? 'selected' : '' %>>Energy high to low</option>
-                    <option value="danceabilityDesc" <%= lastfmStationSorts?.[_topTracksSortKey] === 'danceabilityDesc' ? 'selected' : '' %>>Danceability high to low</option>
-                    <option value="camelot" <%= lastfmStationSorts?.[_topTracksSortKey] === 'camelot' ? 'selected' : '' %>>Camelot wheel</option>
-                    <option value="djFlow" <%= lastfmStationSorts?.[_topTracksSortKey] === 'djFlow' ? 'selected' : '' %>>DJ flow</option>
-                  </select>
-                  <select class="settings-select" name="lastfmTopTracksFinalOrdering" id="topTracksFinalOrderingSelect" data-final-ordering-map='<%- JSON.stringify(_lastfmTopTracksFinalOrderingMap) %>'>
-                    <option value="none" <%= (lastfmStationFinalOrderings?.[_topTracksSortKey] || 'none') === 'none' ? 'selected' : '' %>>No final ordering</option>
-                    <option value="plexSonic" <%= lastfmStationFinalOrderings?.[_topTracksSortKey] === 'plexSonic' ? 'selected' : '' %>>Plex sonic</option>
-                    <option value="loudness" <%= lastfmStationFinalOrderings?.[_topTracksSortKey] === 'loudness' ? 'selected' : '' %>>Loudness smoothing</option>
-                    <option value="plexSonicLoudness" <%= lastfmStationFinalOrderings?.[_topTracksSortKey] === 'plexSonicLoudness' ? 'selected' : '' %>>Plex sonic then loudness</option>
-                  </select>
-                </div>
               <% } %>
               <button class="primary-button" type="submit">Save Last.fm settings</button>
             </form>
@@ -572,7 +486,7 @@
             <div class="settings-integration-head">
               <div>
                 <div class="settings-card-title">ListenBrainz</div>
-                <div class="settings-card-sub">Sync ListenBrainz generated playlists into Plex. This only imports playlist suggestions for now, not historical listens.</div>
+                <div class="settings-card-sub">Configure your ListenBrainz account here, then import generated playlists from the Playlists page.</div>
               </div>
               <span class="settings-integration-tag">Playlist Suggestions</span>
             </div>
@@ -586,36 +500,6 @@
                 <span>API token (optional)</span>
                 <input type="password" name="listenbrainzToken" value="<%= listenbrainzToken || '' %>" placeholder="listenbrainz-api-token" autocomplete="off" />
               </label>
-              <% [['daily-jams','Daily Jams'],['weekly-jams','Weekly Jams'],['weekly-exploration','Weekly Exploration']].forEach(([key, label]) => { %>
-                <div class="settings-access-row">
-                  <label class="settings-toggle">
-                    <input type="checkbox" name="listenbrainzPlaylists" value="<%= key %>" <%= (listenbrainzEnabledPlaylists || []).includes(key) ? 'checked' : '' %> />
-                    <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    <span class="settings-toggle-text">ListenBrainz <%= label %></span>
-                  </label>
-                  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-left:auto">
-                    <select class="settings-select" name="listenbrainzSort_<%= key %>">
-                      <option value="source" <%= (listenbrainzPlaylistSorts?.[key] || 'source') === 'source' ? 'selected' : '' %>>Source order</option>
-                      <option value="ratingCount" <%= listenbrainzPlaylistSorts?.[key] === 'ratingCount' ? 'selected' : '' %>>Global rating count</option>
-                      <option value="tierWeight" <%= listenbrainzPlaylistSorts?.[key] === 'tierWeight' ? 'selected' : '' %>>Tier weight</option>
-                      <option value="playCount" <%= listenbrainzPlaylistSorts?.[key] === 'playCount' ? 'selected' : '' %>>Play count</option>
-                      <option value="bpmAsc" <%= listenbrainzPlaylistSorts?.[key] === 'bpmAsc' ? 'selected' : '' %>>BPM low to high</option>
-                      <option value="bpmDesc" <%= listenbrainzPlaylistSorts?.[key] === 'bpmDesc' ? 'selected' : '' %>>BPM high to low</option>
-                      <option value="energyAsc" <%= listenbrainzPlaylistSorts?.[key] === 'energyAsc' ? 'selected' : '' %>>Energy low to high</option>
-                      <option value="energyDesc" <%= listenbrainzPlaylistSorts?.[key] === 'energyDesc' ? 'selected' : '' %>>Energy high to low</option>
-                      <option value="danceabilityDesc" <%= listenbrainzPlaylistSorts?.[key] === 'danceabilityDesc' ? 'selected' : '' %>>Danceability high to low</option>
-                      <option value="camelot" <%= listenbrainzPlaylistSorts?.[key] === 'camelot' ? 'selected' : '' %>>Camelot wheel</option>
-                      <option value="djFlow" <%= listenbrainzPlaylistSorts?.[key] === 'djFlow' ? 'selected' : '' %>>DJ flow</option>
-                    </select>
-                    <select class="settings-select" name="listenbrainzFinalOrdering_<%= key %>">
-                      <option value="none" <%= (listenbrainzPlaylistFinalOrderings?.[key] || 'none') === 'none' ? 'selected' : '' %>>No final ordering</option>
-                      <option value="plexSonic" <%= listenbrainzPlaylistFinalOrderings?.[key] === 'plexSonic' ? 'selected' : '' %>>Plex sonic</option>
-                      <option value="loudness" <%= listenbrainzPlaylistFinalOrderings?.[key] === 'loudness' ? 'selected' : '' %>>Loudness smoothing</option>
-                      <option value="plexSonicLoudness" <%= listenbrainzPlaylistFinalOrderings?.[key] === 'plexSonicLoudness' ? 'selected' : '' %>>Plex sonic then loudness</option>
-                    </select>
-                  </div>
-                </div>
-              <% }) %>
               <button class="primary-button" type="submit">Save ListenBrainz settings</button>
             </form>
           </div>
@@ -875,37 +759,6 @@
       syncProfileThemeForm();
     })();
 
-    (function() {
-      var toggle = document.getElementById('topTracksToggle');
-      var select = document.getElementById('topTracksPeriodSelect');
-      var sortSelect = document.getElementById('topTracksSortSelect');
-      var finalOrderingSelect = document.getElementById('topTracksFinalOrderingSelect');
-      if (toggle && select) {
-        var parseMap = function(raw, fallback) {
-          try {
-            var parsed = JSON.parse(raw || '{}');
-            return parsed && typeof parsed === 'object' ? parsed : fallback;
-          } catch (_err) {
-            return fallback;
-          }
-        };
-        var sortMap = parseMap(sortSelect ? sortSelect.dataset.sortMap : '', {});
-        var finalOrderingMap = parseMap(finalOrderingSelect ? finalOrderingSelect.dataset.finalOrderingMap : '', {});
-        var syncTopTracksControls = function() {
-          var period = select.value || 'overall';
-          if (sortSelect) sortSelect.value = sortMap[period] || 'source';
-          if (finalOrderingSelect) finalOrderingSelect.value = finalOrderingMap[period] || 'none';
-        };
-        toggle.addEventListener('change', function() {
-          select.disabled = !toggle.checked;
-          if (!toggle.checked) select.value = '';
-          else if (!select.value) select.value = 'overall';
-          syncTopTracksControls();
-        });
-        select.addEventListener('change', syncTopTracksControls);
-        syncTopTracksControls();
-      }
-    })();
     (function() {
       var btn = document.getElementById('lastfmRunBackfillBtn');
       var status = document.getElementById('lastfmBackfillStatus');
