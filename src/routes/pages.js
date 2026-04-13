@@ -12,12 +12,10 @@ import {
   getCurrentLidarrUsage,
   listLidarrArtistProgress,
   listLidarrRequests,
-  getSuggestedArtist,
   getArtistsFromMaster,
   dedupeMasterArtistNames,
   getResolvedUserArtistFilters,
   getUserPreferences,
-  listSuggestedAlbums,
   getGenresFromMaster,
   getMoodsFromMaster,
   getAllLastfmTags,
@@ -34,10 +32,11 @@ import {
   getAllUserIds,
   getDistinctPathSegments,
   classifyTier,
+  listSuggestedAlbums,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
-import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { buildFeaturePresetAvailability } from '../services/playlists.js';
+import { resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
 
@@ -105,146 +104,6 @@ function comparePlaylistCards(a, b) {
   const updatedDelta = Number(b?.curatorrUpdatedAt || 0) - Number(a?.curatorrUpdatedAt || 0);
   if (updatedDelta) return updatedDelta;
   return String(a?.playlistTitle || '').localeCompare(String(b?.playlistTitle || ''));
-}
-
-function resolveDiscoverAlbumImageUrl(album = {}) {
-  const directUrl = String(
-    album?.selectedAlbumImageUrl
-    || album?.preferredAlbumImageUrl
-    || album?.albumImageUrl
-    || album?.imageUrl
-    || ''
-  ).trim();
-  if (directUrl) return directUrl;
-  const imagePath = String(album?.imagePath || '').trim();
-  if (imagePath) return `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}`;
-  const foreignAlbumId = String(album?.foreignAlbumId || '').trim();
-  if (foreignAlbumId) return `/api/music/cover/release-group/${encodeURIComponent(foreignAlbumId)}`;
-  return '';
-}
-
-function toDiscoverAlbumSelection(album = {}) {
-  return {
-    albumTitle: String(album?.albumTitle || album?.title || '').trim(),
-    albumImageUrl: resolveDiscoverAlbumImageUrl(album),
-  };
-}
-
-function enrichDiscoverRequests(db, userPlexId, requests = []) {
-  const addedAlbumMap = new Map();
-  for (const status of ['added_to_lidarr', 'already_monitored']) {
-    for (const album of listSuggestedAlbums(db, userPlexId, { status, limit: 500 })) {
-      const key = String(album?.artistName || '').trim().toLowerCase();
-      if (!key || addedAlbumMap.has(key)) continue;
-      addedAlbumMap.set(key, toDiscoverAlbumSelection(album));
-    }
-  }
-  const suggestedAlbumMap = new Map();
-  for (const album of listSuggestedAlbums(db, userPlexId, { limit: 500 })) {
-    const key = String(album?.artistName || '').trim().toLowerCase();
-    if (!key || suggestedAlbumMap.has(key)) continue;
-    suggestedAlbumMap.set(key, toDiscoverAlbumSelection(album));
-  }
-  return (Array.isArray(requests) ? requests : []).map((request) => {
-    const detail = request?.detail && typeof request.detail === 'object' ? { ...request.detail } : {};
-    const artistKey = String(request?.artistName || '').trim().toLowerCase();
-    const suggestion = getSuggestedArtist(db, userPlexId, String(request?.artistName || '').trim());
-    const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
-    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
-    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
-    const starterSelection = toDiscoverAlbumSelection(starterAlbum);
-    const latestSelection = toDiscoverAlbumSelection(latestAlbum);
-    const addedSelection = addedAlbumMap.get(artistKey) || { albumTitle: '', albumImageUrl: '' };
-    const suggestedSelection = suggestedAlbumMap.get(artistKey) || { albumTitle: '', albumImageUrl: '' };
-    const currentAlbumTitle = String(
-      request?.albumTitle
-      || detail.selectedAlbumTitle
-      || detail.starterAlbumTitle
-      || detail.latestAlbumTitle
-      || detail.preferredAlbumTitle
-      || ''
-    ).trim();
-    const selectedAlbumTitle = currentAlbumTitle
-      || addedSelection.albumTitle
-      || starterSelection.albumTitle
-      || latestSelection.albumTitle
-      || suggestedSelection.albumTitle
-      || '';
-    let albumMatch = resolveLibraryAlbumMatch(db, {
-      artistName: request?.artistName,
-      albumTitle: selectedAlbumTitle,
-      alternateTitles: [
-        request?.albumTitle,
-        detail.selectedAlbumTitle,
-        detail.starterAlbumTitle,
-        detail.latestAlbumTitle,
-        detail.preferredAlbumTitle,
-      ],
-    });
-    if (detail.manualAvailabilityOverride === true) {
-      albumMatch = {
-        ...albumMatch,
-        inLibrary: true,
-        kind: 'manual_override',
-        matchedAlbumTitle: String(detail.matchedAlbumTitle || selectedAlbumTitle || request?.albumTitle || '').trim(),
-      };
-    }
-    const selectedAlbumImageUrl = String(
-      detail.selectedAlbumImageUrl
-      || detail.preferredAlbumImageUrl
-      || (selectedAlbumTitle && selectedAlbumTitle === starterSelection.albumTitle ? starterSelection.albumImageUrl : '')
-      || (selectedAlbumTitle && selectedAlbumTitle === latestSelection.albumTitle ? latestSelection.albumImageUrl : '')
-      || (selectedAlbumTitle && selectedAlbumTitle === addedSelection.albumTitle ? addedSelection.albumImageUrl : '')
-      || (selectedAlbumTitle && selectedAlbumTitle === suggestedSelection.albumTitle ? suggestedSelection.albumImageUrl : '')
-      || ''
-    ).trim();
-    if (!selectedAlbumTitle) {
-      return {
-        ...request,
-        detail,
-        inLibrary: albumMatch.inLibrary,
-        inLibraryKind: albumMatch.kind,
-        matchedAlbumTitle: albumMatch.matchedAlbumTitle,
-      };
-    }
-    return {
-      ...request,
-      detail: {
-        ...detail,
-        selectedAlbumTitle: detail.selectedAlbumTitle || selectedAlbumTitle,
-        selectedAlbumImageUrl: detail.selectedAlbumImageUrl || selectedAlbumImageUrl,
-        starterAlbumTitle: detail.starterAlbumTitle || starterSelection.albumTitle,
-        starterAlbumImageUrl: detail.starterAlbumImageUrl || starterSelection.albumImageUrl,
-        latestAlbumTitle: detail.latestAlbumTitle || latestSelection.albumTitle,
-        latestAlbumImageUrl: detail.latestAlbumImageUrl || latestSelection.albumImageUrl,
-      },
-      inLibrary: albumMatch.inLibrary,
-      inLibraryKind: albumMatch.kind,
-      matchedAlbumTitle: albumMatch.matchedAlbumTitle,
-    };
-  });
-}
-
-function isDiscoverRequestReconciledElsewhere(request) {
-  return String(request?.detail?.reconciledAction || '').trim().toLowerCase() === 'already_in_lidarr';
-}
-
-function isDiscoverRequestAddedToLibrary(request) {
-  return String(request?.status || '').trim().toLowerCase() === 'completed' && request?.inLibrary === true;
-}
-
-function splitDiscoverRequestBuckets(requests = []) {
-  const queue = [];
-  const history = [];
-  (Array.isArray(requests) ? requests : []).forEach((request) => {
-    if (!request || isDiscoverRequestReconciledElsewhere(request)) return;
-    if (isDiscoverRequestAddedToLibrary(request)) {
-      history.push(request);
-    } else {
-      queue.push(request);
-    }
-  });
-  return { queue, history };
 }
 
 function normalizeIdentitySet(values = [], normalizeIdentityList) {
@@ -1666,20 +1525,9 @@ export function registerPages(app, ctx) {
     const lidarrQuota = lidarrService?.isConfigured() && lidarrAutomationEligible
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {})
       : null;
-    const lidarrRequestBuckets = splitDiscoverRequestBuckets(
-      await promoteCompletedRequestsFromLidarr(
-        enrichDiscoverRequests(
-          db,
-          userPlexId,
-          listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed', 'failed'], limit: 250 }),
-        ),
-        lidarrService,
-      ),
-    );
-    const queuedRequests = lidarrRequestBuckets.queue;
-    const requestHistory = lidarrRequestBuckets.history;
     const discoverSuggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 16 });
-    const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, suggestionUserId, discoverSuggestions.artists);
+    const lidarrStatus = buildLidarrStatusBundle(db, lidarrService, suggestionUserId, discoverSuggestions.artists);
+    const recentAlbumCarousels = buildDiscoverRecentAlbumCarousels(db, suggestionUserId, { addedLimit: 16, requestedLimit: 16 });
     const disc = config.discovery || {};
     const discoveryConfig = {
       enabled: Boolean(disc.lastfmApiKey),
@@ -1698,9 +1546,9 @@ export function registerPages(app, ctx) {
       lidarrAutomationEligible,
       lidarrQuota,
       suggestedArtists: lidarrStatus.actionableSuggestions,
-      queuedRequests,
-      requestHistory,
       lidarrStatus,
+      recentAddedAlbums: recentAlbumCarousels.recentAdded,
+      recentRequestedAlbums: recentAlbumCarousels.recentRequested,
       discoveryConfig,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
@@ -2120,191 +1968,89 @@ function isProgressReviewable(progress, statusKey = '') {
   const currentStage = String(progress.currentStage || '').trim().toLowerCase();
   const normalizedStatusKey = String(statusKey || '').trim().toLowerCase();
   if (!currentStage || currentStage === 'catalog_complete') return false;
-  if (normalizedStatusKey === 'already_in_lidarr') return false;
+  if (normalizedStatusKey === 'in_library') return false;
   return true;
 }
 
-function deriveLidarrStateLabel(suggestion, progress, liveCommand = null, liveAlbum = null) {
-  const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
-  const currentStage = String(progress?.currentStage || '').trim().toLowerCase();
+function deriveLidarrStateLabel(suggestion, progress) {
   const suggestionStatus = String(suggestion?.status || '').trim().toLowerCase();
+  const currentStage = String(progress?.currentStage || '').trim().toLowerCase();
   const lastManualSearchStatus = String(progress?.lastManualSearchStatus || '').trim().toLowerCase();
+  const reason = suggestion?.reason && typeof suggestion.reason === 'object' ? suggestion.reason : {};
+  const albumWarning = reason?.albumWarning && typeof reason.albumWarning === 'object' ? reason.albumWarning : null;
   const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
   const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
-  const albumWarning = reason?.albumWarning && typeof reason.albumWarning === 'object' ? reason.albumWarning : null;
-  const liveCommandStatus = String(liveCommand?.status || '').trim().toLowerCase();
-  const liveCommandResult = String(liveCommand?.result || '').trim().toLowerCase();
   const albumLabel = latestAlbum?.albumTitle || starterAlbum?.albumTitle || '';
-  const liveTrackFileCount = Number(liveAlbum?.statistics?.trackFileCount || 0);
-  const acquisition = reason?.acquisition && typeof reason.acquisition === 'object' ? reason.acquisition : {};
-  if (suggestionStatus === 'already_in_lidarr') {
-    return { key: 'already_in_lidarr', label: 'Already in Lidarr', tone: 'neutral', detail: '' };
+
+  // ── Four user-facing states ───────────────────────────────────────────────
+  // in_library: stage shows acquisition complete
+  const IN_LIBRARY_STAGES = new Set(['album_acquired', 'catalog_complete']);
+  if (IN_LIBRARY_STAGES.has(currentStage)) {
+    return { key: 'in_library', label: 'In your library', tone: 'ok', detail: albumLabel };
   }
-  if (suggestionStatus === 'queued_for_lidarr' || currentStage === 'queued_for_lidarr') {
-    return { key: 'queued_for_lidarr', label: 'Queued', tone: 'half-decent', detail: 'Queued for Lidarr processing.' };
-  }
+
+  // stuck: quota blocked, or search exhausted with no result
+  const STUCK_STAGES = new Set(['manual_search_no_results', 'no_files_found', 'manual_search_failed']);
   if (suggestionStatus === 'quota_blocked' || albumWarning?.type === 'album_quota') {
-    return { key: 'quota_blocked', label: 'Quota blocked', tone: 'warn', detail: albumWarning?.message || 'Weekly quota reached.' };
+    return { key: 'stuck', label: 'Stuck', tone: 'warn', detail: albumWarning?.message || 'Quota reached — will retry when quota resets.' };
   }
-  if (currentStage === 'catalog_complete') {
-    return { key: 'catalog_complete', label: 'Catalog complete', tone: 'neutral', detail: 'No further album unlocks pending.' };
+  if (STUCK_STAGES.has(currentStage) || lastManualSearchStatus === 'failed') {
+    return { key: 'stuck', label: 'Stuck', tone: 'warn', detail: `${albumLabel ? albumLabel + ' · ' : ''}No files found. Check Lidarr.` };
   }
-  if (currentStage === 'catalog_expanded') {
-    return { key: 'catalog_expanded', label: 'Next album added', tone: 'curatorr', detail: albumLabel };
+
+  // in_progress: handed off to Lidarr and being processed
+  const IN_PROGRESS_STAGES = new Set([
+    'queued', 'added', 'starter_album_added', 'starter_album_linked',
+    'awaiting_belter', 'catalog_expanded', 'search_retry_queued',
+    'monitor_repaired_search_queued', 'manual_grab_queued', 'monitor_repaired',
+  ]);
+  if (
+    suggestionStatus === 'queued_for_lidarr'
+    || suggestionStatus === 'added_to_lidarr'
+    || IN_PROGRESS_STAGES.has(currentStage)
+  ) {
+    return { key: 'in_progress', label: 'In progress', tone: 'half-decent', detail: albumLabel };
   }
-  if (currentStage === 'awaiting_belter') {
-    return {
-      key: 'awaiting_belter',
-      label: 'Awaiting belter',
-      tone: 'neutral',
-      detail: albumLabel ? `${albumLabel} · starter album downloaded` : 'Starter album downloaded · waiting for a stronger listening signal.',
-    };
-  }
-  if (currentStage === 'starter_album_added') {
-    return { key: 'starter_album_added', label: 'Starter album added', tone: 'belter', detail: albumLabel };
-  }
-  if (currentStage === 'starter_album_linked') {
-    return { key: 'starter_album_linked', label: 'Starter album linked', tone: 'neutral', detail: albumLabel };
-  }
-  if (liveTrackFileCount > 0 || currentStage === 'album_acquired') {
-    return { key: 'downloaded', label: 'Downloaded', tone: 'belter', detail: albumLabel };
-  }
-  if (liveCommandStatus === 'queued') {
-    return { key: 'search_queued', label: 'Search queued', tone: 'ok', detail: albumLabel };
-  }
-  if (liveCommandStatus === 'started') {
-    return { key: 'search_running', label: 'Search running', tone: 'half-decent', detail: albumLabel };
-  }
-  if (liveCommandStatus === 'completed') {
-    if (liveTrackFileCount > 0 || liveCommandResult === 'successful') {
-      return { key: 'search_complete', label: 'Search complete', tone: 'belter', detail: albumLabel };
-    }
-    return { key: 'search_finished', label: 'Search finished', tone: 'neutral', detail: albumLabel ? `${albumLabel} · no files found yet` : 'No files found yet' };
-  }
-  if (liveCommandStatus === 'failed') {
-    return { key: 'search_failed', label: 'Search failed', tone: 'warn', detail: albumLabel };
-  }
-  if (lastManualSearchStatus === 'queued') {
-    return { key: 'search_queued', label: 'Search queued', tone: 'ok', detail: albumLabel };
-  }
-  if (lastManualSearchStatus === 'started') {
-    return { key: 'search_running', label: 'Search running', tone: 'half-decent', detail: albumLabel };
-  }
-  if (lastManualSearchStatus === 'completed') {
-    return { key: 'search_complete', label: 'Search complete', tone: 'belter', detail: albumLabel };
-  }
-  if (lastManualSearchStatus === 'failed') {
-    return { key: 'search_failed', label: 'Search failed', tone: 'warn', detail: albumLabel };
-  }
-  if (currentStage === 'manual_grab_queued') {
-    return { key: 'manual_grab_queued', label: 'Manual grab queued', tone: 'curatorr', detail: acquisition?.manualFallbackReleaseTitle || albumLabel };
-  }
-  if (currentStage === 'search_retry_queued' || currentStage === 'monitor_repaired_search_queued') {
-    return { key: 'search_retry_queued', label: 'Search retry queued', tone: 'ok', detail: albumLabel };
-  }
-  if (currentStage === 'monitor_repaired') {
-    return { key: 'monitor_repaired', label: 'Monitoring repaired', tone: 'neutral', detail: albumLabel };
-  }
-  if (currentStage === 'manual_search_no_results' || currentStage === 'no_files_found') {
-    return { key: 'search_finished', label: 'Search finished', tone: 'neutral', detail: albumLabel ? `${albumLabel} · no files found yet` : 'No files found yet' };
-  }
-  if (currentStage === 'manual_search_failed') {
-    return { key: 'manual_search_failed', label: 'Manual fallback failed', tone: 'warn', detail: albumLabel || 'Release lookup or grab failed.' };
-  }
-  if (currentStage === 'added' || String(suggestion?.status || '').trim().toLowerCase() === 'added_to_lidarr') {
-    return { key: 'artist_added', label: 'Artist added', tone: 'curatorr', detail: albumLabel };
-  }
-  if (currentStage === 'queued') {
-    return { key: 'adding_to_lidarr', label: 'Adding to Lidarr', tone: 'half-decent', detail: '' };
-  }
-  return { key: 'suggested', label: 'Suggested', tone: 'ok', detail: '' };
+
+  // suggested: recommended, no action taken yet
+  return { key: 'suggested', label: 'Suggested', tone: 'curatorr', detail: '' };
 }
 
-async function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedArtists = []) {
+function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedArtists = []) {
   const suggestions = Array.isArray(suggestedArtists) ? suggestedArtists : [];
   const progressItems = listLidarrArtistProgress(db, userPlexId, { limit: 12 });
-  const requestHistory = listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed', 'failed'], limit: 250 });
   const progressMap = new Map(progressItems.map((item) => [normalizeName(item.artistName), item]));
+
+  // Source-kind labels only — local DB read, no Lidarr API calls on page load.
+  // The background service keeps lidarr_artist_progress up to date; live API
+  // calls were removed because they blocked every page render with up to 3
+  // sequential/parallel Lidarr round-trips (listArtists + getCommand + getAlbum).
+  const requestHistory = listLidarrRequests(db, userPlexId, { statuses: ['queued', 'processing', 'completed', 'failed'], limit: 250 });
   const requestMap = new Map();
   requestHistory.forEach((request) => {
     const key = normalizeName(request.artistName);
     if (!key || requestMap.has(key)) return;
     requestMap.set(key, request);
   });
-  const lidarrNames = new Set(progressItems.map((item) => normalizeName(item.artistName)).filter(Boolean));
-  const commandIds = new Set();
-  const albumIds = new Set();
-
-  suggestions.forEach((artist) => {
-    const reason = artist?.reason && typeof artist.reason === 'object' ? artist.reason : {};
-    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
-    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
-    const commandId = Number(starterAlbum?.commandId || 0);
-    const starterAlbumId = Number(starterAlbum?.albumId || 0);
-    const latestAlbumId = Number(latestAlbum?.albumId || 0);
-    if (commandId > 0) commandIds.add(commandId);
-    if (starterAlbumId > 0) albumIds.add(starterAlbumId);
-    if (latestAlbumId > 0) albumIds.add(latestAlbumId);
-  });
-
-  if (lidarrService?.isConfigured()) {
-    try {
-      const currentArtists = await lidarrService.listArtists({ pageSize: 2000, timeoutMs: 15000 });
-      currentArtists.forEach((artist) => {
-        const name = normalizeName(artist?.artistName);
-        if (name) lidarrNames.add(name);
-      });
-    } catch (_err) {
-      // Ignore Lidarr list failures here; the page can still render from local progress data.
-    }
-  }
-
-  const commandMap = new Map();
-  const albumMap = new Map();
-  if (lidarrService?.isConfigured() && commandIds.size) {
-    await Promise.all([...commandIds].map(async (commandId) => {
-      try {
-        const command = await lidarrService.getCommand(commandId, { timeoutMs: 8000 });
-        if (command) commandMap.set(commandId, command);
-      } catch (_err) {
-        // Ignore command lookup failures here; the page can still render from cached progress data.
-      }
-    }));
-  }
-  if (lidarrService?.isConfigured() && albumIds.size) {
-    await Promise.all([...albumIds].map(async (albumId) => {
-      try {
-        const album = await lidarrService.getAlbum(albumId, { timeoutMs: 8000 });
-        if (album) albumMap.set(albumId, album);
-      } catch (_err) {
-        // Ignore album lookup failures here; the page can still render from cached progress data.
-      }
-    }));
-  }
 
   const enrichedSuggestions = suggestions.map((artist) => {
     const key = normalizeName(artist.artistName);
     const progress = progressMap.get(key) || null;
     const reason = artist?.reason && typeof artist.reason === 'object' ? artist.reason : {};
-    const starterAlbum = reason?.starterAlbum && typeof reason.starterAlbum === 'object' ? reason.starterAlbum : null;
-    const latestAlbum = reason?.latestAlbum && typeof reason.latestAlbum === 'object' ? reason.latestAlbum : null;
-    const liveCommand = commandMap.get(Number(starterAlbum?.commandId || 0)) || null;
-    const liveAlbum = albumMap.get(Number(latestAlbum?.albumId || starterAlbum?.albumId || 0)) || null;
-    const isInLidarr = Boolean(key && lidarrNames.has(key))
-      || Boolean(artist?.lidarrArtistId)
+    // isInLidarr from local DB only — lidarrArtistId is set by the background
+    // service once the artist is confirmed in Lidarr.
+    const isInLidarr = Boolean(artist?.lidarrArtistId)
       || Boolean(progress?.lidarrArtistId)
       || Boolean(reason?.lidarrExisting);
-    let derived = deriveLidarrStateLabel(artist, progress, liveCommand, liveAlbum);
-    if (isInLidarr && ['suggested', 'queued_for_lidarr', 'quota_blocked', 'adding_to_lidarr'].includes(derived.key)) {
-      derived = { key: 'already_in_lidarr', label: 'Already in Lidarr', tone: 'neutral', detail: '' };
+    let derived = deriveLidarrStateLabel(artist, progress);
+    if (isInLidarr && derived.key === 'suggested') {
+      derived = { key: 'in_progress', label: 'In progress', tone: 'half-decent', detail: '' };
     }
     const sourceLabel = resolveLidarrSourceLabel(artist, derived.key) || resolveLidarrSourceFromRequest(requestMap.get(key));
     return {
       ...artist,
       isInLidarr,
       lidarrProgress: progress,
-      lidarrCommand: liveCommand,
-      lidarrAlbum: liveAlbum,
       reviewable: isProgressReviewable(progress, derived.key),
       lidarrStatusKey: derived.key,
       lidarrStatusLabel: derived.label,
@@ -2314,7 +2060,15 @@ async function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedA
     };
   });
 
-  const actionableSuggestions = enrichedSuggestions.filter((artist) => artist.lidarrStatusKey !== 'already_in_lidarr');
+  const IN_LIBRARY_GRACE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+  const now = Date.now();
+  const actionableSuggestions = enrichedSuggestions.filter((artist) => {
+    if (artist.lidarrStatusKey !== 'in_library') return true;
+    // Keep in pipeline during grace period so the user can see acquisition completed.
+    // After 14 days, drop it — no longer needs attention.
+    const settledAt = Number(artist.lidarrProgress?.updatedAt || artist.lidarrProgress?.lastAlbumAddedAt || 0);
+    return settledAt > 0 && (now - settledAt) < IN_LIBRARY_GRACE_MS;
+  });
   const activityMap = new Map();
 
   enrichedSuggestions.forEach((artist) => {
@@ -2360,4 +2114,137 @@ async function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedA
     items,
     counts,
   };
+}
+
+function formatDiscoverAlbumStamp(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return '';
+  try {
+    return new Date(value).toISOString().slice(0, 10);
+  } catch (_err) {
+    return '';
+  }
+}
+
+function normalizeDiscoverAlbumKey(artistName = '', albumTitle = '') {
+  return `${normalizeName(artistName)}::${normalizeName(albumTitle)}`;
+}
+
+function resolveDiscoverAlbumImageUrl(album = {}) {
+  const directUrl = String(
+    album?.selectedAlbumImageUrl
+    || album?.preferredAlbumImageUrl
+    || album?.albumImageUrl
+    || album?.imageUrl
+    || ''
+  ).trim();
+  if (directUrl) return directUrl;
+  const imagePath = String(album?.imagePath || '').trim();
+  if (imagePath) return `/api/music/lidarr/image?path=${encodeURIComponent(imagePath)}`;
+  const foreignAlbumId = String(
+    album?.foreignAlbumId
+    || album?.selectedForeignAlbumId
+    || album?.releaseGroupMbid
+    || ''
+  ).trim();
+  if (foreignAlbumId) return `/api/music/cover/release-group/${encodeURIComponent(foreignAlbumId)}`;
+  return '';
+}
+
+function buildDiscoverRecentAlbumCarousels(db, userPlexId, { addedLimit = 16, requestedLimit = 16 } = {}) {
+  const suggestedAlbumState = new Map(
+    listSuggestedAlbums(db, userPlexId, { limit: 1000 }).map((album) => ([
+      normalizeDiscoverAlbumKey(album.artistName, album.albumTitle),
+      album,
+    ])),
+  );
+
+  const requests = listLidarrRequests(db, userPlexId, {
+    statuses: ['queued', 'processing', 'completed', 'failed'],
+    limit: 250,
+  })
+    .slice()
+    .sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+
+  const items = requests.map((request) => {
+    const detail = request?.detail && typeof request.detail === 'object' ? request.detail : {};
+    const artistName = String(request?.artistName || '').trim();
+    const albumTitle = String(
+      request?.albumTitle
+      || detail.selectedAlbumTitle
+      || detail.starterAlbumTitle
+      || detail.latestAlbumTitle
+      || detail.preferredAlbumTitle
+      || ''
+    ).trim();
+    if (!artistName || !albumTitle) return null;
+
+    const suggestion = suggestedAlbumState.get(normalizeDiscoverAlbumKey(artistName, albumTitle)) || null;
+    const albumMatch = resolveLibraryAlbumMatch(db, {
+      artistName,
+      albumTitle,
+      alternateTitles: [
+        detail.selectedAlbumTitle,
+        detail.starterAlbumTitle,
+        detail.latestAlbumTitle,
+        detail.preferredAlbumTitle,
+      ],
+    });
+    const inLibrary = detail.manualAvailabilityOverride === true || albumMatch.inLibrary === true;
+    const requestStatus = String(request?.status || '').trim().toLowerCase();
+    const monitoringConfirmed = detail.monitoredConfirmed === true || detail.alreadyMonitored === true;
+    const statusKey = inLibrary
+      ? 'available'
+      : ((requestStatus === 'queued' || requestStatus === 'processing' || (requestStatus === 'completed' && (monitoringConfirmed || Number(request?.lidarrAlbumId || 0) > 0)))
+        ? 'pending'
+        : 'missing');
+    const excluded = String(suggestion?.status || '').trim().toLowerCase() === 'dismissed';
+    const sourceLabel = formatLidarrSourceLabel(detail.albumSource || detail.requestSource || request?.sourceKind || '');
+    const stamp = formatDiscoverAlbumStamp(request?.updatedAt || request?.processedAt || request?.createdAt || 0);
+    const metaParts = [artistName];
+    metaParts.push((requestStatus === 'completed' && statusKey === 'available') ? `Added ${stamp || 'recently'}` : `Requested ${stamp || 'recently'}`);
+    if (sourceLabel) metaParts.push(sourceLabel);
+
+    return {
+      key: `${request.id}:${normalizeDiscoverAlbumKey(artistName, albumTitle)}`,
+      artistName,
+      foreignArtistId: String(request?.foreignArtistId || '').trim(),
+      albumTitle,
+      albumId: Number(request?.lidarrAlbumId || detail.albumId || detail.lidarrAlbumId || 0) || 0,
+      foreignAlbumId: String(detail.foreignAlbumId || detail.selectedForeignAlbumId || '').trim(),
+      albumType: String(detail.albumType || suggestion?.albumType || '').trim(),
+      releaseDate: String(detail.releaseDate || suggestion?.releaseDate || '').trim(),
+      source: String(detail.source || detail.albumSource || '').trim(),
+      image: resolveDiscoverAlbumImageUrl({
+        selectedAlbumImageUrl: detail.selectedAlbumImageUrl,
+        preferredAlbumImageUrl: detail.preferredAlbumImageUrl,
+        albumImageUrl: detail.albumImageUrl,
+        imageUrl: detail.imageUrl,
+        imagePath: detail.imagePath,
+        foreignAlbumId: detail.foreignAlbumId || detail.selectedForeignAlbumId,
+      }),
+      excluded,
+      statusKey,
+      requestable: statusKey === 'missing' && !excluded,
+      statusLabel: statusKey === 'available' ? 'In library' : (statusKey === 'pending' ? 'Monitored in Lidarr' : 'Not in library'),
+      meta: metaParts.join(' · '),
+      createdAt: Number(request?.createdAt || 0),
+      updatedAt: Number(request?.updatedAt || request?.createdAt || 0),
+    };
+  }).filter(Boolean);
+
+  const recentRequested = items.slice(0, Math.max(1, Number(requestedLimit) || 16));
+
+  const seenAdded = new Set();
+  const recentAdded = items
+    .filter((item) => item.statusKey === 'available')
+    .filter((item) => {
+      const key = normalizeDiscoverAlbumKey(item.artistName, item.albumTitle);
+      if (seenAdded.has(key)) return false;
+      seenAdded.add(key);
+      return true;
+    })
+    .slice(0, Math.max(1, Number(addedLimit) || 16));
+
+  return { recentAdded, recentRequested };
 }

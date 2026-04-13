@@ -993,8 +993,56 @@ body.cur-modal-open {
 
 .cur-suggest-actions {
   justify-content: flex-end;
-  min-width: 168px;
-  flex-wrap: wrap;
+  min-width: 40px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.cur-panel-meta--warn {
+  color: var(--amber, #f59e0b);
+}
+
+.cur-suggest-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.cur-suggest-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: transparent;
+  color: var(--text-muted, rgba(255,255,255,.5));
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+  padding: 0;
+}
+
+.cur-suggest-dots:hover {
+  background: rgba(255,255,255,.1);
+  color: var(--text, #e8eef7);
+  border-color: rgba(255,255,255,.3);
+}
+
+.cur-suggest-menu {
+  position: absolute;
+  top: auto;
+  bottom: calc(100% + 4px);
+  right: 0;
+  min-width: 140px;
+  z-index: 120;
+}
+
+.cur-suggest-menu.cur-suggest-menu--down {
+  top: calc(100% + 4px);
+  bottom: auto;
 }
 
 .cur-suggest-score {
@@ -5665,6 +5713,14 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-panel--manual-discovery .cur-panel-body {
   padding-inline: 12px;
+}
+
+.cur-panel--manual-discovery .cur-score-explainer {
+  padding-inline: 0;
+}
+
+.cur-panel--manual-discovery .cur-discover-search {
+  padding-inline: 0;
 }
 
 .cur-discover-module .plex-topbar-actions {

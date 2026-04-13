@@ -3396,7 +3396,7 @@ export function updateLidarrRequest(db, requestId, changes = {}, userPlexId = ''
 export function removeQueuedLidarrRequest(db, requestId, userPlexId = '') {
   const existing = getLidarrRequest(db, requestId, userPlexId);
   if (!existing) return null;
-  if (!['queued', 'processing', 'failed'].includes(String(existing.status || ''))) return existing;
+  if (!['queued', 'processing', 'failed', 'completed'].includes(String(existing.status || ''))) return existing;
   return updateLidarrRequest(db, existing.id, {
     status: 'removed',
     processedAt: Date.now(),

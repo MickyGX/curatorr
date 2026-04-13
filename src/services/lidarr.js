@@ -1056,7 +1056,7 @@ export function createLidarrService(ctx) {
     const foreignAlbumId = String(options.foreignAlbumId || '').trim();
     if (!artistName || !albumTitle) throw new Error('artistName and albumTitle are required');
 
-    if (source === 'lidarr' && albumId) {
+    if (albumId) {
       const album = await getAlbum(albumId, { timeoutMs: Number(options.timeoutMs || 12000) });
       if (!album) throw new Error('Album not found in Lidarr.');
       const preview = mapPreviewAlbum(album, 'lidarr');
@@ -2763,6 +2763,19 @@ export function createLidarrService(ctx) {
             lastErrorCode: err?.code || '',
           },
         }, request.userPlexId);
+        // Reset the suggestion out of queued_for_lidarr so the artist doesn't stay
+        // permanently stuck in the pipeline with a Queued badge after a failure.
+        const failedSuggestion = getSuggestedArtist(db, request.userPlexId, request.artistName);
+        if (failedSuggestion && String(failedSuggestion.status || '').trim() === 'queued_for_lidarr') {
+          const resetStatus = Number(request.lidarrArtistId || 0) > 0 ? 'added_to_lidarr' : 'suggested';
+          setSuggestedArtistStatus(db, request.userPlexId, request.artistName, resetStatus, {
+            reason: {
+              ...(failedSuggestion.reason || {}),
+              lastFailedRequestId: request.id,
+              lastFailedAt: Date.now(),
+            },
+          });
+        }
         results.push({
           requestId: request.id,
           ok: false,

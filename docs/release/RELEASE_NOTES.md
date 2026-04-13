@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.71 (2026-04-13)
+
+- Reworked the Discover page around clearer acquisition flows: the top section now separates recent album activity from artist pipeline status, manual discovery aligns more cleanly with the media-card layout, and the artist pipeline menu behaves correctly for top-row entries.
+- Added new recent album carousels and richer album popups, including Recently Added and Recently Requested sections, consistent album-card actions, better state-aware popup messaging, fallback artwork handling, and full track details when Lidarr album data is available.
+- Fixed Lidarr request cleanup so failed or stale completed requests can be removed cleanly and no longer leave artists permanently stuck in queued pipeline states.
+
 ## v0.1.70 (2026-04-13)
 
 - Added broader import and refresh workflows for external playlists: the Playlists page can now import YouTube playlist URLs, Last.fm generated playlists, and ListenBrainz generated playlists, while imported playlists now support configurable automatic refresh periods.

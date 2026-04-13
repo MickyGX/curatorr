@@ -2661,6 +2661,9 @@ export function registerApiMusic(app, ctx) {
       const albumId = Number(req.query?.albumId || 0) || null;
       const foreignAlbumId = String(req.query?.foreignAlbumId || '').trim();
       const source = String(req.query?.source || '').trim().toLowerCase();
+      const hintedStatusKey = String(req.query?.statusKey || '').trim().toLowerCase();
+      const hintedStatusLabel = String(req.query?.statusLabel || '').trim();
+      const hintedThumb = String(req.query?.thumb || '').trim();
       if (!artistName || !albumTitle) return res.status(400).json({ error: 'artist and album are required.' });
 
       const overview = await lidarrService.previewManualAlbumOverview({
@@ -2680,7 +2683,9 @@ export function registerApiMusic(app, ctx) {
         : (String(overview?.statusKey || '') === 'available'
           ? 'available'
           : ((requestedStatus === 'pending' || String(overview?.statusKey || '') === 'pending') ? 'pending' : 'missing'));
-      const statusMeta = getManualAlbumStatusMeta(resolvedStatus);
+      const statusKey = ['available', 'pending', 'missing'].includes(hintedStatusKey) ? hintedStatusKey : resolvedStatus;
+      const statusMeta = getManualAlbumStatusMeta(statusKey);
+      const statusLabel = hintedStatusLabel || statusMeta.label;
       const tracks = (Array.isArray(overview?.trackList) ? overview.trackList : [])
         .map((track, index) => ({
           title: String(track?.title || '').trim(),
@@ -2695,25 +2700,30 @@ export function registerApiMusic(app, ctx) {
             || (left.absoluteNumber - right.absoluteNumber)
             || left.title.localeCompare(right.title);
         });
+      const overviewText = statusKey === 'available'
+        ? `${albumTitle} is already in your library.`
+        : (statusKey === 'pending'
+          ? `${albumTitle} is already added in Lidarr and is waiting to arrive in your library.`
+          : String(overview?.overview || `${albumTitle} by ${artistName}`));
       return res.json({
         ok: true,
         item: {
           kind: 'album',
           title: String(overview?.albumTitle || albumTitle || '').trim(),
           subtitle: artistName,
-          overview: String(overview?.overview || `${albumTitle} by ${artistName}`),
-          thumb: String(overview?.thumb || '').trim(),
+          overview: overviewText,
+          thumb: String(overview?.thumb || hintedThumb || '').trim(),
           art: artistName ? `/api/music/thumb/artist/${encodeURIComponent(artistName)}` : String(overview?.art || '').trim(),
           posterRatio: 'square',
           pills: [
             'Album',
-            statusMeta.label,
+            statusLabel,
             String(overview?.albumType || '').trim() || '',
             String(overview?.source || source || '').trim() || '',
           ].filter(Boolean),
           stats: [
             { label: 'Tracks', value: Number(overview?.trackCount || tracks.length || 0) },
-            { label: 'Available', value: Number(overview?.trackFileCount || 0) > 0 ? 'Yes' : 'No' },
+            { label: 'Available', value: statusKey === 'available' ? 'Yes' : 'No' },
             overview?.releaseDate ? { label: 'Released', value: formatOverviewReleaseDate(overview.releaseDate) } : null,
           ].filter(Boolean),
           trackList: tracks.map((track, index) => ({
@@ -2725,8 +2735,8 @@ export function registerApiMusic(app, ctx) {
             kind: 'manual-discovery-add-album',
             label: existingState.excluded
               ? 'Excluded from adds'
-              : (statusMeta.key === 'available' ? 'Already in library' : (statusMeta.key === 'pending' ? 'Already added' : 'Add album')),
-            disabled: !statusMeta.selectable || existingState.excluded,
+              : (statusKey === 'available' ? 'Already in library' : (statusKey === 'pending' ? 'Already added' : 'Add album')),
+            disabled: statusKey !== 'missing' || existingState.excluded,
             payload: {
               artistName,
               albumTitle: String(overview?.albumTitle || albumTitle || '').trim(),
@@ -3154,6 +3164,20 @@ export function registerApiMusic(app, ctx) {
         deletedAt: Date.now(),
       },
     }, existing.userPlexId);
+    // If the artist suggestion is stuck at queued_for_lidarr (set when the request was
+    // enqueued but never cleared on failure), reset it so the artist doesn't stay
+    // permanently stuck in the pipeline with a Queued badge.
+    const suggestion = getSuggestedArtist(db, existing.userPlexId, existing.artistName);
+    if (suggestion && String(suggestion.status || '').trim() === 'queued_for_lidarr') {
+      const resetStatus = Number(existing.lidarrArtistId || 0) > 0 ? 'added_to_lidarr' : 'suggested';
+      setSuggestedArtistStatus(db, existing.userPlexId, existing.artistName, resetStatus, {
+        reason: {
+          ...(suggestion.reason || {}),
+          lastFailedRequestId: existing.id,
+          lastFailedAt: Date.now(),
+        },
+      });
+    }
     return res.json({ ok: true, request: removed });
   });
 

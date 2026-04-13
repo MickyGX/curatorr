@@ -35,6 +35,9 @@
       if (trigger.dataset.curOverviewSource) params.set('source', trigger.dataset.curOverviewSource);
       if (trigger.dataset.curOverviewAlbumType) params.set('albumType', trigger.dataset.curOverviewAlbumType);
       if (trigger.dataset.curOverviewReleaseDate) params.set('releaseDate', trigger.dataset.curOverviewReleaseDate);
+      if (trigger.dataset.curOverviewStatusKey) params.set('statusKey', trigger.dataset.curOverviewStatusKey);
+      if (trigger.dataset.curOverviewStatusLabel) params.set('statusLabel', trigger.dataset.curOverviewStatusLabel);
+      if (trigger.dataset.curOverviewThumb) params.set('thumb', trigger.dataset.curOverviewThumb);
       return '/api/music/lidarr/manual/album-overview?' + params.toString();
     }
     if (kind === 'manual-curatorr-pick') {
