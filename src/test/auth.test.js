@@ -603,7 +603,7 @@ describe('page scoping', () => {
 });
 
 describe('user settings integrations', () => {
-  it('saves ListenBrainz playlist preferences', async () => {
+  it('saves ListenBrainz account settings and clears legacy playlist toggles', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
 
@@ -615,13 +615,6 @@ describe('user settings integrations', () => {
     form.set('_csrf', csrfToken);
     form.set('listenbrainzUsername', 'lb-user');
     form.set('listenbrainzToken', 'lb-token');
-    form.append('listenbrainzPlaylists', 'daily-jams');
-    form.append('listenbrainzPlaylists', 'weekly-exploration');
-    form.set('listenbrainzSort_daily-jams', 'djFlow');
-    form.set('listenbrainzFinalOrdering_daily-jams', 'plexSonic');
-    form.set('listenbrainzSort_weekly-exploration', 'playCount');
-    form.set('listenbrainzFinalOrdering_weekly-exploration', 'loudness');
-
     const res = await client.request('/user-settings/listenbrainz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -636,17 +629,13 @@ describe('user settings integrations', () => {
       const prefs = getUserPreferences(db, 'testadmin');
       assert.equal(prefs.listenbrainzUsername, 'lb-user');
       assert.equal(prefs.listenbrainzToken, 'lb-token');
-      assert.deepEqual(prefs.listenbrainzEnabledPlaylists, ['daily-jams', 'weekly-exploration']);
-      assert.equal(prefs.listenbrainzPlaylistSorts['daily-jams'], 'djFlow');
-      assert.equal(prefs.listenbrainzPlaylistFinalOrderings['daily-jams'], 'plexSonic');
-      assert.equal(prefs.listenbrainzPlaylistSorts['weekly-exploration'], 'playCount');
-      assert.equal(prefs.listenbrainzPlaylistFinalOrderings['weekly-exploration'], 'loudness');
+      assert.deepEqual(prefs.listenbrainzEnabledPlaylists, []);
     } finally {
       db.close();
     }
   });
 
-  it('saves Last.fm station ordering preferences', async () => {
+  it('saves Last.fm username settings and clears legacy station toggles', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
 
@@ -657,13 +646,6 @@ describe('user settings integrations', () => {
     const form = new URLSearchParams();
     form.set('_csrf', csrfToken);
     form.set('lastfmUsername', 'last-user');
-    form.append('lastfmStations', 'mix');
-    form.set('lastfmTopTracks', '1month');
-    form.set('lastfmSort_mix', 'tierWeight');
-    form.set('lastfmFinalOrdering_mix', 'plexSonicLoudness');
-    form.set('lastfmTopTracksSort', 'djFlow');
-    form.set('lastfmTopTracksFinalOrdering', 'loudness');
-
     const res = await client.request('/user-settings/lastfm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -677,11 +659,7 @@ describe('user settings integrations', () => {
     try {
       const prefs = getUserPreferences(db, 'testadmin');
       assert.equal(prefs.lastfmUsername, 'last-user');
-      assert.deepEqual(prefs.lastfmEnabledStations, ['mix', 'topTracks:1month']);
-      assert.equal(prefs.lastfmStationSorts.mix, 'tierWeight');
-      assert.equal(prefs.lastfmStationFinalOrderings.mix, 'plexSonicLoudness');
-      assert.equal(prefs.lastfmStationSorts['topTracks:1month'], 'djFlow');
-      assert.equal(prefs.lastfmStationFinalOrderings['topTracks:1month'], 'loudness');
+      assert.deepEqual(prefs.lastfmEnabledStations, []);
     } finally {
       db.close();
     }
