@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.76 (2026-04-14)
+
+- Recommendation rebuilds now purge old `suggested` collaboration-credit rows that were written before the collaboration filter existed, so stale joint-credit artists do not linger in Discover after upgrading.
+- Collaboration cleanup now runs against the retained suggestion pool during rebuilds, ensuring the newer artist-collaboration rules apply to previously persisted entries as well as newly generated suggestions.
+- This removes leftover recommendation noise without requiring users to wait for retention expiry or manually clear stale collaboration suggestions.
+
 ## v0.1.75 (2026-04-14)
 
 - Simplified artist collaboration filtering so joint credits are now suppressed whenever any credited artist is already present in the user’s library, reducing recommendation noise for common guest-collaboration patterns.

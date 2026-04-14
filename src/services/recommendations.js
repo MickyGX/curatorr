@@ -921,6 +921,26 @@ export function createRecommendationService(ctx) {
       limits,
     });
 
+    // Purge any collaboration credits that survived from previous rebuilds.
+    // replaceSuggestions retains existing 'suggested' rows within the retention
+    // window, so entries written before the filter existed must be cleaned up
+    // explicitly here.
+    const catalogArtistKeys = new Set(catalog.artists.keys());
+    const staleSuggested = db.prepare(`
+      SELECT artist_name FROM suggested_artists
+      WHERE user_plex_id = ? AND status = 'suggested'
+    `).all(userPlexId);
+    const collaborationNames = staleSuggested
+      .map((r) => r.artist_name)
+      .filter((name) => isCollaborationCredit(name, catalogArtistKeys));
+    if (collaborationNames.length > 0) {
+      const del = db.prepare(`
+        DELETE FROM suggested_artists
+        WHERE user_plex_id = ? AND artist_name = ? AND status = 'suggested'
+      `);
+      for (const name of collaborationNames) del.run(userPlexId, name);
+    }
+
     return {
       generatedAt: Date.now(),
       mode: ARTIST_RECOMMENDATION_MODEL_VERSION,
