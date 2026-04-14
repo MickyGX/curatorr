@@ -1938,6 +1938,7 @@ export async function start() {
       },
       tautulliDailySync: () => runTautulliDailySync(_routeCtx),
       lidarrReviewArtists: async () => {
+        await _routeCtx.lidarrService?.markExistingLidarrArtists();
         await _routeCtx.lidarrService?.autoQueueSuggestedArtists({ perUserLimit: 1 });
         return _routeCtx.lidarrService?.reviewDueArtists({ limit: 20 });
       },

@@ -1656,6 +1656,40 @@ export function createLidarrService(ctx) {
     const trackedAlbum = resolveTrackedAlbum(baseReason);
     const albumId = Number(trackedAlbum?.albumId || 0);
     if (!albumId) {
+      // If the artist was previously confirmed as acquired but the tracked album
+      // reference is stale (e.g. Lidarr nightly re-numbering), verify via Lidarr
+      // artist stats before allowing a stage regression. If the artist still has
+      // downloaded files, preserve the acquired state and reschedule rather than
+      // re-queuing another album.
+      const priorStage = String(existingProgress?.currentStage || '').trim().toLowerCase();
+      const lidarrArtistId = Number(existingProgress?.lidarrArtistId || existingSuggestion?.lidarrArtistId || 0);
+      if (priorStage === 'album_acquired' && lidarrArtistId > 0) {
+        try {
+          const liveArtist = await getArtist(lidarrArtistId, { timeoutMs: 10000 });
+          if (liveArtist && Number(liveArtist.statistics?.trackFileCount || 0) > 0) {
+            const nextProgress = {
+              artistName,
+              lidarrArtistId,
+              currentStage: 'album_acquired',
+              albumsAddedCount: Number(existingProgress?.albumsAddedCount || 0),
+              highestObservedRank: normalizeStoredRank(existingProgress?.highestObservedRank, 0),
+              lastAlbumAddedAt: existingProgress?.lastAlbumAddedAt ?? null,
+              nextReviewAt: now + WEEK_MS,
+              lastManualSearchAt: existingProgress?.lastManualSearchAt ?? null,
+              lastManualSearchStatus: existingProgress?.lastManualSearchStatus || '',
+              updatedAt: now,
+            };
+            saveLidarrArtistProgress(db, userPlexId, nextProgress);
+            logEvent('info', 'review.acquired_confirmed', `Preserved album_acquired stage for ${userPlexId}: ${artistName} — stale album reference but artist has ${liveArtist.statistics.trackFileCount} file(s)`, {
+              lidarrArtistId,
+            });
+            return { ok: true, status: 'album_acquired_confirmed', progress: nextProgress };
+          }
+        } catch (_err) {
+          // Can't reach Lidarr — fall through to no_tracked_album so the caller
+          // can decide whether to retry or proceed to expansion.
+        }
+      }
       return { ok: false, status: 'no_tracked_album', progress: existingProgress };
     }
 
@@ -2712,6 +2746,51 @@ export function createLidarrService(ctx) {
     return results;
   }
 
+  // Marks suggested artists that are already in Lidarr as 'already_in_lidarr', regardless
+  // of whether automation is enabled. This ensures manually-added Lidarr artists are
+  // correctly recognised instead of showing as "Suggested" in the Discover pipeline.
+  async function markExistingLidarrArtists() {
+    if (!db || !isConfigured()) return [];
+    const userIds = listUsersWithSuggestedArtists(db);
+    if (!userIds.length) return [];
+    let existingByName;
+    try {
+      const currentArtists = await listArtists({ pageSize: 2000, timeoutMs: 15000 });
+      existingByName = new Map(
+        currentArtists
+          .map((artist) => [normalizeTitle(artist?.artistName), artist])
+          .filter(([name]) => Boolean(name)),
+      );
+    } catch (err) {
+      logEvent('warn', 'existing_sync.list_failed', 'Failed to fetch Lidarr artist list for existing-artist reconciliation.', {
+        error: safeMessage(err),
+      });
+      return [];
+    }
+    const results = [];
+    for (const userPlexId of userIds) {
+      const candidates = listSuggestedArtists(db, userPlexId, { status: 'suggested', limit: 200 });
+      for (const candidate of candidates) {
+        const existingArtist = existingByName.get(normalizeTitle(candidate.artistName));
+        if (!existingArtist) continue;
+        setSuggestedArtistStatus(db, userPlexId, candidate.artistName, 'already_in_lidarr', {
+          reason: {
+            ...(candidate.reason || {}),
+            manualAction: 'already_in_lidarr',
+            manualActionAt: Date.now(),
+            lidarrExisting: true,
+          },
+          lidarrArtistId: Number(existingArtist.id || 0) || null,
+        });
+        logEvent('info', 'existing_sync.marked', `Marked ${candidate.artistName} as already in Lidarr for ${userPlexId}`, {
+          lidarrArtistId: Number(existingArtist.id || 0) || null,
+        });
+        results.push({ userPlexId, artistName: candidate.artistName, lidarrArtistId: Number(existingArtist.id || 0) || null });
+      }
+    }
+    return results;
+  }
+
   async function processQueuedRequests(options = {}) {
     if (!db) return [];
     const settings = getSettings();
@@ -2827,6 +2906,7 @@ export function createLidarrService(ctx) {
     queueArtistAlbumRequest,
     processQueuedRequests,
     autoQueueSuggestedArtists,
+    markExistingLidarrArtists,
     addArtistFromSuggestion,
   };
 }

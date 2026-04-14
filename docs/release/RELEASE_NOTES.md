@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.73 (2026-04-14)
+
+- Discover now reconciles suggested artists against the live Lidarr artist list before review runs, so artists you already added manually in Lidarr are marked as `already_in_lidarr` instead of continuing to appear as fresh Curatorr suggestions.
+- Fixed artist progression regressions when Lidarr album references go stale: if an artist was already marked `album_acquired` and Lidarr still reports downloaded files, Curatorr preserves the acquired state and reschedules review instead of dropping the artist back into expansion.
+- Filtered collaboration credits out of artist discovery candidates, preventing MusicBrainz-style `feat.`, `featuring`, `ft.`, and known `Artist A & Artist B` joint credits from surfacing as standalone suggestions.
+
 ## v0.1.72 (2026-04-14)
 
 - Rebuilt the Artist Pipeline scoring model so Last.fm similar artists compete fairly alongside library-affinity artists: genre affinity now expands compound catalog genres (e.g. Pop/Rock → pop + rock) so Last.fm tags match correctly, and similar artists inherit genre context from their seed artists' catalog genres plus their own Last.fm top tags.

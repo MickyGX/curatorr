@@ -411,6 +411,7 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
   const librarySuggestions = [];
   const lastfmSuggestions = [];
 
+  const catalogArtistKeys = new Set(catalog.artists.keys());
   for (const artist of catalog.artists.values()) {
     const artistKey = keyify(artist.artistName);
     const stats = userState.artistStats.get(artistKey);
@@ -418,6 +419,7 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
     if (stats?.manually_excluded || stats?.excluded_from_smart) continue;
     if (likedArtistKeys.has(artistKey)) continue;
     if (stats && Number(stats.play_count || 0) >= 12 && Number(stats.ranking_score || 0) >= 7) continue;
+    if (isCollaborationCredit(artist.artistName, catalogArtistKeys)) continue;
 
     const candidateGenres = [...artist.genres];
     const genreScore = compressArtistGenreScore(scoreGenreSet(candidateGenres, limits.genreAffinity));
@@ -473,6 +475,7 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
     if (artistKeyInSet(artistKey, ignoredArtistKeys)) continue;
     if (likedArtistKeys.has(artistKey)) continue;
     if (topArtistKeys.has(artistKey)) continue;
+    if (isCollaborationCredit(lastfmSimilarity.artistName, catalogArtistKeys)) continue;
 
     const stats = userState.artistStats.get(artistKey);
     if (stats?.manually_excluded || stats?.excluded_from_smart) continue;
@@ -560,6 +563,21 @@ function artistKeyInSet(artistKey, keySet) {
   if (keySet.has(artistKey)) return true;
   const parts = artistKey.split(/\s*[&\/,]\s*|\s+and\s+/).map((s) => s.trim()).filter(Boolean);
   return parts.length > 1 && parts.some((p) => keySet.has(p));
+}
+
+// Returns true for MusicBrainz-style collaboration credits that should not be
+// treated as standalone discovery candidates:
+//   - "Artist A feat. Artist B" / "featuring" / "ft." are always joint credits
+//   - "Artist A & Artist B" where BOTH component parts are already in the user's
+//     library (catalog.artists) — a session collaboration of known artists
+function isCollaborationCredit(artistName, catalogArtistKeys) {
+  const name = String(artistName || '').trim();
+  if (/\b(feat|featuring|ft)\.?\s/i.test(name)) return true;
+  if (catalogArtistKeys) {
+    const parts = name.split(/\s*&\s*/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (parts.length >= 2 && parts.every((p) => catalogArtistKeys.has(p))) return true;
+  }
+  return false;
 }
 
 function buildTrackSuggestions(profile, catalog, userState, artistSuggestions, limits) {
