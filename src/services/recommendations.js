@@ -566,47 +566,38 @@ function artistKeyInSet(artistKey, keySet) {
 }
 
 // Returns true for MusicBrainz-style collaboration credits that should not be
-// treated as standalone discovery candidates. Handles four patterns:
+// treated as standalone discovery candidates.
 //
-//   1. feat./featuring/ft. anywhere in the name — always a joint credit.
+// Strategy: split the name on commas and ampersands to get the credited
+// individuals, then apply two tests:
 //
-//   2. The joint name is in the library AND the first credited artist is also a
-//      known solo library artist — the "primary artist + guest(s)" pattern.
-//      Catches "Beyoncé & Post Malone", "Beyoncé, Linda Martell & Shaboozey"
-//      while leaving "Earth, Wind & Fire" alone (because "Earth" isn't a solo
-//      library artist).
+//   A. ANY component part is a key in catalogArtistKeys — the user already has
+//      that artist in their library, so the joint credit is a collaboration of
+//      a known artist, not a standalone act to discover. This catches Last.fm
+//      suggestions like "Doja Cat & The Weeknd" when the user has either artist,
+//      "Labrinth & Zendaya", "Doechii & SZA", "Coldplay & Rihanna", etc.
+//      Single-word band-name components ("Earth", "Wind", "Fire") won't appear
+//      as standalone catalog keys, so real named acts are left alone.
 //
-//   3. All individual component parts are separately in the library — e.g.
-//      "Coldplay & Rihanna" where the user has both artists.
-//
-//   4. The joint name is in the library AND every part looks like a person name
-//      (2+ words, no leading article) — catches "Leon Thomas & Benny the
-//      Butcher" without falsely catching "Southside Johnny & The Asbury Jukes"
-//      (the "The" guard) or duo band names with single-word parts.
+//   B. The joint name itself is in the library (library-affinity path where only
+//      the collaboration tracks are present, e.g. "Leon Thomas & Benny the
+//      Butcher") AND at least one part is multi-word (person-name indicator) AND
+//      no part opens with a definite/indefinite article — which would signal a
+//      named band component like "The Asbury Jukes".
 function isCollaborationCredit(artistName, catalogArtistKeys) {
   const name = String(artistName || '').trim();
-  // Pattern 1 — feat./featuring/ft. credits
+  // feat./featuring/ft. anywhere → always a joint credit, never a standalone act
   if (/\b(feat|featuring|ft)\.?\s/i.test(name)) return true;
   if (!catalogArtistKeys) return false;
-  // Split on commas and ampersands to enumerate all credited artists
   const parts = name.split(/\s*[,&]\s*/).map((s) => s.trim()).filter(Boolean);
   if (parts.length < 2) return false;
   const partKeys = parts.map((p) => p.toLowerCase());
-  const jointKey = name.toLowerCase();
-  const jointInLibrary = catalogArtistKeys.has(jointKey);
-  // Pattern 2 — joint name in library AND first part is a known solo artist.
-  // Requiring the joint name to be present avoids false positives for real named
-  // acts that happen to share a first-word with a library artist.
-  if (jointInLibrary && catalogArtistKeys.has(partKeys[0])) return true;
-  // Pattern 3 — every individual component is separately in the library
-  if (partKeys.every((p) => catalogArtistKeys.has(p))) return true;
-  // Pattern 4 — joint name in library, every part looks like a person name
-  if (jointInLibrary) {
-    const looksLikePersonNames = partKeys.every((p) => {
-      const words = p.split(/\s+/);
-      return words.length >= 2 && !/^(the|a|an)\s/i.test(p);
-    });
-    if (looksLikePersonNames) return true;
+  // Test A — any component is a known library artist
+  if (partKeys.some((p) => catalogArtistKeys.has(p))) return true;
+  // Test B — only the joint name is in the library (no individual solo entries)
+  if (catalogArtistKeys.has(name.toLowerCase())) {
+    const noArticleStart = partKeys.every((p) => !/^(the|a|an)\s/i.test(p));
+    if (noArticleStart && partKeys.some((p) => p.split(/\s+/).length >= 2)) return true;
   }
   return false;
 }

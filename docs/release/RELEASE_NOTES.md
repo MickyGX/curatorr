@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.75 (2026-04-14)
+
+- Simplified artist collaboration filtering so joint credits are now suppressed whenever any credited artist is already present in the user’s library, reducing recommendation noise for common guest-collaboration patterns.
+- Expanded collaboration detection to handle comma-separated credits and ampersand-separated credits with one shared path, improving coverage for suggestions like `Artist A, Guest B & Guest C`.
+- Kept the named-band safety guard by only applying the combined-name fallback when at least one credited part looks like a multi-word artist name and none of the parts begin with an article like `The`.
+
 ## v0.1.74 (2026-04-14)
 
 - Refined artist discovery collaboration filtering so joint credits already present in the library are suppressed more reliably, including comma-separated primary-artist-plus-guests patterns and person-name collaborations stored under a combined artist name.
