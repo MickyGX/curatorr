@@ -342,20 +342,16 @@
                   <% } %>
                   <% if (spotifyConfigured || youtubeConfigured) { %>
                   <div id="importUrlPanel" class="import-pl-panel" style="display:none">
-                    <% if (spotifyConnected || youtubeConfigured) { %>
                     <div class="import-url-providers" aria-label="URL import providers">
                       <span class="import-url-provider is-active" id="importUrlProviderBadge">Auto-detecting</span>
                     </div>
-                    <div class="cur-panel-meta import-url-note" id="importUrlSupportNote">Supported URLs: Spotify playlist links, URIs, playlist ids, and YouTube playlist links.</div>
+                    <div class="cur-panel-meta import-url-note" id="importUrlSupportNote">Supported URLs: Spotify playlist links, URIs, playlist ids<%= youtubeConfigured ? ', and YouTube playlist links' : '' %>.</div>
                     <label class="field import-pl-field">
                       <span>Paste a playlist URL or id</span>
-                      <input id="importUrlInput" class="cur-input" type="text" placeholder="https://open.spotify.com/playlist/... or https://www.youtube.com/playlist?list=..." autocomplete="off" oninput="onImportUrlInput()" />
+                      <input id="importUrlInput" class="cur-input" type="text" placeholder="https://open.spotify.com/playlist/..." autocomplete="off" oninput="onImportUrlInput()" />
                     </label>
-                  <% } else { %>
-                    <div class="cur-empty" style="display:block">Connect Spotify or configure YouTube in the server environment first.</div>
-                  <% } %>
                   </div>
-                  <% if (spotifyConnected || youtubeConfigured || lastfmUsername || listenbrainzUsername) { %>
+                  <% if (spotifyConfigured || youtubeConfigured || lastfmUsername || listenbrainzUsername) { %>
                   <div id="importPreviewWrap">
                     <div id="importSpotifyStatus" class="cur-panel-meta import-pl-status">Paste a supported playlist URL or id.</div>
                     <div id="importSpotifyPreview" class="import-spotify-preview" style="display:none">
@@ -1856,7 +1852,7 @@
 
     function getImportUrlSupportSummary() {
       var supported = [];
-      if (SPOTIFY_CONFIGURED) supported.push('Spotify playlist links, URIs, and playlist ids' + (SPOTIFY_CONNECTED ? '' : ' (requires Spotify connection)'));
+      if (SPOTIFY_CONFIGURED) supported.push('Spotify playlist links, URIs, and playlist ids');
       if (YOUTUBE_CONFIGURED) supported.push('YouTube playlist links and playlist ids');
       return supported.length ? supported.join('; ') : 'No URL providers are configured.';
     }
@@ -1865,18 +1861,18 @@
       var raw = String(value || '').trim();
       if (!raw) return { provider: '', label: 'Auto-detecting', supported: false };
       if (/^spotify:playlist:/i.test(raw)) {
-        return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED };
+        return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED };
       }
       if (/^(PL|LL|FL|UU|RD|OLAK5uy)[A-Za-z0-9_-]{10,}$/i.test(raw)) {
         return { provider: 'youtube', label: 'YouTube', supported: YOUTUBE_CONFIGURED };
       }
       if (/^[A-Za-z0-9]{20,}$/i.test(raw)) {
-        return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED };
+        return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED };
       }
       try {
         var parsed = new URL(raw);
         var host = String(parsed.hostname || '').toLowerCase();
-        if (host.endsWith('spotify.com')) return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED };
+        if (host.endsWith('spotify.com')) return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED };
         if (host.indexOf('youtube.com') !== -1 || host === 'youtu.be') return { provider: 'youtube', label: 'YouTube', supported: YOUTUBE_CONFIGURED };
         if (host.endsWith('music.apple.com')) return { provider: 'apple', label: 'Apple Music', supported: false };
         if (host.endsWith('deezer.com')) return { provider: 'deezer', label: 'Deezer', supported: false };

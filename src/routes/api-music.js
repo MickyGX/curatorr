@@ -1715,6 +1715,37 @@ export function registerApiMusic(app, ctx) {
     return auth;
   }
 
+  // Like getSpotifyAuthForUser but returns null instead of throwing when the
+  // user has not connected Spotify. Used for URL imports where the public-page
+  // scraper works without a token.
+  async function tryGetSpotifyAuthForUser(userPlexId) {
+    try {
+      return await getSpotifyAuthForUser(userPlexId);
+    } catch (err) {
+      if (Number(err?.status || 0) === 400) return null;
+      throw err;
+    }
+  }
+
+  async function fetchSpotifyPlaylistFromPublicPage(playlistId) {
+    if (typeof spotifyService?.getPlaylistFromPublicPage !== 'function') {
+      const err = new Error('Spotify integration is not configured.');
+      err.status = 400;
+      throw err;
+    }
+    const fallback = await spotifyService.getPlaylistFromPublicPage(playlistId);
+    return {
+      playlistMeta: fallback.playlist,
+      playlistItems: {
+        total: Number(fallback.total || 0),
+        items: Array.isArray(fallback.items) ? fallback.items : [],
+      },
+      warning: String(fallback.warning || '').trim(),
+      partial: fallback.partial === true,
+      source: 'public-page',
+    };
+  }
+
   function isSpotifySharedPlaylistFallbackError(err) {
     const status = Number(err?.status || 0);
     return status === 403 || status === 404;
@@ -3739,7 +3770,7 @@ export function registerApiMusic(app, ctx) {
     return res.json({ ok: true, tracks });
   });
 
-  app.post('/api/music/suggestions/rebuild', requireUser, (req, res) => {
+  app.post('/api/music/suggestions/rebuild', requireUser, async (req, res) => {
     const userPlexId = resolveSuggestionUserId(req);
     try {
       if (!userPlexId) {
@@ -3750,7 +3781,7 @@ export function registerApiMusic(app, ctx) {
           cached: { artists: [], albums: [], tracks: [] },
         });
       }
-      const rebuilt = recommendationService.rebuildSuggestionsForUser(userPlexId, {
+      const rebuilt = await recommendationService.rebuildSuggestionsForUser(userPlexId, {
         artistLimit: Math.min(100, Math.max(1, Number(req.body?.artistLimit || 12))),
         albumLimit: Math.min(100, Math.max(1, Number(req.body?.albumLimit || 12))),
         trackLimit: Math.min(200, Math.max(1, Number(req.body?.trackLimit || 24))),
@@ -4752,8 +4783,10 @@ export function registerApiMusic(app, ctx) {
       return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
     }
     try {
-      const auth = await getSpotifyAuthForUser(userPlexId);
-      const playlistSource = await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId);
+      const auth = await tryGetSpotifyAuthForUser(userPlexId);
+      const playlistSource = auth
+        ? await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId)
+        : await fetchSpotifyPlaylistFromPublicPage(playlistId);
       const playlistMeta = playlistSource.playlistMeta;
       const playlistItems = playlistSource.playlistItems;
       const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
@@ -4979,8 +5012,10 @@ export function registerApiMusic(app, ctx) {
       return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
     }
     try {
-      const auth = await getSpotifyAuthForUser(userPlexId);
-      const playlistSource = await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId);
+      const auth = await tryGetSpotifyAuthForUser(userPlexId);
+      const playlistSource = auth
+        ? await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId)
+        : await fetchSpotifyPlaylistFromPublicPage(playlistId);
       const playlistMeta = playlistSource.playlistMeta;
       const playlistItems = playlistSource.playlistItems;
       const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));

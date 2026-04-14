@@ -2730,12 +2730,28 @@ export function listSuggestedArtists(db, userPlexId, { status = '', limit = 25 }
   if (status) {
     clauses.push('status = ?');
     params.push(status);
+  } else {
+    // Exclude 'already_in_lidarr' — legacy status for artists that were in Lidarr before Curatorr
+    // saw them. The Lidarr progress table is authoritative; these entries serve no pipeline purpose.
+    clauses.push("status != 'already_in_lidarr'");
   }
   params.push(Math.max(1, Number(limit) || 25));
   return db.prepare(`
     SELECT * FROM suggested_artists
     WHERE ${clauses.join(' AND ')}
-    ORDER BY total_score DESC, artist_name ASC
+    ORDER BY
+      CASE status
+        WHEN 'stuck'             THEN 0
+        WHEN 'in_progress'       THEN 1
+        WHEN 'queued_for_lidarr' THEN 2
+        WHEN 'in_library'        THEN 3
+        WHEN 'suggested'         THEN 4
+        WHEN 'added_to_lidarr'   THEN 5
+        WHEN 'dismissed'         THEN 6
+        ELSE 7
+      END ASC,
+      total_score DESC,
+      artist_name ASC
     LIMIT ?
   `).all(...params).map(_normalizeSuggestedArtistRow);
 }

@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.1.72 (2026-04-14)
+
+- Rebuilt the Artist Pipeline scoring model so Last.fm similar artists compete fairly alongside library-affinity artists: genre affinity now expands compound catalog genres (e.g. Pop/Rock → pop + rock) so Last.fm tags match correctly, and similar artists inherit genre context from their seed artists' catalog genres plus their own Last.fm top tags.
+- Fixed a perpetual stale-rebuild loop caused by the model version check comparing against an outdated constant; the pipeline now only rebuilds when the stored model version genuinely differs from the current one.
+- Pipeline now refreshes scores for all artists in the full scored pool on each rebuild — not just the top-N — so stale suggested entries outside the display slot get updated scores without waiting for them to rank up first.
+- Added "Browse albums" and "Curatorr pick" actions to the pipeline menu: Browse albums loads the artist directly into the Manual Discovery section with a pre-populated artist card; Curatorr pick selects the highest-ranked starter album and sends it to Lidarr automatically.
+- Added configurable pipeline discovery settings: sensitivity slider (1–5) controls the minimum Last.fm similarity score required to surface an artist, and a minimum-role gate restricts the Last.fm pool to specific user roles.
+- Added a scheduled Artist Pipeline Rebuild job (default every 6 hours) so suggestions stay current without requiring a page visit.
+- Fixed inflated legacy scores: 152 rows with pre-model-versioning scores (200–330 range) were reset; actioned artists (in_progress, added_to_lidarr) now show a dash instead of a stale historical score.
+- Spotify playlist URL import now works without an active Spotify account connection, falling back to the public-page scraper so users can import shared playlists without OAuth.
+
 ## v0.1.71 (2026-04-13)
 
 - Reworked the Discover page around clearer acquisition flows: the top section now separates recent album activity from artist pipeline status, manual discovery aligns more cleanly with the media-card layout, and the artist pipeline menu behaves correctly for top-row entries.

@@ -68,6 +68,11 @@ export const JOB_DEFS = {
     description: 'Manually import your complete Last.fm scrobble history. Each run fetches one batch (~10,000 scrobbles) working backwards in time — run multiple times until complete. Progress is saved between runs per user.',
     manualOnly: true,
   },
+  suggestionRebuild: {
+    label: 'Artist Pipeline Rebuild',
+    description: 'Rebuilds artist, album, and track suggestions for all users using listening habits, genre affinity, and Last.fm similar artist data. Runs automatically every 6 hours; can also be triggered manually.',
+    defaultIntervalMinutes: 360,
+  },
   lidarrRetryFailed: {
     label: 'Lidarr: Retry Failed Requests',
     description: 'Re-queues failed Lidarr add requests so they are picked up by the next queue processing run. Requests that have already been retried 3 times are skipped.',

@@ -2008,6 +2008,17 @@ export async function start() {
       lastfmTagSync: () => syncLastfmTags(_routeCtx),
       lastfmHistorySync: () => runLastfmHistorySync(_routeCtx),
       lastfmHistoryBackfill: () => runLastfmHistoryBackfill(_routeCtx),
+      suggestionRebuild: async () => {
+        const userIds = getAllUserIds(db);
+        let rebuilt = 0;
+        for (const userId of userIds) {
+          const prefs = getUserPreferences(db, userId);
+          if (!prefs?.userWizardCompleted) continue;
+          await _routeCtx.recommendationService?.rebuildSuggestionsForUser(userId, { artistLimit: 16 }).catch(() => {});
+          rebuilt++;
+        }
+        return { message: `Rebuilt suggestions for ${rebuilt} user(s)` };
+      },
     };
     _routeCtx.jobService = createJobService(_routeCtx, _jobFunctions);
 

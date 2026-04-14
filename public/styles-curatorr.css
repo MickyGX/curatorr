@@ -1054,6 +1054,15 @@ body.cur-modal-open {
   color: var(--text, #e8eef7);
 }
 
+.cur-suggest-source-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  vertical-align: -2px;
+  border-radius: 3px;
+}
+
 /* ── Score explainer ─────────────────────────────────────────────────────── */
 
 .cur-score-explainer {

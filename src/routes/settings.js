@@ -1062,7 +1062,10 @@ export function registerSettings(app, ctx) {
     const showTrendingArtists = Boolean(req.body?.showTrendingArtists);
     const showTrendingTracks  = Boolean(req.body?.showTrendingTracks);
     const showSimilarArtists  = Boolean(req.body?.showSimilarArtists);
-    saveConfig({ ...config, discovery: { lastfmApiKey, region, showTrendingArtists, showTrendingTracks, showSimilarArtists } });
+    const similarArtistThreshold = Math.max(1, Math.min(5, Number(req.body?.similarArtistThreshold) || 3));
+    const similarArtistMinRole = ['admin', 'co-admin', 'power-user', 'user', 'disabled'].includes(req.body?.similarArtistMinRole)
+      ? req.body.similarArtistMinRole : 'power-user';
+    saveConfig({ ...config, discovery: { lastfmApiKey, region, showTrendingArtists, showTrendingTracks, showSimilarArtists, similarArtistThreshold, similarArtistMinRole } });
     return res.redirect('/settings?tab=discovery&success=1');
   });
 

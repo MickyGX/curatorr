@@ -1,5 +1,6 @@
 // Page routes — HTML views
 
+import { ARTIST_RECOMMENDATION_MODEL_VERSION } from '../services/recommendations.js';
 import {
   getPlayStats,
   getTopArtists,
@@ -112,6 +113,17 @@ function normalizeIdentitySet(values = [], normalizeIdentityList) {
       .map((value) => String(value || '').trim().toLowerCase())
       .filter(Boolean),
   );
+}
+
+const ROLE_RANK = { admin: 5, 'co-admin': 4, 'power-user': 3, user: 2, guest: 1, disabled: 0 };
+
+function canUserSeeDiscoveryPipeline(config, userRole) {
+  const disc = config?.discovery || {};
+  const minRole = String(disc.similarArtistMinRole || 'power-user').trim().toLowerCase();
+  if (minRole === 'disabled') return false;
+  const userRank = ROLE_RANK[String(userRole || 'guest').trim().toLowerCase()] ?? 0;
+  const minRank = ROLE_RANK[minRole] ?? 3;
+  return userRank >= minRank;
 }
 
 function resolveConfiguredPlexRole(identifier, roleSets) {
@@ -1394,7 +1406,7 @@ export function registerPages(app, ctx) {
       if (byUpdated) return byUpdated;
       return String(a.playlistTitle || '').localeCompare(String(b.playlistTitle || ''));
     });
-    const dashboardSuggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 8 });
+    const dashboardSuggestions = await loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 8 });
     const lidarrStatus = await buildLidarrStatusBundle(db, lidarrService, suggestionUserId, dashboardSuggestions.artists);
     const lidarrAutomationEligible = canUserAccessLidarrAutomation(loadConfig(), { ...req.session.user, role });
     const lidarrQuota = lidarrAutomationEligible && lidarrService
@@ -1484,10 +1496,10 @@ export function registerPages(app, ctx) {
       ...artist,
       curatorrTier: deriveArtistTier(artist, config),
     }));
-    let suggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 16 });
+    let suggestions = await loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 16 });
     if (recommendationService && suggestionUserId) {
       try {
-        const rebuilt = recommendationService.rebuildSuggestionsForUser(suggestionUserId, { artistLimit: 16 });
+        const rebuilt = await recommendationService.rebuildSuggestionsForUser(suggestionUserId, { artistLimit: 16 });
         suggestions = rebuilt?.cached || suggestions;
       } catch (_err) {
         // Fall back to cached suggestions if the automatic rebuild fails.
@@ -1525,9 +1537,9 @@ export function registerPages(app, ctx) {
     const lidarrQuota = lidarrService?.isConfigured() && lidarrAutomationEligible
       ? lidarrService.getRoleQuota(role, getCurrentLidarrUsage(db, userPlexId).usage || {})
       : null;
-    const discoverSuggestions = loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 16 });
+    const discoverSuggestions = await loadSuggestionBundle(recommendationService, suggestionUserId, { artistLimit: 24 });
     const lidarrStatus = buildLidarrStatusBundle(db, lidarrService, suggestionUserId, discoverSuggestions.artists);
-    const recentAlbumCarousels = buildDiscoverRecentAlbumCarousels(db, suggestionUserId, { addedLimit: 16, requestedLimit: 16 });
+    const recentAlbumCarousels = buildDiscoverRecentAlbumCarousels(db, suggestionUserId, { addedLimit: 16, requestedLimit: 0 });
     const disc = config.discovery || {};
     const discoveryConfig = {
       enabled: Boolean(disc.lastfmApiKey),
@@ -1535,6 +1547,10 @@ export function registerPages(app, ctx) {
       showTrendingTracks:  disc.lastfmApiKey ? (disc.showTrendingTracks  ?? true) : false,
       showSimilarArtists:  disc.lastfmApiKey ? (disc.showSimilarArtists  ?? true) : false,
     };
+    const discoveryPipelineEligible = disc.lastfmApiKey && canUserSeeDiscoveryPipeline(config, role);
+    const suggestedArtists = discoveryPipelineEligible
+      ? lidarrStatus.actionableSuggestions
+      : lidarrStatus.actionableSuggestions.filter((a) => a.source !== 'lastfm-similar');
 
     res.render('discover', {
       title: 'Discover — Curatorr',
@@ -1545,7 +1561,7 @@ export function registerPages(app, ctx) {
       config: safeConfig(config),
       lidarrAutomationEligible,
       lidarrQuota,
-      suggestedArtists: lidarrStatus.actionableSuggestions,
+      suggestedArtists,
       lidarrStatus,
       recentAddedAlbums: recentAlbumCarousels.recentAdded,
       recentRequestedAlbums: recentAlbumCarousels.recentRequested,
@@ -1570,7 +1586,7 @@ export function registerPages(app, ctx) {
     const smartSettings = config.smartPlaylist || {};
     const completionThresholdMs = (Number(smartSettings.completionThresholdSeconds) || 20) * 1000;
     const completedKeys = getCompletedTrackKeys(db, userPlexId, completionThresholdMs);
-    const suggestions = loadSuggestionBundle(recommendationService, suggestionUserId, {
+    const suggestions = await loadSuggestionBundle(recommendationService, suggestionUserId, {
       trackLimit: 10,
       albumLimit: 10,
     });
@@ -1901,7 +1917,7 @@ export function deriveHistoryTier(event, config = {}) {
   });
 }
 
-function loadSuggestionBundle(recommendationService, userPlexId, options = {}) {
+async function loadSuggestionBundle(recommendationService, userPlexId, options = {}) {
   if (!recommendationService || !userPlexId) return { artists: [], albums: [], tracks: [] };
   let cached = { artists: [], albums: [], tracks: [] };
   try {
@@ -1909,10 +1925,18 @@ function loadSuggestionBundle(recommendationService, userPlexId, options = {}) {
   } catch (_err) {
     cached = { artists: [], albums: [], tracks: [] };
   }
+  // Rebuild if cache is empty or any recommendation artist is from a stale/old model.
+  const artistCacheNeedsRefresh = !Array.isArray(cached.artists)
+    || cached.artists.length === 0
+    || cached.artists.some((artist) => {
+      const src = String(artist?.source || '');
+      if (src !== 'library-affinity' && src !== 'lastfm-similar') return false;
+      return String(artist?.reason?.modelVersion || '').trim() !== ARTIST_RECOMMENDATION_MODEL_VERSION;
+    });
   const count = (cached.artists?.length || 0) + (cached.albums?.length || 0) + (cached.tracks?.length || 0);
-  if (count > 0) return cached;
+  if (count > 0 && !artistCacheNeedsRefresh) return cached;
   try {
-    const rebuilt = recommendationService.rebuildSuggestionsForUser(userPlexId, options);
+    const rebuilt = await recommendationService.rebuildSuggestionsForUser(userPlexId, options);
     cached = rebuilt?.cached || cached;
   } catch (err) {
     return cached;
@@ -2018,6 +2042,12 @@ function deriveLidarrStateLabel(suggestion, progress) {
 
 function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedArtists = []) {
   const suggestions = Array.isArray(suggestedArtists) ? suggestedArtists : [];
+  const dismissedArtistKeys = new Set(
+    suggestions
+      .filter((artist) => String(artist?.status || '').trim().toLowerCase() === 'dismissed')
+      .map((artist) => normalizeName(artist?.artistName || ''))
+      .filter(Boolean),
+  );
   const progressItems = listLidarrArtistProgress(db, userPlexId, { limit: 12 });
   const progressMap = new Map(progressItems.map((item) => [normalizeName(item.artistName), item]));
 
@@ -2033,7 +2063,9 @@ function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedArtists
     requestMap.set(key, request);
   });
 
-  const enrichedSuggestions = suggestions.map((artist) => {
+  const enrichedSuggestions = suggestions
+    .filter((artist) => !dismissedArtistKeys.has(normalizeName(artist?.artistName || '')))
+    .map((artist) => {
     const key = normalizeName(artist.artistName);
     const progress = progressMap.get(key) || null;
     const reason = artist?.reason && typeof artist.reason === 'object' ? artist.reason : {};
@@ -2068,6 +2100,11 @@ function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedArtists
     // After 14 days, drop it — no longer needs attention.
     const settledAt = Number(artist.lidarrProgress?.updatedAt || artist.lidarrProgress?.lastAlbumAddedAt || 0);
     return settledAt > 0 && (now - settledAt) < IN_LIBRARY_GRACE_MS;
+  }).sort((a, b) => {
+    const aScore = Number(a?.totalScore || 0);
+    const bScore = Number(b?.totalScore || 0);
+    return bScore - aScore
+      || String(a?.artistName || '').localeCompare(String(b?.artistName || ''));
   });
   const activityMap = new Map();
 
@@ -2087,7 +2124,7 @@ function buildLidarrStatusBundle(db, lidarrService, userPlexId, suggestedArtists
 
   progressItems.forEach((progress) => {
     const key = normalizeName(progress.artistName);
-    if (!key || activityMap.has(key)) return;
+    if (!key || dismissedArtistKeys.has(key) || activityMap.has(key)) return;
     const derived = deriveLidarrStateLabel(null, progress);
     activityMap.set(key, {
       artistName: progress.artistName,
@@ -2151,7 +2188,7 @@ function resolveDiscoverAlbumImageUrl(album = {}) {
   return '';
 }
 
-function buildDiscoverRecentAlbumCarousels(db, userPlexId, { addedLimit = 16, requestedLimit = 16 } = {}) {
+function buildDiscoverRecentAlbumCarousels(db, userPlexId, { addedLimit = 16, requestedLimit = 0 } = {}) {
   const suggestedAlbumState = new Map(
     listSuggestedAlbums(db, userPlexId, { limit: 1000 }).map((album) => ([
       normalizeDiscoverAlbumKey(album.artistName, album.albumTitle),
@@ -2233,7 +2270,19 @@ function buildDiscoverRecentAlbumCarousels(db, userPlexId, { addedLimit = 16, re
     };
   }).filter(Boolean);
 
-  const recentRequested = items.slice(0, Math.max(1, Number(requestedLimit) || 16));
+  const unresolvedRequested = [];
+  const seenRequested = new Set();
+  for (const item of items) {
+    if (!item || item.statusKey === 'available') continue;
+    const key = normalizeDiscoverAlbumKey(item.artistName, item.albumTitle);
+    if (seenRequested.has(key)) continue;
+    seenRequested.add(key);
+    unresolvedRequested.push(item);
+  }
+  const normalizedRequestedLimit = Number(requestedLimit);
+  const recentRequested = Number.isFinite(normalizedRequestedLimit) && normalizedRequestedLimit > 0
+    ? unresolvedRequested.slice(0, Math.max(1, Math.floor(normalizedRequestedLimit)))
+    : unresolvedRequested;
 
   const seenAdded = new Set();
   const recentAdded = items

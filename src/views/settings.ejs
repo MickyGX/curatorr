@@ -2482,6 +2482,36 @@
                   <span class="settings-toggle-text">Because You Like… (similar artists)</span>
                 </label>
               </div>
+              <div class="settings-card">
+                <div class="settings-card-title">Artist Pipeline Discovery</div>
+                <div class="settings-card-sub">Controls which Last.fm similar artists are surfaced in the Artist Pipeline for potential library additions. Requires a Last.fm API key.</div>
+                <%
+                  const _simMinRole = String(config.discovery?.similarArtistMinRole || 'power-user').trim().toLowerCase();
+                  const _simRoleOptions = [
+                    { value: 'disabled',    label: 'Disabled' },
+                    { value: 'admin',       label: 'Admins only' },
+                    { value: 'co-admin',    label: 'Co-admins and above' },
+                    { value: 'power-user',  label: 'Power users and above' },
+                    { value: 'user',        label: 'All users' },
+                  ];
+                  const _simThreshold = Math.max(1, Math.min(5, Number(config.discovery?.similarArtistThreshold) || 3));
+                  const _simThresholdLabels = { 1: 'Very broad', 2: 'Broad', 3: 'Balanced', 4: 'Focused', 5: 'Precise' };
+                %>
+                <label class="field">
+                  <span>Minimum role</span>
+                  <select class="settings-select" name="similarArtistMinRole">
+                    <% _simRoleOptions.forEach(function(opt) { %>
+                      <option value="<%= opt.value %>" <%= _simMinRole === opt.value ? 'selected' : '' %>><%= opt.label %></option>
+                    <% }) %>
+                  </select>
+                  <small class="settings-card-sub" style="margin-top:4px;display:block">Which roles see Last.fm similar artists in their pipeline.</small>
+                </label>
+                <label class="field">
+                  <span>Discovery sensitivity — <strong><%= _simThresholdLabels[_simThreshold] || 'Balanced' %></strong> (<%= _simThreshold %>/5)</span>
+                  <input type="range" name="similarArtistThreshold" min="1" max="5" step="1" value="<%= _simThreshold %>" style="width:100%;max-width:280px" />
+                  <small class="settings-card-sub" style="margin-top:4px;display:block">Lower = more artists surfaced; higher = only close matches.</small>
+                </label>
+              </div>
               <div class="settings-card-actions settings-card-actions--full">
                 <button class="primary-button" type="submit">Save discovery settings</button>
               </div>

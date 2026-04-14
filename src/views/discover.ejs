@@ -298,7 +298,13 @@
                   <li><strong>Stuck</strong> — Lidarr couldn't find files, or your weekly quota was reached. Dismiss and retry later, or check Lidarr directly.</li>
                   <li><strong>In your library</strong> — A starter album was successfully acquired. Artists age off this list after 14 days.</li>
                 </ul>
-                <p><strong>Score</strong> reflects how well the artist fits your current taste profile — higher means a stronger match.</p>
+                <p><strong>How is the score calculated?</strong> Artist Score = Genre Fit + Behaviour + Editorial</p>
+                <ul>
+                  <li><strong>Genre Fit</strong> — how closely the artist's genres match your listening affinity. Up to 3 genres contribute, weighted by how heavily you listen to each genre.</li>
+                  <li><strong>Behaviour</strong> — artists you've never played score highest (+4). Artists played only a little get a smaller boost; heavily played artists score lower, making room for genuine discoveries.</li>
+                  <li><strong>Editorial</strong> — bonus for artists with multiple albums (+0.75) or large catalogues (+0.5), a liked-genre match (+1), and a Last.fm similarity boost of up to +6 when the artist is closely related to your top artists.</li>
+                </ul>
+                <p>Artists sourced from <strong>Last.fm</strong> now use the same scoring model as catalog artists. Curatorr derives genre context from the related seed artists and enriches stronger Last.fm candidates with Last.fm top tags.</p>
               </div>
             </details>
             <% if (_suggestedArtists.length) { %>
@@ -306,26 +312,40 @@
                 <% _suggestedArtists.forEach(function(a) {
                   var _sk = a.lidarrStatusKey;
                   var _topGenres = [...new Set((Array.isArray(a.reason?.topGenres) ? a.reason.topGenres : []).filter(Boolean).flatMap(function(g){ return g.split(';').map(function(s){ return s.trim(); }).filter(function(s){ return s && !/^\d+$/.test(s); }); }))].slice(0, 3);
+                  var _lastfmTags = (a.source === 'lastfm-similar' && Array.isArray(a.reason?.lastfmTags)) ? a.reason.lastfmTags.filter(Boolean).slice(0, 3) : [];
+                  var _similarTo = (a.source === 'lastfm-similar' && Array.isArray(a.reason?.similarTo)) ? a.reason.similarTo.filter(Boolean).slice(0, 2) : [];
                   var _sourceLabel = a.lidarrStatusSourceLabel ? a.lidarrStatusSourceLabel.toLowerCase() : '';
-                  var _subText = _topGenres.length ? _topGenres.join(' · ') : (_sourceLabel ? 'Via ' + _sourceLabel : '');
-                  var _canQueue = (_sk === 'suggested' || _sk === 'stuck') && _lidarrAutomationEligible;
-                  var _queueLabel = _sk === 'stuck' ? 'Retry add to library' : 'Add to library';
+                  var _isLastfm = a.source === 'lastfm-similar';
+                  var _subText = _topGenres.length
+                    ? _topGenres.join(' · ')
+                    : (_lastfmTags.length
+                      ? _lastfmTags.join(' · ')
+                      : (_similarTo.length
+                        ? 'Similar to ' + _similarTo.join(', ')
+                        : (_sourceLabel ? 'Via ' + _sourceLabel : '')));
+                  var _isSuggested = _sk === 'suggested' && _lidarrAutomationEligible;
+                  var _isStuck = _sk === 'stuck' && _lidarrAutomationEligible;
                 %>
                   <li class="cur-list-item cur-suggest-item">
                     <span class="cur-list-thumb cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>">
                       <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artistName) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
                     </span>
                     <span class="cur-list-primary">
-                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>"><%= a.artistName %></span>
+                      <span class="cur-list-name cur-overview-trigger" role="button" tabindex="0" data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artistName %>"><%= a.artistName %><% if (_isLastfm) { %> <img class="cur-suggest-source-icon" src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Last.fm_favicon.png/250px-Last.fm_favicon.png" alt="Last.fm" title="Suggested from Last.fm similar artists" loading="lazy" referrerpolicy="no-referrer" /><% } %></span>
                       <% if (_subText) { %><span class="cur-list-sub"><%= _subText %></span><% } %>
                     </span>
-                    <span class="cur-list-meta cur-suggest-score">Score <strong><%= Number(a.totalScore || 0).toFixed(1) %></strong></span>
+                    <span class="cur-list-meta cur-suggest-score"><% if (Number.isFinite(Number(a.totalScore)) && Number(a.totalScore) > 0) { %>Score <strong><%= Number(a.totalScore || 0).toFixed(1) %></strong><% } else { %><span class="cur-muted">—</span><% } %></span>
                     <span class="cur-badge cur-badge--<%= a.lidarrStatusTone || 'curatorr' %>"><%= a.lidarrStatusLabel || a.status || 'Suggested' %></span>
                     <span class="cur-cell-actions cur-suggest-actions">
                       <span class="cur-suggest-menu-wrap">
                         <button class="cur-suggest-dots" type="button" title="Options" onclick="event.stopPropagation(); toggleSuggestMenu(this)">⋯</button>
                         <div class="pl-card-menu cur-suggest-menu" style="display:none">
-                          <button type="button" <%= _canQueue ? '' : 'disabled' %> onclick="closeSuggestMenus(); queueSuggestedArtist('<%= encodeURIComponent(a.artistName) %>')"><%= _queueLabel %></button>
+                          <% if (_isStuck) { %>
+                            <button type="button" onclick="closeSuggestMenus(); queueSuggestedArtist('<%= encodeURIComponent(a.artistName) %>')">Retry add to library</button>
+                          <% } else { %>
+                            <button type="button" <%= _isSuggested ? '' : 'disabled' %> onclick="closeSuggestMenus(); browseSuggestedArtist('<%= encodeURIComponent(a.artistName) %>')">Browse albums</button>
+                            <button type="button" <%= _isSuggested ? '' : 'disabled' %> onclick="closeSuggestMenus(); curatorrPickSuggestedArtist('<%= encodeURIComponent(a.artistName) %>')">Curatorr pick</button>
+                          <% } %>
                           <button type="button" onclick="closeSuggestMenus(); dismissSuggestedArtist('<%= encodeURIComponent(a.artistName) %>')">Dismiss</button>
                         </div>
                       </span>
@@ -383,20 +403,74 @@
     document.addEventListener('click', function() { closeSuggestMenus(); });
 
     function queueSuggestedArtist(encodedName) {
+      // Used for stuck/retry only — bypasses album selection.
       var status = document.getElementById('artistSuggestionStatus');
-      if (status) status.textContent = 'Adding artist to Lidarr…';
+      if (status) status.textContent = 'Retrying Lidarr add…';
       fetch('/api/music/suggestions/artists/' + encodedName + '/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<%= csrfToken %>' },
       }).then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
         .then(function(result) {
           if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Failed to add artist.');
-          if (status) status.textContent = 'Artist added to Lidarr.';
+          if (status) status.textContent = 'Artist queued.';
           location.reload();
         })
         .catch(function(err) {
           if (status) status.textContent = err.message || 'Failed to add artist.';
         });
+    }
+
+    function browseSuggestedArtist(encodedName) {
+      var artistName = decodeURIComponent(encodedName);
+      // Populate search bar so the user knows which artist is loaded
+      var searchInput = document.getElementById('manualArtistSearch');
+      if (searchInput) searchInput.value = artistName;
+      // Inject a synthetic artist card so the viewport always shows which artist's albums are being browsed
+      var searchViewport = document.getElementById('manualSearchViewport');
+      var searchResults = document.getElementById('manualSearchResults');
+      if (searchResults) {
+        var thumbSrc = '/api/music/thumb/artist/' + encodedName;
+        searchResults.className = '';
+        searchResults.innerHTML =
+          '<button class="plex-card cur-discover-result-card is-active" type="button" ' +
+            'data-artist-name="' + escHtml(artistName) + '" ' +
+            'data-foreign-artist-id="" ' +
+            'onclick="selectManualArtist(this)">' +
+            '<span class="plex-poster-wrap cur-discover-poster-wrap">' +
+              '<span class="plex-poster-well cur-discover-result-art">' +
+                '<img src="' + escHtml(thumbSrc) + '" alt="" loading="lazy" onerror="handleDiscoveryImageError(this)" />' +
+              '</span>' +
+            '</span>' +
+            '<span class="plex-footer cur-discover-result-main">' +
+              '<span class="plex-name cur-discover-result-name">' + escHtml(artistName) + '</span>' +
+              '<span class="plex-meta cur-discover-result-meta">Artist pipeline suggestion</span>' +
+            '</span>' +
+          '</button>';
+      }
+      if (searchViewport) searchViewport.style.display = '';
+      // Load album panel (calls loadManualAlbumPreview which sets currentArtistSelection)
+      loadManualAlbumPreview(
+        { artistName: artistName, foreignArtistId: '' },
+        { statusMessage: 'Loading albums for ' + artistName + '\u2026' }
+      );
+      // Defer scroll one tick so the panel display update has been applied
+      var panel = document.querySelector('.cur-panel--manual-discovery');
+      if (panel) setTimeout(function() { panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+    }
+
+    async function curatorrPickSuggestedArtist(encodedName) {
+      var artistName = decodeURIComponent(encodedName);
+      if (!confirm('Let Curatorr pick the best album for ' + artistName + '?\n\nIt will select the highest-ranked starter album and send it to Lidarr automatically.')) return;
+      currentArtistSelection = { artistName: artistName, foreignArtistId: '' };
+      var status = document.getElementById('artistSuggestionStatus');
+      if (status) status.textContent = 'Finding best album for ' + artistName + '\u2026';
+      try {
+        var result = await submitManualRequest(true, '', { silent: true });
+        if (status) status.textContent = (result && result.queued ? 'Queued for Lidarr.' : 'Added to Lidarr.');
+        location.reload();
+      } catch (err) {
+        if (status) status.textContent = err.message || 'Curatorr pick failed.';
+      }
     }
 
     function dismissSuggestedArtist(encodedName) {

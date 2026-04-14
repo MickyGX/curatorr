@@ -16,6 +16,16 @@ const DEFAULT_LIMITS = {
 };
 
 const ARTIST_SUGGESTION_RETENTION_DAYS = 14;
+const LASTFM_SIMILARITY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const LASTFM_TAG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const LASTFM_SIMILAR_SEED_LIMIT = 5;
+const LASTFM_SIMILAR_PER_SEED_LIMIT = 20;
+const LASTFM_TAG_ENRICH_LIMIT = 30;
+export const ARTIST_RECOMMENDATION_MODEL_VERSION = 'phase2h-lastfm-tokenized-tags';
+const THRESHOLD_TO_MIN_SCORE = { 1: 0.1, 2: 0.3, 3: 0.6, 4: 1.0, 5: 1.5 };
+
+const lastfmSimilarityCache = new Map();
+const lastfmTagCache = new Map();
 
 function normalizeLimit(value, fallback) {
   const n = Number(value);
@@ -35,6 +45,33 @@ function keyify(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function expandGenreSignals(input) {
+  const values = Array.isArray(input) ? input : [input];
+  const expanded = new Set();
+  const push = (value) => {
+    const normalized = normalizeText(value);
+    if (!normalized || /^\d+$/.test(normalized)) return;
+    expanded.add(normalized);
+    if (/^r&b$/i.test(normalized)) expanded.add('rnb');
+  };
+
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (!normalized) continue;
+    for (const semicolonPart of normalized.split(';').map((s) => s.trim()).filter(Boolean)) {
+      push(semicolonPart);
+      for (const punctPart of semicolonPart.split(/[\/,|·]+/).map((s) => s.trim()).filter(Boolean)) {
+        push(punctPart);
+        if (/\s&\s/.test(punctPart)) {
+          for (const ampPart of punctPart.split(/\s*&\s*/).map((s) => s.trim()).filter(Boolean)) push(ampPart);
+        }
+      }
+    }
+  }
+
+  return [...expanded];
+}
+
 function parseJson(value, fallback) {
   try { return JSON.parse(value); } catch (err) { return fallback; }
 }
@@ -45,24 +82,144 @@ function daysSince(timestamp) {
   return (Date.now() - n) / (24 * 60 * 60 * 1000);
 }
 
+function getTimedCache(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Number(entry.expiresAt || 0) <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setTimedCache(cache, key, value, ttlMs) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
 function scoreGenreSet(genres, affinity) {
-  const flat = (Array.isArray(genres) ? genres : [])
-    .filter(Boolean)
-    .flatMap((g) => g.split(';').map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s)));
-  const weights = flat
+  const weights = expandGenreSignals(genres)
     .map((genre) => Number(affinity.get(keyify(genre)) || 0))
     .filter((value) => value > 0)
     .sort((a, b) => b - a);
   return weights.slice(0, 3).reduce((sum, value) => sum + value, 0);
 }
 
+function compressArtistGenreScore(rawScore) {
+  const score = Math.max(0, Number(rawScore) || 0);
+  if (score <= 0) return 0;
+  // Genre affinity accumulates across many signals and can get very large for broad
+  // genres like Pop/Rock. Compress it for artist suggestions so library-affinity
+  // scores stay on a comparable scale with the Last.fm similarity pool.
+  return Math.sqrt(score);
+}
+
+function deriveLastfmCandidateGenres(lastfmSimilarity, catalog) {
+  const derived = [];
+  for (const seedArtistName of Array.isArray(lastfmSimilarity?.basedOn) ? lastfmSimilarity.basedOn : []) {
+    const seedArtist = catalog.artists.get(keyify(seedArtistName));
+    if (!seedArtist) continue;
+    derived.push(...seedArtist.genres);
+  }
+  for (const tag of Array.isArray(lastfmSimilarity?.topTags) ? lastfmSimilarity.topTags : []) {
+    derived.push(tag);
+  }
+  return derived;
+}
+
+async function fetchLastfmArtistTopTags(apiKey, artistName) {
+  const normalizedArtistName = normalizeText(artistName);
+  if (!normalizedArtistName) return [];
+  const cacheKey = keyify(normalizedArtistName);
+  const cached = getTimedCache(lastfmTagCache, cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = new URL('https://ws.audioscrobbler.com/2.0/');
+    url.searchParams.set('method', 'artist.getTopTags');
+    url.searchParams.set('artist', normalizedArtistName);
+    url.searchParams.set('api_key', apiKey);
+    url.searchParams.set('format', 'json');
+    const response = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    const tags = (Array.isArray(data?.toptags?.tag) ? data.toptags.tag : [])
+      .map((tag) => ({
+        name: normalizeText(tag?.name),
+        count: Number(tag?.count || 0),
+      }))
+      .filter((tag) => tag.name && tag.count > 0)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 8)
+      .map((tag) => tag.name);
+    setTimedCache(lastfmTagCache, cacheKey, tags, LASTFM_TAG_CACHE_TTL_MS);
+    return tags;
+  } catch (_err) {
+    return [];
+  }
+}
+
+function computeArtistBehaviorScore(stats) {
+  const playCount = Number(stats?.play_count || 0);
+  const rankingScore = normalizeScore(stats?.ranking_score || 0);
+  const skipCount = Number(stats?.skip_count || 0);
+  const recencyDays = daysSince(stats?.last_played_at);
+
+  let behaviorScore = 0;
+  if (!stats || playCount === 0) behaviorScore += 4;
+  else if (playCount <= 2) behaviorScore += 2.75;
+  else if (playCount <= 5) behaviorScore += 1.5;
+  else behaviorScore -= Math.min(2, playCount * 0.15);
+
+  if (recencyDays >= 30 && Number.isFinite(recencyDays)) behaviorScore += 1.5;
+  if (recencyDays >= 90 && Number.isFinite(recencyDays)) behaviorScore += 1;
+  behaviorScore += Math.max(0, rankingScore - 3) * 0.35;
+  behaviorScore -= skipCount * 0.5;
+
+  return {
+    playCount,
+    rankingScore,
+    skipCount,
+    recencyDays,
+    behaviorScore,
+  };
+}
+
+function computeArtistEditorialScore({
+  artistKey,
+  topArtistKeys,
+  albumCount,
+  trackCount,
+  candidateGenres,
+  likedGenres,
+  lastfmSimilarityScore,
+  lastfmSeedCount,
+  inCatalog,
+}) {
+  let editorialScore = 0;
+  if (topArtistKeys.has(artistKey)) editorialScore -= 3;
+  if (albumCount >= 2) editorialScore += 0.75;
+  if (trackCount >= 8) editorialScore += 0.5;
+  if ((likedGenres || []).some((genre) => candidateGenres.includes(genre))) editorialScore += 1;
+  if (lastfmSimilarityScore > 0) editorialScore += Math.min(6, lastfmSimilarityScore * 6);
+  if (lastfmSeedCount > 0) editorialScore += Math.min(1.5, lastfmSeedCount * 0.5);
+  if (!inCatalog) editorialScore += 0.75;
+  return editorialScore;
+}
+
 function topGenresFor(genres, affinity, limit = 3) {
-  // Jellyfin may store genres as semicolon-joined strings; split and flatten first
-  const flat = (Array.isArray(genres) ? genres : [])
-    .filter(Boolean)
-    .flatMap((g) => g.split(';').map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s)));
-  return [...new Set(flat)]
-    .map((genre) => ({ genre, score: Number(affinity.get(keyify(genre)) || 0) }))
+  return [...new Set((Array.isArray(genres) ? genres : []).map((genre) => normalizeText(genre)).filter(Boolean))]
+    .map((genre) => ({
+      genre,
+      score: expandGenreSignals(genre)
+        .map((signal) => Number(affinity.get(keyify(signal)) || 0))
+        .reduce((max, value) => Math.max(max, value), 0),
+    }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.genre.localeCompare(b.genre))
     .slice(0, limit)
@@ -211,6 +368,13 @@ function buildGenreAffinity(profile, catalog) {
       const key = keyify(g);
       if (!key) continue;
       affinity.set(key, Number(affinity.get(key) || 0) + weight);
+      // Also add individual slash/comma-delimited tokens (e.g. 'Pop/Rock' → 'pop', 'rock')
+      // so Last.fm tags like 'rock' or 'pop' can match compound catalog genres.
+      for (const sub of g.split(/[\/,|·]+/).map((s) => s.trim()).filter((s) => s && !/^\d+$/.test(s))) {
+        const subKey = keyify(sub);
+        if (!subKey || subKey === key) continue;
+        affinity.set(subKey, Number(affinity.get(subKey) || 0) + weight * 0.75);
+      }
     }
   };
 
@@ -243,7 +407,9 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
   const likedArtistKeys = new Set((profile.likedArtists || []).map(keyify));
   const ignoredArtistKeys = new Set((profile.ignoredArtists || []).map(keyify));
   const topArtistKeys = new Set((profile.topArtists || []).map((artist) => keyify(artist.artistName)));
-  const suggestions = [];
+  const lastfmSimilar = limits.lastfmSimilarArtists || new Map();
+  const librarySuggestions = [];
+  const lastfmSuggestions = [];
 
   for (const artist of catalog.artists.values()) {
     const artistKey = keyify(artist.artistName);
@@ -253,33 +419,32 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
     if (likedArtistKeys.has(artistKey)) continue;
     if (stats && Number(stats.play_count || 0) >= 12 && Number(stats.ranking_score || 0) >= 7) continue;
 
-    const genreScore = scoreGenreSet([...artist.genres], limits.genreAffinity);
-    const playCount = Number(stats?.play_count || 0);
-    const rankingScore = normalizeScore(stats?.ranking_score || 0);
-    const skipCount = Number(stats?.skip_count || 0);
-    const recencyDays = daysSince(stats?.last_played_at);
-
-    let behaviorScore = 0;
-    if (!stats || playCount === 0) behaviorScore += 4;
-    else if (playCount <= 2) behaviorScore += 2.75;
-    else if (playCount <= 5) behaviorScore += 1.5;
-    else behaviorScore -= Math.min(2, playCount * 0.15);
-
-    if (recencyDays >= 30 && Number.isFinite(recencyDays)) behaviorScore += 1.5;
-    if (recencyDays >= 90 && Number.isFinite(recencyDays)) behaviorScore += 1;
-    behaviorScore += Math.max(0, rankingScore - 3) * 0.35;
-    behaviorScore -= skipCount * 0.5;
-
-    let editorialScore = 0;
-    if (topArtistKeys.has(artistKey)) editorialScore -= 3;
-    if (artist.albumTitles.size >= 2) editorialScore += 0.75;
-    if (artist.tracks.length >= 8) editorialScore += 0.5;
-    if ((profile.likedGenres || []).some((genre) => artist.genres.has(genre))) editorialScore += 1;
+    const candidateGenres = [...artist.genres];
+    const genreScore = compressArtistGenreScore(scoreGenreSet(candidateGenres, limits.genreAffinity));
+    const {
+      playCount,
+      rankingScore,
+      recencyDays,
+      behaviorScore,
+    } = computeArtistBehaviorScore(stats);
+    const lastfmSimilarity = lastfmSimilar.get(artistKey) || null;
+    const lastfmSimilarityScore = Number(lastfmSimilarity?.score || 0);
+    const editorialScore = computeArtistEditorialScore({
+      artistKey,
+      topArtistKeys,
+      albumCount: artist.albumTitles.size,
+      trackCount: artist.tracks.length,
+      candidateGenres,
+      likedGenres: profile.likedGenres,
+      lastfmSimilarityScore,
+      lastfmSeedCount: Array.isArray(lastfmSimilarity?.basedOn) ? lastfmSimilarity.basedOn.length : 0,
+      inCatalog: true,
+    });
 
     const totalScore = genreScore + behaviorScore + editorialScore;
     if (totalScore <= 0.5) continue;
 
-    suggestions.push({
+    librarySuggestions.push({
       artistName: artist.artistName,
       source: 'library-affinity',
       similarityScore: Number(genreScore.toFixed(3)),
@@ -288,9 +453,13 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
       totalScore: Number(totalScore.toFixed(3)),
       status: 'suggested',
       reason: {
-        topGenres: topGenresFor([...artist.genres], limits.genreAffinity),
+        modelVersion: ARTIST_RECOMMENDATION_MODEL_VERSION,
+        topGenres: topGenresFor(candidateGenres, limits.genreAffinity),
+        lastfmTags: Array.isArray(lastfmSimilarity?.topTags) ? lastfmSimilarity.topTags.slice(0, 5) : [],
         playCount,
         rankingScore,
+        lastfmSimilarityScore: Number(lastfmSimilarityScore.toFixed(3)),
+        similarTo: Array.isArray(lastfmSimilarity?.basedOn) ? lastfmSimilarity.basedOn.slice(0, 3) : [],
         recencyDays: Number.isFinite(recencyDays) ? Math.round(recencyDays) : null,
         albumCount: artist.albumTitles.size,
         trackCount: artist.tracks.length,
@@ -298,9 +467,93 @@ function buildArtistSuggestions(profile, catalog, userState, limits) {
     });
   }
 
-  return suggestions
-    .sort((a, b) => b.totalScore - a.totalScore || a.artistName.localeCompare(b.artistName))
-    .slice(0, limits.artistLimit);
+  const minSimilarityScore = Number(limits.minSimilarityScore ?? 0);
+  for (const [artistKey, lastfmSimilarity] of lastfmSimilar.entries()) {
+    if (!lastfmSimilarity?.artistName || catalog.artists.has(artistKey)) continue;
+    if (artistKeyInSet(artistKey, ignoredArtistKeys)) continue;
+    if (likedArtistKeys.has(artistKey)) continue;
+    if (topArtistKeys.has(artistKey)) continue;
+
+    const stats = userState.artistStats.get(artistKey);
+    if (stats?.manually_excluded || stats?.excluded_from_smart) continue;
+
+    const lastfmSimilarityScore = Number(lastfmSimilarity.score || 0);
+    if (minSimilarityScore > 0 && lastfmSimilarityScore < minSimilarityScore) continue;
+    const candidateGenres = deriveLastfmCandidateGenres(lastfmSimilarity, catalog);
+    const genreScore = compressArtistGenreScore(scoreGenreSet(candidateGenres, limits.genreAffinity));
+    const {
+      playCount,
+      rankingScore,
+      recencyDays,
+      behaviorScore,
+    } = computeArtistBehaviorScore(stats);
+    const editorialScore = computeArtistEditorialScore({
+      artistKey,
+      topArtistKeys,
+      albumCount: 0,
+      trackCount: 0,
+      candidateGenres,
+      likedGenres: profile.likedGenres,
+      lastfmSimilarityScore,
+      lastfmSeedCount: Array.isArray(lastfmSimilarity.basedOn) ? lastfmSimilarity.basedOn.length : 0,
+      inCatalog: false,
+    });
+    const totalScore = genreScore + behaviorScore + editorialScore;
+    if (totalScore <= 0.5) continue;
+
+    lastfmSuggestions.push({
+      artistName: lastfmSimilarity.artistName,
+      source: 'lastfm-similar',
+      similarityScore: Number(genreScore.toFixed(3)),
+      behaviorScore: Number(behaviorScore.toFixed(3)),
+      editorialScore: Number(editorialScore.toFixed(3)),
+      totalScore: Number(totalScore.toFixed(3)),
+      status: 'suggested',
+      reason: {
+        modelVersion: ARTIST_RECOMMENDATION_MODEL_VERSION,
+        topGenres: topGenresFor(candidateGenres, limits.genreAffinity),
+        playCount,
+        rankingScore,
+        lastfmSimilarityScore: Number(lastfmSimilarityScore.toFixed(3)),
+        similarTo: Array.isArray(lastfmSimilarity.basedOn) ? lastfmSimilarity.basedOn.slice(0, 3) : [],
+        recencyDays: Number.isFinite(recencyDays) ? Math.round(recencyDays) : null,
+        albumCount: 0,
+        trackCount: 0,
+      },
+    });
+  }
+
+  librarySuggestions.sort((a, b) => b.totalScore - a.totalScore || a.artistName.localeCompare(b.artistName));
+  lastfmSuggestions.sort((a, b) => b.totalScore - a.totalScore || a.artistName.localeCompare(b.artistName));
+
+  const artistLimit = Math.max(1, Number(limits.artistLimit || 0) || DEFAULT_LIMITS.artists);
+  const reservedLastfmSlots = lastfmSuggestions.length
+    ? Math.min(lastfmSuggestions.length, Math.max(2, Math.ceil(artistLimit * 0.4)))
+    : 0;
+  const primaryLibrarySlots = Math.max(0, artistLimit - reservedLastfmSlots);
+
+  const selected = [
+    ...librarySuggestions.slice(0, primaryLibrarySlots),
+    ...lastfmSuggestions.slice(0, reservedLastfmSlots),
+  ];
+
+  if (selected.length < artistLimit) {
+    const selectedKeys = new Set(selected.map((artist) => keyify(artist.artistName)));
+    const fillPool = [...librarySuggestions.slice(primaryLibrarySlots), ...lastfmSuggestions.slice(reservedLastfmSlots)]
+      .filter((artist) => !selectedKeys.has(keyify(artist.artistName)))
+      .sort((a, b) => b.totalScore - a.totalScore || a.artistName.localeCompare(b.artistName));
+    for (const artist of fillPool) {
+      if (selected.length >= artistLimit) break;
+      selected.push(artist);
+    }
+  }
+
+  return {
+    selected: selected
+      .sort((a, b) => b.totalScore - a.totalScore || a.artistName.localeCompare(b.artistName))
+      .slice(0, artistLimit),
+    allScored: [...librarySuggestions, ...lastfmSuggestions],
+  };
 }
 
 function artistKeyInSet(artistKey, keySet) {
@@ -432,6 +685,90 @@ function loadExistingArtistSuggestionState(db, userPlexId) {
   `).all(userPlexId).map((row) => [keyify(row.artist_name), row]));
 }
 
+async function fetchLastfmSimilarArtists(ctx, profile) {
+  const loadConfig = typeof ctx?.loadConfig === 'function' ? ctx.loadConfig : null;
+  const config = loadConfig ? (loadConfig() || {}) : {};
+  const apiKey = String(config?.discovery?.lastfmApiKey || '').trim();
+  if (!apiKey) return new Map();
+
+  const seeds = (Array.isArray(profile?.topArtists) ? profile.topArtists : [])
+    .map((artist) => ({
+      artistName: normalizeText(artist?.artistName),
+      rankingScore: normalizeScore(artist?.rankingScore || 0),
+      playCount: Number(artist?.playCount || 0),
+    }))
+    .filter((artist) => artist.artistName)
+    .slice(0, LASTFM_SIMILAR_SEED_LIMIT);
+  if (!seeds.length) return new Map();
+
+  const cacheKey = JSON.stringify(seeds.map((artist) => [artist.artistName, artist.rankingScore, artist.playCount]));
+  const cached = getTimedCache(lastfmSimilarityCache, cacheKey);
+  if (cached) return new Map(cached);
+
+  try {
+    const results = await Promise.all(seeds.map(async (seed) => {
+      const url = new URL('https://ws.audioscrobbler.com/2.0/');
+      url.searchParams.set('method', 'artist.getSimilar');
+      url.searchParams.set('artist', seed.artistName);
+      url.searchParams.set('limit', String(LASTFM_SIMILAR_PER_SEED_LIMIT));
+      url.searchParams.set('api_key', apiKey);
+      url.searchParams.set('format', 'json');
+      const response = await fetch(url.toString(), {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return { seed, items: data?.similarartists?.artist || [] };
+    }));
+
+    const affinity = new Map();
+    for (const result of results) {
+      if (!result) continue;
+      const seedWeight = Math.max(1, Math.min(4, 1 + (result.seed.rankingScore / 8) + (result.seed.playCount / 20)));
+      for (const item of result.items) {
+        const artistKey = keyify(item?.name);
+        if (!artistKey || artistKey === keyify(result.seed.artistName)) continue;
+        const match = normalizeScore(item?.match || 0);
+        if (match <= 0) continue;
+        const existing = affinity.get(artistKey) || {
+          artistName: normalizeText(item?.name),
+          score: 0,
+          basedOn: [],
+        };
+        existing.score += (match * seedWeight);
+        if (!existing.basedOn.includes(result.seed.artistName)) existing.basedOn.push(result.seed.artistName);
+        affinity.set(artistKey, existing);
+      }
+    }
+
+    const enrichable = [...affinity.entries()]
+      .sort((a, b) => Number(b[1]?.score || 0) - Number(a[1]?.score || 0))
+      .slice(0, LASTFM_TAG_ENRICH_LIMIT);
+    const tagLists = await Promise.all(enrichable.map(async ([artistKey, entry]) => ({
+      artistKey,
+      topTags: await fetchLastfmArtistTopTags(apiKey, entry.artistName),
+    })));
+    for (const tagEntry of tagLists) {
+      const existing = affinity.get(tagEntry.artistKey);
+      if (!existing) continue;
+      existing.topTags = tagEntry.topTags;
+      affinity.set(tagEntry.artistKey, existing);
+    }
+
+    setTimedCache(lastfmSimilarityCache, cacheKey, [...affinity.entries()], LASTFM_SIMILARITY_CACHE_TTL_MS);
+    return affinity;
+  } catch (err) {
+    ctx?.pushLog?.({
+      level: 'warn',
+      app: 'recommendations',
+      action: 'lastfm.similar',
+      message: `Last.fm similar artist boost skipped: ${err?.message || 'request failed'}`,
+    });
+    return new Map();
+  }
+}
+
 export function createRecommendationService(ctx) {
   const { db } = ctx;
 
@@ -447,18 +784,21 @@ export function createRecommendationService(ctx) {
     const existingArtistState = loadExistingArtistSuggestionState(db, userPlexId);
     const retentionCutoff = Date.now() - (ARTIST_SUGGESTION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
     const tx = db.transaction((data) => {
+      const selectedArtists = Array.isArray(data.artists) ? data.artists : [];
+      const allScoredArtists = Array.isArray(data.allScoredArtists) ? data.allScoredArtists : selectedArtists;
       db.prepare('DELETE FROM suggested_albums WHERE user_plex_id = ?').run(userPlexId);
       db.prepare('DELETE FROM suggested_tracks WHERE user_plex_id = ?').run(userPlexId);
-      const keepArtistNames = new Set((data.artists || []).map((artist) => keyify(artist.artistName)));
-      for (const artist of data.artists || []) {
+      const keepArtistNames = new Set(selectedArtists.map((artist) => keyify(artist.artistName)));
+      const selectedArtistKeys = new Set(keepArtistNames);
+      for (const artist of selectedArtists) {
         const prior = existingArtistState.get(keyify(artist.artistName));
         const preserved = prior && prior.status && prior.status !== 'suggested'
           ? {
               ...artist,
               status: prior.status,
               reason: {
-                ...(artist.reason || {}),
                 ...parseJson(prior.reason_json || '{}', {}),
+                ...(artist.reason || {}),
               },
               acceptedAt: prior.accepted_at,
               dismissedAt: prior.dismissed_at,
@@ -466,6 +806,23 @@ export function createRecommendationService(ctx) {
             }
           : artist;
         upsertSuggestedArtist(db, userPlexId, preserved);
+      }
+      for (const artist of allScoredArtists) {
+        const artistKey = keyify(artist.artistName);
+        if (!artistKey || selectedArtistKeys.has(artistKey)) continue;
+        const prior = existingArtistState.get(artistKey);
+        if (!prior || !prior.status || prior.status === 'dismissed') continue;
+        upsertSuggestedArtist(db, userPlexId, {
+          ...artist,
+          status: prior.status,
+          reason: {
+            ...parseJson(prior.reason_json || '{}', {}),
+            ...(artist.reason || {}),
+          },
+          acceptedAt: prior.accepted_at,
+          dismissedAt: prior.dismissed_at,
+          lidarrArtistId: prior.lidarr_artist_id,
+        });
       }
       db.prepare(`
         DELETE FROM suggested_artists
@@ -495,25 +852,38 @@ export function createRecommendationService(ctx) {
     return listCachedSuggestions(userPlexId, payload.limits || {});
   }
 
-  function rebuildSuggestionsForUser(userPlexId, options = {}) {
+  async function rebuildSuggestionsForUser(userPlexId, options = {}) {
     const profile = getUserTasteProfile(db, userPlexId, options);
     const catalog = buildCatalog(db);
     const userState = loadUserState(db, userPlexId);
+    const lastfmSimilarArtists = await fetchLastfmSimilarArtists(ctx, profile);
+    const loadConfig = typeof ctx?.loadConfig === 'function' ? ctx.loadConfig : null;
+    const config = loadConfig ? (loadConfig() || {}) : {};
+    const thresholdRaw = Math.max(1, Math.min(5, Number(config?.discovery?.similarArtistThreshold) || 3));
+    const minSimilarityScore = THRESHOLD_TO_MIN_SCORE[thresholdRaw] ?? 0.6;
     const limits = {
       artistLimit: normalizeLimit(options.artistLimit, DEFAULT_LIMITS.artists),
       albumLimit: normalizeLimit(options.albumLimit, DEFAULT_LIMITS.albums),
       trackLimit: normalizeLimit(options.trackLimit, DEFAULT_LIMITS.tracks),
       genreAffinity: buildGenreAffinity(profile, catalog),
+      lastfmSimilarArtists,
+      minSimilarityScore,
     };
 
-    const artists = buildArtistSuggestions(profile, catalog, userState, limits);
-    const tracks = buildTrackSuggestions(profile, catalog, userState, artists, limits);
-    const albums = buildAlbumSuggestions(catalog, userState, artists, tracks, limits);
-    const cached = replaceSuggestions(userPlexId, { artists, albums, tracks, limits });
+    const artistPool = buildArtistSuggestions(profile, catalog, userState, limits);
+    const tracks = buildTrackSuggestions(profile, catalog, userState, artistPool.selected, limits);
+    const albums = buildAlbumSuggestions(catalog, userState, artistPool.selected, tracks, limits);
+    const cached = replaceSuggestions(userPlexId, {
+      artists: artistPool.selected,
+      allScoredArtists: artistPool.allScored,
+      albums,
+      tracks,
+      limits,
+    });
 
     return {
       generatedAt: Date.now(),
-      mode: 'phase2b-internal-library-affinity',
+      mode: ARTIST_RECOMMENDATION_MODEL_VERSION,
       profile,
       counts: {
         artists: cached.artists.length,
