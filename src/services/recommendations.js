@@ -566,16 +566,47 @@ function artistKeyInSet(artistKey, keySet) {
 }
 
 // Returns true for MusicBrainz-style collaboration credits that should not be
-// treated as standalone discovery candidates:
-//   - "Artist A feat. Artist B" / "featuring" / "ft." are always joint credits
-//   - "Artist A & Artist B" where BOTH component parts are already in the user's
-//     library (catalog.artists) — a session collaboration of known artists
+// treated as standalone discovery candidates. Handles four patterns:
+//
+//   1. feat./featuring/ft. anywhere in the name — always a joint credit.
+//
+//   2. The joint name is in the library AND the first credited artist is also a
+//      known solo library artist — the "primary artist + guest(s)" pattern.
+//      Catches "Beyoncé & Post Malone", "Beyoncé, Linda Martell & Shaboozey"
+//      while leaving "Earth, Wind & Fire" alone (because "Earth" isn't a solo
+//      library artist).
+//
+//   3. All individual component parts are separately in the library — e.g.
+//      "Coldplay & Rihanna" where the user has both artists.
+//
+//   4. The joint name is in the library AND every part looks like a person name
+//      (2+ words, no leading article) — catches "Leon Thomas & Benny the
+//      Butcher" without falsely catching "Southside Johnny & The Asbury Jukes"
+//      (the "The" guard) or duo band names with single-word parts.
 function isCollaborationCredit(artistName, catalogArtistKeys) {
   const name = String(artistName || '').trim();
+  // Pattern 1 — feat./featuring/ft. credits
   if (/\b(feat|featuring|ft)\.?\s/i.test(name)) return true;
-  if (catalogArtistKeys) {
-    const parts = name.split(/\s*&\s*/).map((s) => s.trim().toLowerCase()).filter(Boolean);
-    if (parts.length >= 2 && parts.every((p) => catalogArtistKeys.has(p))) return true;
+  if (!catalogArtistKeys) return false;
+  // Split on commas and ampersands to enumerate all credited artists
+  const parts = name.split(/\s*[,&]\s*/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length < 2) return false;
+  const partKeys = parts.map((p) => p.toLowerCase());
+  const jointKey = name.toLowerCase();
+  const jointInLibrary = catalogArtistKeys.has(jointKey);
+  // Pattern 2 — joint name in library AND first part is a known solo artist.
+  // Requiring the joint name to be present avoids false positives for real named
+  // acts that happen to share a first-word with a library artist.
+  if (jointInLibrary && catalogArtistKeys.has(partKeys[0])) return true;
+  // Pattern 3 — every individual component is separately in the library
+  if (partKeys.every((p) => catalogArtistKeys.has(p))) return true;
+  // Pattern 4 — joint name in library, every part looks like a person name
+  if (jointInLibrary) {
+    const looksLikePersonNames = partKeys.every((p) => {
+      const words = p.split(/\s+/);
+      return words.length >= 2 && !/^(the|a|an)\s/i.test(p);
+    });
+    if (looksLikePersonNames) return true;
   }
   return false;
 }

@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.74 (2026-04-14)
+
+- Refined artist discovery collaboration filtering so joint credits already present in the library are suppressed more reliably, including comma-separated primary-artist-plus-guests patterns and person-name collaborations stored under a combined artist name.
+- Improved the heuristic to avoid false positives for real band names while still catching temporary collaboration credits, so acts like `Earth, Wind & Fire` and `Southside Johnny & The Asbury Jukes` are less likely to be misclassified.
+- The tighter collaboration-credit handling now applies consistently across both library-derived and Last.fm-derived artist suggestions, reducing noisy standalone recommendation candidates.
+
 ## v0.1.73 (2026-04-14)
 
 - Discover now reconciles suggested artists against the live Lidarr artist list before review runs, so artists you already added manually in Lidarr are marked as `already_in_lidarr` instead of continuing to appear as fresh Curatorr suggestions.
