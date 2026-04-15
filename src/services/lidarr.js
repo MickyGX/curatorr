@@ -2000,7 +2000,12 @@ export function createLidarrService(ctx) {
       'album_acquired',
     ].includes(acquisitionStage)) {
       const recovery = await reconcileArtistAcquisition({ userPlexId, artistName, role, force });
-      if (recovery?.status && recovery.status !== 'no_tracked_album') {
+      // When Lidarr confirms the album is downloaded ('downloaded'), fall through to the
+      // catalog expansion/completion check. Returning early here would leave artists stuck
+      // in intermediate stages (e.g. catalog_expanded) forever, never reaching catalog_complete.
+      // Media-server-only matches ('downloaded_media_server*') still return early to avoid
+      // triggering catalog expansion before Lidarr has actually imported the files.
+      if (recovery?.status && recovery.status !== 'no_tracked_album' && recovery.status !== 'downloaded') {
         return { ...recovery, role, lidarrArtistId };
       }
     }

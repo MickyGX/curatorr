@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.78 (2026-04-15)
+
+- Fixed Lidarr artist progression so entries that have genuinely reached `downloaded` no longer return early before the catalog expansion and completion checks run.
+- Artists can now advance from intermediate acquisition states through to `catalog_complete` after Lidarr import finishes, instead of getting stuck indefinitely after recovery succeeds.
+- Media-server-only downloaded states still short-circuit as before, so Curatorr avoids expanding catalog state before Lidarr has actually imported the files.
+
 ## v0.1.77 (2026-04-15)
 
 - Broadened artist collaboration filtering again so recommendation cleanup now catches `duet` labels, credits joined with the word `and`, and more multi-word joint-artist patterns that should not surface as standalone discovery candidates.
