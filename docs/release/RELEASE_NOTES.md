@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.77 (2026-04-15)
+
+- Broadened artist collaboration filtering again so recommendation cleanup now catches `duet` labels, credits joined with the word `and`, and more multi-word joint-artist patterns that should not surface as standalone discovery candidates.
+- Fixed URL playlist imports on the Playlists page to call the real import endpoints instead of the preview routes, restoring one-click imports for Spotify, YouTube, Last.fm, and ListenBrainz links.
+- Collaboration filtering now treats known joint names and multi-word credited artists more aggressively, reducing leftover recommendation noise from soundtrack, duet, and guest-credit naming variations.
+
 ## v0.1.76 (2026-04-14)
 
 - Recommendation rebuilds now purge old `suggested` collaboration-credit rows that were written before the collaboration filter existed, so stale joint-credit artists do not linger in Discover after upgrading.

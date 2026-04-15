@@ -568,37 +568,33 @@ function artistKeyInSet(artistKey, keySet) {
 // Returns true for MusicBrainz-style collaboration credits that should not be
 // treated as standalone discovery candidates.
 //
-// Strategy: split the name on commas and ampersands to get the credited
-// individuals, then apply two tests:
-//
-//   A. ANY component part is a key in catalogArtistKeys — the user already has
-//      that artist in their library, so the joint credit is a collaboration of
-//      a known artist, not a standalone act to discover. This catches Last.fm
-//      suggestions like "Doja Cat & The Weeknd" when the user has either artist,
-//      "Labrinth & Zendaya", "Doechii & SZA", "Coldplay & Rihanna", etc.
-//      Single-word band-name components ("Earth", "Wind", "Fire") won't appear
-//      as standalone catalog keys, so real named acts are left alone.
-//
-//   B. The joint name itself is in the library (library-affinity path where only
-//      the collaboration tracks are present, e.g. "Leon Thomas & Benny the
-//      Butcher") AND at least one part is multi-word (person-name indicator) AND
-//      no part opens with a definite/indefinite article — which would signal a
-//      named band component like "The Asbury Jukes".
+// Tests applied in order:
+//   Keyword  — feat./featuring/ft./duet anywhere → always a joint credit.
+//   Split    — name divided on commas, ampersands, and the word "and".
+//   A        — any component matches a key in catalogArtistKeys (user has that
+//              artist in their library → joint credit, not a standalone act).
+//   B        — the joint name itself is in the library (collaboration track
+//              present, e.g. "Labrinth & Zendaya" from a soundtrack).
+//   C        — at least one component is a multi-word name (person-name format).
+//              Real duo acts (Simon & Garfunkel, Hall & Oates) use single-word
+//              surnames; collaboration credits tend to use stage names like
+//              "Doja Cat", "Niall Horan", "The Weeknd".
 function isCollaborationCredit(artistName, catalogArtistKeys) {
   const name = String(artistName || '').trim();
-  // feat./featuring/ft. anywhere → always a joint credit, never a standalone act
+  // Keyword check — unambiguous joint-credit markers
   if (/\b(feat|featuring|ft)\.?\s/i.test(name)) return true;
+  if (/\bduet\b/i.test(name)) return true;
   if (!catalogArtistKeys) return false;
-  const parts = name.split(/\s*[,&]\s*/).map((s) => s.trim()).filter(Boolean);
+  // Split on commas, ampersands, and the word "and"
+  const parts = name.split(/\s*[,&]\s*|\s+and\s+/i).map((s) => s.trim()).filter(Boolean);
   if (parts.length < 2) return false;
   const partKeys = parts.map((p) => p.toLowerCase());
   // Test A — any component is a known library artist
   if (partKeys.some((p) => catalogArtistKeys.has(p))) return true;
-  // Test B — only the joint name is in the library (no individual solo entries)
-  if (catalogArtistKeys.has(name.toLowerCase())) {
-    const noArticleStart = partKeys.every((p) => !/^(the|a|an)\s/i.test(p));
-    if (noArticleStart && partKeys.some((p) => p.split(/\s+/).length >= 2)) return true;
-  }
+  // Test B — the joint name itself is in the library (collaboration track present)
+  if (catalogArtistKeys.has(name.toLowerCase())) return true;
+  // Test C — at least one component is a multi-word name (person-name indicator)
+  if (partKeys.some((p) => p.split(/\s+/).length >= 2)) return true;
   return false;
 }
 

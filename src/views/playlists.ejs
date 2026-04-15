@@ -2016,11 +2016,16 @@
     }
 
     function getUrlImportEndpoint(provider, mode) {
-      var action = mode === 'import' ? 'import' : 'preview';
-      if (provider === 'youtube') return '/api/music/import/youtube/' + action;
-      if (provider === 'lastfm') return '/api/music/import/lastfm/' + action;
-      if (provider === 'listenbrainz') return '/api/music/import/listenbrainz/' + action;
-      return '/api/music/import/spotify/' + action;
+      if (mode === 'import') {
+        if (provider === 'youtube') return '/api/music/import/youtube';
+        if (provider === 'lastfm') return '/api/music/import/lastfm';
+        if (provider === 'listenbrainz') return '/api/music/import/listenbrainz';
+        return '/api/music/import/spotify';
+      }
+      if (provider === 'youtube') return '/api/music/import/youtube/preview';
+      if (provider === 'lastfm') return '/api/music/import/lastfm/preview';
+      if (provider === 'listenbrainz') return '/api/music/import/listenbrainz/preview';
+      return '/api/music/import/spotify/preview';
     }
 
     function buildImportPreviewUrl(provider, item) {
