@@ -289,11 +289,15 @@ CREATE TABLE IF NOT EXISTS user_generated_playlists (
   plex_playlist_id    TEXT NOT NULL DEFAULT '',
   playlist_title      TEXT NOT NULL DEFAULT '',
   title_override      TEXT NOT NULL DEFAULT '',
+  artwork_mode        TEXT NOT NULL DEFAULT 'auto',
+  custom_artwork_asset TEXT NOT NULL DEFAULT '',
+  preserved_artwork_asset TEXT NOT NULL DEFAULT '',
   source_type         TEXT NOT NULL DEFAULT '',
   source_ref          TEXT NOT NULL DEFAULT '',
   source_title        TEXT NOT NULL DEFAULT '',
   source_owner        TEXT NOT NULL DEFAULT '',
   imported_sync_period TEXT NOT NULL DEFAULT 'disabled',
+  audience            TEXT NOT NULL DEFAULT 'personal',
   algorithm_version   TEXT NOT NULL DEFAULT 'phase2a',
   last_built_at       INTEGER,
   last_synced_at      INTEGER,
@@ -536,6 +540,12 @@ export function initDb(dbPath) {
   const generatedCols = db.prepare('PRAGMA table_info(user_generated_playlists)').all().map((c) => c.name);
   if (!generatedCols.includes('title_override'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN title_override TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('artwork_mode'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN artwork_mode TEXT NOT NULL DEFAULT 'auto'");
+  if (!generatedCols.includes('custom_artwork_asset'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN custom_artwork_asset TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('preserved_artwork_asset'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN preserved_artwork_asset TEXT NOT NULL DEFAULT ''");
   if (!generatedCols.includes('source_type'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_type TEXT NOT NULL DEFAULT ''");
   if (!generatedCols.includes('source_ref'))
@@ -548,6 +558,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN imported_sync_period TEXT NOT NULL DEFAULT 'disabled'");
   if (!generatedCols.includes('missing_count'))
     db.exec('ALTER TABLE user_generated_playlists ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0');
+  if (!generatedCols.includes('audience'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN audience TEXT NOT NULL DEFAULT 'personal'");
 
   const importedUnmatchedCols = db.prepare('PRAGMA table_info(imported_playlist_unmatched)').all().map((c) => c.name);
   if (!importedUnmatchedCols.includes('album_image_url'))
@@ -2979,11 +2991,15 @@ export function listUserGeneratedPlaylists(db, userPlexId, { activeOnly = true }
     plexPlaylistId: row.plex_playlist_id,
     playlistTitle: row.playlist_title,
     titleOverride: row.title_override,
+    artworkMode: String(row.artwork_mode || 'auto').trim() || 'auto',
+    customArtworkAsset: String(row.custom_artwork_asset || '').trim(),
+    preservedArtworkAsset: String(row.preserved_artwork_asset || '').trim(),
     sourceType: row.source_type,
     sourceRef: row.source_ref,
     sourceTitle: row.source_title,
     sourceOwner: row.source_owner,
     importedSyncPeriod: String(row.imported_sync_period || 'disabled').trim() || 'disabled',
+    audience: String(row.audience || 'personal').trim() || 'personal',
     algorithmVersion: row.algorithm_version,
     lastBuiltAt: row.last_built_at,
     lastSyncedAt: row.last_synced_at,
@@ -3010,7 +3026,7 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
   const playlistKey = String(playlist?.playlistKey || '').trim();
   if (!playlistKey) throw new Error('playlistKey is required');
   const existing = db.prepare(`
-    SELECT imported_sync_period
+    SELECT imported_sync_period, artwork_mode, custom_artwork_asset, preserved_artwork_asset
     FROM user_generated_playlists
     WHERE user_plex_id = ? AND playlist_key = ?
   `).get(userPlexId, playlistKey);
@@ -3020,23 +3036,36 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
   const importedSyncPeriod = ['disabled', 'daily', 'weekly', 'monthly'].includes(rawImportedSyncPeriod)
     ? rawImportedSyncPeriod
     : 'disabled';
+  const rawArtworkMode = Object.prototype.hasOwnProperty.call(playlist || {}, 'artworkMode')
+    ? String(playlist?.artworkMode || '').trim().toLowerCase()
+    : String(existing?.artwork_mode || 'auto').trim().toLowerCase();
+  const artworkMode = ['auto', 'preserve', 'custom'].includes(rawArtworkMode)
+    ? rawArtworkMode
+    : 'auto';
+  const rawAudience = String(playlist?.audience || 'personal').trim().toLowerCase();
+  const audience = ['personal', 'global'].includes(rawAudience) ? rawAudience : 'personal';
   db.prepare(`
     INSERT INTO user_generated_playlists (
       user_plex_id, playlist_type, playlist_key, plex_playlist_id,
-      playlist_title, title_override, source_type, source_ref, source_title, source_owner, imported_sync_period,
-      algorithm_version, last_built_at, last_synced_at,
+      playlist_title, title_override, artwork_mode, custom_artwork_asset, preserved_artwork_asset,
+      source_type, source_ref, source_title, source_owner, imported_sync_period,
+      audience, algorithm_version, last_built_at, last_synced_at,
       track_count, missing_count, active, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id, playlist_key) DO UPDATE SET
       playlist_type = excluded.playlist_type,
       plex_playlist_id = excluded.plex_playlist_id,
       playlist_title = excluded.playlist_title,
       title_override = excluded.title_override,
+      artwork_mode = excluded.artwork_mode,
+      custom_artwork_asset = excluded.custom_artwork_asset,
+      preserved_artwork_asset = excluded.preserved_artwork_asset,
       source_type = excluded.source_type,
       source_ref = excluded.source_ref,
       source_title = excluded.source_title,
       source_owner = excluded.source_owner,
       imported_sync_period = excluded.imported_sync_period,
+      audience = excluded.audience,
       algorithm_version = excluded.algorithm_version,
       last_built_at = COALESCE(excluded.last_built_at, user_generated_playlists.last_built_at),
       last_synced_at = COALESCE(excluded.last_synced_at, user_generated_playlists.last_synced_at),
@@ -3051,11 +3080,23 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     String(playlist?.plexPlaylistId || ''),
     String(playlist?.playlistTitle || ''),
     String(playlist?.titleOverride || ''),
+    artworkMode,
+    String(
+      Object.prototype.hasOwnProperty.call(playlist || {}, 'customArtworkAsset')
+        ? (playlist?.customArtworkAsset || '')
+        : (existing?.custom_artwork_asset || ''),
+    ),
+    String(
+      Object.prototype.hasOwnProperty.call(playlist || {}, 'preservedArtworkAsset')
+        ? (playlist?.preservedArtworkAsset || '')
+        : (existing?.preserved_artwork_asset || ''),
+    ),
     String(playlist?.sourceType || ''),
     String(playlist?.sourceRef || ''),
     String(playlist?.sourceTitle || ''),
     String(playlist?.sourceOwner || ''),
     importedSyncPeriod,
+    audience,
     String(playlist?.algorithmVersion || 'phase2a'),
     playlist?.lastBuiltAt ?? null,
     playlist?.lastSyncedAt ?? null,
@@ -3065,6 +3106,22 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     Number(playlist?.createdAt || now),
     Number(playlist?.updatedAt || now),
   );
+}
+
+export function setCustomPlaylistAudience(db, userPlexId, playlistKey, audience) {
+  const normalized = ['personal', 'global'].includes(String(audience || '').trim().toLowerCase())
+    ? String(audience).trim().toLowerCase()
+    : 'personal';
+  db.prepare('UPDATE user_generated_playlists SET audience = ?, updated_at = ? WHERE user_plex_id = ? AND playlist_key = ?')
+    .run(normalized, Date.now(), userPlexId, playlistKey);
+}
+
+export function setAllCopiesPlaylistAudience(db, playlistKey, audience) {
+  const normalized = ['personal', 'global'].includes(String(audience || '').trim().toLowerCase())
+    ? String(audience).trim().toLowerCase()
+    : 'personal';
+  db.prepare('UPDATE user_generated_playlists SET audience = ?, updated_at = ? WHERE playlist_key = ?')
+    .run(normalized, Date.now(), playlistKey);
 }
 
 export function getLidarrArtistProgress(db, userPlexId, artistName) {

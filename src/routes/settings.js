@@ -1,6 +1,7 @@
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport, buildFeaturePresetAvailability } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
+import { parsePlaylistArtworkDataUrl, savePlaylistArtworkBuffer } from '../services/playlist-artwork.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
 import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
@@ -348,6 +349,49 @@ function buildPlaylistFeatureRuleConfig(input = {}) {
     seasonalExcludeKeywords: Array.isArray(input.seasonalExcludeKeywords) ? input.seasonalExcludeKeywords.map(String).filter(Boolean) : [],
     seasonalGenresMode: String(input.seasonalGenresMode || '').trim() === 'all' ? 'all' : 'any',
     seasonalKeywordsMode: String(input.seasonalKeywordsMode || '').trim() === 'all' ? 'all' : 'any',
+  };
+}
+
+function normalizeArtworkMode(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return ['auto', 'preserve', 'custom'].includes(raw) ? raw : 'auto';
+}
+
+function normalizePlaylistArtworkState(value = {}) {
+  return {
+    mode: normalizeArtworkMode(value?.mode || value?.artworkMode || 'auto'),
+    customArtworkAsset: String(value?.customArtworkAsset || '').trim(),
+    preservedArtworkAsset: String(value?.preservedArtworkAsset || '').trim(),
+  };
+}
+
+function parsePlaylistArtworkInput(rawArtwork, fallbackArtwork = {}) {
+  const fallback = normalizePlaylistArtworkState(fallbackArtwork);
+  if (rawArtwork === undefined) return fallback;
+  if (!rawArtwork || typeof rawArtwork !== 'object') return { mode: 'auto', customArtworkAsset: '', preservedArtworkAsset: '' };
+  const mode = normalizeArtworkMode(rawArtwork.mode || rawArtwork.artworkMode || fallback.mode || 'auto');
+  let customArtworkAsset = String(rawArtwork.customArtworkAsset || fallback.customArtworkAsset || '').trim();
+  let preservedArtworkAsset = String(rawArtwork.preservedArtworkAsset || fallback.preservedArtworkAsset || '').trim();
+
+  if (rawArtwork.customArtworkData !== undefined) {
+    const artworkData = String(rawArtwork.customArtworkData || '').trim();
+    if (!artworkData) {
+      customArtworkAsset = '';
+    } else {
+      const parsed = parsePlaylistArtworkDataUrl(artworkData);
+      if (!parsed.ok) throw new Error(parsed.error || 'Artwork image is invalid.');
+      const saved = savePlaylistArtworkBuffer(parsed.buffer, parsed.ext, rawArtwork.nameHint || 'playlist', 'custom');
+      if (!saved) throw new Error('Artwork image could not be saved.');
+      customArtworkAsset = saved;
+    }
+  }
+
+  if (mode === 'auto') preservedArtworkAsset = '';
+  if (mode === 'custom' && !customArtworkAsset) throw new Error('Custom artwork is required.');
+  return {
+    mode,
+    customArtworkAsset,
+    preservedArtworkAsset,
   };
 }
 
@@ -1730,6 +1774,12 @@ export function registerSettings(app, ctx) {
   app.post('/api/playlists/global', requireAdmin, (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    let artwork;
+    try {
+      artwork = parsePlaylistArtworkInput(req.body?.artwork, { mode: 'auto', customArtworkAsset: '', preservedArtworkAsset: '' });
+    } catch (err) {
+      return res.status(400).json({ error: safeMessage(err) });
+    }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const rules = {
@@ -1746,6 +1796,7 @@ export function registerSettings(app, ctx) {
       finalOrdering: PLAYLIST_FINAL_ORDERING_VALUES.includes(String(req.body?.finalOrdering || '').trim()) ? String(req.body.finalOrdering).trim() : 'none',
       blendUsers,
       blendMode: blendUsers.length && BLEND_MODES.includes(req.body?.blendMode) ? req.body.blendMode : 'average',
+      artwork,
       ...buildPlaylistFeatureRuleConfig(req.body || {}),
     };
     const gpFilters = req.body?.trackFilters !== undefined ? (() => {
@@ -1805,6 +1856,15 @@ export function registerSettings(app, ctx) {
     const updBlendUsers = req.body?.blendUsers !== undefined
       ? (Array.isArray(req.body.blendUsers) ? req.body.blendUsers.filter(Boolean) : [])
       : (existing.rules?.blendUsers || []);
+    let artwork;
+    try {
+      artwork = parsePlaylistArtworkInput(
+        req.body?.artwork,
+        normalizePlaylistArtworkState(existing.rules?.artwork || {}),
+      );
+    } catch (err) {
+      return res.status(400).json({ error: safeMessage(err) });
+    }
     const updated = {
       ...existing,
       name: req.body?.name !== undefined ? String(req.body.name).trim() || existing.name : existing.name,
@@ -1825,6 +1885,7 @@ export function registerSettings(app, ctx) {
         blendMode: req.body?.blendMode !== undefined
           ? (BLEND_MODES.includes(req.body.blendMode) ? req.body.blendMode : 'average')
           : (existing.rules?.blendMode || 'average'),
+        artwork,
         ...buildPlaylistFeatureRuleConfig({
           featurePreset: req.body?.featurePreset !== undefined ? req.body.featurePreset : existing.rules?.featurePreset,
           bpmMin: req.body?.bpmMin !== undefined ? req.body.bpmMin : existing.rules?.bpmMin,

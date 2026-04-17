@@ -1,21 +1,29 @@
 import { execFile } from 'node:child_process';
 import {
+  getUserPersonalPlaylist,
   getUserPlaylist,
   listSuggestedTracks,
   listUserGeneratedPlaylists,
   listAllGeneratedPlaylists,
   recordPlaylistSync,
   saveUserGeneratedPlaylist,
+  getAllUserIds,
   getUserPreferences,
   saveUserPreferences,
   getMasterTracks,
   setPlaylistTracks,
   getPlaylistTracks,
+  updateUserPersonalPlaylist,
   getArtistTagMap,
   getEffectiveTrackTags,
   getTrackDecadeTag,
   parseTriStateFilter,
 } from '../db.js';
+import {
+  detectPlaylistArtworkMimeFromBuffer,
+  getStoredPlaylistArtworkInfo,
+  savePlaylistArtworkBuffer,
+} from './playlist-artwork.js';
 
 const execFileAsync = (file, args, options = {}) => new Promise((resolve, reject) => {
   execFile(file, args, {
@@ -452,6 +460,108 @@ function buildGeneratedPlaylistSearchTitles(config, playlistType, playlistKey, u
   }
   if (fallbackTitle) titles.add(String(fallbackTitle).trim());
   return [...titles].map((title) => String(title || '').trim()).filter(Boolean);
+}
+
+function normalizeArtworkMode(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return ['auto', 'preserve', 'custom'].includes(raw) ? raw : 'auto';
+}
+
+function normalizeArtworkState(value = {}) {
+  const mode = normalizeArtworkMode(value?.artworkMode || value?.mode || 'auto');
+  return {
+    artworkMode: mode,
+    customArtworkAsset: String(value?.customArtworkAsset || value?.customAsset || '').trim(),
+    preservedArtworkAsset: String(value?.preservedArtworkAsset || value?.preservedAsset || '').trim(),
+  };
+}
+
+function extractPlaylistDefinitionArtworkState(ctx, userPlexId, playlistType, playlistKey) {
+  const config = ctx.loadConfig();
+  if (playlistType === 'personal' || String(playlistKey || '').startsWith('personal:')) {
+    const personalId = String(playlistKey || '').replace(/^personal:/, '').trim();
+    const playlist = personalId ? getUserPersonalPlaylist(ctx.db, personalId, userPlexId) : null;
+    return normalizeArtworkState(playlist?.rules?.artwork || {});
+  }
+  if (playlistType === 'global' || String(playlistKey || '').startsWith('global:')) {
+    const globalId = String(playlistKey || '').replace(/^global:/, '').trim();
+    const playlist = Array.isArray(config?.globalPlaylists)
+      ? config.globalPlaylists.find((entry) => String(entry?.id || '').trim() === globalId)
+      : null;
+    return normalizeArtworkState(playlist?.rules?.artwork || {});
+  }
+  return normalizeArtworkState({});
+}
+
+function resolveSyncArtworkState(ctx, userPlexId, playlistType, playlistKey, existing = null) {
+  if (playlistType === 'personal' || playlistType === 'global'
+      || String(playlistKey || '').startsWith('personal:')
+      || String(playlistKey || '').startsWith('global:')) {
+    return extractPlaylistDefinitionArtworkState(ctx, userPlexId, playlistType, playlistKey);
+  }
+  return normalizeArtworkState(existing || {});
+}
+
+function buildLocalPlaylistArtworkAppUrl(ctx, assetName) {
+  const info = getStoredPlaylistArtworkInfo(assetName);
+  if (!info?.url) return '';
+  const baseUrl = String(process.env.BASE_URL || `http://localhost:${process.env.PORT || 7676}`).trim();
+  try {
+    return ctx.buildAppApiUrl(baseUrl, info.url.replace(/^\//, '')).toString();
+  } catch (_err) {
+    return '';
+  }
+}
+
+async function fetchPlexPlaylistMetadata(ctx, userPlexId, plexPlaylistId) {
+  const config = ctx.loadConfig();
+  const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
+  const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+  if (!base || !token || !plexPlaylistId) return null;
+  const response = await fetch(`${base}/playlists/${encodeURIComponent(String(plexPlaylistId || ''))}?X-Plex-Container-Start=0&X-Plex-Container-Size=1`, {
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+  });
+  if (!response.ok) return null;
+  const json = await response.json().catch(() => null);
+  return json?.MediaContainer?.Metadata?.[0] || null;
+}
+
+async function snapshotPlexPlaylistArtworkAsset(ctx, userPlexId, plexPlaylistId, nameHint = '') {
+  const config = ctx.loadConfig();
+  const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
+  const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+  if (!base || !token || !plexPlaylistId) return '';
+  const playlistMeta = await fetchPlexPlaylistMetadata(ctx, userPlexId, plexPlaylistId).catch(() => null);
+  const artworkPath = String(playlistMeta?.thumb || playlistMeta?.art || playlistMeta?.composite || '').trim();
+  if (!artworkPath) return '';
+  const response = await fetch(`${base}${artworkPath}`, {
+    headers: ctx.buildPlexAuthHeaders(token),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) return '';
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const mime = detectPlaylistArtworkMimeFromBuffer(buffer);
+  if (!mime) return '';
+  const ext = mime === 'image/png' ? 'png' : (mime === 'image/webp' ? 'webp' : 'jpg');
+  return savePlaylistArtworkBuffer(buffer, ext, nameHint || plexPlaylistId, 'preserve');
+}
+
+async function applyPlexPlaylistArtworkAsset(ctx, userPlexId, plexPlaylistId, assetName) {
+  const config = ctx.loadConfig();
+  const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
+  const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+  const artworkUrl = buildLocalPlaylistArtworkAppUrl(ctx, assetName);
+  if (!base || !token || !plexPlaylistId || !artworkUrl) return false;
+  const requestUrl = ctx.buildAppApiUrl(base, `library/metadata/${encodeURIComponent(String(plexPlaylistId || ''))}/thumb`);
+  requestUrl.searchParams.set('url', artworkUrl);
+  const response = await fetch(requestUrl.toString(), {
+    method: 'PUT',
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  return response.ok;
 }
 
 function canOverrideDisabledPlaylist(options = {}, playlistKey = '') {
@@ -1198,99 +1308,159 @@ async function resolveMachineId(ctx, config) {
   return machineId;
 }
 
-async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, machineId) {
-  const { loadConfig } = ctx;
-  const config = loadConfig();
-  const { url } = config.plex || {};
-  const token = ctx.resolveUserPlexServerToken(config, userPlexId);
-  if (!url || !token || !machineId) throw new Error('Plex is not configured for playlist sync');
+const PLEX_ENSURE_TIMEOUT_MS = 15_000;
+const PLEX_PLAYLIST_SEARCH_PAGE_SIZE = 200;
+const plexPlaylistEnsureLocks = new Map();
 
-  const existing = listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
-    .find((entry) => entry.playlistKey === playlistKey);
+function normalizePlexPlaylistTitle(title = '') {
+  return String(title || '').trim().toLowerCase();
+}
 
-  const base = url.replace(/\/$/, '');
-
-  // Existing DB record with a Plex ID — ensure Plex title matches (handles legacy format migration)
-  if (existing?.plexPlaylistId) {
-    try {
-      await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
-        method: 'PUT',
-        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-      });
-      if (existing.playlistTitle !== playlistTitle) {
-        saveUserGeneratedPlaylist(ctx.db, userPlexId, { ...existing, playlistTitle, updatedAt: Date.now() });
+function withPlexPlaylistEnsureLock(lockKey, task) {
+  const existing = plexPlaylistEnsureLocks.get(lockKey);
+  if (existing) return existing;
+  const promise = Promise.resolve()
+    .then(task)
+    .finally(() => {
+      if (plexPlaylistEnsureLocks.get(lockKey) === promise) {
+        plexPlaylistEnsureLocks.delete(lockKey);
       }
-    } catch { /* rename is best-effort */ }
-    return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
-      .find((entry) => entry.playlistKey === playlistKey);
+    });
+  plexPlaylistEnsureLocks.set(lockKey, promise);
+  return promise;
+}
+
+async function listPlexAudioPlaylists(ctx, base, token, { timeoutMs = PLEX_ENSURE_TIMEOUT_MS } = {}) {
+  const playlists = [];
+  let offset = 0;
+
+  while (true) {
+    const searchUrl = new URL(`${base}/playlists`);
+    searchUrl.searchParams.set('playlistType', 'audio');
+    searchUrl.searchParams.set('X-Plex-Container-Start', String(offset));
+    searchUrl.searchParams.set('X-Plex-Container-Size', String(PLEX_PLAYLIST_SEARCH_PAGE_SIZE));
+
+    const response = await fetch(searchUrl.toString(), {
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) throw new Error(`List playlists failed: HTTP ${response.status}`);
+
+    const json = await response.json();
+    const container = json?.MediaContainer || {};
+    const batch = Array.isArray(container?.Metadata) ? container.Metadata : [];
+    playlists.push(...batch);
+
+    const totalSize = Number(container?.totalSize || container?.size || 0);
+    if (!batch.length) break;
+    offset += batch.length;
+    if ((totalSize > 0 && offset >= totalSize) || batch.length < PLEX_PLAYLIST_SEARCH_PAGE_SIZE) break;
   }
 
-  // DB record exists but has no Plex ID — search Plex by title (or legacy title) to avoid creating a duplicate
-  const searchTitles = buildGeneratedPlaylistSearchTitles(
-    config,
-    DAILY_MIX_PLAYLIST_TYPE,
-    playlistKey,
-    userPlexId,
-    playlistTitle,
+  return playlists;
+}
+
+function findPlexPlaylistByTitle(playlists = [], searchTitles = []) {
+  const normalizedTitles = new Set(
+    (Array.isArray(searchTitles) ? searchTitles : [])
+      .map((title) => normalizePlexPlaylistTitle(title))
+      .filter(Boolean),
   );
-  if (existing && !existing.plexPlaylistId) {
-    try {
-      const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
-        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-      });
-      if (searchRes.ok) {
-        const searchJson = await searchRes.json();
-        const match = (searchJson?.MediaContainer?.Metadata || [])
-          .find((p) => searchTitles.includes(String(p?.title || '').trim()));
-        if (match?.ratingKey) {
-          const matchedId = String(match.ratingKey);
-          if (match.title !== playlistTitle) {
-            try {
-              await fetch(`${base}/playlists/${matchedId}?title=${encodeURIComponent(playlistTitle)}`, {
-                method: 'PUT',
-                headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-              });
-            } catch { /* rename is best-effort */ }
-          }
-          saveUserGeneratedPlaylist(ctx.db, userPlexId, {
-            playlistType: DAILY_MIX_PLAYLIST_TYPE, playlistKey,
-            plexPlaylistId: matchedId,
-            playlistTitle, algorithmVersion: 'phase2c-daily-mix',
-            active: true, updatedAt: Date.now(),
-          });
-          return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
-            .find((entry) => entry.playlistKey === playlistKey) || null;
+  if (!normalizedTitles.size) return null;
+  return (Array.isArray(playlists) ? playlists : [])
+    .find((playlist) => normalizedTitles.has(normalizePlexPlaylistTitle(playlist?.title || ''))) || null;
+}
+
+async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, machineId) {
+  return withPlexPlaylistEnsureLock(`daily-mix:${userPlexId}:${playlistKey}`, async () => {
+    const { loadConfig } = ctx;
+    const config = loadConfig();
+    const { url } = config.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userPlexId);
+    if (!url || !token || !machineId) throw new Error('Plex is not configured for playlist sync');
+
+    const existing = listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+
+    const base = url.replace(/\/$/, '');
+
+    // Existing DB record with a Plex ID — ensure Plex title matches (handles legacy format migration)
+    if (existing?.plexPlaylistId) {
+      try {
+        await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
+          method: 'PUT',
+          headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+        });
+        if (existing.playlistTitle !== playlistTitle) {
+          saveUserGeneratedPlaylist(ctx.db, userPlexId, { ...existing, playlistTitle, updatedAt: Date.now() });
         }
+      } catch { /* rename is best-effort */ }
+      return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
+        .find((entry) => entry.playlistKey === playlistKey);
+    }
+
+    // DB record exists but has no Plex ID — search Plex by title (or legacy title) to avoid creating a duplicate
+    const searchTitles = buildGeneratedPlaylistSearchTitles(
+      config,
+      DAILY_MIX_PLAYLIST_TYPE,
+      playlistKey,
+      userPlexId,
+      playlistTitle,
+    );
+    if (existing && !existing.plexPlaylistId) {
+      const all = await listPlexAudioPlaylists(ctx, base, token);
+      const match = findPlexPlaylistByTitle(all, searchTitles);
+      if (match?.ratingKey) {
+        const matchedId = String(match.ratingKey);
+        if (match.title !== playlistTitle) {
+          try {
+            await fetch(`${base}/playlists/${matchedId}?title=${encodeURIComponent(playlistTitle)}`, {
+              method: 'PUT',
+              headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+              signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+            });
+          } catch { /* rename is best-effort */ }
+        }
+        saveUserGeneratedPlaylist(ctx.db, userPlexId, {
+          playlistType: DAILY_MIX_PLAYLIST_TYPE, playlistKey,
+          plexPlaylistId: matchedId,
+          playlistTitle, algorithmVersion: 'phase2c-daily-mix',
+          active: true, updatedAt: Date.now(),
+        });
+        return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
+          .find((entry) => entry.playlistKey === playlistKey) || null;
       }
-    } catch { /* fall through to create */ }
-  }
+    }
 
-  const createUrl = new URL(`${base}/playlists`);
-  createUrl.searchParams.set('type', 'audio');
-  createUrl.searchParams.set('title', playlistTitle);
-  createUrl.searchParams.set('smart', '0');
-  createUrl.searchParams.set('uri', `server://${machineId}/com.plexapp.plugins.library`);
-  const response = await fetch(createUrl.toString(), {
-    method: 'POST',
-    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    const createUrl = new URL(`${base}/playlists`);
+    createUrl.searchParams.set('type', 'audio');
+    createUrl.searchParams.set('title', playlistTitle);
+    createUrl.searchParams.set('smart', '0');
+    createUrl.searchParams.set('uri', `server://${machineId}/com.plexapp.plugins.library`);
+    const response = await fetch(createUrl.toString(), {
+      method: 'POST',
+      headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Create playlist failed: HTTP ${response.status}`);
+    const json = await response.json();
+    const plexPlaylistId = String(json?.MediaContainer?.Metadata?.[0]?.ratingKey || '').trim();
+    if (!plexPlaylistId) throw new Error('Plex did not return a playlist ID after creation');
+
+    saveUserGeneratedPlaylist(ctx.db, userPlexId, {
+      playlistType: DAILY_MIX_PLAYLIST_TYPE,
+      playlistKey,
+      plexPlaylistId,
+      playlistTitle,
+      algorithmVersion: 'phase2c-daily-mix',
+      active: true,
+      updatedAt: Date.now(),
+    });
+
+    return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey) || null;
   });
-  if (!response.ok) throw new Error(`Create playlist failed: HTTP ${response.status}`);
-  const json = await response.json();
-  const plexPlaylistId = String(json?.MediaContainer?.Metadata?.[0]?.ratingKey || '').trim();
-  if (!plexPlaylistId) throw new Error('Plex did not return a playlist ID after creation');
-
-  saveUserGeneratedPlaylist(ctx.db, userPlexId, {
-    playlistType: DAILY_MIX_PLAYLIST_TYPE,
-    playlistKey,
-    plexPlaylistId,
-    playlistTitle,
-    algorithmVersion: 'phase2c-daily-mix',
-    active: true,
-    updatedAt: Date.now(),
-  });
-
-  return listUserGeneratedPlaylists(ctx.db, userPlexId, { activeOnly: false })
-    .find((entry) => entry.playlistKey === playlistKey) || null;
 }
 
 async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machineId, ratingKeys) {
@@ -1300,11 +1470,14 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
   const base = String(url || '').replace(/\/$/, '');
   if (!base || !token) throw new Error('Plex is not configured for playlist sync');
 
+  const PLEX_PLAYLIST_TIMEOUT_MS = 30_000;
   const clearUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
-  await fetch(clearUrl.toString(), {
+  const clearRes = await fetch(clearUrl.toString(), {
     method: 'DELETE',
     headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
   });
+  if (!clearRes.ok) throw new Error(`Clear playlist items failed: HTTP ${clearRes.status}`);
 
   for (let i = 0; i < ratingKeys.length; i += 100) {
     const batch = ratingKeys.slice(i, i + 100);
@@ -1314,6 +1487,7 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
     const response = await fetch(addUrl.toString(), {
       method: 'PUT',
       headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`Add playlist items failed: HTTP ${response.status}`);
   }
@@ -1901,25 +2075,51 @@ function buildSmartPlaylistPayload(db, userId, playlistCfg, masterTracks) {
 // ─── Plex playlist helper (generic, reusable) ─────────────────────────────────
 
 async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, playlistTitle, machineId) {
-  const existing = listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false })
-    .find((e) => e.playlistKey === playlistKey);
+  return withPlexPlaylistEnsureLock(`generated:${userId}:${playlistKey}`, async () => {
+    const existing = listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false })
+      .find((e) => e.playlistKey === playlistKey);
 
-  const config = ctx.loadConfig();
-  const { url } = config.plex || {};
-  const token = ctx.resolveUserPlexServerToken(config, userId);
-  if (!url || !token || !machineId) throw new Error('Plex is not configured for playlist creation');
+    const config = ctx.loadConfig();
+    const { url } = config.plex || {};
+    const token = ctx.resolveUserPlexServerToken(config, userId);
+    if (!url || !token || !machineId) throw new Error('Plex is not configured for playlist creation');
 
-  // If we have an existing record, ensure the Plex playlist title matches (handles legacy name migration).
-  if (existing?.plexPlaylistId) {
     const base = url.replace(/\/$/, '');
-    let playlistExists = false;
-    try {
-      const verifyRes = await fetch(`${base}/playlists/${existing.plexPlaylistId}?X-Plex-Container-Start=0&X-Plex-Container-Size=1`, {
-        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-      });
+
+    // If we have an existing record, ensure the Plex playlist title matches (handles legacy name migration).
+    if (existing?.plexPlaylistId) {
+      let verifyRes;
+      try {
+        verifyRes = await fetch(`${base}/playlists/${existing.plexPlaylistId}?X-Plex-Container-Start=0&X-Plex-Container-Size=1`, {
+          headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+        });
+      } catch (err) {
+        ctx.pushLog?.({
+          level: 'warn',
+          app: 'playlist',
+          action: 'generated.verify',
+          message: `Generated playlist "${playlistTitle}" for ${userId} could not be verified; keeping existing Plex id ${existing.plexPlaylistId}.`,
+          meta: { playlistKey, plexPlaylistId: existing.plexPlaylistId, error: err?.message || String(err || '') },
+        });
+        return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey) || existing;
+      }
+
       if (verifyRes.ok) {
-        playlistExists = true;
-      } else if (verifyRes.status === 404) {
+        try {
+          await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
+            method: 'PUT',
+            headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+          });
+          if (existing.playlistTitle !== playlistTitle) {
+            saveUserGeneratedPlaylist(ctx.db, userId, { ...existing, playlistTitle, updatedAt: Date.now() });
+          }
+        } catch { /* rename is best-effort */ }
+        return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
+      }
+
+      if (verifyRes.status === 404) {
         saveUserGeneratedPlaylist(ctx.db, userId, {
           ...existing,
           plexPlaylistId: '',
@@ -1932,80 +2132,62 @@ async function ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, p
           message: `Generated playlist "${playlistTitle}" for ${userId} had a stale Plex id (${existing.plexPlaylistId}); recreating.`,
           meta: { playlistKey, stalePlexPlaylistId: existing.plexPlaylistId },
         });
+      } else {
+        throw new Error(`Verify playlist failed: HTTP ${verifyRes.status}`);
       }
-    } catch { /* fall through to search/create */ }
+    }
 
-    if (playlistExists) {
-      try {
-        await fetch(`${base}/playlists/${existing.plexPlaylistId}?title=${encodeURIComponent(playlistTitle)}`, {
-          method: 'PUT',
-          headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-        });
-        if (existing.playlistTitle !== playlistTitle) {
-          saveUserGeneratedPlaylist(ctx.db, userId, { ...existing, playlistTitle, updatedAt: Date.now() });
-        }
-      } catch { /* rename is best-effort */ }
+    // Search Plex by title before creating — prevents duplicates when the DB has been reset.
+    // Also checks the legacy name format (e.g. "TJWhiteStar's Crescive Playlist") for migration.
+    const searchTitles = buildGeneratedPlaylistSearchTitles(
+      config,
+      playlistType,
+      playlistKey,
+      userId,
+      playlistTitle,
+    );
+    const all = await listPlexAudioPlaylists(ctx, base, token);
+    const match = findPlexPlaylistByTitle(all, searchTitles);
+    if (match?.ratingKey) {
+      const matchedId = String(match.ratingKey);
+      // Rename in Plex if found under the legacy title
+      if (match.title !== playlistTitle) {
+        try {
+          await fetch(`${base}/playlists/${matchedId}?title=${encodeURIComponent(playlistTitle)}`, {
+            method: 'PUT',
+            headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
+          });
+        } catch { /* rename is best-effort */ }
+      }
+      saveUserGeneratedPlaylist(ctx.db, userId, {
+        playlistType, playlistKey, plexPlaylistId: matchedId,
+        playlistTitle, algorithmVersion: ALGORITHM_VERSION, active: true, updatedAt: Date.now(),
+      });
       return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
     }
-  }
 
-  // Search Plex by title before creating — prevents duplicates when the DB has been reset.
-  // Also checks the legacy name format (e.g. "TJWhiteStar's Crescive Playlist") for migration.
-  const base = url.replace(/\/$/, '');
-  const searchTitles = buildGeneratedPlaylistSearchTitles(
-    config,
-    playlistType,
-    playlistKey,
-    userId,
-    playlistTitle,
-  );
-  try {
-    const searchRes = await fetch(`${base}/playlists?playlistType=audio`, {
+    const createUrl = new URL(`${base}/playlists`);
+    createUrl.searchParams.set('type', 'audio');
+    createUrl.searchParams.set('title', playlistTitle);
+    createUrl.searchParams.set('smart', '0');
+    createUrl.searchParams.set('uri', `server://${machineId}/com.plexapp.plugins.library`);
+    const res = await fetch(createUrl.toString(), {
+      method: 'POST',
       headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+      signal: AbortSignal.timeout(PLEX_ENSURE_TIMEOUT_MS),
     });
-    if (searchRes.ok) {
-      const searchJson = await searchRes.json();
-      const all = searchJson?.MediaContainer?.Metadata || [];
-      const match = all.find((p) => searchTitles.includes(String(p?.title || '').trim()));
-      if (match?.ratingKey) {
-        const matchedId = String(match.ratingKey);
-        // Rename in Plex if found under the legacy title
-        if (match.title !== playlistTitle) {
-          try {
-            await fetch(`${base}/playlists/${matchedId}?title=${encodeURIComponent(playlistTitle)}`, {
-              method: 'PUT',
-              headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-            });
-          } catch { /* rename is best-effort */ }
-        }
-        saveUserGeneratedPlaylist(ctx.db, userId, {
-          playlistType, playlistKey, plexPlaylistId: matchedId,
-          playlistTitle, algorithmVersion: ALGORITHM_VERSION, active: true, updatedAt: Date.now(),
-        });
-        return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
-      }
-    }
-  } catch { /* fall through to create */ }
+    if (!res.ok) throw new Error(`Create playlist failed: HTTP ${res.status}`);
+    const json = await res.json();
+    const plexPlaylistId = String(json?.MediaContainer?.Metadata?.[0]?.ratingKey || '').trim();
+    if (!plexPlaylistId) throw new Error('Plex did not return a playlist ID after creation');
 
-  const createUrl = new URL(`${base}/playlists`);
-  createUrl.searchParams.set('type', 'audio');
-  createUrl.searchParams.set('title', playlistTitle);
-  createUrl.searchParams.set('smart', '0');
-  createUrl.searchParams.set('uri', `server://${machineId}/com.plexapp.plugins.library`);
-  const res = await fetch(createUrl.toString(), {
-    method: 'POST',
-    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    saveUserGeneratedPlaylist(ctx.db, userId, {
+      playlistType, playlistKey, plexPlaylistId, playlistTitle,
+      algorithmVersion: ALGORITHM_VERSION, active: true, updatedAt: Date.now(),
+    });
+    return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
   });
-  if (!res.ok) throw new Error(`Create playlist failed: HTTP ${res.status}`);
-  const json = await res.json();
-  const plexPlaylistId = String(json?.MediaContainer?.Metadata?.[0]?.ratingKey || '').trim();
-  if (!plexPlaylistId) throw new Error('Plex did not return a playlist ID after creation');
-
-  saveUserGeneratedPlaylist(ctx.db, userId, {
-    playlistType, playlistKey, plexPlaylistId, playlistTitle,
-    algorithmVersion: ALGORITHM_VERSION, active: true, updatedAt: Date.now(),
-  });
-  return listUserGeneratedPlaylists(ctx.db, userId, { activeOnly: false }).find((e) => e.playlistKey === playlistKey);
 }
 
 // ─── Shared rule-based playlist filtering ────────────────────────────────────
@@ -2260,6 +2442,7 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   const existing = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
     .find((entry) => entry.playlistKey === playlistKey) || null;
   const title = resolveGeneratedPlaylistTitle(config, playlistType, playlistKey, userId, existing);
+  const artworkState = resolveSyncArtworkState(ctx, userId, playlistType, playlistKey, existing);
   const playlistRow = await ensureGeneratedPlaylist(ctx, userId, playlistType, playlistKey, title, machineId);
 
   // Rebuild from current artist scores on every sync
@@ -2268,6 +2451,11 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
   pushLog({ level: 'info', app: 'playlist', action: `${playlistKey}.build`, message: `${playlistType} rebuilt: ${ratingKeys.length} tracks for ${userId}` });
 
   await replacePlexPlaylistItems(ctx, userId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+  const syncedArtwork = await syncGeneratedPlaylistArtwork(userId, {
+    ...playlistRow,
+    playlistKey,
+    plexPlaylistId: playlistRow.plexPlaylistId,
+  }, artworkState, { snapshotIfNeeded: artworkState.artworkMode === 'preserve' });
 
   const now = Date.now();
   saveUserGeneratedPlaylist(db, userId, {
@@ -2275,6 +2463,9 @@ async function syncSmartPlaylistForUser(ctx, userId, playlistType, playlistKey, 
     plexPlaylistId: playlistRow.plexPlaylistId,
     playlistTitle: title,
     titleOverride: existing?.titleOverride || '',
+    artworkMode: syncedArtwork.artworkMode,
+    customArtworkAsset: syncedArtwork.customArtworkAsset,
+    preservedArtworkAsset: syncedArtwork.preservedArtworkAsset,
     algorithmVersion: ALGORITHM_VERSION,
     lastBuiltAt: now, lastSyncedAt: now,
     trackCount: ratingKeys.length,
@@ -2338,6 +2529,9 @@ async function syncSmartPlaylistForUserJellyfin(ctx, userId, playlistType, playl
     plexPlaylistId: playlistId,
     playlistTitle: title,
     titleOverride: existing?.titleOverride || '',
+    artworkMode: artworkState.artworkMode,
+    customArtworkAsset: artworkState.customArtworkAsset,
+    preservedArtworkAsset: artworkState.preservedArtworkAsset,
     algorithmVersion: ALGORITHM_VERSION,
     lastBuiltAt: now, lastSyncedAt: now,
     trackCount: ratingKeys.length,
@@ -2359,6 +2553,132 @@ export function createPlaylistService(ctx) {
 
   function getGeneratedByKey(userPlexId, playlistKey) {
     return listGenerated(userPlexId, { activeOnly: false }).find((entry) => entry.playlistKey === playlistKey) || null;
+  }
+
+  function updatePlaylistDefinitionArtworkState(userPlexId, playlistKey, artworkState) {
+    const normalized = normalizeArtworkState(artworkState);
+    if (String(playlistKey || '').startsWith('personal:')) {
+      const personalId = String(playlistKey || '').replace(/^personal:/, '').trim();
+      const existing = personalId ? getUserPersonalPlaylist(db, personalId, userPlexId) : null;
+      if (!existing) return null;
+      updateUserPersonalPlaylist(db, userPlexId, {
+        ...existing,
+        rules: {
+          ...(existing.rules || {}),
+          artwork: {
+            mode: normalized.artworkMode,
+            customArtworkAsset: normalized.customArtworkAsset,
+            preservedArtworkAsset: normalized.preservedArtworkAsset,
+          },
+        },
+      });
+      return getUserPersonalPlaylist(db, personalId, userPlexId);
+    }
+    if (String(playlistKey || '').startsWith('global:')) {
+      const globalId = String(playlistKey || '').replace(/^global:/, '').trim();
+      const config = ctx.loadConfig();
+      const entries = Array.isArray(config?.globalPlaylists) ? [...config.globalPlaylists] : [];
+      const index = entries.findIndex((entry) => String(entry?.id || '').trim() === globalId);
+      if (index < 0) return null;
+      entries[index] = {
+        ...entries[index],
+        rules: {
+          ...(entries[index].rules || {}),
+          artwork: {
+            mode: normalized.artworkMode,
+            customArtworkAsset: normalized.customArtworkAsset,
+            preservedArtworkAsset: normalized.preservedArtworkAsset,
+          },
+        },
+        updatedAt: Date.now(),
+      };
+      ctx.saveConfig({ ...config, globalPlaylists: entries });
+      return entries[index];
+    }
+    return null;
+  }
+
+  async function syncGeneratedPlaylistArtwork(userPlexId, playlist, artworkState, { snapshotIfNeeded = false } = {}) {
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType !== 'plex') return normalizeArtworkState(artworkState);
+    const normalized = normalizeArtworkState(artworkState);
+    const plexPlaylistId = String(playlist?.plexPlaylistId || '').trim();
+    if (!plexPlaylistId) return normalized;
+
+    if (normalized.artworkMode === 'preserve' && !normalized.preservedArtworkAsset && snapshotIfNeeded) {
+      const captured = await snapshotPlexPlaylistArtworkAsset(ctx, userPlexId, plexPlaylistId, `${userPlexId}-${playlist.playlistKey || plexPlaylistId}`).catch(() => '');
+      if (captured) normalized.preservedArtworkAsset = captured;
+    }
+
+    const assetToApply = normalized.artworkMode === 'custom'
+      ? normalized.customArtworkAsset
+      : (normalized.artworkMode === 'preserve' ? normalized.preservedArtworkAsset : '');
+    if (!assetToApply) return normalized;
+    await applyPlexPlaylistArtworkAsset(ctx, userPlexId, plexPlaylistId, assetToApply).catch((err) => {
+      ctx.pushLog?.({
+        level: 'warn',
+        app: 'playlist',
+        action: 'artwork.apply',
+        message: `Failed to apply artwork for ${playlist?.playlistKey || 'playlist'} for ${userPlexId}: ${err?.message || err}`,
+      });
+    });
+    return normalized;
+  }
+
+  async function updateGeneratedPlaylistArtwork(userPlexId, playlistKey, artworkInput = {}) {
+    const existing = getGeneratedByKey(userPlexId, playlistKey);
+    if (!existing) throw new Error('Playlist not found.');
+    const nextMode = normalizeArtworkMode(artworkInput?.artworkMode || artworkInput?.mode || existing.artworkMode || 'auto');
+    let customArtworkAsset = String(existing.customArtworkAsset || '').trim();
+    let preservedArtworkAsset = String(existing.preservedArtworkAsset || '').trim();
+
+    if (nextMode === 'custom') {
+      const explicitCustomAsset = String(artworkInput?.customArtworkAsset || '').trim();
+      if (explicitCustomAsset) {
+        customArtworkAsset = explicitCustomAsset;
+      } else if (!customArtworkAsset) {
+        throw new Error('Custom artwork is required.');
+      }
+    }
+    if (nextMode === 'auto') {
+      preservedArtworkAsset = '';
+    }
+
+    let updated = upsertGenerated(userPlexId, {
+      ...existing,
+      artworkMode: nextMode,
+      customArtworkAsset,
+      preservedArtworkAsset,
+      updatedAt: Date.now(),
+    });
+
+    if (playlistKey.startsWith('personal:') || playlistKey.startsWith('global:')) {
+      updatePlaylistDefinitionArtworkState(userPlexId, playlistKey, {
+        artworkMode: nextMode,
+        customArtworkAsset,
+        preservedArtworkAsset,
+      });
+    }
+
+    const syncedArtwork = await syncGeneratedPlaylistArtwork(userPlexId, updated, {
+      artworkMode: nextMode,
+      customArtworkAsset,
+      preservedArtworkAsset,
+    }, { snapshotIfNeeded: nextMode === 'preserve' }).catch(() => ({
+      artworkMode: nextMode,
+      customArtworkAsset,
+      preservedArtworkAsset,
+    }));
+
+    updated = upsertGenerated(userPlexId, {
+      ...updated,
+      artworkMode: syncedArtwork.artworkMode,
+      customArtworkAsset: syncedArtwork.customArtworkAsset,
+      preservedArtworkAsset: syncedArtwork.preservedArtworkAsset,
+      updatedAt: Date.now(),
+    });
+    return updated;
   }
 
   function syncExternalPlaylistPreference(userPlexId, playlistType, playlistKey, shouldEnable) {
@@ -2524,6 +2844,7 @@ export function createPlaylistService(ctx) {
     const config = ctx.loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const now = Date.now();
+    const artworkState = normalizeArtworkState(playlist);
 
     if (msType === 'jellyfin' || msType === 'emby') {
       const { getAdapter } = await import('./media-servers/index.js');
@@ -2536,6 +2857,9 @@ export function createPlaylistService(ctx) {
       saveUserGeneratedPlaylist(db, userPlexId, {
         ...playlist,
         plexPlaylistId: playlistId,
+        artworkMode: artworkState.artworkMode,
+        customArtworkAsset: artworkState.customArtworkAsset,
+        preservedArtworkAsset: artworkState.preservedArtworkAsset,
         trackCount: ratingKeys.length,
         active: true,
         lastSyncedAt: now,
@@ -2558,9 +2882,17 @@ export function createPlaylistService(ctx) {
       machineId,
     );
     await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+    const syncedArtwork = await syncGeneratedPlaylistArtwork(userPlexId, {
+      ...playlistRow,
+      playlistKey: playlist.playlistKey,
+      plexPlaylistId: playlistRow.plexPlaylistId,
+    }, artworkState, { snapshotIfNeeded: artworkState.artworkMode === 'preserve' });
     saveUserGeneratedPlaylist(db, userPlexId, {
       ...playlist,
       plexPlaylistId: playlistRow.plexPlaylistId,
+      artworkMode: syncedArtwork.artworkMode,
+      customArtworkAsset: syncedArtwork.customArtworkAsset,
+      preservedArtworkAsset: syncedArtwork.preservedArtworkAsset,
       trackCount: ratingKeys.length,
       active: true,
       lastSyncedAt: now,
@@ -3148,6 +3480,14 @@ export function createPlaylistService(ctx) {
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const trigger = String(options.trigger || 'manual');
     const playlistToSync = await finalizeBuiltPlaylistOrdering(userPlexId, builtPlaylist, builtPlaylist?.options || {});
+    const existing = getGeneratedByKey(userPlexId, playlistToSync?.playlistKey || builtPlaylist?.playlistKey || '');
+    const artworkState = resolveSyncArtworkState(
+      ctx,
+      userPlexId,
+      String(playlistToSync?.playlistType || builtPlaylist?.playlistType || ''),
+      String(playlistToSync?.playlistKey || builtPlaylist?.playlistKey || ''),
+      existing,
+    );
     if (!playlistToSync?.trackKeys?.length) {
       throw new Error(`No ${builtPlaylist?.playlistTitle || 'playlist'} tracks are available yet`);
     }
@@ -3168,6 +3508,9 @@ export function createPlaylistService(ctx) {
         playlistKey: playlistToSync.playlistKey,
         plexPlaylistId: playlistId,
         playlistTitle: playlistToSync.playlistTitle,
+        artworkMode: artworkState.artworkMode,
+        customArtworkAsset: artworkState.customArtworkAsset,
+        preservedArtworkAsset: artworkState.preservedArtworkAsset,
         algorithmVersion: playlistToSync.algorithmVersion,
         lastBuiltAt: playlistToSync.builtAt,
         lastSyncedAt: syncedAt,
@@ -3206,6 +3549,11 @@ export function createPlaylistService(ctx) {
       machineId,
     );
     await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, playlistToSync.trackKeys);
+    const syncedArtwork = await syncGeneratedPlaylistArtwork(userPlexId, {
+      ...playlistRow,
+      playlistKey: playlistToSync.playlistKey,
+      plexPlaylistId: playlistRow.plexPlaylistId,
+    }, artworkState, { snapshotIfNeeded: artworkState.artworkMode === 'preserve' });
     setPlaylistTracks(db, userPlexId, playlistToSync.playlistKey, playlistToSync.tracks);
 
     const syncedAt = Date.now();
@@ -3214,6 +3562,9 @@ export function createPlaylistService(ctx) {
       playlistKey: playlistToSync.playlistKey,
       plexPlaylistId: playlistRow.plexPlaylistId,
       playlistTitle: playlistToSync.playlistTitle,
+      artworkMode: syncedArtwork.artworkMode,
+      customArtworkAsset: syncedArtwork.customArtworkAsset,
+      preservedArtworkAsset: syncedArtwork.preservedArtworkAsset,
       algorithmVersion: playlistToSync.algorithmVersion,
       lastBuiltAt: playlistToSync.builtAt,
       lastSyncedAt: syncedAt,
@@ -3856,12 +4207,53 @@ export function createPlaylistService(ctx) {
     return { processed: all.length, renamed };
   }
 
+  async function syncGlobalCustomPlaylist(ownerUserId, playlist, options = {}) {
+    const trackRefs = getPlaylistTracks(db, ownerUserId, playlist.playlistKey);
+    if (!trackRefs.length) return;
+    const allUserIds = getAllUserIds(db).filter((uid) => {
+      if (!uid) return false;
+      const prefs = getUserPreferences(db, uid);
+      return Boolean(prefs?.userWizardCompleted);
+    });
+    for (const userId of allUserIds) {
+      try {
+        saveUserGeneratedPlaylist(db, userId, {
+          ...playlist,
+          userPlexId: userId,
+          audience: 'global',
+          importedSyncPeriod: userId === ownerUserId ? (playlist.importedSyncPeriod || 'disabled') : 'disabled',
+          plexPlaylistId: userId === ownerUserId ? (playlist.plexPlaylistId || '') : '',
+        });
+        setPlaylistTracks(db, userId, playlist.playlistKey, trackRefs);
+        const userRecord = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+          .find((p) => p.playlistKey === playlist.playlistKey);
+        if (userRecord) {
+          await syncCustomPlaylist(userId, userRecord).catch(() => {});
+        }
+      } catch (err) {
+        ctx.pushLog({
+          level: 'warn',
+          app: 'playlist',
+          action: 'import.global.sync-user',
+          message: `Failed to sync global imported playlist ${playlist.playlistKey} for ${userId}: ${err?.message || err}`,
+        });
+      }
+    }
+    ctx.pushLog({
+      level: 'info',
+      app: 'playlist',
+      action: 'import.global.sync',
+      message: `Synced global imported playlist "${playlist.playlistTitle}" (${playlist.playlistKey}) to ${allUserIds.length} user(s)`,
+    });
+  }
+
   return {
     listGenerated,
     getGeneratedByKey,
     upsertGenerated,
     getCanonicalPlaylist,
     syncCustomPlaylist,
+    syncGlobalCustomPlaylist,
     buildDailyMix,
     buildCuratorr,
     syncDailyMix,
@@ -3874,6 +4266,7 @@ export function createPlaylistService(ctx) {
     syncCurative,
     syncBothForUser,
     setGeneratedActive,
+    updateGeneratedPlaylistArtwork,
     removeSmartPlaylistType,
     renameGeneratedPlaylistTitle,
     renameAllGeneratedPlaylistTitles,

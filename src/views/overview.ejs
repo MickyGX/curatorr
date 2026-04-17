@@ -1,0 +1,1155 @@
+<%- include('partials/head', { pageTitle: title || 'Overview — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body">
+  <style>
+    /* ── Overview page ──────────────────────────────────────────────────── */
+    .dash-content--overview {
+      --ov-accent: rgba(255,255,255,0.36);
+      --ov-panel-line: rgba(255,255,255,0.14);
+      --ov-muted: rgba(255,255,255,0.62);
+    }
+
+    .dash-content--overview .cur-panel {
+      margin-bottom: 16px;
+    }
+
+    .dash-content--overview .cur-panel-header {
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--ov-panel-line);
+      border-radius: 0;
+      padding: 9px 0 8px;
+    }
+
+    .dash-content--overview .cur-panel-title {
+      font-size: 33px;
+      line-height: 1.04;
+      font-weight: 500;
+      text-transform: none;
+      letter-spacing: 0;
+      text-shadow: none;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .dash-content--overview .cur-panel-body {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 6px 0 0;
+    }
+
+    .dash-content--overview .cur-empty {
+      color: var(--ov-muted);
+      padding: 18px 0;
+    }
+
+    /* Profile header — explicit height + overflow:hidden is the only reliable way */
+    .ov-profile {
+      --ov-hero-avatar-left: 22px;
+      --ov-hero-avatar-size: 128px;
+      --ov-hero-content-left: 170px;
+      position: relative;
+      min-height: 264px;
+      padding: 170px 0 0 !important;
+      overflow: visible !important;
+      border-bottom: 0;
+      margin-bottom: 12px;
+    }
+
+    /* Artist photo: absolute, fills parent exactly */
+    .ov-profile-artist-bg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 170px;
+      object-fit: cover;
+      object-position: center 25%;
+      display: block;
+      filter: grayscale(55%) brightness(0.88) contrast(1.08);
+    }
+
+    /* Gradient overlay: very dark on left for text, fades right + subtle textile pattern */
+    .ov-profile-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 170px;
+      background:
+        repeating-linear-gradient(
+          -45deg,
+          transparent 0px,
+          transparent 2px,
+          rgba(0,0,0,0.07) 2px,
+          rgba(0,0,0,0.07) 3px
+        ),
+        repeating-linear-gradient(
+          45deg,
+          transparent 0px,
+          transparent 2px,
+          rgba(0,0,0,0.04) 2px,
+          rgba(0,0,0,0.04) 3px
+        ),
+        linear-gradient(to right,
+          rgba(10,12,16,0.94) 0%,
+          rgba(10,12,16,0.84) 38%,
+          rgba(10,12,16,0.52) 68%,
+          rgba(10,12,16,0.28) 100%);
+      pointer-events: none;
+    }
+
+    /* Content sits on top via z-index */
+    .ov-profile-content {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1;
+      height: 170px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    /* Left: avatar + info — centred vertically */
+    .ov-profile-left {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      min-width: 0;
+      flex: 1 1 auto;
+      padding: 18px 22px 0 var(--ov-hero-content-left);
+    }
+
+    /* Avatar — larger, round, white border like last.fm */
+    .ov-avatar {
+      position: absolute;
+      left: var(--ov-hero-avatar-left);
+      bottom: -54px;
+      width: var(--ov-hero-avatar-size);
+      height: var(--ov-hero-avatar-size);
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: linear-gradient(135deg, var(--brand, #8b5cf6), #6d28d9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -1px;
+      user-select: none;
+      border: 3px solid rgba(var(--brand-rgb), 0.88);
+      box-shadow:
+        0 2px 16px rgba(0,0,0,0.56),
+        0 0 0 2px rgba(var(--brand-rgb), 0.24);
+    }
+
+    [data-theme="day"] .ov-avatar {
+      border-color: rgba(var(--brand-rgb), 0.7);
+      box-shadow:
+        0 2px 14px rgba(0,0,0,0.22),
+        0 0 0 1px rgba(var(--brand-rgb), 0.2);
+    }
+    .ov-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Username + member since stacked */
+    .ov-profile-name {
+      font-size: 31px;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+      margin-bottom: 5px;
+      letter-spacing: -0.02em;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+    .ov-profile-since {
+      font-size: 12px;
+      color: rgba(255,255,255,0.64);
+      margin-bottom: 20px;
+    }
+    .ov-profile-lastfm {
+      font-size: 11px;
+      color: rgba(255,255,255,0.56);
+      margin-bottom: 20px;
+    }
+
+    .ov-profile-meta {
+      min-width: 0;
+      padding-bottom: 16px;
+      transform: translateY(28px);
+    }
+
+    .ov-profile-stats-wrap {
+      position: relative;
+      z-index: 2;
+      margin-top: 0;
+      padding: 10px 0 0 var(--ov-hero-content-left);
+      min-height: 52px;
+      border-bottom: 0;
+    }
+
+    /* Stats sit in a single row under the background banner */
+    .ov-profile-stats-row {
+      display: flex;
+      gap: 0;
+      flex-wrap: nowrap;
+    }
+    .ov-profile-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding-right: 14px;
+      margin-right: 14px;
+      border-right: 1px solid rgba(255,255,255,0.18);
+    }
+    .ov-profile-stat:last-child {
+      border-right: none;
+      padding-right: 0;
+      margin-right: 0;
+    }
+    .ov-profile-stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.05;
+      color: #f3f7fc;
+      letter-spacing: -0.01em;
+    }
+    .ov-profile-stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(233,241,250,0.62);
+    }
+
+    [data-theme="day"] .ov-profile-stat-value {
+      color: #161a20;
+    }
+
+    [data-theme="day"] .ov-profile-stat-label {
+      color: rgba(22,26,32,0.62);
+    }
+
+    /* Featured track — absolute in banner on desktop, flows below stats on mobile/tablet */
+    .ov-featured {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 170px;
+      z-index: 2;
+      display: flex;
+      align-items: flex-end;
+      padding: 12px 18px 14px;
+      gap: 11px;
+      max-width: 310px;
+    }
+    /* Album art — clearly visible square */
+    .ov-featured-art {
+      width: 79px;
+      height: 79px;
+      border-radius: 5px;
+      overflow: hidden;
+      box-shadow: 0 3px 14px rgba(0,0,0,0.7);
+      background: rgba(255,255,255,0.12);
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .ov-featured-art img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    /* Track info — right-aligned text, sits to the left of the album art */
+    .ov-featured-meta { min-width: 0; text-align: right; }
+    .ov-featured-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .ov-featured-track {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.05;
+    }
+    .ov-featured-artist {
+      font-size: 15px;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 4px;
+    }
+    .ov-featured-plays {
+      font-size: 12px;
+      color: #fff;
+      margin-top: 4px;
+    }
+
+    [data-theme="day"] .ov-featured-artist {
+      color: #fff;
+    }
+
+    [data-theme="day"] .ov-featured-plays {
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* Recent tracks — full width now (no stats panel beside it) */
+    .ov-upper-cols {
+      display: block;
+    }
+
+    /* Period tabs */
+    .ov-tabs {
+      display: flex;
+      gap: 6px;
+      align-items: flex-end;
+    }
+    .ov-tab {
+      padding: 5px 9px 4px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: none;
+      color: rgba(255,255,255,0.82);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      font-family: inherit;
+    }
+    .ov-tab:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.28);
+    }
+    .ov-tab.active {
+      border-color: rgba(255,255,255,0.38);
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+    }
+
+    [data-theme="day"] .ov-tab {
+      color: #1f2937;
+      background: rgba(255,255,255,0.78);
+      border-color: rgba(31,41,55,0.24);
+    }
+
+    [data-theme="day"] .ov-tab:hover {
+      color: #111827;
+      background: #ffffff;
+      border-color: rgba(31,41,55,0.38);
+    }
+
+    [data-theme="day"] .ov-tab.active {
+      color: #0f172a;
+      border-color: rgba(15,23,42,0.55);
+      background: #e8edf5;
+    }
+
+    .dash-content--overview .cur-list-item {
+      display: grid;
+      grid-template-columns: 34px 40px minmax(0,1fr) auto;
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 0;
+      min-height: 45px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .dash-content--overview .cur-list-item:last-child {
+      border-bottom: 0;
+    }
+
+    .ov-tier-icon {
+      --ov-tier-empty: rgba(255,255,255,0.09);
+      --ov-tier-ring: rgba(255,255,255,0.22);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+    }
+    .ov-tier-icon svg { display: block; }
+    [data-theme="day"] .ov-tier-icon {
+      --ov-tier-empty: rgba(0,0,0,0.08);
+      --ov-tier-ring: rgba(0,0,0,0.22);
+    }
+
+    .dash-content--overview .cur-list-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 0;
+    }
+
+    .dash-content--overview .cur-list-name {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .dash-content--overview .cur-list-sub {
+      font-size: 13px;
+      color: var(--ov-muted);
+    }
+    [data-theme="day"] .dash-content--overview .cur-list-sub {
+      color: rgba(11,21,30,0.55);
+    }
+
+    .dash-content--overview .cur-list-meta {
+      color: rgba(255,255,255,0.45) !important;
+      font-size: 11px !important;
+      letter-spacing: 0.01em;
+    }
+    [data-theme="day"] .dash-content--overview .cur-list-meta {
+      color: rgba(11,21,30,0.45) !important;
+    }
+
+    /* Flush panel body for card grids */
+    [data-ov-card-section] .cur-panel-body {
+      padding: 0 !important;
+    }
+
+    /* Card grids (artists / albums) — Last.fm-style large image blocks */
+    .ov-card-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      grid-template-rows: repeat(2, minmax(112px, 1fr));
+      gap: 4px;
+    }
+    .ov-hidden { display: none !important; }
+    .ov-card {
+      position: relative;
+      aspect-ratio: auto;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+      min-width: 0;
+      cursor: default;
+      min-height: 112px;
+    }
+    .ov-card:nth-child(1) { grid-column: 1 / span 6;  grid-row: 1 / span 2; min-height: 228px; }
+    .ov-card:nth-child(2) { grid-column: 7 / span 3;  grid-row: 1; }
+    .ov-card:nth-child(3) { grid-column: 10 / span 3; grid-row: 1; }
+    .ov-card:nth-child(4) { grid-column: 7 / span 3;  grid-row: 2; }
+    .ov-card:nth-child(5) { grid-column: 10 / span 3; grid-row: 2; }
+    .ov-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.25s ease;
+    }
+    .ov-card:hover img {
+      transform: scale(1.04);
+    }
+    /* gradient overlay so text is readable */
+    .ov-card-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top,
+        rgba(0,0,0,0.82) 0%,
+        rgba(0,0,0,0.35) 45%,
+        rgba(0,0,0,0.0) 100%);
+      pointer-events: none;
+    }
+    .ov-card-info {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 10px 8px;
+    }
+    .ov-card-name {
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+      color: #fff;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+    }
+    .ov-card-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.7);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+
+    /* Ranked track list */
+    .ov-tracks-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .ov-track-row {
+      display: grid;
+      grid-template-columns: 28px 40px minmax(0,1fr) minmax(140px, 34%);
+      gap: 12px;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      border-radius: 0;
+      transition: background 0.1s;
+    }
+    .ov-track-row:last-child {
+      border-bottom: 0;
+    }
+    .ov-track-row:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    .ov-track-rank {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-muted, #777);
+      text-align: right;
+    }
+    .ov-track-thumb {
+      width: 40px;
+      height: 40px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: var(--surface-alt, rgba(255,255,255,0.06));
+      flex-shrink: 0;
+    }
+    .ov-track-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .ov-track-info { min-width: 0; }
+    .ov-track-title {
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .ov-track-artist {
+      font-size: 12px;
+      color: var(--text-muted, #888);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ov-track-plays {
+      display: block;
+      white-space: nowrap;
+      text-align: left;
+      min-width: 0;
+    }
+    .ov-track-plays-bar {
+      position: relative;
+      display: block;
+      width: 100%;
+      height: 24px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      overflow: hidden;
+    }
+    .ov-track-plays-bar::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: var(--bar-pct, 0%);
+      max-width: 100%;
+      background: linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.12));
+    }
+    .ov-track-plays-label {
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      height: 100%;
+      padding: 0 8px;
+      color: rgba(255,255,255,0.86);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    [data-theme="day"] .ov-track-artist {
+      color: rgba(22,26,32,0.6);
+    }
+
+    [data-theme="day"] .ov-track-plays-bar {
+      border-color: rgba(22,26,32,0.2);
+      background: rgba(22,26,32,0.05);
+    }
+
+    [data-theme="day"] .ov-track-plays-bar::before {
+      background: linear-gradient(90deg, rgba(22,26,32,0.16), rgba(22,26,32,0.1));
+    }
+
+    [data-theme="day"] .ov-track-plays-label {
+      color: #111827;
+    }
+
+    @media (max-width: 1100px) {
+      .ov-card-grid {
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        grid-template-rows: repeat(2, minmax(96px, 1fr));
+      }
+      .ov-card { min-height: 96px; }
+      .ov-card:nth-child(1) { grid-column: 1 / span 4; grid-row: 1 / span 2; min-height: 196px; }
+      .ov-card:nth-child(2) { grid-column: 5 / span 2; grid-row: 1; }
+      .ov-card:nth-child(3) { grid-column: 7 / span 2; grid-row: 1; }
+      .ov-card:nth-child(4) { grid-column: 5 / span 2; grid-row: 2; }
+      .ov-card:nth-child(5) { grid-column: 7 / span 2; grid-row: 2; }
+      .ov-featured-track { font-size: 17px; }
+      .ov-track-row {
+        grid-template-columns: 24px 36px minmax(0,1fr) minmax(118px, 33%);
+        gap: 9px;
+      }
+    }
+    @media (max-width: 900px) {
+      .ov-profile {
+        --ov-hero-avatar-left: 18px;
+        --ov-hero-avatar-size: 116px;
+        --ov-hero-content-left: 150px;
+      }
+      .ov-profile-meta {
+        transform: translateY(30px);
+      }
+      .ov-upper-cols { grid-template-columns: 1fr; }
+      .ov-card-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: auto;
+      }
+      .ov-card { min-height: 128px; }
+      .ov-card:nth-child(1) { grid-column: 1 / span 2; grid-row: auto; min-height: 176px; }
+      .ov-card:nth-child(2),
+      .ov-card:nth-child(3),
+      .ov-card:nth-child(4),
+      .ov-card:nth-child(5) { grid-column: auto; grid-row: auto; }
+      .ov-featured {
+        position: static;
+        height: auto;
+        max-width: none;
+        flex-direction: row-reverse;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 14px 0 6px;
+        gap: 14px;
+        border-top: 1px solid rgba(255,255,255,0.12);
+        margin-top: 10px;
+      }
+      .ov-featured-meta { text-align: left; }
+      .ov-featured-track { font-size: 18px; white-space: normal; }
+      .ov-featured-artist { white-space: normal; }
+      .dash-content--overview .cur-panel-title {
+        font-size: 29px;
+      }
+      .ov-track-row {
+        grid-template-columns: 24px 36px minmax(0,1fr);
+      }
+      .ov-track-plays {
+        grid-column: 2 / span 2;
+      }
+    }
+    @media (max-width: 600px) {
+      .ov-profile {
+        --ov-hero-avatar-left: 14px;
+        --ov-hero-avatar-size: 98px;
+        --ov-hero-content-left: 122px;
+      }
+      .ov-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ov-card { min-height: 108px; }
+      .ov-card:nth-child(1) { min-height: 144px; }
+      .ov-profile {
+        min-height: 230px;
+        padding-top: 140px !important;
+      }
+      .ov-profile-artist-bg,
+      .ov-profile-overlay,
+      .ov-profile-content {
+        height: 140px;
+      }
+      .ov-profile-left {
+        padding: 14px 14px 0 var(--ov-hero-content-left);
+      }
+      .ov-avatar { bottom: -36px; }
+      .ov-profile-name {
+        font-size: 24px;
+      }
+      .ov-profile-meta {
+        transform: translateY(32px);
+      }
+      .ov-profile-stat-value {
+        font-size: 18px;
+      }
+      .dash-content--overview .cur-panel-title {
+        font-size: 24px;
+      }
+    }
+  </style>
+
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div>
+          <div class="dash-title">Curatorr</div>
+        </div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: 'overview', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Overview</span>
+        </div>
+        <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
+      </div>
+
+      <div class="dash-content dash-content--overview">
+        <%
+          const _displayUsername = String(user?.username || user?.displayName || 'User').trim();
+          const _userAvatar      = String(user?.avatar || '').trim();
+          const _avatarFallback  = String(user?.avatarFallback || '/icons/user-profile.svg').trim();
+          const _statsAll  = statsAll  || {};
+          const _stats7d   = stats7d   || {};
+          const _stats30d  = stats30d  || {};
+          const _recentHistory  = Array.isArray(recentHistory)  ? recentHistory  : [];
+          const _topArtists7d   = Array.isArray(topArtists7d)   ? topArtists7d   : [];
+          const _topArtists30d  = Array.isArray(topArtists30d)  ? topArtists30d  : [];
+          const _topArtistsAll  = Array.isArray(topArtistsAll)  ? topArtistsAll  : [];
+          const _topAlbums7d    = Array.isArray(topAlbums7d)    ? topAlbums7d    : [];
+          const _topAlbums30d   = Array.isArray(topAlbums30d)   ? topAlbums30d   : [];
+          const _topAlbumsAll   = Array.isArray(topAlbumsAll)   ? topAlbumsAll   : [];
+          const _topTracks7d    = Array.isArray(topTracks7d)    ? topTracks7d    : [];
+          const _topTracks30d   = Array.isArray(topTracks30d)   ? topTracks30d   : [];
+          const _topTracksAll   = Array.isArray(topTracksAll)   ? topTracksAll   : [];
+
+          // Featured track = all-time #1
+          const _featuredTrack   = _topTracksAll[0] || null;
+          const _featuredArtist  = _featuredTrack ? _featuredTrack.artist_name : null;
+
+          function fmtNum(n) {
+            return Number(n || 0).toLocaleString();
+          }
+          function fmtListenTime(ms) {
+            if (!ms) return '—';
+            const totalMins = Math.floor(ms / 60000);
+            if (totalMins >= 60) {
+              const hours = Math.round((totalMins / 60) * 10) / 10;
+              return String(hours).replace(/\.0$/, '') + 'h';
+            }
+            return totalMins + 'm';
+          }
+          function fmtRelative(ts) {
+            if (!ts) return '';
+            const diff = Date.now() - ts;
+            const mins = Math.floor(diff / 60000);
+            const hours = Math.floor(mins / 60);
+            const days = Math.floor(hours / 24);
+            if (mins < 2) return 'just now';
+            if (mins < 60) return mins + 'm ago';
+            if (hours < 24) return hours + 'h ago';
+            if (days < 30) return days + 'd ago';
+            return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+          }
+          function fmtMemberSince(ts) {
+            if (!ts) return null;
+            return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+          }
+          const _memberSince = fmtMemberSince(firstPlayAt);
+          const _avatarInitial = _displayUsername.charAt(0).toUpperCase();
+
+          function tierSvg(tier) {
+            const t = String(tier || 'curatorr').toLowerCase().trim();
+            const cx = 17, cy = 17, r = 14;
+            const q1 = `M ${cx},${cy} L ${cx},${cy-r} A ${r},${r} 0 0,1 ${cx+r},${cy} Z`;
+            const q2 = `M ${cx},${cy} L ${cx+r},${cy} A ${r},${r} 0 0,1 ${cx},${cy+r} Z`;
+            const q3 = `M ${cx},${cy} L ${cx},${cy+r} A ${r},${r} 0 0,1 ${cx-r},${cy} Z`;
+            const q4 = `M ${cx},${cy} L ${cx-r},${cy} A ${r},${r} 0 0,1 ${cx},${cy-r} Z`;
+            const allQ = [q1, q2, q3, q4];
+            let color, count;
+            if      (t === 'skip')        { color = '#ef4444'; count = 1; }
+            else if (t === 'half-decent') { color = '#f97316'; count = 2; }
+            else if (t === 'decent')      { color = '#22c55e'; count = 3; }
+            else if (t === 'belter')      { color = '#eab308'; count = 4; }
+            else                          { color = 'rgba(255,255,255,0.25)'; count = 0; }
+            const filled = allQ.slice(0, count).map(d => `<path d="${d}" fill="${color}"/>`).join('');
+            const empty  = allQ.slice(count).map(d => `<path d="${d}" fill="var(--ov-tier-empty)"/>`).join('');
+            return `<svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--ov-tier-ring)" stroke-width="1"/>${filled}${empty}</svg>`;
+          }
+        %>
+
+        <%# ── Profile header ────────────────────────────────────────────── %>
+        <div class="cur-panel ov-profile" data-panel-collapsible="false">
+
+          <%# Layer 1 — artist photo spans the full card width %>
+          <% if (_featuredArtist) { %>
+            <img class="ov-profile-artist-bg"
+                 src="/api/music/thumb/artist/<%= encodeURIComponent(_featuredArtist) %>"
+                 alt="" aria-hidden="true" />
+          <% } %>
+
+          <%# Layer 2 — gradient: dark left for text, lighter right so photo shows %>
+          <div class="ov-profile-overlay"></div>
+
+          <%# Layer 3 — profile info left %>
+          <div class="ov-profile-content">
+            <div class="ov-profile-left">
+              <div class="ov-avatar">
+                <% if (_userAvatar) { %>
+                  <img src="<%= _userAvatar %>" alt="<%= _displayUsername %>"
+                       onerror="this.onerror=null;this.src='<%= _avatarFallback %>'" />
+                <% } else { %>
+                  <%= _avatarInitial %>
+                <% } %>
+              </div>
+              <div class="ov-profile-meta">
+                <div class="ov-profile-name"><%= _displayUsername %></div>
+                <% if (_memberSince) { %>
+                  <div class="ov-profile-since">Member since <%= _memberSince %></div>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
+          <div class="ov-profile-stats-wrap">
+            <div class="ov-profile-stats-row">
+              <div class="ov-profile-stat">
+                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.plays) %></span>
+                <span class="ov-profile-stat-label">Plays</span>
+              </div>
+              <div class="ov-profile-stat">
+                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.uniqueArtists) %></span>
+                <span class="ov-profile-stat-label">Artists</span>
+              </div>
+              <div class="ov-profile-stat">
+                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.uniqueTracks) %></span>
+                <span class="ov-profile-stat-label">Tracks</span>
+              </div>
+            </div>
+          </div>
+
+          <%# Featured top track — absolute in banner on desktop, flows below stats on mobile/tablet %>
+          <% if (_featuredTrack) { %>
+            <div class="ov-featured">
+              <div class="ov-featured-meta">
+                <div class="ov-featured-label">Top Track</div>
+                <div class="ov-featured-track" title="<%= _featuredTrack.track_title %>"><%= _featuredTrack.track_title %></div>
+                <div class="ov-featured-artist" title="<%= _featuredArtist %>"><%= _featuredArtist %></div>
+                <div class="ov-featured-plays"><%= fmtNum(_featuredTrack.play_count) %> plays</div>
+              </div>
+              <div class="ov-featured-art">
+                <img src="/api/music/thumb/track/<%= encodeURIComponent(_featuredTrack.plex_rating_key || '') %>"
+                     alt="" loading="eager"
+                     onerror="this.onerror=null;this.src='/api/music/thumb/album?artist=<%= encodeURIComponent(_featuredArtist || '') %>&album=<%= encodeURIComponent(_featuredTrack.album_name || '') %>&noArtistFallback=1';this.onerror=function(){this.onerror=null;this.src='/icons/music.svg';}" />
+              </div>
+            </div>
+          <% } %>
+
+        </div>
+
+        <%# ── Recent Tracks + Listening Stats ───────────────────────────── %>
+        <div class="ov-upper-cols">
+
+          <div class="cur-panel" data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Recent Tracks</h3>
+            </div>
+            <div class="cur-panel-body">
+              <% if (_recentHistory.length) { %>
+                <ul class="cur-list">
+                  <% _recentHistory.forEach(function(h) { %>
+                    <li class="cur-list-item">
+                      <span class="ov-tier-icon"><%- tierSvg(h.current_tier) %></span>
+                      <span class="cur-list-thumb">
+                        <img src="/api/music/thumb/track/<%= encodeURIComponent(h.plex_rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                      </span>
+                      <span class="cur-list-primary">
+                        <span class="cur-list-name"><%= h.track_title || '—' %><% if (Number(h.popularRank || 0) > 0 && Number(h.popularRank || 0) <= 3 && Number(h.ratingCount || 0) > 0) { %><span class="cur-track-flame" title="Popular on this album — Top <%= h.popularRank %> by Plex rating count (<%= Number(h.ratingCount || 0).toLocaleString() %>)" aria-label="Popular on this album">🔥</span><% } %></span>
+                        <span class="cur-list-sub"><%= h.artist_name || '—' %></span>
+                      </span>
+                      <span class="cur-list-meta" style="white-space:nowrap;font-size:11px"><%= fmtRelative(h.started_at) %></span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <div class="cur-empty">No play history yet.</div>
+              <% } %>
+            </div>
+          </div>
+
+        </div>
+
+        <%# ── Top Artists ────────────────────────────────────────────────── %>
+        <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Top Artists</h3>
+            <div class="ov-tabs">
+              <button class="ov-tab active" data-period="7d">7 days</button>
+              <button class="ov-tab" data-period="30d">30 days</button>
+              <button class="ov-tab" data-period="all">All time</button>
+            </div>
+          </div>
+          <div class="cur-panel-body">
+            <% [['7d', _topArtists7d], ['30d', _topArtists30d], ['all', _topArtistsAll]].forEach(function(pair) { %>
+              <% var period = pair[0]; var artists = pair[1]; %>
+              <div class="ov-card-grid<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                <% if (artists.length) { %>
+                  <% artists.slice(0, 5).forEach(function(a) { %>
+                    <div class="ov-card">
+                      <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                      <div class="ov-card-overlay"></div>
+                      <div class="ov-card-info">
+                        <div class="ov-card-name" title="<%= a.artist_name %>"><%= a.artist_name %></div>
+                        <div class="ov-card-sub"><%= fmtNum(a.play_count) %> plays</div>
+                      </div>
+                    </div>
+                  <% }) %>
+                <% } else { %>
+                  <div class="cur-empty">No data for this period.</div>
+                <% } %>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+
+        <%# ── Top Albums ─────────────────────────────────────────────────── %>
+        <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Top Albums</h3>
+            <div class="ov-tabs">
+              <button class="ov-tab active" data-period="7d">7 days</button>
+              <button class="ov-tab" data-period="30d">30 days</button>
+              <button class="ov-tab" data-period="all">All time</button>
+            </div>
+          </div>
+          <div class="cur-panel-body">
+            <% [['7d', _topAlbums7d], ['30d', _topAlbums30d], ['all', _topAlbumsAll]].forEach(function(pair) { %>
+              <% var period = pair[0]; var albums = pair[1]; %>
+              <div class="ov-card-grid<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                <% if (albums.length) { %>
+                  <% albums.slice(0, 5).forEach(function(alb) { %>
+                    <div class="ov-card">
+                      <img src="/api/music/thumb/track/<%= encodeURIComponent(alb.sample_rating_key || '') %>"
+                           alt="" loading="lazy"
+                           onerror="this.onerror=null;this.src='/icons/music.svg'" />
+                      <div class="ov-card-overlay"></div>
+                      <div class="ov-card-info">
+                        <div class="ov-card-name" title="<%= alb.album_name %>"><%= alb.album_name %></div>
+                        <div class="ov-card-sub" title="<%= alb.artist_name %>"><%= alb.artist_name %></div>
+                        <div class="ov-card-sub"><%= fmtNum(alb.play_count) %> plays</div>
+                      </div>
+                    </div>
+                  <% }) %>
+                <% } else { %>
+                  <div class="cur-empty">No data for this period.</div>
+                <% } %>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+
+        <%# ── Top Tracks ─────────────────────────────────────────────────── %>
+        <div class="cur-panel" data-ov-section data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Top Tracks</h3>
+            <div class="ov-tabs">
+              <button class="ov-tab active" data-period="7d">7 days</button>
+              <button class="ov-tab" data-period="30d">30 days</button>
+              <button class="ov-tab" data-period="all">All time</button>
+            </div>
+          </div>
+          <div class="cur-panel-body">
+            <% [['7d', _topTracks7d], ['30d', _topTracks30d], ['all', _topTracksAll]].forEach(function(pair) { %>
+              <% var period = pair[0]; var tracks = pair[1]; var maxPlays = tracks.reduce(function(max, t) { return Math.max(max, Number(t.play_count || 0)); }, 1); %>
+              <div class="ov-tracks-list<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                <% if (tracks.length) { %>
+                  <% tracks.forEach(function(t, idx) { %>
+                    <% var barPct = Math.max(8, Math.round((Number(t.play_count || 0) / maxPlays) * 100)); %>
+                    <div class="ov-track-row">
+                      <span class="ov-track-rank"><%= idx + 1 %></span>
+                      <span class="ov-track-thumb">
+                        <img src="/api/music/thumb/track/<%= encodeURIComponent(t.plex_rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                      </span>
+                      <span class="ov-track-info">
+                        <div class="ov-track-title" title="<%= t.track_title %>"><%= t.track_title || '—' %><% if (Number(t.popularRank || 0) > 0 && Number(t.popularRank || 0) <= 3 && Number(t.ratingCount || 0) > 0) { %><span class="cur-track-flame" title="Popular on this album — Top <%= t.popularRank %> by Plex rating count (<%= Number(t.ratingCount || 0).toLocaleString() %>)" aria-label="Popular on this album">🔥</span><% } %></div>
+                        <div class="ov-track-artist" title="<%= t.artist_name %>"><%= t.artist_name || '—' %></div>
+                      </span>
+                      <span class="ov-track-plays">
+                        <span class="ov-track-plays-bar" style="--bar-pct:<%= barPct %>%;">
+                          <span class="ov-track-plays-label"><%= fmtNum(t.play_count) %> plays</span>
+                        </span>
+                      </span>
+                    </div>
+                  <% }) %>
+                <% } else { %>
+                  <div class="cur-empty">No data for this period.</div>
+                <% } %>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script>
+  (function () {
+    document.querySelectorAll('[data-ov-section]').forEach(function (section) {
+      section.querySelectorAll('.ov-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var period = tab.dataset.period;
+          section.querySelectorAll('.ov-tab').forEach(function (t) {
+            t.classList.toggle('active', t === tab);
+          });
+          section.querySelectorAll('[data-period-set]').forEach(function (set) {
+            set.classList.toggle('ov-hidden', set.dataset.periodSet !== period);
+          });
+        });
+      });
+    });
+  }());
+  </script>
+
+  <% if (!adminPreview) { %>
+  <style>
+    @keyframes ov-now-playing-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(0.82); }
+    }
+    .ov-now-playing-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #1db954;
+      margin-right: 5px;
+      vertical-align: middle;
+      animation: ov-now-playing-pulse 1.4s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .ov-paused-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #f97316;
+      margin-right: 5px;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .ov-featured-label { display: flex; align-items: center; justify-content: flex-end; }
+    @media (max-width: 900px) {
+      .ov-featured-label { justify-content: flex-start; }
+    }
+  </style>
+  <script>
+  (function () {
+    // Capture default (top-track) state from server-rendered HTML
+    var featuredEl    = document.querySelector('.ov-featured');
+    var labelEl       = featuredEl && featuredEl.querySelector('.ov-featured-label');
+    var trackEl       = featuredEl && featuredEl.querySelector('.ov-featured-track');
+    var artistEl      = featuredEl && featuredEl.querySelector('.ov-featured-artist');
+    var artImg        = featuredEl && featuredEl.querySelector('.ov-featured-art img');
+    var bgImg         = document.querySelector('.ov-profile-artist-bg');
+
+    if (!featuredEl) return;
+
+    var defaultLabel  = labelEl  ? labelEl.textContent.trim()  : 'Top Track';
+    var defaultTrack  = trackEl  ? trackEl.textContent.trim()  : '';
+    var defaultArtist = artistEl ? artistEl.textContent.trim() : '';
+    var defaultArtSrc = artImg   ? artImg.src : '';
+    var defaultBgSrc  = bgImg    ? bgImg.src  : '';
+
+    var currentlyPlaying = false;
+
+    function setNowPlaying(np) {
+      if (!np) {
+        // Restore defaults
+        if (currentlyPlaying) {
+          currentlyPlaying = false;
+          if (labelEl)  labelEl.innerHTML = defaultLabel;
+          if (trackEl)  { trackEl.textContent = defaultTrack;  trackEl.title = defaultTrack; }
+          if (artistEl) { artistEl.textContent = defaultArtist; artistEl.title = defaultArtist; }
+          if (artImg && defaultArtSrc)  artImg.src = defaultArtSrc;
+          if (bgImg  && defaultBgSrc)   bgImg.src  = defaultBgSrc;
+        }
+        return;
+      }
+
+      currentlyPlaying = true;
+
+      // Label: pulsing dot + "Now Playing" when playing; plain "Paused" when paused
+      if (labelEl) {
+        labelEl.innerHTML = np.isPaused
+          ? '<span class="ov-paused-dot"></span>Paused'
+          : '<span class="ov-now-playing-dot"></span>Now Playing';
+      }
+
+      // Track title + artist
+      if (trackEl)  { trackEl.textContent = np.trackTitle;  trackEl.title = np.trackTitle; }
+      if (artistEl) { artistEl.textContent = np.artistName; artistEl.title = np.artistName; }
+
+      // Album artwork — use Plex art proxy if a thumb path was returned
+      if (artImg) {
+        if (np.albumThumbPath) {
+          artImg.src = '/api/plex/art?path=' + encodeURIComponent(np.albumThumbPath);
+        } else {
+          artImg.src = '/api/music/thumb/album?artist=' + encodeURIComponent(np.artistName) +
+                       '&album=' + encodeURIComponent(np.albumName) + '&noArtistFallback=1';
+        }
+      }
+
+      // Background artist artwork
+      if (bgImg && np.artistName) {
+        bgImg.src = '/api/music/thumb/artist/' + encodeURIComponent(np.artistName);
+      }
+    }
+
+    function poll() {
+      fetch('/api/music/overview/now-playing', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : { nowPlaying: null }; })
+        .then(function (data) { setNowPlaying(data.nowPlaying || null); })
+        .catch(function () {});
+    }
+
+    // First check immediately, then every 5 seconds
+    poll();
+    setInterval(poll, 5000);
+  }());
+  </script>
+  <% } %>
+</body>
+</html>

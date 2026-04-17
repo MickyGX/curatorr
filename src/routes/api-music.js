@@ -59,6 +59,8 @@ import {
   updateUserPersonalPlaylist,
   deleteUserPersonalPlaylist,
   deleteUserGeneratedPlaylist,
+  setCustomPlaylistAudience,
+  setAllCopiesPlaylistAudience,
   previewGlobalPlaylist,
   getAlbumPopularTrackRanks,
   getArtistTagMap,
@@ -73,6 +75,11 @@ import {
 import { paginateRolledHistory } from '../history-rollup.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
+import {
+  getStoredPlaylistArtworkInfo,
+  parsePlaylistArtworkDataUrl,
+  savePlaylistArtworkBuffer,
+} from '../services/playlist-artwork.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DISCOVERY_ART_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -1949,6 +1956,74 @@ export function registerApiMusic(app, ctx) {
     return 'custom-import-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
+  function isAdminRole(req) {
+    const role = String(req.session?.user?.role || '').trim().toLowerCase();
+    return ['admin', 'co-admin'].includes(role);
+  }
+
+  function normalizeArtworkMode(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    return ['auto', 'preserve', 'custom'].includes(raw) ? raw : 'auto';
+  }
+
+  function normalizePlaylistArtworkState(value = {}) {
+    return {
+      mode: normalizeArtworkMode(value?.mode || value?.artworkMode || 'auto'),
+      customArtworkAsset: String(value?.customArtworkAsset || '').trim(),
+      preservedArtworkAsset: String(value?.preservedArtworkAsset || '').trim(),
+    };
+  }
+
+  function parsePlaylistArtworkInput(rawArtwork, fallbackArtwork = {}) {
+    const fallback = normalizePlaylistArtworkState(fallbackArtwork);
+    if (rawArtwork === undefined) return fallback;
+    if (!rawArtwork || typeof rawArtwork !== 'object') return { mode: 'auto', customArtworkAsset: '', preservedArtworkAsset: '' };
+    const mode = normalizeArtworkMode(rawArtwork.mode || rawArtwork.artworkMode || fallback.mode || 'auto');
+    let customArtworkAsset = String(rawArtwork.customArtworkAsset || fallback.customArtworkAsset || '').trim();
+    let preservedArtworkAsset = String(rawArtwork.preservedArtworkAsset || fallback.preservedArtworkAsset || '').trim();
+
+    if (rawArtwork.customArtworkData !== undefined) {
+      const artworkData = String(rawArtwork.customArtworkData || '').trim();
+      if (!artworkData) {
+        customArtworkAsset = '';
+      } else {
+        const parsed = parsePlaylistArtworkDataUrl(artworkData);
+        if (!parsed.ok) throw new Error(parsed.error || 'Artwork image is invalid.');
+        const saved = savePlaylistArtworkBuffer(parsed.buffer, parsed.ext, rawArtwork.nameHint || 'playlist', 'custom');
+        if (!saved) throw new Error('Artwork image could not be saved.');
+        customArtworkAsset = saved;
+      }
+    }
+
+    if (mode === 'auto') preservedArtworkAsset = '';
+    if (mode === 'custom' && !customArtworkAsset) throw new Error('Custom artwork is required.');
+
+    return {
+      mode,
+      customArtworkAsset,
+      preservedArtworkAsset,
+    };
+  }
+
+  function scheduleGlobalImportSync(userPlexId, playlist) {
+    setCustomPlaylistAudience(db, userPlexId, playlist.playlistKey, 'global');
+    const updatedPlaylist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((p) => p.playlistKey === playlist.playlistKey);
+    if (updatedPlaylist) {
+      setImmediate(async () => {
+        await playlistService.syncGlobalCustomPlaylist(userPlexId, updatedPlaylist).catch(() => {});
+      });
+    }
+  }
+
+  app.get('/api/music/playlists/artwork/:asset', (req, res) => {
+    const info = getStoredPlaylistArtworkInfo(req.params.asset);
+    if (!info?.filePath) return res.status(404).end();
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type(info.mime || 'application/octet-stream');
+    return res.sendFile(info.filePath);
+  });
+
   function normaliseImportedPlaylistTitle(value, fallback) {
     const title = String(value || '').trim();
     if (title) return title.slice(0, 120);
@@ -3341,6 +3416,71 @@ export function registerApiMusic(app, ctx) {
     return res.json({ ok: true });
   });
 
+  // ── Profile page: now-playing via media server sessions ──────────────────
+
+  app.get('/api/music/overview/now-playing', requireUser, async (req, res) => {
+    try {
+      const config = loadConfig();
+      const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+      const currentUsername = String(req.session?.user?.username || '').trim().toLowerCase();
+
+      let sessions = [];
+
+      if (msType === 'plex') {
+        const { url, token } = config.plex || {};
+        if (!url || !token) return res.json({ nowPlaying: null });
+        const sessionsUrl = buildAppApiUrl(url, 'status/sessions');
+        const r = await fetch(sessionsUrl.toString(), {
+          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return res.json({ nowPlaying: null });
+        const json = await r.json();
+        const all = json?.MediaContainer?.Metadata || [];
+        sessions = all
+          .filter((s) => s.type === 'track')
+          .map((s) => ({
+            title:      String(s.title || ''),
+            artist:     String(s.grandparentTitle || ''),
+            album:      String(s.parentTitle || ''),
+            albumThumb: String(s.parentThumb || s.thumb || ''),
+            state:      String(s.Player?.state || 'playing'),
+            userName:   String(s.User?.title || '').toLowerCase(),
+          }));
+      } else {
+        const { getAdapter } = await import('../services/media-servers/index.js');
+        const adapter = getAdapter(msType);
+        const { url, apiKey } = config[msType] || {};
+        if (!url || !apiKey) return res.json({ nowPlaying: null });
+        const raw = await adapter.getActiveSessions(url, apiKey);
+        sessions = raw.map((s) => ({
+          title:      s.trackTitle,
+          artist:     s.artist,
+          album:      s.album,
+          albumThumb: s.albumId ? `/api/media-server/art?itemId=${encodeURIComponent(s.albumId)}` : '',
+          state:      s.isPaused ? 'paused' : 'playing',
+          userName:   String(s.username || '').toLowerCase(),
+        }));
+      }
+
+      // Match the current logged-in user — include paused sessions too
+      const session = sessions.find((s) => s.userName === currentUsername);
+      if (!session) return res.json({ nowPlaying: null });
+
+      return res.json({
+        nowPlaying: {
+          trackTitle:     session.title,
+          artistName:     session.artist,
+          albumName:      session.album,
+          albumThumbPath: session.albumThumb,
+          isPaused:       session.state === 'paused',
+        },
+      });
+    } catch {
+      return res.json({ nowPlaying: null });
+    }
+  });
+
   // ── Music overview popup data ────────────────────────────────────────────
 
   app.get('/api/music/overview/artist/:name', requireUser, async (req, res) => {
@@ -4449,6 +4589,89 @@ export function registerApiMusic(app, ctx) {
     return res.json({ ok: true, prefill });
   });
 
+  app.post('/api/music/playlists/imported-settings', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (String(playlist.playlistType || '').trim().toLowerCase() !== 'custom' || !isImportedCustomSourceType(playlist.sourceType)) {
+      return res.status(400).json({ error: 'Only imported custom playlists can be edited here.' });
+    }
+
+    const nextTitle = normaliseImportedPlaylistTitle(
+      req.body?.title,
+      playlist.playlistTitle || playlist.sourceTitle || 'Imported Playlist',
+    );
+    const nextImportedSyncPeriod = normalizeImportedSyncPeriod(req.body?.importedSyncPeriod || playlist.importedSyncPeriod);
+    const requestedAudience = String(req.body?.audience || playlist.audience || 'personal').trim().toLowerCase();
+    const nextAudience = ['personal', 'global'].includes(requestedAudience) ? requestedAudience : 'personal';
+    if (nextAudience === 'global' && !isAdminRole(req)) {
+      return res.status(403).json({ error: 'Admin access required to make an imported playlist global.' });
+    }
+
+    try {
+      let updated = playlist;
+      let changed = false;
+
+      if (nextTitle !== String(updated.playlistTitle || '').trim()) {
+        updated = await playlistService?.renameGeneratedPlaylistTitle(userPlexId, playlistKey, nextTitle) || updated;
+        changed = true;
+      }
+
+      updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+        .find((entry) => entry.playlistKey === playlistKey) || updated;
+
+      if (nextImportedSyncPeriod !== normalizeImportedSyncPeriod(updated.importedSyncPeriod)) {
+        saveUserGeneratedPlaylist(db, userPlexId, {
+          ...updated,
+          importedSyncPeriod: nextImportedSyncPeriod,
+          updatedAt: Date.now(),
+        });
+        updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+          .find((entry) => entry.playlistKey === playlistKey) || updated;
+        changed = true;
+      }
+
+      const currentAudience = String(updated.audience || 'personal').trim().toLowerCase() || 'personal';
+      if (nextAudience !== currentAudience) {
+        if (nextAudience === 'global') {
+          setCustomPlaylistAudience(db, userPlexId, playlistKey, 'global');
+        } else {
+          setAllCopiesPlaylistAudience(db, playlistKey, 'personal');
+        }
+        updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+          .find((entry) => entry.playlistKey === playlistKey) || updated;
+        changed = true;
+      }
+
+      if (String(updated.audience || 'personal').trim().toLowerCase() === 'global' && changed) {
+        await playlistService?.syncGlobalCustomPlaylist(userPlexId, updated).catch(() => {});
+        updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+          .find((entry) => entry.playlistKey === playlistKey) || updated;
+      }
+
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'import.settings',
+        message: `Updated imported playlist settings for ${playlistKey} for ${userPlexId}`,
+      });
+      return res.json({
+        ok: true,
+        playlistKey,
+        playlistTitle: String(updated.playlistTitle || nextTitle).trim(),
+        importedSyncPeriod: normalizeImportedSyncPeriod(updated.importedSyncPeriod || nextImportedSyncPeriod),
+        audience: String(updated.audience || nextAudience || 'personal').trim().toLowerCase() || 'personal',
+        active: updated.active !== false,
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
   app.post('/api/music/playlists/generated/rename', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     const playlistKey = String(req.body?.playlistKey || '').trim();
@@ -4479,6 +4702,44 @@ export function registerApiMusic(app, ctx) {
         playlistKey: updated.playlistKey,
         playlistTitle: updated.playlistTitle,
         titleOverride: updated.titleOverride || '',
+      });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/playlists/generated/artwork', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required' });
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (String(playlist.playlistType || '').trim().toLowerCase() === 'global' && !isAdminRole(req)) {
+      return res.status(403).json({ error: 'Admin access required to edit global playlist artwork.' });
+    }
+
+    try {
+      const artwork = parsePlaylistArtworkInput(req.body?.artwork, {
+        mode: playlist.artworkMode || 'auto',
+        customArtworkAsset: playlist.customArtworkAsset || '',
+        preservedArtworkAsset: playlist.preservedArtworkAsset || '',
+      });
+      const updated = await playlistService?.updateGeneratedPlaylistArtwork(userPlexId, playlistKey, artwork);
+      if (!updated) return res.status(500).json({ error: 'Could not update playlist artwork.' });
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'generated.artwork',
+        message: `Updated artwork mode for ${playlistKey} to "${updated.artworkMode || artwork.mode}" for ${userPlexId}`,
+      });
+      return res.json({
+        ok: true,
+        playlistKey: updated.playlistKey,
+        artworkMode: updated.artworkMode || artwork.mode,
+        customArtworkAsset: updated.customArtworkAsset || '',
+        preservedArtworkAsset: updated.preservedArtworkAsset || '',
       });
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
@@ -4551,6 +4812,48 @@ export function registerApiMusic(app, ctx) {
       importedSyncPeriodLabel: IMPORTED_SYNC_PERIOD_LABELS[importedSyncPeriod] || importedSyncPeriod,
       active: updated?.active !== false,
     });
+  });
+
+  app.post('/api/music/playlists/imported-audience', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const role = String(req.session?.user?.role || '').trim().toLowerCase();
+    if (!['admin', 'co-admin'].includes(role)) return res.status(403).json({ error: 'Admin access required to set playlist audience.' });
+
+    const playlistKey = String(req.body?.playlistKey || '').trim();
+    const audience = String(req.body?.audience || '').trim().toLowerCase();
+    if (!playlistKey) return res.status(400).json({ error: 'playlistKey is required.' });
+    if (!['personal', 'global'].includes(audience)) return res.status(400).json({ error: 'audience must be "personal" or "global".' });
+
+    const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (String(playlist.playlistType || '').trim().toLowerCase() !== 'custom' || !isImportedCustomSourceType(playlist.sourceType)) {
+      return res.status(400).json({ error: 'Only imported custom playlists can have their audience changed.' });
+    }
+
+    try {
+      if (audience === 'global') {
+        setCustomPlaylistAudience(db, userPlexId, playlistKey, 'global');
+        const updatedPlaylist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+          .find((entry) => entry.playlistKey === playlistKey);
+        if (updatedPlaylist) {
+          setImmediate(async () => {
+            await playlistService.syncGlobalCustomPlaylist(userPlexId, updatedPlaylist).catch(() => {});
+          });
+        }
+      } else {
+        setAllCopiesPlaylistAudience(db, playlistKey, 'personal');
+      }
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'import.audience',
+        message: `Set audience for imported playlist ${playlistKey} to "${audience}" by ${userPlexId}`,
+      });
+      return res.json({ ok: true, playlistKey, audience });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
   });
 
   app.post('/api/music/playlist/job/dismiss', requireUser, (req, res) => {
@@ -4733,6 +5036,7 @@ export function registerApiMusic(app, ctx) {
     const sourceId = String(req.body?.sourceId || '').trim();
     const sourceTitle = String(req.body?.sourceTitle || '').trim();
     const title = normaliseImportedPlaylistTitle(req.body?.title, sourceTitle || 'Imported Playlist');
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
     if (!['playlist', 'collection'].includes(sourceType)) return res.status(400).json({ error: 'sourceType must be playlist or collection.' });
     if (!sourceId) return res.status(400).json({ error: 'sourceId is required.' });
 
@@ -4748,10 +5052,12 @@ export function registerApiMusic(app, ctx) {
         sourceRef: sourceId,
         sourceTitle: sourceTitle || title,
       });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
       return res.json({
         ok: true,
         playlist: playlist || null,
         importedTrackCount: trackRefs.length,
+        audience: makeGlobal ? 'global' : 'personal',
       });
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
@@ -5006,6 +5312,7 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveCanonicalUserId(req);
     let playlistId = '';
     const title = normaliseImportedPlaylistTitle(req.body?.title, 'Imported Spotify Playlist');
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
     try {
       playlistId = resolveSpotifyPlaylistId(req.body?.playlistId || req.body?.playlistRef || '');
     } catch (err) {
@@ -5054,12 +5361,14 @@ export function registerApiMusic(app, ctx) {
         sourceOwner: String(playlistMeta?.ownerName || '').trim(),
         unmatchedTracks: unmatched,
       });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
       return res.json({
         ok: true,
         playlist: playlist || null,
         importedTrackCount: trackRefs.length,
         unmatchedCount: unmatched.length,
         importedMissingCount: unmatched.length,
+        audience: makeGlobal ? 'global' : 'personal',
         warning: String(playlistSource.warning || '').trim(),
         partial: playlistSource.partial === true,
       });
@@ -5072,6 +5381,7 @@ export function registerApiMusic(app, ctx) {
     const userPlexId = resolveCanonicalUserId(req);
     let playlistId = '';
     const title = normaliseImportedPlaylistTitle(req.body?.title, 'Imported YouTube Playlist');
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
     try {
       playlistId = resolveYouTubePlaylistId(req.body?.playlistId || req.body?.playlistRef || '');
     } catch (err) {
@@ -5091,12 +5401,14 @@ export function registerApiMusic(app, ctx) {
         sourceOwner: String(playlistMeta?.ownerName || '').trim(),
         unmatchedTracks: matchResult.unmatched,
       });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
       return res.json({
         ok: true,
         playlist: playlist || null,
         importedTrackCount: matchResult.trackRefs.length,
         unmatchedCount: matchResult.unmatched.length,
         importedMissingCount: matchResult.unmatched.length,
+        audience: makeGlobal ? 'global' : 'personal',
       });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
@@ -5106,6 +5418,7 @@ export function registerApiMusic(app, ctx) {
   app.post('/api/music/import/lastfm', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     let sourceKey = '';
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
     try {
       sourceKey = normalizeLastfmImportSourceKey(req.body?.sourceKey || '');
     } catch (err) {
@@ -5124,12 +5437,14 @@ export function registerApiMusic(app, ctx) {
         sourceOwner: source.sourceOwner,
         unmatchedTracks: source.matchResult.unmatched,
       });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
       return res.json({
         ok: true,
         playlist: playlist || null,
         importedTrackCount: source.matchResult.trackRefs.length,
         unmatchedCount: source.matchResult.unmatched.length,
         importedMissingCount: source.matchResult.unmatched.length,
+        audience: makeGlobal ? 'global' : 'personal',
       });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
@@ -5139,6 +5454,7 @@ export function registerApiMusic(app, ctx) {
   app.post('/api/music/import/listenbrainz', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     let sourceKey = '';
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
     try {
       sourceKey = normalizeListenbrainzImportSourceKey(req.body?.sourceKey || '');
     } catch (err) {
@@ -5157,12 +5473,14 @@ export function registerApiMusic(app, ctx) {
         sourceOwner: source.sourceOwner,
         unmatchedTracks: source.matchResult.unmatched,
       });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
       return res.json({
         ok: true,
         playlist: playlist || null,
         importedTrackCount: source.matchResult.trackRefs.length,
         unmatchedCount: source.matchResult.unmatched.length,
         importedMissingCount: source.matchResult.unmatched.length,
+        audience: makeGlobal ? 'global' : 'personal',
       });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
@@ -5819,6 +6137,7 @@ export function registerApiMusic(app, ctx) {
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const artistName = String(req.query?.artist || '').trim();
     const albumName = String(req.query?.album || '').trim();
+    const noArtistFallback = /^(1|true|yes)$/i.test(String(req.query?.noArtistFallback || '').trim());
     if (!artistName || !albumName) return res.status(404).end();
     const cacheKey = `album:${normalizeArtistMatchText(artistName)}::${normalizeAlbumMatchText(albumName)}`;
     const cached = getThumbCache(cacheKey);
@@ -5827,6 +6146,9 @@ export function registerApiMusic(app, ctx) {
     if (msType === 'jellyfin' || msType === 'emby') {
       const { url: msUrl, apiKey } = config[msType] || {};
       const fallbackArtistLocation = `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=jf-album-fallback-1`;
+      const fallbackThumb = () => (noArtistFallback
+        ? sendThumbNotFound(res, cacheKey)
+        : sendThumbRedirect(res, cacheKey, fallbackArtistLocation));
       if (msUrl && apiKey) {
         try {
           const trackRows = db.prepare('SELECT rating_key, album_name FROM master_tracks WHERE artist_name = ? LIMIT 500').all(artistName);
@@ -5845,14 +6167,16 @@ export function registerApiMusic(app, ctx) {
           }
         } catch (_) { /* fall through */ }
       }
-      return sendThumbRedirect(res, cacheKey, fallbackArtistLocation);
+      return fallbackThumb();
     }
 
     const { url, token } = config.plex || {};
     if (!url || !token) return res.status(404).end();
     const base = url.replace(/\/$/, '');
     const fallbackArtistLocation = `/api/music/thumb/artist/${encodeURIComponent(artistName)}?v=discover-album-fallback-1`;
-    const fallbackArtistThumb = () => sendThumbRedirect(res, cacheKey, fallbackArtistLocation);
+    const fallbackArtistThumb = () => (noArtistFallback
+      ? sendThumbNotFound(res, cacheKey)
+      : sendThumbRedirect(res, cacheKey, fallbackArtistLocation));
     const trackRows = db.prepare(
       'SELECT rating_key, album_name FROM master_tracks WHERE artist_name = ? LIMIT 500',
     ).all(artistName);
@@ -6189,6 +6513,12 @@ export function registerApiMusic(app, ctx) {
     const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const trackFilters = normaliseTrackFiltersInput(req.body?.trackFilters);
+    let artwork;
+    try {
+      artwork = parsePlaylistArtworkInput(req.body?.artwork, { mode: 'auto', customArtworkAsset: '', preservedArtworkAsset: '' });
+    } catch (err) {
+      return res.status(400).json({ error: safeMessage(err) });
+    }
     const importedSource = sanitizeImportedSourceInput(req.body?.importSource);
     const importedSuggestedContent = sanitizeImportedContentSetInput(req.body?.importSuggestedContent);
     const importedDetectedContent = sanitizeImportedContentSetInput(req.body?.importDetectedContent);
@@ -6212,6 +6542,7 @@ export function registerApiMusic(app, ctx) {
     if (importedSource) rules.importSource = importedSource;
     if (importedSuggestedContent) rules.importSuggestedContent = importedSuggestedContent;
     if (importedDetectedContent) rules.importDetectedContent = importedDetectedContent;
+    rules.artwork = artwork;
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
     const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
@@ -6277,6 +6608,15 @@ export function registerApiMusic(app, ctx) {
     const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
     const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
     const trackFilters = req.body?.trackFilters !== undefined ? normaliseTrackFiltersInput(req.body.trackFilters) : (existing.trackFilters || null);
+    let artwork;
+    try {
+      artwork = parsePlaylistArtworkInput(
+        req.body?.artwork,
+        normalizePlaylistArtworkState(existing.rules?.artwork || {}),
+      );
+    } catch (err) {
+      return res.status(400).json({ error: safeMessage(err) });
+    }
     const importedSource = req.body?.importSource !== undefined
       ? sanitizeImportedSourceInput(req.body.importSource)
       : sanitizeImportedSourceInput(existing.rules?.importSource);
@@ -6306,6 +6646,7 @@ export function registerApiMusic(app, ctx) {
     if (importedSource) rules.importSource = importedSource;
     if (importedSuggestedContent) rules.importSuggestedContent = importedSuggestedContent;
     if (importedDetectedContent) rules.importDetectedContent = importedDetectedContent;
+    rules.artwork = artwork;
     const updated = { ...existing, name, rules, trackFilters };
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};

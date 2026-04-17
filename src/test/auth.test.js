@@ -38,6 +38,7 @@ const {
   refreshMasterTracks,
   saveLidarrArtistProgress,
   saveArtistTags,
+  setPlaylistTracks,
   saveUserPreferences,
   upsertSuggestedArtist,
   listUserGeneratedPlaylists,
@@ -2908,7 +2909,7 @@ describe('security guards', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({
           MediaContainer: { Metadata: [] },
         }), {
@@ -3067,7 +3068,7 @@ describe('security guards', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({
           MediaContainer: { Metadata: [] },
         }), {
@@ -3205,7 +3206,7 @@ describe('security guards', () => {
     const originalFetch = global.fetch;
     global.fetch = async (url, options = {}) => {
       const target = String(url || '');
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({
           MediaContainer: { Metadata: [] },
         }), {
@@ -3351,7 +3352,7 @@ describe('security guards', () => {
       if (target === `http://plex.local/playlists/${stalePlaylistId}?X-Plex-Container-Start=0&X-Plex-Container-Size=1`) {
         return new Response('', { status: 404 });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({
           MediaContainer: { Metadata: [] },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -3597,7 +3598,7 @@ describe('security guards', () => {
     const originalFetch = global.fetch;
     global.fetch = async (url, options = {}) => {
       const target = String(url || '');
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -3701,7 +3702,7 @@ describe('security guards', () => {
       if (target === 'http://plex.local/playlists/plex-custom-1' && method === 'DELETE') {
         return new Response('', { status: 200 });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -3748,6 +3749,183 @@ describe('security guards', () => {
       assert.equal(playlist.active, true);
       assert.equal(playlist.plexPlaylistId, 'plex-custom-2');
       assert.equal(playlist.trackCount, 2);
+    } finally {
+      dbVerify.close();
+    }
+  });
+
+  it('does not create a duplicate custom playlist when Plex playlist lookup fails transiently', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-custom-transient-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `custom-transient-${Date.now()}`;
+    const playlistKey = 'custom-transient-road-test';
+
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'custom',
+      playlistKey,
+      plexPlaylistId: '',
+      playlistTitle: 'Road Test',
+      trackCount: 1,
+      active: true,
+      updatedAt: Date.now(),
+    });
+    setPlaylistTracks(db, userId, playlistKey, [
+      { ratingKey: 'rk-custom-transient-1', artistName: 'Artist A' },
+    ]);
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: () => {},
+    });
+
+    const playlist = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    assert.ok(playlist);
+
+    let createCalls = 0;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      const target = String(url || '');
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
+        throw new Error('temporary Plex lookup failure');
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=Road+Test')) {
+        createCalls += 1;
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-custom-transient-created' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in transient custom playlist test: ${target}`);
+    };
+
+    try {
+      await assert.rejects(
+        service.syncCustomPlaylist(userId, playlist),
+        /temporary Plex lookup failure/,
+      );
+      assert.equal(createCalls, 0);
+      const persisted = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+        .find((entry) => entry.playlistKey === playlistKey);
+      assert.equal(persisted?.plexPlaylistId, '');
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+  });
+
+  it('serializes concurrent custom playlist creation to avoid duplicate Plex playlists', async () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-custom-concurrent-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `custom-concurrent-${Date.now()}`;
+    const playlistKey = 'custom-concurrent-road-test';
+
+    saveUserGeneratedPlaylist(db, userId, {
+      playlistType: 'custom',
+      playlistKey,
+      plexPlaylistId: '',
+      playlistTitle: 'Road Test',
+      trackCount: 1,
+      active: true,
+      updatedAt: Date.now(),
+    });
+    setPlaylistTracks(db, userId, playlistKey, [
+      { ratingKey: 'rk-custom-concurrent-1', artistName: 'Artist A' },
+    ]);
+
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-123',
+        },
+        smartPlaylist: {},
+      }),
+      saveConfig: () => {},
+      buildPlexAuthHeaders: (token, extraHeaders = {}) => ({ ...extraHeaders, 'X-Plex-Token': token }),
+      resolveUserPlexServerToken: () => 'plex-user-token',
+      userHasOwnPlexToken: () => true,
+      pushLog: () => {},
+    });
+
+    const playlist = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+      .find((entry) => entry.playlistKey === playlistKey);
+    assert.ok(playlist);
+
+    let searchCalls = 0;
+    let createCalls = 0;
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      const method = String(options.method || 'GET').toUpperCase();
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
+        searchCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [], totalSize: 0, size: 0 },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target.startsWith('http://plex.local/playlists?type=audio&title=Road+Test')) {
+        createCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return new Response(JSON.stringify({
+          MediaContainer: { Metadata: [{ ratingKey: 'plex-custom-concurrent-1' }] },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://plex.local/playlists/plex-custom-concurrent-1/items' && method === 'DELETE') {
+        return new Response('', { status: 200 });
+      }
+      if (target.startsWith('http://plex.local/playlists/plex-custom-concurrent-1/items?uri=')) {
+        assert.match(decodeURIComponent(target), /library\/metadata\/rk-custom-concurrent-1/);
+        return new Response('', { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in concurrent custom playlist test: ${target}`);
+    };
+
+    try {
+      const [first, second] = await Promise.all([
+        service.syncCustomPlaylist(userId, playlist),
+        service.syncCustomPlaylist(userId, playlist),
+      ]);
+      assert.equal(first?.plexPlaylistId, 'plex-custom-concurrent-1');
+      assert.equal(second?.plexPlaylistId, 'plex-custom-concurrent-1');
+      assert.equal(searchCalls, 1);
+      assert.equal(createCalls, 1);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+
+    const dbVerify = initDb(dbPath);
+    try {
+      const persisted = listUserGeneratedPlaylists(dbVerify, userId, { activeOnly: false })
+        .find((entry) => entry.playlistKey === playlistKey);
+      assert.ok(persisted);
+      assert.equal(persisted.plexPlaylistId, 'plex-custom-concurrent-1');
     } finally {
       dbVerify.close();
     }
@@ -3886,7 +4064,7 @@ describe('security guards', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -4024,7 +4202,7 @@ describe('security guards', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -4147,7 +4325,7 @@ describe('security guards', () => {
       if (target.includes('/library/metadata/') && target.includes('/nearest?')) {
         throw new Error(`Nearest fallback should not run when path sequencing succeeds: ${target}`);
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -4286,7 +4464,7 @@ describe('security guards', () => {
       if (target.includes('/library/metadata/') && target.includes('/nearest?')) {
         return new Response('', { status: 404 });
       }
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -5560,7 +5738,7 @@ describe('security guards', () => {
     const originalFetch = global.fetch;
     global.fetch = async (url, options = {}) => {
       const target = String(url || '');
-      if (target === 'http://plex.local/playlists?playlistType=audio') {
+      if (target.startsWith('http://plex.local/playlists?playlistType=audio')) {
         return new Response(JSON.stringify({ MediaContainer: { Metadata: [] } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

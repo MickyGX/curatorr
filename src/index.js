@@ -1980,10 +1980,14 @@ export async function start() {
           const prefs = getUserPreferences(db, userId);
           if (!prefs.userWizardCompleted) continue;
           if (smartPlaylistConfig.enableDailyMix !== false) {
-            await _routeCtx.playlistService.syncDailyMix(userId, { trigger: 'auto' }).catch(() => {});
+            await _routeCtx.playlistService.syncDailyMix(userId, { trigger: 'auto' }).catch((err) => {
+              pushLog({ level: 'warn', app: 'playlist', action: 'daily-mix.sync-error', message: `Daily Mix sync failed for ${userId}: ${safeMessage(err)}` });
+            });
           }
           if (smartPlaylistConfig.enableCuratorr !== false) {
-            await _routeCtx.playlistService.syncCuratorr(userId, { trigger: 'auto' }).catch(() => {});
+            await _routeCtx.playlistService.syncCuratorr(userId, { trigger: 'auto' }).catch((err) => {
+              pushLog({ level: 'warn', app: 'playlist', action: 'curatorr.sync-error', message: `Curatorr playlist sync failed for ${userId}: ${safeMessage(err)}` });
+            });
           }
         }
       },

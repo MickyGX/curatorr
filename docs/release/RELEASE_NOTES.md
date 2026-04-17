@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.79 (2026-04-18)
+
+- Imported playlists are now much easier to manage from the Playlists page: you can rename them, change their auto-refresh period, and admins can promote supported imported playlists into global shared playlists.
+- Plex playlist artwork is now first-class for smart playlists, with auto-generated, preserve-existing, and custom-upload modes that Curatorr can keep in sync after rebuilds.
+- The Overview profile now shows a live Now Playing module sourced from active media-server sessions, including paused playback state and current album artwork when available.
+
 ## v0.1.78 (2026-04-15)
 
 - Fixed Lidarr artist progression so entries that have genuinely reached `downloaded` no longer return early before the catalog expansion and completion checks run.

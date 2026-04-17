@@ -36,6 +36,7 @@
         const _plexMachineId = String(plexMachineId || '').trim();
         const _msType = String(typeof mediaServerType !== 'undefined' ? mediaServerType : 'plex').trim().toLowerCase();
         const _msLabel = _msType === 'jellyfin' ? 'Jellyfin' : _msType === 'emby' ? 'Emby' : 'Plex';
+        const _isAdmin = ['admin', 'co-admin'].includes(String(role || '').trim().toLowerCase());
         function fmtDate(ts) {
           if (!ts) return '—';
           return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -53,6 +54,9 @@
         }
         function playlistAudienceIconMarkup(audience, playlistType, sourceType) {
           const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
+          if (audience === 'global' && (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-plex')) {
+            return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
+          }
           if (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-plex') {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
           }
@@ -72,6 +76,11 @@
         }
         function playlistAudienceTitle(audience, playlistType, sourceType) {
           const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
+          if (audience === 'global' && kind === 'imported-spotify') return 'Global Spotify playlist (all users)';
+          if (audience === 'global' && kind === 'imported-youtube') return 'Global YouTube playlist (all users)';
+          if (audience === 'global' && kind === 'imported-lastfm') return 'Global Last.fm playlist (all users)';
+          if (audience === 'global' && kind === 'imported-listenbrainz') return 'Global ListenBrainz playlist (all users)';
+          if (audience === 'global' && kind === 'imported-plex') return 'Global Plex playlist (all users)';
           if (kind === 'imported-spotify') return 'Imported Spotify playlist';
           if (kind === 'imported-youtube') return 'Imported YouTube playlist';
           if (kind === 'imported-lastfm') return 'Imported Last.fm playlist';
@@ -192,12 +201,14 @@
                       data-playlist-imported-sync-period="<%= p.importedSyncPeriod || 'disabled' %>"
                       data-playlist-updated-at="<%= Number(p.curatorrUpdatedAt || 0) %>"
                       data-playlist-art="<%= p.artPath || '' %>"
+                      data-playlist-art-url="<%= p.artUrl || '' %>"
+                      data-playlist-artwork-mode="<%= p.artworkMode || 'auto' %>"
                       onclick="selectPlaylist(this)"
                       onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); selectPlaylist(this); }">
                       <div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">
-                        <div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art<%= p.artPath ? '' : ' is-empty' %>">
-                          <% if (p.artPath) { %>
-                            <img src="<%= (_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(p.artPath) + (p.artTag ? '&tag=' + encodeURIComponent(p.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(p.artPath) %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
+                        <div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art<%= p.artUrl ? '' : ' is-empty' %>">
+                          <% if (p.artUrl) { %>
+                            <img src="<%= p.artUrl %>" alt="" loading="lazy" onerror="this.parentElement.classList.add('is-empty');this.remove()" />
                           <% } %>
                           <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
                           <label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()">
@@ -219,45 +230,35 @@
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
-                          <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType)) { %>
-                          <button class="pl-card-btn pl-card-btn--edit" type="button" title="Convert to smart playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openConvertImportedPlaylist(this.closest('.cur-playlist-carousel-card'))">
-                            <img src="/icons/edit.svg" alt="Convert" style="display:block;width:18px;height:18px" />
+                          <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
+                          <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit imported playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openImportedPlaylistSettingsModal(this.closest('.cur-playlist-carousel-card'))">
+                            <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
                           <% } %>
-                          <div class="pl-card-dots-wrap">
-                            <button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleCardMenu(this)">⋯</button>
-                            <div class="pl-card-menu" style="display:none">
-                              <% if (p.playlistType === 'personal') { %>
-                              <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
-                              <% } else if (p.playlistType === 'global') { %>
-                              <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
-                              <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType)) { %>
-                              <button type="button" onclick="event.stopPropagation(); openConvertImportedPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Convert to Smart</button>
-                              <label style="display:flex;flex-direction:column;gap:0.35rem;padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em">
-                                Auto-refresh
-                                <select
-                                  style="min-width:140px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:var(--text);padding:0.45rem 0.55rem;text-transform:none;letter-spacing:normal"
-                                  onclick="event.stopPropagation()"
-                                  onchange="event.stopPropagation(); setImportedSyncPeriod(this.closest('.cur-playlist-carousel-card'), this.value)"
-                                >
-                                  <option value="disabled" <%= (p.importedSyncPeriod || 'disabled') === 'disabled' ? 'selected' : '' %>>Disabled</option>
-                                  <option value="daily" <%= p.importedSyncPeriod === 'daily' ? 'selected' : '' %>>Every day</option>
-                                  <option value="weekly" <%= p.importedSyncPeriod === 'weekly' ? 'selected' : '' %>>Every week</option>
-                                  <option value="monthly" <%= p.importedSyncPeriod === 'monthly' ? 'selected' : '' %>>Every month</option>
-                                </select>
-                              </label>
-                              <% } %>
-                              <% if (['daily-mix', 'curatorr', 'crescive', 'curative'].includes(p.playlistType)) { %>
-                              <button type="button" onclick="event.stopPropagation(); renameCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rename</button>
-                              <% } %>
-                              <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
-                              <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
-                              <% } %>
-                              <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
-                              <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
-                              <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
-                              <% } %>
-                            </div>
+                        </div>
+                        <div class="pl-card-dots-wrap">
+                          <button class="pl-card-btn pl-card-btn--dots" type="button" title="More options" onclick="event.stopPropagation(); toggleCardMenu(this)">⋯</button>
+                          <div class="pl-card-menu" style="display:none">
+                            <% if (p.playlistType === 'personal') { %>
+                            <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
+                            <% } else if (p.playlistType === 'global') { %>
+                            <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
+                            <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
+                            <button type="button" onclick="event.stopPropagation(); openImportedPlaylistSettingsModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
+                            <% } %>
+                            <% if (_msType === 'plex' && p.playlistKind !== 'draft' && p.playlistKey && (p.playlistType !== 'global' || _isAdmin)) { %>
+                            <button type="button" onclick="event.stopPropagation(); openPlaylistArtworkModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Artwork</button>
+                            <% } %>
+                            <% if (['daily-mix', 'curatorr', 'crescive', 'curative'].includes(p.playlistType)) { %>
+                            <button type="button" onclick="event.stopPropagation(); renameCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rename</button>
+                            <% } %>
+                            <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
+                            <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
+                            <% } %>
+                            <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
+                            <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
+                            <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
+                            <% } %>
                           </div>
                         </div>
                       </div>
@@ -419,6 +420,12 @@
                   </label>
                 </div>
                 <div class="spm-footer">
+                  <% if (_isAdmin) { %>
+                  <label class="import-global-toggle" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted,#94a3b8);margin-right:auto;cursor:pointer">
+                    <input type="checkbox" id="importGlobalCheckbox" style="accent-color:var(--brand,#8b5cf6);width:15px;height:15px" />
+                    <span>Global playlist <span style="font-size:10px;opacity:.7">(all users)</span></span>
+                  </label>
+                  <% } %>
                   <button class="btn btn-ghost" type="button" onclick="closeImportPlaylistModal()">Cancel</button>
                   <button class="btn btn-primary" type="button" id="importPlexSubmitBtn" onclick="submitImportPlex()" disabled>Import</button>
                 </div>
@@ -468,6 +475,111 @@
   <style>
     .pl-header-import { font-size:18px; line-height:1; font-weight:700; transform:translateY(-1px); }
     .spm-dialog--import { max-width:840px; }
+    .playlist-artwork-dialog {
+      width: min(560px, calc(100vw - 32px));
+      height: auto;
+      max-height: min(560px, calc(100vh - 32px));
+    }
+    .playlist-artwork-body {
+      display: grid;
+      gap: 16px;
+    }
+    .playlist-artwork-field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .playlist-artwork-field span {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted, #94a3b8);
+    }
+    .playlist-artwork-control {
+      width: 100%;
+      min-height: 42px;
+      box-sizing: border-box;
+      border-radius: 10px;
+      border: 1px solid var(--border, rgba(255,255,255,.15));
+      background: var(--surface-1, #1e1e1e);
+      color: var(--text, #e5e7eb);
+      padding: 8px 10px;
+    }
+    .playlist-artwork-control option {
+      color: #111827;
+      background: #ffffff;
+    }
+    .playlist-artwork-file {
+      display: block;
+      width: 100%;
+      font: inherit;
+      color: var(--text, #e5e7eb);
+    }
+    .playlist-artwork-file::file-selector-button {
+      margin-right: 12px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 10px;
+      background: rgba(255,255,255,.06);
+      color: inherit;
+      padding: 8px 12px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .playlist-artwork-status {
+      min-height: 19px;
+      margin-top: -2px;
+    }
+    .playlist-artwork-custom-fields {
+      display: none;
+      gap: 10px;
+    }
+    .imported-playlist-dialog {
+      width: min(560px, calc(100vw - 32px));
+      height: auto;
+      max-height: min(620px, calc(100vh - 32px));
+    }
+    .imported-playlist-body {
+      display: grid;
+      gap: 16px;
+    }
+    .imported-playlist-toggle {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 12px;
+      background: rgba(255,255,255,.03);
+      cursor: pointer;
+    }
+    .imported-playlist-toggle input {
+      margin-top: 2px;
+      accent-color: var(--brand, #8b5cf6);
+    }
+    .imported-playlist-toggle-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .imported-playlist-toggle-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text, #f8fafc);
+    }
+    .imported-playlist-toggle-note {
+      margin-top: 0;
+    }
+    .imported-playlist-actions {
+      margin-right: auto;
+      display: flex;
+      gap: 10px;
+    }
+    .imported-playlist-status {
+      min-height: 19px;
+      margin-top: -2px;
+    }
     .import-pl-tabs { display:flex; gap:8px; margin-top:14px; }
     .import-pl-tab { appearance:none; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:var(--muted,#a0aec0); border-radius:999px; padding:8px 14px; cursor:pointer; font-weight:600; }
     .import-pl-tab.is-active { border-color:rgba(74,222,128,.72); color:#f8fafc; background:rgba(74,222,128,.12); }
@@ -592,6 +704,12 @@
     [data-theme="day"] .playlist-feature-grid .field span { color:#6b7a8d; }
     [data-theme="day"] .playlist-feature-grid .field input,
     [data-theme="day"] .playlist-feature-grid .field select { background:linear-gradient(180deg,#ffffff,#f6f8fb); color:#223043; border-color:rgba(10,20,30,.12); }
+    [data-theme="day"] .playlist-artwork-field span { color:#6b7a8d; }
+    [data-theme="day"] .playlist-artwork-control { background:linear-gradient(180deg,#ffffff,#f6f8fb); color:#223043; border-color:rgba(10,20,30,.12); }
+    [data-theme="day"] .playlist-artwork-file { color:#223043; }
+    [data-theme="day"] .playlist-artwork-file::file-selector-button { border-color:rgba(10,20,30,.12); background:rgba(15,23,42,.04); color:#223043; }
+    [data-theme="day"] .imported-playlist-toggle { background:rgba(15,23,42,.03); border-color:rgba(10,20,30,.1); }
+    [data-theme="day"] .imported-playlist-toggle-title { color:#223043; }
     [data-theme="day"] .playlist-feature-note { color:#5e6d80; }
     [data-theme="day"] .playlist-feature-note strong { color:#1f2d3d; }
     [data-theme="day"] .playlist-inline-code { background:rgba(var(--brand-rgb), .09); border-color:rgba(var(--brand-rgb), .14); color:#223043; }
@@ -605,6 +723,83 @@
   </style>
 
   <%# ── Smart Playlist Modal ────────────────────────────────────────────────── %>
+  <div id="playlistArtworkModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closePlaylistArtworkModal()">
+    <div class="spm-dialog playlist-artwork-dialog" role="dialog" aria-modal="true" aria-labelledby="playlistArtworkModalTitle">
+      <div class="spm-header">
+        <span class="spm-title" id="playlistArtworkModalTitle">Playlist Artwork</span>
+        <button class="spm-close" type="button" onclick="closePlaylistArtworkModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="spm-body playlist-artwork-body">
+        <div class="playlist-feature-note" id="playlistArtworkModalCopy">Choose how Curatorr should handle artwork for this playlist.</div>
+        <label class="playlist-artwork-field">
+          <span>Artwork mode</span>
+          <select id="playlistArtworkMode" class="playlist-artwork-control" onchange="onPlaylistArtworkModeChange()">
+            <option value="auto">Auto-generated</option>
+            <option value="preserve">Preserve existing artwork</option>
+            <option value="custom">Custom artwork</option>
+          </select>
+        </label>
+        <div id="playlistArtworkPreserveHelp" class="playlist-feature-note" style="display:none">
+          Curatorr will snapshot the current Plex playlist image and reapply it after future syncs or playlist recreation when possible.
+        </div>
+        <div id="playlistArtworkCustomFields" class="playlist-artwork-custom-fields">
+          <label class="playlist-artwork-field">
+            <span>Custom image</span>
+            <input type="file" id="playlistArtworkFile" class="playlist-artwork-file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+          <div class="playlist-feature-note" id="playlistArtworkFileNote">PNG, JPG, or WEBP up to 5 MB.</div>
+        </div>
+        <div id="playlistArtworkStatus" class="playlist-feature-note playlist-artwork-status"></div>
+      </div>
+      <div class="spm-footer">
+        <button class="btn btn-ghost" type="button" onclick="closePlaylistArtworkModal()">Cancel</button>
+        <button class="btn btn-primary" type="button" id="playlistArtworkSaveBtn" onclick="submitPlaylistArtwork()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="importedPlaylistModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeImportedPlaylistSettingsModal()">
+    <div class="spm-dialog imported-playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="importedPlaylistModalTitle">
+      <div class="spm-header">
+        <span class="spm-title" id="importedPlaylistModalTitle">Edit Imported Playlist</span>
+        <button class="spm-close" type="button" onclick="closeImportedPlaylistSettingsModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="spm-body imported-playlist-body">
+        <div class="playlist-feature-note" id="importedPlaylistModalCopy">Update the saved import settings for this playlist or convert it into a smart playlist wizard draft.</div>
+        <label class="playlist-artwork-field">
+          <span>Name</span>
+          <input id="importedPlaylistTitle" class="playlist-artwork-control" type="text" maxlength="120" placeholder="Imported playlist name" />
+        </label>
+        <label class="playlist-artwork-field">
+          <span>Auto-refresh</span>
+          <select id="importedPlaylistSyncPeriod" class="playlist-artwork-control">
+            <option value="disabled">Disabled</option>
+            <option value="daily">Every day</option>
+            <option value="weekly">Every week</option>
+            <option value="monthly">Every month</option>
+          </select>
+        </label>
+        <% if (_isAdmin) { %>
+        <label class="imported-playlist-toggle">
+          <input id="importedPlaylistGlobal" type="checkbox" />
+          <span class="imported-playlist-toggle-copy">
+            <span class="imported-playlist-toggle-title">Global playlist</span>
+            <span class="playlist-feature-note imported-playlist-toggle-note">Make this imported playlist available for every user.</span>
+          </span>
+        </label>
+        <% } %>
+        <div id="importedPlaylistStatus" class="playlist-feature-note imported-playlist-status"></div>
+      </div>
+      <div class="spm-footer">
+        <div class="imported-playlist-actions">
+          <button class="btn btn-ghost" type="button" onclick="convertImportedPlaylistFromSettings()">Convert to Smart</button>
+        </div>
+        <button class="btn btn-ghost" type="button" onclick="closeImportedPlaylistSettingsModal()">Cancel</button>
+        <button class="btn btn-primary" type="button" id="importedPlaylistSaveBtn" onclick="submitImportedPlaylistSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <div id="smartPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeSmartPlaylistModal()">
     <div class="spm-dialog" role="dialog" aria-modal="true" aria-label="Create Smart Playlist">
       <div class="spm-header">
@@ -920,6 +1115,7 @@
     var _msType = '<%= _msType %>';
     var CURRENT_USER_ID = <%- JSON.stringify(currentUserId || '') %>;
     var IS_ACTUAL_ADMIN = <%- JSON.stringify(actualRole === 'admin') %>;
+    var CAN_EDIT_GLOBAL_PLAYLISTS = <%- JSON.stringify(_isAdmin) %>;
     var ALL_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
     var SPOTIFY_USER_ID = <%- JSON.stringify(spotifyUserId || '') %>;
     var LASTFM_USERNAME = <%- JSON.stringify(lastfmUsername || '') %>;
@@ -1593,6 +1789,11 @@
 
     function playlistAudienceTitle(audience, sourceType) {
       var source = String(sourceType || '').trim().toLowerCase();
+      if (audience === 'global' && source === 'spotify-playlist') return 'Global Spotify playlist (all users)';
+      if (audience === 'global' && source === 'youtube-playlist') return 'Global YouTube playlist (all users)';
+      if (audience === 'global' && source === 'lastfm-station') return 'Global Last.fm playlist (all users)';
+      if (audience === 'global' && source === 'listenbrainz-playlist') return 'Global ListenBrainz playlist (all users)';
+      if (audience === 'global' && source.indexOf('plex-') === 0) return 'Global Plex playlist (all users)';
       if (source === 'spotify-playlist') return 'Imported Spotify playlist';
       if (source === 'youtube-playlist') return 'Imported YouTube playlist';
       if (source === 'lastfm-station') return 'Imported Last.fm playlist';
@@ -1609,7 +1810,9 @@
     function buildPlaylistAudienceBadgeHtml(audience, sourceType) {
       var iconHtml = '';
       var source = String(sourceType || '').trim().toLowerCase();
-      if (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0) {
+      if (audience === 'global' && (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0)) {
+        iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
+      } else if (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0) {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
       } else if (audience === 'global') {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
@@ -1644,6 +1847,8 @@
       card.dataset.playlistImportedSyncPeriod = normalizeImportedSyncPeriod(data.importedSyncPeriod || 'disabled');
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
+      card.dataset.playlistArtUrl = data.artUrl || '';
+      card.dataset.playlistArtworkMode = data.artworkMode || 'auto';
       if (data.active === false) card.classList.add('is-disabled');
       var isDraft = String(data.playlistKind || '').trim().toLowerCase() === 'draft';
       var isPersonal = data.playlistType === 'personal';
@@ -1653,34 +1858,33 @@
       var playlistAudience = resolvePlaylistAudience(data);
       var isDeletable = ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(data.playlistType || '') !== -1;
       var isImportedRefresh = data.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].indexOf(String(data.sourceType || '').toLowerCase()) !== -1;
-      var isImportedConvertible = isImportedRefresh;
+      var canEditImportedSettings = isImportedRefresh && (playlistAudience !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
+      var canEditArtwork = _msType === 'plex' && data.playlistKey && !isDraft && (data.playlistType !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
       var editBtnHtml = isPersonal
         ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
         : (isGlobal
           ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-global" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
-          : (isImportedConvertible ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--convert-import" type="button" title="Convert to smart playlist"><img src="/icons/edit.svg" alt="Convert" style="display:block;width:18px;height:18px" /></button>' : ''));
+          : (canEditImportedSettings ? '<button class="pl-card-btn pl-card-btn--edit pl-card-btn--edit-import" type="button" title="Edit imported playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>' : ''));
       card.innerHTML =
         '<div class="plex-poster-wrap cur-discover-poster-wrap cur-playlist-carousel-poster-wrap">' +
-          '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artPath ? '' : ' is-empty') + '">' +
-            (data.artPath ? '<img src="' + ((_msType === 'jellyfin' || _msType === 'emby') ? '/api/ms/art?id=' + encodeURIComponent(data.artPath) + (data.artTag ? '&tag=' + encodeURIComponent(data.artTag) : '') : '/api/plex/art?path=' + encodeURIComponent(data.artPath)) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
+          '<div class="plex-poster-well cur-discover-result-art cur-playlist-carousel-art' + (data.artUrl ? '' : ' is-empty') + '">' +
+            (data.artUrl ? '<img src="' + escAttr(data.artUrl) + '" alt="" loading="lazy" onerror="this.parentElement.classList.add(\'is-empty\');this.remove()" />' : '') +
             (data.playlistKey && !isDraft ? '<label class="pl-card-checkbox-wrap" title="Select" onclick="event.stopPropagation()"><input type="checkbox" class="pl-card-checkbox" /><span class="pl-card-checkbox-ui"></span></label>' : '') +
             '<button class="pl-card-btn pl-card-btn--view" type="button" title="View playlist"><img src="/icons/view.svg" alt="View" style="display:block;width:23px;height:23px;filter:brightness(0) invert(1)" /></button>' +
             buildPlaylistAudienceBadgeHtml(playlistAudience, data.sourceType) +
             editBtnHtml +
-            '<div class="pl-card-dots-wrap">' +
-              '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options">⋯</button>' +
-              '<div class="pl-card-menu" style="display:none">' +
-                (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
-                (isGlobal ? '<button type="button" class="pl-card-menu-edit-global">Edit</button>' : '') +
-                (isImportedConvertible ? '<button type="button" class="pl-card-menu-convert-import">Convert to Smart</button>' : '') +
-                (isImportedRefresh
-                  ? '<label style="display:flex;flex-direction:column;gap:0.35rem;padding:0.5rem 0.75rem;color:var(--text-muted);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em">Auto-refresh<select class="pl-card-menu-imported-sync" style="min-width:140px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:var(--text);padding:0.45rem 0.55rem;text-transform:none;letter-spacing:normal"><option value="disabled">Disabled</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option></select></label>'
-                  : '') +
-                (isSystemRenameable ? '<button type="button" class="pl-card-menu-rename">Rename</button>' : '') +
-                (data.playlistKey && !isDraft ? '<button type="button" class="pl-card-menu-toggle-state">' + (isActive ? 'Disable' : 'Enable') + '</button>' : '') +
-                '<button type="button" class="pl-card-menu-rebuild"' + (isActive ? '' : ' disabled title="Enable this playlist first."') + '>' + (isImportedRefresh ? 'Refresh import' : 'Rebuild') + '</button>' +
-                (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
-              '</div>' +
+          '</div>' +
+          '<div class="pl-card-dots-wrap">' +
+            '<button class="pl-card-btn pl-card-btn--dots" type="button" title="More options">⋯</button>' +
+            '<div class="pl-card-menu" style="display:none">' +
+              (isPersonal ? '<button type="button" class="pl-card-menu-edit">Edit</button>' : '') +
+              (isGlobal ? '<button type="button" class="pl-card-menu-edit-global">Edit</button>' : '') +
+              (canEditImportedSettings ? '<button type="button" class="pl-card-menu-edit-import">Edit</button>' : '') +
+              (canEditArtwork ? '<button type="button" class="pl-card-menu-artwork">Artwork</button>' : '') +
+              (isSystemRenameable ? '<button type="button" class="pl-card-menu-rename">Rename</button>' : '') +
+              (data.playlistKey && !isDraft ? '<button type="button" class="pl-card-menu-toggle-state">' + (isActive ? 'Disable' : 'Enable') + '</button>' : '') +
+              '<button type="button" class="pl-card-menu-rebuild"' + (isActive ? '' : ' disabled title="Enable this playlist first."') + '>' + (isImportedRefresh ? 'Refresh import' : 'Rebuild') + '</button>' +
+              (isDeletable ? '<button type="button" class="pl-card-menu-delete">Delete</button>' : '') +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -1694,12 +1898,12 @@
       card.addEventListener('keydown', function(event) {
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPlaylist(card); }
       });
-      var editBtn = card.querySelector('.pl-card-btn--edit:not(.pl-card-btn--edit-global):not(.pl-card-btn--convert-import)');
+      var editBtn = card.querySelector('.pl-card-btn--edit:not(.pl-card-btn--edit-global):not(.pl-card-btn--edit-import)');
       if (editBtn) editBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditPlaylistModal(card); });
       var editGlobalBtn = card.querySelector('.pl-card-btn--edit-global');
       if (editGlobalBtn) editGlobalBtn.addEventListener('click', function(e) { e.stopPropagation(); openEditGlobalPlaylist(card); });
-      var convertImportedBtn = card.querySelector('.pl-card-btn--convert-import');
-      if (convertImportedBtn) convertImportedBtn.addEventListener('click', function(e) { e.stopPropagation(); openConvertImportedPlaylist(card); });
+      var editImportedBtn = card.querySelector('.pl-card-btn--edit-import');
+      if (editImportedBtn) editImportedBtn.addEventListener('click', function(e) { e.stopPropagation(); openImportedPlaylistSettingsModal(card); });
       var viewBtn2 = card.querySelector('.pl-card-btn--view');
       if (viewBtn2) viewBtn2.addEventListener('click', function(e) { e.stopPropagation(); selectPlaylist(card); });
       var dotsBtn = card.querySelector('.pl-card-btn--dots');
@@ -1708,17 +1912,10 @@
       if (editMenuBtn) editMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditPlaylistModal(card); });
       var editGlobalMenuBtn = card.querySelector('.pl-card-menu-edit-global');
       if (editGlobalMenuBtn) editGlobalMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openEditGlobalPlaylist(card); });
-      var convertImportedMenuBtn = card.querySelector('.pl-card-menu-convert-import');
-      if (convertImportedMenuBtn) convertImportedMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openConvertImportedPlaylist(card); });
-      var importedSyncSelect = card.querySelector('.pl-card-menu-imported-sync');
-      if (importedSyncSelect) {
-        importedSyncSelect.value = normalizeImportedSyncPeriod(data.importedSyncPeriod || 'disabled');
-        importedSyncSelect.addEventListener('click', function(e) { e.stopPropagation(); });
-        importedSyncSelect.addEventListener('change', function(e) {
-          e.stopPropagation();
-          setImportedSyncPeriod(card, importedSyncSelect.value);
-        });
-      }
+      var editImportedMenuBtn = card.querySelector('.pl-card-menu-edit-import');
+      if (editImportedMenuBtn) editImportedMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openImportedPlaylistSettingsModal(card); });
+      var artworkMenuBtn = card.querySelector('.pl-card-menu-artwork');
+      if (artworkMenuBtn) artworkMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); closeAllCardMenus(); openPlaylistArtworkModal(card); });
       var renameMenuBtn = card.querySelector('.pl-card-menu-rename');
       if (renameMenuBtn) renameMenuBtn.addEventListener('click', function(e) { e.stopPropagation(); renameCardPlaylist(card); });
       var toggleStateBtn = card.querySelector('.pl-card-menu-toggle-state');
@@ -2240,6 +2437,8 @@
       if (searchInput) searchInput.value = '';
       if (spotifySearchInput) spotifySearchInput.value = '';
       if (urlInput) urlInput.value = '';
+      var globalCheckbox = document.getElementById('importGlobalCheckbox');
+      if (globalCheckbox) globalCheckbox.checked = false;
       updateImportUrlProviderUI('');
       if (submitBtn) submitBtn.disabled = true;
       if (statusEl) statusEl.textContent = 'Loading sources…';
@@ -2574,6 +2773,8 @@
     function submitImportPlex() {
       var titleInput = document.getElementById('importPlexTitle');
       var submitBtn = document.getElementById('importPlexSubmitBtn');
+      var globalCheckbox = document.getElementById('importGlobalCheckbox');
+      var makeGlobal = globalCheckbox && globalCheckbox.checked;
       var title = String(titleInput && titleInput.value || '').trim()
         || ((_importSourceTab === 'spotify' || _importSourceTab === 'url')
           ? (getImportSpotifySelectionForTab(_importSourceTab) && getImportSpotifySelectionForTab(_importSourceTab).name)
@@ -2597,6 +2798,7 @@
           body: JSON.stringify({
             playlistId: spotifySelection.id,
             title: title,
+            audience: makeGlobal ? 'global' : 'personal',
           }),
         })
           .then(function(r) { return r.json(); })
@@ -2609,7 +2811,7 @@
               playlistTitle: playlist.playlistTitle || title,
               playlistKind: 'generated',
               playlistType: 'custom',
-              playlistAudience: 'personal',
+              playlistAudience: data.audience === 'global' ? 'global' : 'imported',
               sourceType: playlist.sourceType || (provider === 'youtube' ? 'youtube-playlist' : 'spotify-playlist'),
               importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
               active: true,
@@ -2642,6 +2844,7 @@
           body: JSON.stringify({
             sourceKey: _importLastfmSelection.sourceKey,
             title: title,
+            audience: makeGlobal ? 'global' : 'personal',
           }),
         })
           .then(function(r) { return r.json(); })
@@ -2654,7 +2857,7 @@
               playlistTitle: playlist.playlistTitle || title,
               playlistKind: 'generated',
               playlistType: 'custom',
-              playlistAudience: 'personal',
+              playlistAudience: data.audience === 'global' ? 'global' : 'imported',
               sourceType: playlist.sourceType || 'lastfm-station',
               importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
               active: true,
@@ -2686,6 +2889,7 @@
           body: JSON.stringify({
             sourceKey: _importListenbrainzSelection.sourceKey,
             title: title,
+            audience: makeGlobal ? 'global' : 'personal',
           }),
         })
           .then(function(r) { return r.json(); })
@@ -2698,7 +2902,7 @@
               playlistTitle: playlist.playlistTitle || title,
               playlistKind: 'generated',
               playlistType: 'custom',
-              playlistAudience: 'personal',
+              playlistAudience: data.audience === 'global' ? 'global' : 'imported',
               sourceType: playlist.sourceType || 'listenbrainz-playlist',
               importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
               active: true,
@@ -2731,6 +2935,7 @@
           sourceId: _importPlexSelection.id,
           sourceTitle: _importPlexSelection.title,
           title: title,
+          audience: makeGlobal ? 'global' : 'personal',
         }),
       })
         .then(function(r) { return r.json(); })
@@ -2743,7 +2948,7 @@
             playlistTitle: playlist.playlistTitle || title,
             playlistKind: 'generated',
             playlistType: 'custom',
-            playlistAudience: 'personal',
+            playlistAudience: data.audience === 'global' ? 'global' : 'imported',
             sourceType: playlist.sourceType || (_importPlexSelection ? ('plex-' + _importPlexSelection.kind) : 'plex-playlist'),
             importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
             active: true,
@@ -3207,27 +3412,225 @@
         });
     }
 
-    function setImportedSyncPeriod(card, importedSyncPeriod) {
+    var _importedPlaylistSettingsState = {
+      card: null,
+    };
+
+    function closeImportedPlaylistSettingsModal() {
+      var modal = document.getElementById('importedPlaylistModal');
+      if (modal) modal.style.display = 'none';
+      _importedPlaylistSettingsState = { card: null };
+      var statusEl = document.getElementById('importedPlaylistStatus');
+      var saveBtn = document.getElementById('importedPlaylistSaveBtn');
+      if (statusEl) statusEl.textContent = '';
+      if (saveBtn) saveBtn.disabled = false;
+    }
+
+    function openImportedPlaylistSettingsModal(card) {
       if (!card || !isImportedRefreshPlaylist(card)) return;
+      var playlistAudience = String(card.dataset.playlistAudience || '').trim().toLowerCase();
+      if (playlistAudience === 'global' && !CAN_EDIT_GLOBAL_PLAYLISTS) return;
+      _importedPlaylistSettingsState = { card: card };
+      var modal = ensureModalAtRoot('importedPlaylistModal');
+      if (!modal) return;
+      var titleEl = document.getElementById('importedPlaylistTitle');
+      var syncEl = document.getElementById('importedPlaylistSyncPeriod');
+      var globalEl = document.getElementById('importedPlaylistGlobal');
+      var headerEl = document.getElementById('importedPlaylistModalTitle');
+      var statusEl = document.getElementById('importedPlaylistStatus');
+      var saveBtn = document.getElementById('importedPlaylistSaveBtn');
+      if (headerEl) headerEl.textContent = 'Edit Imported Playlist: ' + String(card.dataset.plTitle || 'Playlist');
+      if (titleEl) titleEl.value = String(card.dataset.plTitle || '').trim();
+      if (syncEl) syncEl.value = normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
+      if (globalEl) globalEl.checked = playlistAudience === 'global';
+      if (statusEl) statusEl.textContent = '';
+      if (saveBtn) saveBtn.disabled = false;
+      modal.style.display = '';
+    }
+
+    function submitImportedPlaylistSettings() {
+      var card = _importedPlaylistSettingsState.card;
+      if (!card) return;
       var playlistKey = String(card.dataset.plKey || '').trim();
       if (!playlistKey) return;
-      var status = document.getElementById('syncStatus');
-      var nextPeriod = normalizeImportedSyncPeriod(importedSyncPeriod);
-      status.textContent = 'Saving auto-refresh setting…';
-      fetch('/api/music/playlists/imported-sync-period', {
+      var titleEl = document.getElementById('importedPlaylistTitle');
+      var syncEl = document.getElementById('importedPlaylistSyncPeriod');
+      var globalEl = document.getElementById('importedPlaylistGlobal');
+      var statusEl = document.getElementById('importedPlaylistStatus');
+      var saveBtn = document.getElementById('importedPlaylistSaveBtn');
+      var nextTitle = String(titleEl && titleEl.value || '').trim();
+      var nextSyncPeriod = normalizeImportedSyncPeriod(syncEl && syncEl.value || card.dataset.playlistImportedSyncPeriod || 'disabled');
+      var nextAudience = globalEl
+        ? (globalEl.checked ? 'global' : 'personal')
+        : (String(card.dataset.playlistAudience || '').trim().toLowerCase() === 'global' ? 'global' : 'personal');
+      if (!nextTitle) {
+        if (statusEl) statusEl.textContent = 'Name is required.';
+        return;
+      }
+      if (saveBtn) saveBtn.disabled = true;
+      if (statusEl) statusEl.textContent = 'Saving imported playlist…';
+      fetch('/api/music/playlists/imported-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
-        body: JSON.stringify({ playlistKey: playlistKey, importedSyncPeriod: nextPeriod }),
+        body: JSON.stringify({
+          playlistKey: playlistKey,
+          title: nextTitle,
+          importedSyncPeriod: nextSyncPeriod,
+          audience: nextAudience,
+        }),
       })
-        .then(function(r) { return r.json(); })
+        .then(function(r) { return r.json().catch(function() { return {}; }); })
         .then(function(data) {
-          if (!data.ok) throw new Error(data.error || 'Unknown error');
+          if (!data.ok) throw new Error(data.error || 'Failed to update imported playlist settings.');
           window.location.reload();
         })
         .catch(function(err) {
-          status.textContent = 'Error: ' + (err.message || 'Unknown');
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+          if (saveBtn) saveBtn.disabled = false;
         });
     }
+
+    function convertImportedPlaylistFromSettings() {
+      var card = _importedPlaylistSettingsState.card;
+      if (!card) return;
+      closeImportedPlaylistSettingsModal();
+      openConvertImportedPlaylist(card);
+    }
+
+    var _playlistArtworkState = {
+      card: null,
+      mode: 'auto',
+      customArtworkData: '',
+      customArtworkAsset: '',
+      preservedArtworkAsset: '',
+    };
+
+    function onPlaylistArtworkModeChange() {
+      var mode = String(document.getElementById('playlistArtworkMode') && document.getElementById('playlistArtworkMode').value || 'auto').trim().toLowerCase();
+      var customFields = document.getElementById('playlistArtworkCustomFields');
+      var preserveHelp = document.getElementById('playlistArtworkPreserveHelp');
+      if (customFields) customFields.style.display = mode === 'custom' ? 'grid' : 'none';
+      if (preserveHelp) preserveHelp.style.display = mode === 'preserve' ? '' : 'none';
+      _playlistArtworkState.mode = mode;
+    }
+
+    function closePlaylistArtworkModal() {
+      var modal = document.getElementById('playlistArtworkModal');
+      if (modal) modal.style.display = 'none';
+      _playlistArtworkState = {
+        card: null,
+        mode: 'auto',
+        customArtworkData: '',
+        customArtworkAsset: '',
+        preservedArtworkAsset: '',
+      };
+      var fileInput = document.getElementById('playlistArtworkFile');
+      var status = document.getElementById('playlistArtworkStatus');
+      if (fileInput) fileInput.value = '';
+      if (status) status.textContent = '';
+      var saveBtn = document.getElementById('playlistArtworkSaveBtn');
+      if (saveBtn) saveBtn.disabled = false;
+    }
+
+    function openPlaylistArtworkModal(card) {
+      if (!card) return;
+      _playlistArtworkState = {
+        card: card,
+        mode: String(card.dataset.playlistArtworkMode || 'auto').trim().toLowerCase() || 'auto',
+        customArtworkData: '',
+        customArtworkAsset: '',
+        preservedArtworkAsset: '',
+      };
+      var modal = ensureModalAtRoot('playlistArtworkModal');
+      if (!modal) return;
+      var modeEl = document.getElementById('playlistArtworkMode');
+      var titleEl = document.getElementById('playlistArtworkModalTitle');
+      var statusEl = document.getElementById('playlistArtworkStatus');
+      var noteEl = document.getElementById('playlistArtworkFileNote');
+      if (titleEl) titleEl.textContent = 'Playlist Artwork: ' + String(card.dataset.plTitle || 'Playlist');
+      if (modeEl) modeEl.value = _playlistArtworkState.mode;
+      if (statusEl) statusEl.textContent = _playlistArtworkState.mode === 'custom'
+        ? 'Upload a new image or keep the current custom artwork.'
+        : (_playlistArtworkState.mode === 'preserve'
+          ? 'Curatorr will preserve the current Plex artwork for future syncs.'
+          : 'Curatorr will stop managing artwork for this playlist.');
+      var saveBtn = document.getElementById('playlistArtworkSaveBtn');
+      if (saveBtn) saveBtn.disabled = false;
+      if (noteEl) noteEl.textContent = 'PNG, JPG, or WEBP up to 5 MB.';
+      onPlaylistArtworkModeChange();
+      modal.style.display = '';
+    }
+
+    function submitPlaylistArtwork() {
+      var card = _playlistArtworkState.card;
+      if (!card) return;
+      var playlistKey = String(card.dataset.plKey || '').trim();
+      if (!playlistKey) return;
+      var mode = String(document.getElementById('playlistArtworkMode') && document.getElementById('playlistArtworkMode').value || 'auto').trim().toLowerCase();
+      var statusEl = document.getElementById('playlistArtworkStatus');
+      var saveBtn = document.getElementById('playlistArtworkSaveBtn');
+      if (mode === 'custom' && !_playlistArtworkState.customArtworkData && String(card.dataset.playlistArtworkMode || '').trim().toLowerCase() !== 'custom') {
+        if (statusEl) statusEl.textContent = 'Choose an image for custom artwork.';
+        return;
+      }
+      if (saveBtn) saveBtn.disabled = true;
+      if (statusEl) statusEl.textContent = 'Saving artwork…';
+      fetch('/api/music/playlists/generated/artwork', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({
+          playlistKey: playlistKey,
+          artwork: {
+            mode: mode,
+            customArtworkData: _playlistArtworkState.customArtworkData || undefined,
+          },
+        }),
+      })
+        .then(function(r) { return r.json().catch(function() { return {}; }); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to update artwork.');
+          if (statusEl) statusEl.textContent = 'Artwork saved.';
+          window.location.reload();
+        })
+        .catch(function(err) {
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+          if (saveBtn) saveBtn.disabled = false;
+        });
+    }
+
+    document.addEventListener('change', function(event) {
+      if (!event.target || event.target.id !== 'playlistArtworkFile') return;
+      var file = event.target.files && event.target.files[0];
+      var statusEl = document.getElementById('playlistArtworkStatus');
+      if (!file) {
+        _playlistArtworkState.customArtworkData = '';
+        if (statusEl) statusEl.textContent = '';
+        return;
+      }
+      var allowed = ['image/png', 'image/jpeg', 'image/webp'];
+      if (allowed.indexOf(String(file.type || '').toLowerCase()) === -1) {
+        event.target.value = '';
+        _playlistArtworkState.customArtworkData = '';
+        if (statusEl) statusEl.textContent = 'Please choose a PNG, JPG, or WEBP image.';
+        return;
+      }
+      if (Number(file.size || 0) > 5 * 1024 * 1024) {
+        event.target.value = '';
+        _playlistArtworkState.customArtworkData = '';
+        if (statusEl) statusEl.textContent = 'Artwork images must be 5 MB or smaller.';
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function(loadEvent) {
+        _playlistArtworkState.customArtworkData = String(loadEvent && loadEvent.target && loadEvent.target.result || '');
+        if (statusEl) statusEl.textContent = 'Ready to save: ' + file.name;
+      };
+      reader.onerror = function() {
+        _playlistArtworkState.customArtworkData = '';
+        if (statusEl) statusEl.textContent = 'Could not read the selected image.';
+      };
+      reader.readAsDataURL(file);
+    });
 
     function renameCardPlaylist(card) {
       if (!card) return;
@@ -3515,6 +3918,7 @@
 
     function wizardPrefillFromPlaylist(playlist, playlistTarget) {
       var rules = playlist && playlist.rules ? playlist.rules : {};
+      var artwork = rules && rules.artwork ? rules.artwork : {};
       var trackFilters = wizardStarterTrackFilters(playlist && playlist.trackFilters);
       var target = playlistTarget || 'personal';
       if (target !== 'global' && Array.isArray(rules.blendUsers) && rules.blendUsers.length) target = 'blend';
@@ -3574,6 +3978,10 @@
         importDetectedContent: rules.importDetectedContent || null,
         keepImportedSource: true,
         inferenceSummary: null,
+        artworkMode: String(artwork.mode || 'auto'),
+        customArtworkAsset: String(artwork.customArtworkAsset || ''),
+        preservedArtworkAsset: String(artwork.preservedArtworkAsset || ''),
+        customArtworkData: '',
       };
     }
 
@@ -3953,6 +4361,7 @@
       var allowEmptyDraft = Boolean(options.allowEmptyDraft);
       var importSource = options.importSource || null;
       var removeImportedSourcePlaylistKey = options.removeImportedSourcePlaylistKey || '';
+      var artwork = options.artwork || null;
       var isEdit = Boolean(editKind && editId);
       var endpoint = isEdit
         ? (editKind === 'global'
@@ -3960,6 +4369,7 @@
           : '/api/music/playlists/personal/' + encodeURIComponent(editId))
         : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
       var payload = Object.assign({ name: name }, rules);
+      if (artwork) payload.artwork = artwork;
       if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, rules: [] };
       if (allowEmptyDraft) payload.allowEmptyDraft = true;
       if (importSource) payload.importSource = importSource;
@@ -4008,10 +4418,12 @@
             playlistKind: 'generated',
             playlistType: isGlobal ? 'global' : 'personal',
             playlistAudience: isGlobal ? 'global' : (playlistTarget === 'blend' ? 'blend' : 'personal'),
+            artworkMode: artwork && artwork.mode || 'auto',
             active: true,
             trackCount: 0,
             updatedAt: playlist.createdAt || Date.now(),
             artPath: '',
+            artUrl: '',
           });
           insertPlaylistCardSorted(card);
           closeSmartPlaylistModal();
@@ -4327,6 +4739,19 @@
         deduplicateByDuration: false,
         deduplicateIgnoreLikelyVariants: false,
         deduplicateIgnoreLiveAlbums: false,
+        artworkMode: 'auto',
+        customArtworkAsset: '',
+        preservedArtworkAsset: '',
+        customArtworkData: '',
+      };
+    }
+
+    function wizardAssembleArtwork(ws) {
+      return {
+        mode: String(ws && ws.artworkMode || 'auto'),
+        customArtworkAsset: String(ws && ws.customArtworkAsset || ''),
+        preservedArtworkAsset: String(ws && ws.preservedArtworkAsset || ''),
+        customArtworkData: String(ws && ws.customArtworkData || ''),
       };
     }
 
@@ -4741,6 +5166,12 @@
         camelotFocus: _wizardState.camelotFocus || '',
         camelotMode: _wizardState.camelotMode || 'exact',
       };
+      var currentArtwork = {
+        artworkMode: _wizardState.artworkMode || 'auto',
+        customArtworkAsset: _wizardState.customArtworkAsset || '',
+        preservedArtworkAsset: _wizardState.preservedArtworkAsset || '',
+        customArtworkData: _wizardState.customArtworkData || '',
+      };
       var nextState = wizardDefaultState();
       nextState.templateId = templateId || 'blank';
       nextState.startingPointId = templateId || 'blank';
@@ -4752,6 +5183,7 @@
       nextState.blendMode = currentBlendMode;
       nextState.activeAdvancedSection = currentActiveAdvancedSection;
       Object.assign(nextState, currentAudio);
+      Object.assign(nextState, currentArtwork);
       var tmpl = wizardFindTemplate(nextState.templateId);
       var selectedUserTemplate = wizardUserTemplates().some(function(t) { return t.id === nextState.templateId; });
       if (selectedUserTemplate) {
@@ -5393,6 +5825,28 @@
         '</select>' +
         '<div class="spm-wizard-field-hint">Manual keeps the rules saved without rebuilding on the schedule.</div>' +
       '</label>';
+      if (_msType === 'plex') {
+        html += '<label class="spm-wizard-field" style="margin-bottom:18px">' +
+          '<span class="spm-wizard-field-label">Artwork handling</span>' +
+          '<select id="wiz-artwork-mode" class="spm-wizard-select">' +
+            '<option value="auto"' + (String(ws.artworkMode || 'auto') === 'auto' ? ' selected' : '') + '>Auto-generated</option>' +
+            '<option value="preserve"' + (String(ws.artworkMode || 'auto') === 'preserve' ? ' selected' : '') + '>Preserve existing artwork</option>' +
+            '<option value="custom"' + (String(ws.artworkMode || 'auto') === 'custom' ? ' selected' : '') + '>Custom artwork</option>' +
+          '</select>' +
+          '<div class="spm-wizard-field-hint">Preserve snapshots the current Plex playlist image for future syncs. Custom reapplies your uploaded image after sync.</div>' +
+        '</label>';
+        html += '<div id="wiz-artwork-custom-wrap" class="spm-wizard-field"' + (String(ws.artworkMode || 'auto') === 'custom' ? '' : ' style="display:none"') + '>' +
+          '<span class="spm-wizard-field-label">Custom image</span>' +
+          '<input type="file" id="wiz-artwork-file" class="cur-input" accept="image/png,image/jpeg,image/webp" />' +
+          '<div class="spm-wizard-field-hint" id="wiz-artwork-status">' +
+            (ws.customArtworkData
+              ? 'New custom image selected.'
+              : (ws.customArtworkAsset
+                ? 'Current custom image will stay in place unless you upload a replacement.'
+                : 'PNG, JPG, or WEBP up to 5 MB.')) +
+          '</div>' +
+        '</div>';
+      }
       if (ws.importSource && !_wizardEditKind) {
         var importSourceLabel = ws.importSource.sourceTitle || ws.importSource.playlistTitle || 'Imported playlist';
         html += '<label class="spm-wizard-field" style="margin-bottom:18px">' +
@@ -5424,6 +5878,12 @@
       html += row('Name', '<strong>' + escH(ws.name) + '</strong>');
       html += row('Target', escH(wizardTargetLabel(ws.playlistTarget || 'personal')));
       html += row('Rebuild', escH(ws.rebuildSchedule || 'daily'));
+      if (_msType === 'plex' && ws.artworkMode) {
+        var artworkLabel = ws.artworkMode === 'preserve'
+          ? 'Preserve existing artwork'
+          : (ws.artworkMode === 'custom' ? 'Custom artwork' : 'Auto-generated');
+        html += row('Artwork', escH(artworkLabel));
+      }
       if (ws.importSource) html += row('Imported source', escH(ws.importSource.sourceTitle || ws.importSource.playlistTitle || 'Imported playlist'));
       if (ws.playlistTarget === 'blend' && ws.blendUsers && ws.blendUsers.length) html += row('Blend users', escH(ws.blendUsers.join(', ')));
       if (ws.playlistTarget === 'blend') html += row('Blend mode', escH(ws.blendMode || 'average'));
@@ -5601,6 +6061,8 @@
         if (finishNameEl) _wizardState.name = finishNameEl.value.trim();
         var schedEl = document.getElementById('wiz-schedule');
         if (schedEl) _wizardState.rebuildSchedule = schedEl.value;
+        var artworkModeEl = document.getElementById('wiz-artwork-mode');
+        if (artworkModeEl) _wizardState.artworkMode = artworkModeEl.value || 'auto';
         var keepImportedEl = document.getElementById('wiz-keep-imported-source');
         if (keepImportedEl) _wizardState.keepImportedSource = !!keepImportedEl.checked;
       }
@@ -5934,6 +6396,7 @@
         createSmartPlaylist(_wizardState.name, wizardAssembleRules(_wizardState), {
           playlistTarget: _wizardState.playlistTarget || 'personal',
           trackFilters: wizardAssembleTrackFilters(_wizardState),
+          artwork: wizardAssembleArtwork(_wizardState),
           editKind: _wizardEditKind,
           editId: _wizardEditId,
           importSource: _wizardState.importSource || null,
@@ -5948,6 +6411,7 @@
         createSmartPlaylist(_wizardState.name, wizardAssembleRules(_wizardState), {
           playlistTarget: _wizardState.playlistTarget || 'personal',
           trackFilters: wizardAssembleTrackFilters(_wizardState),
+          artwork: wizardAssembleArtwork(_wizardState),
           editKind: _wizardEditKind,
           editId: _wizardEditId,
           allowEmptyDraft: true,
@@ -6065,6 +6529,52 @@
             });
           });
         });
+      } else if (step === WIZARD_TOTAL_STEPS) {
+        var artworkModeEl = document.getElementById('wiz-artwork-mode');
+        var artworkFileEl = document.getElementById('wiz-artwork-file');
+        var artworkStatusEl = document.getElementById('wiz-artwork-status');
+        var artworkWrapEl = document.getElementById('wiz-artwork-custom-wrap');
+        if (artworkModeEl) {
+          artworkModeEl.addEventListener('change', function() {
+            _wizardState.artworkMode = artworkModeEl.value || 'auto';
+            if (artworkWrapEl) artworkWrapEl.style.display = _wizardState.artworkMode === 'custom' ? '' : 'none';
+          });
+        }
+        if (artworkFileEl) {
+          artworkFileEl.addEventListener('change', function() {
+            var file = artworkFileEl.files && artworkFileEl.files[0];
+            if (!file) {
+              _wizardState.customArtworkData = '';
+              if (artworkStatusEl) artworkStatusEl.textContent = _wizardState.customArtworkAsset
+                ? 'Current custom image will stay in place unless you upload a replacement.'
+                : 'PNG, JPG, or WEBP up to 5 MB.';
+              return;
+            }
+            var allowed = ['image/png', 'image/jpeg', 'image/webp'];
+            if (allowed.indexOf(String(file.type || '').toLowerCase()) === -1) {
+              artworkFileEl.value = '';
+              _wizardState.customArtworkData = '';
+              if (artworkStatusEl) artworkStatusEl.textContent = 'Please choose a PNG, JPG, or WEBP image.';
+              return;
+            }
+            if (Number(file.size || 0) > 5 * 1024 * 1024) {
+              artworkFileEl.value = '';
+              _wizardState.customArtworkData = '';
+              if (artworkStatusEl) artworkStatusEl.textContent = 'Artwork images must be 5 MB or smaller.';
+              return;
+            }
+            var reader = new FileReader();
+            reader.onload = function(loadEvent) {
+              _wizardState.customArtworkData = String(loadEvent && loadEvent.target && loadEvent.target.result || '');
+              if (artworkStatusEl) artworkStatusEl.textContent = 'Ready to save: ' + file.name;
+            };
+            reader.onerror = function() {
+              _wizardState.customArtworkData = '';
+              if (artworkStatusEl) artworkStatusEl.textContent = 'Could not read the selected image.';
+            };
+            reader.readAsDataURL(file);
+          });
+        }
       }
 
       // Step 3: output rules

@@ -37,6 +37,7 @@ import {
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildFeaturePresetAvailability } from '../services/playlists.js';
+import { buildStoredPlaylistArtworkUrl } from '../services/playlist-artwork.js';
 import { resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
@@ -71,9 +72,11 @@ function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField
   });
 }
 
-function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map(), sourceType = '') {
+function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylistMap = new Map(), sourceType = '', audience = 'personal') {
   const type = String(playlistType || '').trim().toLowerCase();
   const source = String(sourceType || '').trim().toLowerCase();
+  const aud = String(audience || 'personal').trim().toLowerCase();
+  if ((['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist'].includes(source) || source.startsWith('plex-')) && aud === 'global') return 'global';
   if (['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist'].includes(source) || source.startsWith('plex-')) return 'imported';
   if (type === 'global') return 'global';
   if (['lastfm-station', 'listenbrainz-playlist'].includes(type)) return 'external';
@@ -1122,6 +1125,9 @@ async function attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken, 
       playlist.artPath = String(playlist.plexPlaylistId);
       const tag = imageTagMap[String(playlist.plexPlaylistId || '')];
       if (tag) playlist.artTag = tag;
+      if (!playlist.artUrl) {
+        playlist.artUrl = `/api/ms/art?id=${encodeURIComponent(String(playlist.plexPlaylistId || ''))}${tag ? `&tag=${encodeURIComponent(tag)}` : ''}`;
+      }
     });
     return playlistCards;
   }
@@ -1137,6 +1143,9 @@ async function attachPlaylistArtwork(cards, config, fetchPlexPlaylistsForToken, 
       playlistCards.forEach((playlist) => {
         const plexPlaylist = plexPlaylistMap.get(String(playlist?.plexPlaylistId || '')) || null;
         playlist.artPath = String(plexPlaylist?.composite || plexPlaylist?.thumb || plexPlaylist?.art || '');
+        if (playlist.artPath && !playlist.artUrl) {
+          playlist.artUrl = `/api/plex/art?path=${encodeURIComponent(playlist.artPath)}`;
+        }
       });
     } catch {
       // Leave cards on fallback artwork if Plex metadata is unavailable.
@@ -1450,6 +1459,156 @@ export function registerPages(app, ctx) {
     });
   });
 
+  // ── Overview (Last.fm-style profile) ──────────────────────────────────────
+
+  app.get('/overview', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
+    const config = loadConfig();
+    const user = req.session.user;
+    const { adminPreview, role, userPlexId } = await buildPageScope(req, config);
+
+    const now = Date.now();
+    const since7d  = now - 7  * 24 * 60 * 60 * 1000;
+    const since30d = now - 30 * 24 * 60 * 60 * 1000;
+
+    const normalizeStats = (r) => ({
+      plays:         r?.total_plays    || 0,
+      skips:         r?.total_skips    || 0,
+      uniqueArtists: r?.unique_artists || 0,
+      uniqueTracks:  r?.unique_tracks  || 0,
+      totalListenMs: r?.total_listen_ms || 0,
+    });
+
+    const statsAll  = normalizeStats(getPlayStats(db, userPlexId, 0));
+    const stats7d   = normalizeStats(getPlayStats(db, userPlexId, since7d));
+    const stats30d  = normalizeStats(getPlayStats(db, userPlexId, since30d));
+
+    const firstPlayRow = db.prepare(
+      'SELECT MIN(started_at) AS first_play FROM play_events WHERE user_plex_id = ?',
+    ).get(userPlexId);
+    const firstPlayAt = firstPlayRow?.first_play || null;
+
+    const prefs = getUserPreferences(db, userPlexId);
+    const lastfmUsername = prefs?.lastfmUsername || null;
+
+    function queryTopArtists(since, limit = 10) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
+      return db.prepare(`
+        SELECT artist_name, COUNT(*) AS play_count
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          AND LOWER(TRIM(artist_name)) != 'various artists'
+          AND TRIM(artist_name) != ''
+          ${sinceClause}
+        GROUP BY LOWER(TRIM(artist_name))
+        ORDER BY play_count DESC
+        LIMIT ?
+      `).all(...params);
+    }
+
+    function queryTopAlbums(since, limit = 10) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
+      return db.prepare(`
+        SELECT album_name, artist_name, COUNT(*) AS play_count,
+               MAX(plex_rating_key) AS sample_rating_key
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          AND LOWER(TRIM(artist_name)) != 'various artists'
+          AND TRIM(artist_name) != ''
+          AND TRIM(album_name) != ''
+          ${sinceClause}
+        GROUP BY LOWER(TRIM(album_name)), LOWER(TRIM(artist_name))
+        ORDER BY play_count DESC
+        LIMIT ?
+      `).all(...params);
+    }
+
+    function queryTopTracks(since, limit = 10) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
+      return db.prepare(`
+        SELECT
+          MAX(CASE WHEN TRIM(plex_rating_key) != '' THEN plex_rating_key ELSE '' END) AS plex_rating_key,
+          MAX(track_title) AS track_title,
+          MAX(artist_name) AS artist_name,
+          MAX(album_name) AS album_name,
+          COUNT(*) AS play_count,
+          MAX(started_at) AS last_played_at,
+          MAX(CASE WHEN TRIM(plex_rating_key) != '' THEN 1 ELSE 0 END) AS has_rating_key
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          AND LOWER(TRIM(artist_name)) != 'various artists'
+          AND TRIM(artist_name) != ''
+          ${sinceClause}
+        GROUP BY
+          LOWER(TRIM(REPLACE(REPLACE(track_title, '’', ''''), '‘', ''''))),
+          LOWER(TRIM(REPLACE(REPLACE(artist_name, '’', ''''), '‘', '''')))
+        ORDER BY play_count DESC, has_rating_key DESC, last_played_at DESC
+        LIMIT ?
+      `).all(...params);
+    }
+
+    const topArtists7d   = queryTopArtists(since7d);
+    const topArtists30d  = queryTopArtists(since30d);
+    const topArtistsAll  = queryTopArtists(0);
+
+    const topAlbums7d    = queryTopAlbums(since7d);
+    const topAlbums30d   = queryTopAlbums(since30d);
+    const topAlbumsAll   = queryTopAlbums(0);
+
+    const topTracks7dBase  = queryTopTracks(since7d);
+    const topTracks30dBase = queryTopTracks(since30d);
+    const topTracksAllBase = queryTopTracks(0);
+
+    const allTopTrackKeys = [
+      ...topTracks7dBase, ...topTracks30dBase, ...topTracksAllBase,
+    ].map((t) => t.plex_rating_key).filter(Boolean);
+    const topTrackPopularity = getAlbumPopularTrackRanks(db, allTopTrackKeys);
+
+    const topTracks7d  = attachAlbumPopularity(topTracks7dBase,  topTrackPopularity, 'plex_rating_key');
+    const topTracks30d = attachAlbumPopularity(topTracks30dBase, topTrackPopularity, 'plex_rating_key');
+    const topTracksAll = attachAlbumPopularity(topTracksAllBase, topTrackPopularity, 'plex_rating_key');
+
+    const { history: recentHistoryBase } = paginateRolledHistory(
+      (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
+        ...event,
+        track_title: stripArtistSuffix(event.track_title, event.artist_name),
+      })),
+      { limit: 10, offset: 0 },
+    );
+    const recentPopularity = getAlbumPopularTrackRanks(db, recentHistoryBase.map((e) => e.plex_rating_key).filter(Boolean));
+    const recentHistory = attachAlbumPopularity(recentHistoryBase, recentPopularity, 'plex_rating_key');
+
+    res.render('overview', {
+      title: 'Overview — Curatorr',
+      user,
+      role,
+      actualRole: getActualRole(req),
+      adminPreview,
+      config: safeConfig(config),
+      firstPlayAt,
+      lastfmUsername,
+      statsAll,
+      stats7d,
+      stats30d,
+      topArtists7d,
+      topArtists30d,
+      topArtistsAll,
+      topAlbums7d,
+      topAlbums30d,
+      topAlbumsAll,
+      topTracks7d,
+      topTracks30d,
+      topTracksAll,
+      recentHistory,
+      extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
+    });
+  });
+
   // ── History ───────────────────────────────────────────────────────────────
 
   app.get('/history', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
@@ -1628,6 +1787,9 @@ export function registerPages(app, ctx) {
         playlistType: String(playlist.playlistType || ''),
         plexPlaylistId: String(playlist.plexPlaylistId || ''),
         playlistTitle: String(playlist.playlistTitle || playlist.playlistKey || 'Playlist'),
+        artworkMode: String(playlist.artworkMode || 'auto'),
+        customArtworkAsset: String(playlist.customArtworkAsset || ''),
+        preservedArtworkAsset: String(playlist.preservedArtworkAsset || ''),
         sourceType: String(playlist.sourceType || ''),
         sourceTitle: String(playlist.sourceTitle || ''),
         sourceOwner: String(playlist.sourceOwner || ''),
@@ -1638,8 +1800,11 @@ export function registerPages(app, ctx) {
         state: playlist.active === false ? 'disabled' : (playlist.plexPlaylistId ? 'synced' : 'pending'),
         active: playlist.active !== false,
         description: String(playlist.playlistType || 'generated'),
-        playlistAudience: resolvePlaylistAudience(playlist.playlistType, playlist.playlistKey, personalPlaylistMap, playlist.sourceType),
+        playlistAudience: resolvePlaylistAudience(playlist.playlistType, playlist.playlistKey, personalPlaylistMap, playlist.sourceType, playlist.audience),
         artPath: '',
+        artUrl: buildStoredPlaylistArtworkUrl(playlist.artworkMode === 'custom'
+          ? playlist.customArtworkAsset
+          : (playlist.artworkMode === 'preserve' ? playlist.preservedArtworkAsset : '')),
         tracksAdded: Number(lastSync?.tracks_added || 0),
         tracksRemoved: Number(lastSync?.tracks_removed || 0),
       }))
