@@ -3931,6 +3931,9 @@
         rebuildSchedule: String(rules.rebuildSchedule || 'daily'),
         genres: normaliseUiTriState(rules.genres),
         moods: normaliseUiTriState(rules.moods),
+        albumGenres: normaliseUiTriState(rules.albumGenres),
+        albumStyles: normaliseUiTriState(rules.albumStyles),
+        albumMoods: normaliseUiTriState(rules.albumMoods),
         tags: normaliseUiTriState(rules.tags),
         decades: normaliseUiTriState(rules.decades),
         artistTiers: normaliseUiTriState(rules.artistTiers),
@@ -3972,6 +3975,9 @@
         importSuggestedContent: rules.importSuggestedContent || (rules.importSource ? {
           genres: normaliseUiTriState(rules.genres),
           moods: normaliseUiTriState(rules.moods),
+          albumGenres: normaliseUiTriState(rules.albumGenres),
+          albumStyles: normaliseUiTriState(rules.albumStyles),
+          albumMoods: normaliseUiTriState(rules.albumMoods),
           tags: normaliseUiTriState(rules.tags),
           decades: normaliseUiTriState(rules.decades),
         } : null),
@@ -4699,6 +4705,9 @@
         rebuildSchedule: 'daily',
         genres: { include: [], exclude: [], includeMode: 'any' },
         moods:  { include: [], exclude: [], includeMode: 'any' },
+        albumGenres: { include: [], exclude: [], includeMode: 'any' },
+        albumStyles: { include: [], exclude: [], includeMode: 'any' },
+        albumMoods: { include: [], exclude: [], includeMode: 'any' },
         tags:   { include: [], exclude: [], includeMode: 'any' },
         decades: { include: [], exclude: [], includeMode: 'any' },
         includeFolders: [],
@@ -4763,17 +4772,26 @@
         trackTiers:  normaliseUiTriState(ws.trackTiers),
         genres:      normaliseUiTriState(ws.genres),
         moods:       normaliseUiTriState(ws.moods),
+        albumGenres: normaliseUiTriState(ws.albumGenres),
+        albumStyles: normaliseUiTriState(ws.albumStyles),
+        albumMoods:  normaliseUiTriState(ws.albumMoods),
         tags:        normaliseUiTriState(ws.tags),
         decades:     normaliseUiTriState(ws.decades),
         importSuggestedContent: wizardHasImportedContentSet(ws && ws.importSuggestedContent) ? {
           genres: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.genres),
           moods: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.moods),
+          albumGenres: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.albumGenres),
+          albumStyles: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.albumStyles),
+          albumMoods: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.albumMoods),
           tags: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.tags),
           decades: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.decades),
         } : null,
         importDetectedContent: wizardHasImportedDetectedContent(ws) ? {
           genres: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.genres),
           moods: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.moods),
+          albumGenres: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.albumGenres),
+          albumStyles: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.albumStyles),
+          albumMoods: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.albumMoods),
           tags: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.tags),
           decades: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.decades),
         } : null,
@@ -4843,6 +4861,16 @@
       var normalized = String(templateId || 'blank').trim() || 'blank';
       var starter = wizardAllBuiltinTemplates().find(function(t) { return t.id === normalized; }) || null;
       return starter && starter.name ? starter.name : 'Custom';
+    }
+
+    function wizardMediaServerLabel() {
+      if (_msType === 'jellyfin') return 'Jellyfin';
+      if (_msType === 'emby') return 'Emby';
+      return 'Plex';
+    }
+
+    function wizardMediaServerMetadataLabel() {
+      return wizardMediaServerLabel() + ' metadata';
     }
 
     function wizardIsEditMode() {
@@ -4984,7 +5012,7 @@
     function wizardHasImportedContentSet(contentSet) {
       var detected = contentSet;
       if (!detected || typeof detected !== 'object') return false;
-      return ['genres', 'moods', 'tags', 'decades'].some(function(kind) {
+      return ['genres', 'moods', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'].some(function(kind) {
         return normaliseUiTriState(detected[kind]).include.length > 0;
       });
     }
@@ -5002,12 +5030,16 @@
       return {
         genres: normaliseUiTriState(detected && detected.genres).include.length,
         moods: normaliseUiTriState(detected && detected.moods).include.length,
+        albumGenres: normaliseUiTriState(detected && detected.albumGenres).include.length,
+        albumStyles: normaliseUiTriState(detected && detected.albumStyles).include.length,
+        albumMoods: normaliseUiTriState(detected && detected.albumMoods).include.length,
         tags: normaliseUiTriState(detected && detected.tags).include.length,
+        decades: normaliseUiTriState(detected && detected.decades).include.length,
       };
     }
 
     function wizardImportedContentSetEquals(a, b) {
-      var kinds = ['genres', 'moods', 'tags', 'decades'];
+      var kinds = ['genres', 'moods', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'];
       return kinds.every(function(kind) {
         var aTri = normaliseUiTriState(a && a[kind]);
         var bTri = normaliseUiTriState(b && b[kind]);
@@ -5023,6 +5055,9 @@
       return {
         genres: normaliseUiTriState(state && state.genres),
         moods: normaliseUiTriState(state && state.moods),
+        albumGenres: normaliseUiTriState(state && state.albumGenres),
+        albumStyles: normaliseUiTriState(state && state.albumStyles),
+        albumMoods: normaliseUiTriState(state && state.albumMoods),
         tags: normaliseUiTriState(state && state.tags),
         decades: normaliseUiTriState(state && state.decades),
       };
@@ -5039,6 +5074,9 @@
       if (!wizardHasImportedContentSet(contentSet)) return;
       state.genres = normaliseUiTriState(contentSet && contentSet.genres);
       state.moods = normaliseUiTriState(contentSet && contentSet.moods);
+      state.albumGenres = normaliseUiTriState(contentSet && contentSet.albumGenres);
+      state.albumStyles = normaliseUiTriState(contentSet && contentSet.albumStyles);
+      state.albumMoods = normaliseUiTriState(contentSet && contentSet.albumMoods);
       state.tags = normaliseUiTriState(contentSet && contentSet.tags);
       state.decades = normaliseUiTriState(contentSet && contentSet.decades);
     }
@@ -5061,6 +5099,9 @@
     function wizardClearContentState(state) {
       state.genres = { include: [], exclude: [], includeMode: 'any' };
       state.moods = { include: [], exclude: [], includeMode: 'any' };
+      state.albumGenres = { include: [], exclude: [], includeMode: 'any' };
+      state.albumStyles = { include: [], exclude: [], includeMode: 'any' };
+      state.albumMoods = { include: [], exclude: [], includeMode: 'any' };
       state.tags = { include: [], exclude: [], includeMode: 'any' };
       state.decades = { include: [], exclude: [], includeMode: 'any' };
       state.seasonalGenres = [];
@@ -5395,7 +5436,7 @@
       var userTemplates = wizardUserTemplates();
       var cur = _wizardState.featurePreset && _wizardState.featurePreset !== 'none' ? _wizardState.featurePreset : '';
       var ws = _wizardState;
-      var html = '<div class="spm-wizard-step-label">Step 1 of ' + WIZARD_TOTAL_STEPS + ' — Basics</div>';
+      var html = '<div class="spm-wizard-step-label">Step 1 of ' + WIZARD_TOTAL_STEPS + ' — Starting point</div>';
       html += '<div class="spm-wizard-step-intro">Choose who this playlist is for, where it starts, and the audio lane you want it to follow.</div>';
       if (ws.importSource) {
         var importLabel = ws.importSource.sourceType === 'spotify-playlist'
@@ -5503,12 +5544,17 @@
     function wizardStep2() {
       var ALLGENRES = <%- JSON.stringify(allGenres || []) %>;
       var ALLMOODS  = <%- JSON.stringify(allMoods  || []) %>;
+      var ALLALBUMGENRES = <%- JSON.stringify(allAlbumGenres || []) %>;
+      var ALLALBUMSTYLES = <%- JSON.stringify(allAlbumStyles || []) %>;
+      var ALLALBUMMOODS = <%- JSON.stringify(allAlbumMoods || []) %>;
       var ALLTAGS   = <%- JSON.stringify(allLastfmTags || []) %>;
       var ALLDECADES = WIZARD_TRACK_DECADES || [];
+      var mediaServerLabel = wizardMediaServerLabel();
       var hasImportedDetectedContent = wizardHasImportedDetectedContent(_wizardState);
       var importedContentMode = wizardImportedContentMode(_wizardState);
       var importedDetectedCounts = wizardImportedDetectedContentCounts(_wizardState);
-      var html = '<div class="spm-wizard-step-label">Step 2 of ' + WIZARD_TOTAL_STEPS + ' — Content</div>';
+      var html = '<div class="spm-wizard-step-label">Step 2 of ' + WIZARD_TOTAL_STEPS + ' — Content filters</div>';
+      html += '<div class="spm-wizard-step-intro">Set the candidate pool before the shared output rules take over. Source metadata stays split here so library metadata, Curatorr-derived values, and Last.fm tags are easy to reason about.</div>';
       if (_wizardState.featurePreset && _wizardState.featurePreset !== 'none') {
         var activePresetMeta = WIZARD_FEATURE_PRESET_META[_wizardState.featurePreset] || WIZARD_FEATURE_PRESET_META.none;
         var suggestedApplied = wizardSuggestedContentApplied(_wizardState, _wizardState.featurePreset);
@@ -5530,6 +5576,9 @@
         var importDetectedBits = [];
         if (importedDetectedCounts.genres) importDetectedBits.push(String(importedDetectedCounts.genres) + ' genres');
         if (importedDetectedCounts.moods) importDetectedBits.push(String(importedDetectedCounts.moods) + ' moods');
+        if (importedDetectedCounts.albumGenres) importDetectedBits.push(String(importedDetectedCounts.albumGenres) + ' album genres');
+        if (importedDetectedCounts.albumStyles) importDetectedBits.push(String(importedDetectedCounts.albumStyles) + ' album styles');
+        if (importedDetectedCounts.albumMoods) importDetectedBits.push(String(importedDetectedCounts.albumMoods) + ' album moods');
         if (importedDetectedCounts.tags) importDetectedBits.push(String(importedDetectedCounts.tags) + ' tags');
         if (importedDetectedCounts.decades) importDetectedBits.push(String(importedDetectedCounts.decades) + ' decades');
         html += '<p style="font-size:12px;color:var(--muted,#888);margin:0 0 14px">Imported conversion can switch between the recommended inferred chips and every detected content value from the matched source tracks' + (importDetectedBits.length ? (' (' + escH(importDetectedBits.join(' · ')) + ')') : '') + '.</p>';
@@ -5547,23 +5596,49 @@
         '</div>';
       }
 
+      function wizardUnavailableContentHint(kind) {
+        var adminPrefix = IS_ACTUAL_ADMIN ? 'Run' : 'Ask an admin to run';
+        if (kind === 'genre') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' track genres, then reopen this step.';
+        if (kind === 'mood') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' track moods, then reopen this step.';
+        if (kind === 'album-genres') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' album genres, then reopen this step.';
+        if (kind === 'album-styles') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' album styles, then reopen this step.';
+        if (kind === 'album-moods') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' album moods, then reopen this step.';
+        if (kind === 'tag') return adminPrefix + ' Jobs > Last.fm Tag Sync to load artist tags, then reopen this step.';
+        if (kind === 'decade') return adminPrefix + ' Jobs > Track Enrichment Sync to backfill release dates and decade tags, then reopen this step.';
+        return adminPrefix + ' the relevant metadata sync job, then reopen this step.';
+      }
+
       function renderWizChips(items, stateObj, kind, placeholderSearch) {
-        if (!items.length) return '';
-        var label = escH(placeholderSearch.replace('Filter ','').replace('…',''));
         var triState = normaliseUiTriState(stateObj);
+        var values = [];
+        var seenValues = new Set();
+        (Array.isArray(items) ? items : []).concat(triState.include || [], triState.exclude || []).forEach(function(value) {
+          var next = String(value || '').trim();
+          if (!next || seenValues.has(next)) return;
+          seenValues.add(next);
+          values.push(next);
+        });
+        values.sort(function(a, b) { return a.localeCompare(b); });
+        var label = escH(placeholderSearch.replace('Filter ','').replace('…',''));
         var isOpen = (_wizardState.activeContentSection || 'genre') === kind;
         var s = '<div class="spm-filter-section spm-wizard-accordion' + (isOpen ? ' is-open' : '') + '" data-accordion-kind="' + kind + '">' +
           '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="' + kind + '">' +
             '<span class="spm-filter-label">' + label + '</span>' +
             '<span class="spm-wizard-accordion-indicator">' + (isOpen ? '−' : '+') + '</span>' +
-          '</button>' +
-          '<div class="spm-tristate-wrap"' + (isOpen ? '' : ' hidden') + ' data-accordion-panel="' + kind + '">' +
+          '</button>';
+        if (!values.length) {
+          s += '<div class="spm-tristate-wrap"' + (isOpen ? '' : ' hidden') + ' data-accordion-panel="' + kind + '">' +
+            '<div class="spm-chip-hint" style="padding:12px 14px;border:1px dashed rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.02);line-height:1.6">' + escH(wizardUnavailableContentHint(kind)) + '</div>' +
+            '</div></div>';
+          return s;
+        }
+        s += '<div class="spm-tristate-wrap"' + (isOpen ? '' : ' hidden') + ' data-accordion-panel="' + kind + '">' +
           renderIncludeModeControl(kind, triState.includeMode) +
           '<input type="text" class="spm-tristate-search wiz-chip-search" placeholder="' + escH(placeholderSearch) + '" data-kind="' + kind + '" />' +
           '<div class="spm-tristate-chips" id="wiz-chips-' + kind + '">';
         var incSet = new Set(triState.include || []);
         var excSet = new Set(triState.exclude || []);
-        items.forEach(function(v) {
+        values.forEach(function(v) {
           var state = incSet.has(v) ? 'include' : excSet.has(v) ? 'exclude' : 'neutral';
           var cls = state === 'include' ? ' is-include' : state === 'exclude' ? ' is-exclude' : '';
           s += '<button type="button" class="spm-chip' + cls + '" data-kind="' + kind + '" data-value="' + escH(v) + '" data-state="' + state + '">' + escH(v) + '</button>';
@@ -5591,10 +5666,34 @@
         return s;
       }
 
-      html += renderWizChips(ALLGENRES, _wizardState.genres, 'genre', 'Filter genres…');
-      html += renderWizChips(ALLMOODS,  _wizardState.moods,  'mood',  'Filter moods…');
-      html += renderWizChips(ALLTAGS,   _wizardState.tags,   'tag',   'Filter tags…');
-      html += renderWizChips(ALLDECADES, _wizardState.decades, 'decade', 'Filter decades…');
+      function renderSourceSection(title, copy, bodyHtml) {
+        if (!bodyHtml) return '';
+        return '<div class="spm-wizard-subsection spm-wizard-subsection--source">' +
+          '<div class="spm-wizard-subsection-title">' + escH(title) + '</div>' +
+          '<div class="spm-wizard-subsection-copy">' + copy + '</div>' +
+          bodyHtml +
+          '</div>';
+      }
+
+      var mediaServerBody = '';
+      mediaServerBody += '<div class="spm-wizard-subsection" style="margin-top:14px">' +
+        '<div class="spm-wizard-subsection-title" style="font-size:12px;letter-spacing:.16em;text-transform:uppercase">' + escH(mediaServerLabel + ' track metadata') + '</div>' +
+        renderWizChips(ALLGENRES, _wizardState.genres, 'genre', 'Filter genres…') +
+        renderWizChips(ALLMOODS,  _wizardState.moods,  'mood',  'Filter moods…') +
+        '</div>';
+      mediaServerBody += '<div class="spm-wizard-subsection" style="margin-top:14px">' +
+        '<div class="spm-wizard-subsection-title" style="font-size:12px;letter-spacing:.16em;text-transform:uppercase">' + escH(mediaServerLabel + ' album metadata') + '</div>' +
+        renderWizChips(ALLALBUMGENRES, _wizardState.albumGenres, 'album-genres', 'Filter album genres…') +
+        renderWizChips(ALLALBUMSTYLES, _wizardState.albumStyles, 'album-styles', 'Filter album styles…') +
+        renderWizChips(ALLALBUMMOODS, _wizardState.albumMoods, 'album-moods', 'Filter album moods…') +
+        '<div class="spm-wizard-subsection-copy" style="margin-top:10px">These come from album-level library metadata and can be used independently from track genres and track moods.</div>' +
+        '</div>';
+      html += renderSourceSection(
+        wizardMediaServerMetadataLabel(),
+        escH(mediaServerLabel) + ' metadata shapes the pool here. Track and album metadata are kept separate so you can decide whether to filter by song-level or release-level signals.',
+        mediaServerBody,
+      );
+
       function renderTierPills(items, stateObj, kind, title) {
         var triState = normaliseUiTriState(stateObj);
         var includeSet = new Set(triState.include || []);
@@ -5608,51 +5707,65 @@
           }).join('') +
           '</div><div class="spm-chip-hint">Use include, exclude, or leave neutral.</div></div>';
       }
+
       var seasonalOpen = (_wizardState.activeContentSection || 'genre') === 'seasonal';
-      html += '<div class="spm-wizard-subsection spm-wizard-accordion' + (seasonalOpen ? ' is-open' : '') + '" style="margin-top:18px" data-accordion-kind="seasonal">';
-      html += '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="seasonal">' +
-        '<span class="spm-wizard-subsection-title">Seasonal</span>' +
-        '<span class="spm-wizard-accordion-indicator">' + (seasonalOpen ? '−' : '+') + '</span>' +
-      '</button>';
-      html += '<div class="spm-wizard-accordion-panel"' + (seasonalOpen ? '' : ' hidden') + ' data-accordion-panel="seasonal">';
-      html += '<div class="spm-wizard-subsection-copy">Always available so you can explicitly include or exclude holiday and winter signals. Choosing the Seasonal starting point preselects these for you.</div>';
-      html += renderSeasonalChips(
-        WIZARD_SEASONAL_GENRES,
-        { include: _wizardState.seasonalGenres, exclude: _wizardState.seasonalExcludeGenres },
-        'seasonal-genre',
-        'Seasonal genres',
-        'Filter seasonal genres…',
-        _wizardState.seasonalGenresMode,
-      );
-      html += renderSeasonalChips(
-        WIZARD_SEASONAL_KEYWORDS,
-        { include: _wizardState.seasonalKeywords, exclude: _wizardState.seasonalExcludeKeywords },
-        'seasonal-keyword',
-        'Seasonal keywords',
-        'Filter seasonal keywords…',
-        _wizardState.seasonalKeywordsMode,
-      );
-      html += '</div></div>';
       var tiersOpen = (_wizardState.activeContentSection || 'genre') === 'tiers';
-      html += '<div class="spm-wizard-subsection spm-wizard-accordion' + (tiersOpen ? ' is-open' : '') + '" style="margin-top:18px" data-accordion-kind="tiers">';
-      html += '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="tiers">' +
-        '<span class="spm-wizard-subsection-title">Artist and track tiers</span>' +
-        '<span class="spm-wizard-accordion-indicator">' + (tiersOpen ? '−' : '+') + '</span>' +
-      '</button>';
-      html += '<div class="spm-wizard-accordion-panel"' + (tiersOpen ? '' : ' hidden') + ' data-accordion-panel="tiers">';
-      html += '<div class="spm-wizard-subsection-copy">Use these to lean harder into favourites, discovery, or to block skips entirely.</div>';
-      html += '<div class="spm-tiers-row">';
-      html += renderTierPills([['belter','Belter'],['decent','Decent'],['halfDecent','Half-Decent'],['skip','Skip'],['unranked','Unranked']], _wizardState.artistTiers, 'artist-tier', 'Artist tier');
-      html += renderTierPills([['belter','Belter'],['decent','Decent'],['halfDecent','Half-Decent'],['skip','Skip'],['unplayed','Unplayed']], _wizardState.trackTiers, 'track-tier', 'Track tier');
-      html += '</div>';
-      html += '</div></div>';
+
+      html += renderSourceSection(
+        'Curatorr',
+        'These values are computed or inferred inside Curatorr. Decades come from stored release dates, while artist and track tiers come from your listening history and skip behaviour.',
+        renderWizChips(ALLDECADES, _wizardState.decades, 'decade', 'Filter decades…') +
+        '<div class="spm-wizard-subsection spm-wizard-accordion' + (tiersOpen ? ' is-open' : '') + '" data-accordion-kind="tiers">' +
+          '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="tiers">' +
+            '<span class="spm-wizard-subsection-title">Artist and track tiers</span>' +
+            '<span class="spm-wizard-accordion-indicator">' + (tiersOpen ? '−' : '+') + '</span>' +
+          '</button>' +
+          '<div class="spm-wizard-accordion-panel"' + (tiersOpen ? '' : ' hidden') + ' data-accordion-panel="tiers">' +
+            '<div class="spm-tiers-row">' +
+              renderTierPills([['belter','Belter'],['decent','Decent'],['halfDecent','Half-Decent'],['skip','Skip'],['unranked','Unranked']], _wizardState.artistTiers, 'artist-tier', 'Artist tier') +
+              renderTierPills([['belter','Belter'],['decent','Decent'],['halfDecent','Half-Decent'],['skip','Skip'],['unplayed','Unplayed']], _wizardState.trackTiers, 'track-tier', 'Track tier') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="spm-wizard-subsection spm-wizard-accordion" style="margin-top:18px" data-accordion-kind="seasonal">' +
+          '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="seasonal">' +
+            '<span class="spm-wizard-subsection-title">Seasonal</span>' +
+            '<span class="spm-wizard-accordion-indicator">' + (seasonalOpen ? '−' : '+') + '</span>' +
+          '</button>' +
+          '<div class="spm-wizard-accordion-panel"' + (seasonalOpen ? '' : ' hidden') + ' data-accordion-panel="seasonal">' +
+            '<div class="spm-wizard-subsection-copy">These are Curatorr\'s built-in seasonal rules, not imported library metadata. They use a curated Holiday genre list plus title and album keywords such as christmas, xmas, santa, noel, and winter wonderland. Choosing the Seasonal starting point preselects these for you.</div>' +
+            renderSeasonalChips(
+              WIZARD_SEASONAL_GENRES,
+              { include: _wizardState.seasonalGenres, exclude: _wizardState.seasonalExcludeGenres },
+              'seasonal-genre',
+              'Seasonal genres',
+              'Filter seasonal genres…',
+              _wizardState.seasonalGenresMode,
+            ) +
+            renderSeasonalChips(
+              WIZARD_SEASONAL_KEYWORDS,
+              { include: _wizardState.seasonalKeywords, exclude: _wizardState.seasonalExcludeKeywords },
+              'seasonal-keyword',
+              'Seasonal keywords',
+              'Filter seasonal keywords…',
+              _wizardState.seasonalKeywordsMode,
+            ) +
+          '</div>' +
+        '</div>',
+      );
+
+      html += renderSourceSection(
+        'Last.fm',
+        'These tags come from artist-level Last.fm sync, not native library metadata, so they stay separate from ' + escH(mediaServerLabel) + ' genres and moods.',
+        renderWizChips(ALLTAGS, _wizardState.tags, 'tag', 'Filter tags…'),
+      );
       return html;
     }
 
     // Step 3 — Output rules
     function wizardStep3() {
       var html = '<div class="spm-wizard-step-label">Step 3 of ' + WIZARD_TOTAL_STEPS + ' — Output rules</div>';
-      html += '<div class="spm-wizard-step-intro">Shape the final playlist size and ordering after the content filters have done their work.</div>';
+      html += '<div class="spm-wizard-step-intro">Shape the final playlist size and shared ordering after the content filters have done their work. Analyzer-based sorts, Plex sonic, and loudness smoothing stay together here because they sequence the result rather than change eligibility.</div>';
       html += '<div class="spm-filter-section spm-filter-section--inline">' +
         '<label class="field" style="flex:1"><span>Max tracks per artist</span><input type="number" id="wiz-top-n" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.topNPerArtist||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Max tracks per album</span><input type="number" id="wiz-max-album-tracks" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.maxTracksPerAlbum||'') + '"/></label>' +
@@ -5787,8 +5900,8 @@
           '<button type="button" class="btn btn-ghost spm-wizard-regex-remove" data-regex-remove="' + index + '">Remove</button>' +
         '</div>';
       }
-      var html = '<div class="spm-wizard-step-label">Step 4 of ' + WIZARD_TOTAL_STEPS + ' — Advanced settings <span class="gp-filter-hint">(admin only)</span></div>';
-      html += '<div class="spm-wizard-step-intro">Folder scoping and track rules live here so the main wizard stays focused on normal playlist setup.</div>';
+      var html = '<div class="spm-wizard-step-label">Step 4 of ' + WIZARD_TOTAL_STEPS + ' — Library scope &amp; cleanup <span class="gp-filter-hint">(admin only)</span></div>';
+      html += '<div class="spm-wizard-step-intro">Folder scoping and cleanup rules live here so the main wizard stays focused on normal playlist setup.</div>';
       html += renderFolderSection('include', 'Include folders', _wizardState.includeFolders);
       html += renderFolderSection('exclude', 'Exclude folders', _wizardState.excludeFolders);
       var regexOpen = (_wizardState.activeAdvancedSection || 'include') === 'regex';
@@ -5889,17 +6002,23 @@
       if (ws.playlistTarget === 'blend') html += row('Blend mode', escH(ws.blendMode || 'average'));
       var artistTierState = normaliseUiTriState(ws.artistTiers);
       var trackTierState = normaliseUiTriState(ws.trackTiers);
-      if (artistTierState.include.length || artistTierState.exclude.length) html += row('Artist tiers', chipList(artistTierState));
-      if (trackTierState.include.length || trackTierState.exclude.length) html += row('Track tiers', chipList(trackTierState));
+      if (artistTierState.include.length || artistTierState.exclude.length) html += row('Curatorr artist tiers', chipList(artistTierState));
+      if (trackTierState.include.length || trackTierState.exclude.length) html += row('Curatorr track tiers', chipList(trackTierState));
       var hasGenre = (ws.genres && (ws.genres.include.length || ws.genres.exclude.length));
       var hasMood  = (ws.moods  && (ws.moods.include.length  || ws.moods.exclude.length));
+      var hasAlbumGenre = (ws.albumGenres && (ws.albumGenres.include.length || ws.albumGenres.exclude.length));
+      var hasAlbumStyle = (ws.albumStyles && (ws.albumStyles.include.length || ws.albumStyles.exclude.length));
+      var hasAlbumMood = (ws.albumMoods && (ws.albumMoods.include.length || ws.albumMoods.exclude.length));
       var hasTag   = (ws.tags   && (ws.tags.include.length   || ws.tags.exclude.length));
       var hasDecade = (ws.decades && (ws.decades.include.length || ws.decades.exclude.length));
-      if (hasGenre) html += row('Genres', chipList(ws.genres));
-      if (hasMood)  html += row('Moods',  chipList(ws.moods));
-      if (hasTag)   html += row('Tags',   chipList(ws.tags));
-      if (hasDecade) html += row('Decades', chipList(ws.decades));
-      if (ws.featurePreset && ws.featurePreset !== 'none') html += row('Preset', escH(ws.featurePreset));
+      if (hasGenre) html += row(wizardMediaServerLabel() + ' genres', chipList(ws.genres));
+      if (hasMood)  html += row(wizardMediaServerLabel() + ' moods',  chipList(ws.moods));
+      if (hasAlbumGenre) html += row(wizardMediaServerLabel() + ' album genres', chipList(ws.albumGenres));
+      if (hasAlbumStyle) html += row(wizardMediaServerLabel() + ' album styles', chipList(ws.albumStyles));
+      if (hasAlbumMood) html += row(wizardMediaServerLabel() + ' album moods', chipList(ws.albumMoods));
+      if (hasTag)   html += row('Last.fm tags', chipList(ws.tags));
+      if (hasDecade) html += row('Curatorr decades', chipList(ws.decades));
+      if (ws.featurePreset && ws.featurePreset !== 'none') html += row('Curatorr audio profile', escH(ws.featurePreset));
       if ((ws.seasonalGenres && ws.seasonalGenres.length) || (ws.seasonalExcludeGenres && ws.seasonalExcludeGenres.length)) {
         html += row('Seasonal genres', chipList({ include: ws.seasonalGenres || [], exclude: ws.seasonalExcludeGenres || [], includeMode: ws.seasonalGenresMode || 'any' }));
       }
@@ -5979,7 +6098,7 @@
         if (window._wizGetBlendUsers) _wizardState.blendUsers = window._wizGetBlendUsers();
         wizardSyncSuggestedName(_wizardState, false);
       } else if (step === 2) {
-        ['genre','mood','tag','decade','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
+        ['genre','mood','album-genres','album-styles','album-moods','tag','decade','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
           var inc = [], exc = [];
           var seen = new Set();
           var selectedModeBtn = document.querySelector('[data-match-mode-kind="' + kind + '"].is-selected');
@@ -6016,7 +6135,19 @@
             _wizardState[tierKey] = { include: inc, exclude: exc, includeMode: 'any' };
             return;
           }
-          var key = kind === 'genre' ? 'genres' : kind === 'mood' ? 'moods' : kind === 'decade' ? 'decades' : 'tags';
+          var key = kind === 'genre'
+            ? 'genres'
+            : kind === 'mood'
+              ? 'moods'
+              : kind === 'album-genres'
+                ? 'albumGenres'
+                : kind === 'album-styles'
+                  ? 'albumStyles'
+                  : kind === 'album-moods'
+                    ? 'albumMoods'
+                    : kind === 'decade'
+                      ? 'decades'
+                      : 'tags';
           var prev = normaliseUiTriState(_wizardState[key]);
           (prev.include || []).forEach(function(value) {
             if (!seen.has(value) && inc.indexOf(value) === -1) inc.push(value);

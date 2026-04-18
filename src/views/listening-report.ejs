@@ -1,0 +1,2434 @@
+<%- include('partials/head', { pageTitle: title || 'Listening Report — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
+<body class="dash-body">
+  <style>
+    /* ── Listening Report page ──────────────────────────────────────────────── */
+    .dash-content--report {
+      --ov-accent: rgba(255,255,255,0.36);
+      --ov-panel-line: rgba(255,255,255,0.14);
+      --ov-muted: rgba(255,255,255,0.62);
+    }
+
+    .dash-content--report .cur-panel {
+      margin-bottom: 16px;
+    }
+
+    .dash-content--report .cur-panel-header {
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--ov-panel-line);
+      border-radius: 0;
+      padding: 9px 0 8px;
+    }
+
+    .dash-content--report .cur-panel-title {
+      font-size: 22px;
+      line-height: 1.1;
+      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0;
+      text-shadow: none;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .dash-content--report .cur-panel-body {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 12px 0 0;
+    }
+
+    .dash-content--report .cur-empty {
+      color: var(--ov-muted);
+      padding: 18px 0;
+    }
+
+    /* ── Shared hero styles (copied from overview) ────────────────────────── */
+    .ov-profile {
+      --ov-hero-avatar-left: 22px;
+      --ov-hero-avatar-size: 128px;
+      --ov-hero-content-left: 170px;
+      position: relative;
+      min-height: 264px;
+      padding: 170px 0 0 !important;
+      overflow: visible !important;
+      border-bottom: 0;
+      margin-bottom: 12px;
+    }
+
+    .ov-profile-artist-bg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 170px;
+      object-fit: cover;
+      object-position: center 25%;
+      display: block;
+      filter: grayscale(55%) brightness(0.88) contrast(1.08);
+    }
+
+    .ov-profile-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 170px;
+      background:
+        repeating-linear-gradient(-45deg, transparent 0px, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 3px),
+        repeating-linear-gradient(45deg, transparent 0px, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 3px),
+        linear-gradient(to right, rgba(10,12,16,0.94) 0%, rgba(10,12,16,0.84) 38%, rgba(10,12,16,0.52) 68%, rgba(10,12,16,0.28) 100%);
+      pointer-events: none;
+    }
+
+    .ov-profile-content {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 1;
+      height: 170px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .ov-profile-left {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      min-width: 0;
+      flex: 1 1 auto;
+      padding: 18px 22px 0 var(--ov-hero-content-left);
+    }
+
+    .ov-avatar {
+      position: absolute;
+      left: var(--ov-hero-avatar-left);
+      bottom: -54px;
+      width: var(--ov-hero-avatar-size);
+      height: var(--ov-hero-avatar-size);
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: linear-gradient(135deg, var(--brand, #8b5cf6), #6d28d9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -1px;
+      user-select: none;
+      border: 3px solid rgba(var(--brand-rgb), 0.88);
+      box-shadow: 0 2px 16px rgba(0,0,0,0.56), 0 0 0 2px rgba(var(--brand-rgb), 0.24);
+    }
+
+    [data-theme="day"] .ov-avatar {
+      border-color: rgba(var(--brand-rgb), 0.7);
+      box-shadow: 0 2px 14px rgba(0,0,0,0.22), 0 0 0 1px rgba(var(--brand-rgb), 0.2);
+    }
+    .ov-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .ov-profile-name {
+      font-size: 31px;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+      margin-bottom: 5px;
+      letter-spacing: -0.02em;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .ov-profile-since {
+      font-size: 12px;
+      color: rgba(255,255,255,0.64);
+      margin-bottom: 20px;
+    }
+
+    .ov-profile-meta {
+      min-width: 0;
+      padding-bottom: 16px;
+      transform: translateY(28px);
+    }
+
+    .ov-profile-stats-wrap {
+      position: relative;
+      z-index: 2;
+      margin-top: 0;
+      padding: 10px 0 0 var(--ov-hero-content-left);
+      min-height: 52px;
+    }
+
+    .ov-profile-stats-row { display: flex; gap: 0; flex-wrap: nowrap; }
+
+    .ov-profile-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding-right: 14px;
+      margin-right: 14px;
+      border-right: 1px solid rgba(255,255,255,0.18);
+    }
+    .ov-profile-stat:last-child { border-right: 0; }
+
+    .ov-profile-stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.1;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .ov-profile-stat-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.55);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    [data-theme="day"] .ov-profile-stat-value { color: #0b151e; }
+    [data-theme="day"] .ov-profile-stat-label  { color: rgba(11,21,30,0.5); }
+
+    /* ── Period selector ──────────────────────────────────────────────────── */
+    .lr-period-bar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 0 10px;
+      background: var(--dash-content-bg, #0f1117);
+      border-bottom: 1px solid var(--ov-panel-line);
+      margin-bottom: 16px;
+      backdrop-filter: blur(8px);
+    }
+
+    [data-theme="day"] .lr-period-bar {
+      background: rgba(245,246,250,0.95);
+    }
+
+    .lr-period-label {
+      font-size: 12px;
+      color: var(--ov-muted);
+      margin-right: 4px;
+      white-space: nowrap;
+    }
+
+    .lr-period-btn {
+      padding: 4px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: transparent;
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .lr-period-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+
+    .lr-period-btn.active {
+      background: var(--brand, #8b5cf6);
+      border-color: var(--brand, #8b5cf6);
+      color: #fff;
+    }
+
+    [data-theme="day"] .lr-period-btn {
+      border-color: rgba(11,21,30,0.2);
+      color: rgba(11,21,30,0.65);
+    }
+    [data-theme="day"] .lr-period-btn:hover { background: rgba(11,21,30,0.06); color: #0b151e; }
+    [data-theme="day"] .lr-period-btn.active { background: var(--brand,#8b5cf6); border-color: var(--brand,#8b5cf6); color: #fff; }
+
+    .lr-hidden { display: none !important; }
+
+    .lr-section-heading {
+      margin: 18px 0 10px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .lr-section-kicker {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.48);
+      margin-bottom: 4px;
+    }
+
+    .lr-section-title {
+      font-size: 28px;
+      line-height: 1.05;
+      font-weight: 700;
+      color: #fff;
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-section-copy {
+      margin-top: 4px;
+      color: rgba(255,255,255,0.56);
+      font-size: 13px;
+    }
+
+    .lr-summary-strip {
+      display: grid;
+      grid-template-columns: 1.35fr repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .lr-summary-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 14px 16px;
+      min-width: 0;
+    }
+
+    .lr-summary-card--primary {
+      background:
+        linear-gradient(135deg, rgba(124,58,237,0.24) 0%, rgba(124,58,237,0.08) 100%),
+        rgba(255,255,255,0.03);
+    }
+
+    .lr-summary-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.48);
+      margin-bottom: 6px;
+    }
+
+    .lr-summary-value {
+      font-size: 40px;
+      line-height: 1;
+      font-weight: 700;
+      color: #fff;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-summary-meta {
+      margin-top: 6px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.65);
+    }
+
+    [data-theme="day"] .lr-section-heading { border-top-color: rgba(11,21,30,0.08); }
+    [data-theme="day"] .lr-section-kicker { color: rgba(11,21,30,0.45); }
+    [data-theme="day"] .lr-section-title { color: #0b151e; }
+    [data-theme="day"] .lr-section-copy { color: rgba(11,21,30,0.55); }
+    [data-theme="day"] .lr-summary-card {
+      background: rgba(11,21,30,0.03);
+      border-color: rgba(11,21,30,0.1);
+    }
+    [data-theme="day"] .lr-summary-card--primary {
+      background:
+        linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0.04) 100%),
+        rgba(11,21,30,0.03);
+    }
+    [data-theme="day"] .lr-summary-label { color: rgba(11,21,30,0.45); }
+    [data-theme="day"] .lr-summary-value { color: #0b151e; }
+    [data-theme="day"] .lr-summary-meta { color: rgba(11,21,30,0.62); }
+    [data-theme="day"] .lr-summary-mini-label { color: rgba(11,21,30,0.48); }
+    [data-theme="day"] .lr-summary-mini-value { color: #0b151e; }
+
+    /* ── Period headline stats ────────────────────────────────────────────── */
+    .lr-stats-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .lr-stat-card {
+      flex: 1 1 120px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 12px 16px;
+    }
+
+    [data-theme="day"] .lr-stat-card {
+      background: rgba(11,21,30,0.04);
+      border-color: rgba(11,21,30,0.12);
+    }
+
+    .lr-stat-value {
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.1;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-stat-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 2px;
+    }
+
+    [data-theme="day"] .lr-stat-value { color: #0b151e; }
+    [data-theme="day"] .lr-stat-label  { color: rgba(11,21,30,0.5); }
+
+    /* ── Heatmap ──────────────────────────────────────────────────────────── */
+    .lr-heatmap-wrap {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .lr-heatmap-labels {
+      display: flex;
+      padding-left: 28px;
+      margin-bottom: 4px;
+      min-width: 640px;
+    }
+
+    .lr-heatmap-month-label {
+      flex: 1;
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    [data-theme="day"] .lr-heatmap-month-label { color: rgba(11,21,30,0.4); }
+
+    .lr-heatmap-body {
+      display: flex;
+      gap: 3px;
+      min-width: 640px;
+    }
+
+    .lr-heatmap-dow {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding-right: 4px;
+      flex-shrink: 0;
+      width: 24px;
+    }
+
+    .lr-heatmap-dow-label {
+      font-size: 9px;
+      color: rgba(255,255,255,0.35);
+      height: 11px;
+      line-height: 11px;
+    }
+
+    [data-theme="day"] .lr-heatmap-dow-label { color: rgba(11,21,30,0.35); }
+
+    .lr-heatmap-grid {
+      display: grid;
+      grid-template-rows: repeat(7, 11px);
+      grid-auto-flow: column;
+      gap: 3px;
+    }
+
+    .lr-heatmap-cell {
+      width: 11px;
+      height: 11px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.06);
+      cursor: default;
+    }
+
+    [data-theme="day"] .lr-heatmap-cell { background: rgba(11,21,30,0.08); }
+
+    .lr-heatmap-cell[data-bucket="1"] { background: rgba(139,92,246,0.35); }
+    .lr-heatmap-cell[data-bucket="2"] { background: rgba(139,92,246,0.55); }
+    .lr-heatmap-cell[data-bucket="3"] { background: rgba(139,92,246,0.78); }
+    .lr-heatmap-cell[data-bucket="4"] { background: rgba(139,92,246,1); }
+
+    /* ── Two-column layout ────────────────────────────────────────────────── */
+    .lr-two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 0;
+    }
+
+    /* ── Artist / Album card grid ─────────────────────────────────────────── */
+    .lr-card-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+    }
+
+    .lr-card {
+      position: relative;
+      aspect-ratio: 1;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+      cursor: default;
+    }
+
+    [data-theme="day"] .lr-card { background: rgba(11,21,30,0.08); }
+
+    .lr-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .lr-card-footer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 18px 6px 6px;
+      background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, transparent 100%);
+    }
+
+    .lr-card-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .lr-card-sub {
+      font-size: 10px;
+      color: rgba(255,255,255,0.68);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Top Tracks list ──────────────────────────────────────────────────── */
+    .lr-track-list { list-style: none; margin: 0; padding: 0; }
+
+    .lr-track-row {
+      display: grid;
+      grid-template-columns: 22px 36px 36px minmax(0,1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      min-height: 44px;
+    }
+
+    [data-theme="day"] .lr-track-row { border-bottom-color: rgba(11,21,30,0.1); }
+
+    .lr-track-row:last-child { border-bottom: 0; }
+
+    .lr-track-rank {
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.35);
+      text-align: right;
+    }
+
+    [data-theme="day"] .lr-track-rank { color: rgba(11,21,30,0.35); }
+
+    .lr-track-tier {
+      --ov-tier-empty: rgba(255,255,255,0.09);
+      --ov-tier-ring: rgba(255,255,255,0.22);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    [data-theme="day"] .lr-track-tier {
+      --ov-tier-empty: rgba(0,0,0,0.08);
+      --ov-tier-ring: rgba(0,0,0,0.22);
+    }
+
+    .lr-track-thumb {
+      width: 36px;
+      height: 36px;
+      border-radius: 3px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+
+    [data-theme="day"] .lr-track-thumb { background: rgba(11,21,30,0.08); }
+
+    .lr-track-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .lr-track-info { min-width: 0; }
+
+    .lr-track-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+
+    [data-theme="day"] .lr-track-title { color: #0b151e; }
+
+    .lr-track-artist {
+      font-size: 11px;
+      color: rgba(255,255,255,0.55);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    [data-theme="day"] .lr-track-artist { color: rgba(11,21,30,0.55); }
+
+    .lr-track-plays {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    [data-theme="day"] .lr-track-plays { color: rgba(11,21,30,0.45); }
+
+    /* ── Listening clock ──────────────────────────────────────────────────── */
+    .lr-clock-wrap {
+      display: flex;
+      justify-content: center;
+      padding: 8px 0 4px;
+    }
+
+    .lr-clock-wrap svg text {
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    /* ── Tier breakdown ───────────────────────────────────────────────────── */
+    .lr-chart-pair-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .lr-tier-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      padding: 8px 0 4px;
+    }
+
+    .lr-tier-radial svg text {
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-tier-radial-total {
+      font-size: 24px;
+      font-weight: 700;
+      fill: rgba(255,255,255,0.96);
+      text-anchor: middle;
+    }
+
+    .lr-tier-radial-sub {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      fill: rgba(255,255,255,0.5);
+      text-anchor: middle;
+    }
+
+    .lr-tier-legend {
+      display: grid;
+      gap: 10px;
+      min-width: 190px;
+    }
+
+    .lr-tier-legend-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .lr-tier-legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+
+    .lr-tier-legend-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .lr-tier-legend-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.8);
+    }
+
+    .lr-tier-legend-meta {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    [data-theme="day"] .lr-tier-radial-total { fill: rgba(11,21,30,0.94); }
+    [data-theme="day"] .lr-tier-radial-sub { fill: rgba(11,21,30,0.48); }
+    [data-theme="day"] .lr-tier-legend-label { color: rgba(11,21,30,0.72); }
+    [data-theme="day"] .lr-tier-legend-meta  { color: rgba(11,21,30,0.42); }
+
+    /* ── Quick facts ──────────────────────────────────────────────────────── */
+    .lr-facts-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .lr-ratio-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      padding: 8px 0;
+    }
+
+    .lr-ratio-legend {
+      display: grid;
+      gap: 10px;
+      min-width: 180px;
+    }
+
+    .lr-ratio-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lr-ratio-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .lr-ratio-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.82);
+      min-width: 54px;
+    }
+
+    .lr-ratio-val {
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      margin-left: auto;
+    }
+
+    .lr-fact-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    [data-theme="day"] .lr-fact-card {
+      background: rgba(11,21,30,0.04);
+      border-color: rgba(11,21,30,0.12);
+    }
+
+    .lr-fact-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-fact-unit {
+      font-size: 13px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.6);
+      margin-left: 3px;
+    }
+
+    .lr-fact-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 5px;
+    }
+
+    .lr-fact-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.38);
+      margin-top: 2px;
+    }
+
+    [data-theme="day"] .lr-fact-value { color: #0b151e; }
+    [data-theme="day"] .lr-fact-unit  { color: rgba(11,21,30,0.55); }
+    [data-theme="day"] .lr-fact-label { color: rgba(11,21,30,0.5); }
+    [data-theme="day"] .lr-fact-sub   { color: rgba(11,21,30,0.38); }
+    [data-theme="day"] .lr-ratio-name { color: rgba(11,21,30,0.78); }
+    [data-theme="day"] .lr-ratio-val { color: rgba(11,21,30,0.5); }
+
+    /* ── Responsive ───────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .ov-profile {
+        --ov-hero-avatar-left: 18px;
+        --ov-hero-avatar-size: 116px;
+        --ov-hero-content-left: 150px;
+      }
+      .ov-profile-meta { transform: translateY(30px); }
+      .lr-two-col { grid-template-columns: 1fr; }
+      .lr-chart-pair-body { grid-template-columns: 1fr; }
+      .lr-card-grid { grid-template-columns: repeat(4, 1fr); }
+      .lr-facts-grid { grid-template-columns: repeat(2, 1fr); }
+      .lr-summary-strip { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 600px) {
+      .ov-profile {
+        --ov-hero-avatar-left: 14px;
+        --ov-hero-avatar-size: 100px;
+        --ov-hero-content-left: 128px;
+      }
+      .ov-profile-meta { transform: translateY(32px); }
+      .lr-card-grid { grid-template-columns: repeat(3, 1fr); }
+      .lr-facts-grid { grid-template-columns: repeat(2, 1fr); }
+      .lr-track-row { grid-template-columns: 18px 28px 28px minmax(0,1fr) auto; gap: 6px; }
+      .lr-section-title { font-size: 24px; }
+      .lr-summary-value { font-size: 34px; }
+    }
+
+    /* ── Period stat heroes (Artists / Albums / Tracks) ──────────────────── */
+    .lr-stat-heroes {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .lr-stat-hero {
+      border-radius: 8px;
+      padding: 16px 18px 14px;
+      min-width: 0;
+    }
+
+    .lr-stat-hero--artist { background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%); }
+    .lr-stat-hero--album  { background: linear-gradient(135deg, #0d9488 0%, #5eead4 100%); }
+    .lr-stat-hero--track  { background: linear-gradient(135deg, #0369a1 0%, #38bdf8 100%); }
+
+    .lr-stat-hero-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.78);
+      margin-bottom: 2px;
+    }
+
+    .lr-stat-hero-value {
+      font-size: 36px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-stat-hero-change {
+      font-size: 12px;
+      color: rgba(255,255,255,0.72);
+      margin-top: 4px;
+    }
+
+    .lr-stat-hero-change .up   { color: rgba(255,255,255,0.95); }
+    .lr-stat-hero-change .down { color: rgba(255,255,255,0.6); }
+
+    /* ── 3-column Top layout ──────────────────────────────────────────────── */
+    .lr-top-three {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .lr-top-col {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .lr-top-col-stat {
+      display: none;
+      margin-bottom: 10px;
+    }
+
+    .lr-top-hero {
+      position: relative;
+      aspect-ratio: 1;
+      border-radius: 6px 6px 0 0;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+    }
+
+    [data-theme="day"] .lr-top-hero { background: rgba(11,21,30,0.08); }
+
+    .lr-top-hero img {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+      transition: transform 0.3s;
+    }
+
+    .lr-top-hero:hover img { transform: scale(1.03); }
+
+    .lr-top-hero-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.1) 55%, transparent 100%);
+    }
+
+    .lr-top-hero-badge {
+      position: absolute;
+      top: 10px; left: 10px;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: #fff;
+    }
+
+    .lr-top-col--artist .lr-top-hero-badge { background: #7c3aed; }
+    .lr-top-col--album  .lr-top-hero-badge { background: #0d9488; }
+    .lr-top-col--track  .lr-top-hero-badge { background: #0369a1; }
+
+    .lr-top-hero-footer {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 10px 12px 10px;
+    }
+
+    .lr-top-hero-rank {
+      font-size: 16px; font-weight: 700;
+      color: #fff; line-height: 1.25;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .lr-top-hero-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .lr-top-hero-sub {
+      font-size: 11px; color: rgba(255,255,255,0.65);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .lr-top-hero-plays {
+      font-size: 11px; color: rgba(255,255,255,0.5);
+      white-space: nowrap; flex-shrink: 0;
+    }
+
+    /* ── Ranked list below hero ───────────────────────────────────────────── */
+    .lr-top-list {
+      list-style: none; margin: 0; padding: 0;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-top: 0;
+      border-radius: 0 0 6px 6px;
+    }
+
+    [data-theme="day"] .lr-top-list {
+      background: rgba(11,21,30,0.03);
+      border-color: rgba(11,21,30,0.1);
+    }
+
+    .lr-top-list-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    [data-theme="day"] .lr-top-list-item { border-bottom-color: rgba(11,21,30,0.08); }
+    .lr-top-list-item:last-child { border-bottom: 0; }
+
+    .lr-top-list-rank {
+      font-size: 12px; font-weight: 600;
+      color: rgba(255,255,255,0.35);
+      min-width: 22px; text-align: right;
+    }
+    [data-theme="day"] .lr-top-list-rank { color: rgba(11,21,30,0.35); }
+
+    .lr-top-list-name {
+      flex: 1; min-width: 0;
+      font-size: 13px; font-weight: 500;
+      color: rgba(255,255,255,0.88);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .lr-top-list-name:hover { color: #fff; text-decoration: underline; }
+    [data-theme="day"] .lr-top-list-name { color: rgba(11,21,30,0.82); }
+    [data-theme="day"] .lr-top-list-name:hover { color: #0b151e; }
+
+    .lr-top-list-sub {
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+      white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+      max-width: 70px;
+    }
+    [data-theme="day"] .lr-top-list-sub { color: rgba(11,21,30,0.4); }
+
+    .lr-top-list-plays {
+      font-size: 11px;
+      color: rgba(255,255,255,0.38);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    [data-theme="day"] .lr-top-list-plays { color: rgba(11,21,30,0.4); }
+
+    /* ── Mobile sticky layout vars ───────────────────────────────────────── */
+    .dash-content--report {
+      --lr-winbar-h: 50px;
+      --lr-periodbar-h: 48px;
+      --lr-sticky-top: calc(var(--lr-winbar-h) + var(--lr-periodbar-h));
+    }
+
+    /* Column section label (mobile only) */
+    .lr-top-col-mob-label { display: none; }
+
+    @media (max-width: 900px) {
+      .lr-top-three { grid-template-columns: 1fr; }
+      .lr-stat-heroes { display: none; }
+      .lr-top-col-stat { display: block; }
+
+      /* Period bar sits below the window bar */
+      .lr-period-bar { top: var(--lr-winbar-h); }
+
+      /* Sticky column section headers */
+      .lr-top-col-mob-label {
+        display: block;
+        position: sticky;
+        top: var(--lr-sticky-top);
+        z-index: 5;
+        background: var(--dash-content-bg, #0f1117);
+        padding: 8px 0 6px;
+        font-size: 15px;
+        font-weight: 700;
+        color: #fff;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        margin-bottom: 0;
+      }
+      [data-theme="day"] .lr-top-col-mob-label {
+        background: rgba(245,246,250,0.98);
+        color: #0b151e;
+        border-bottom-color: rgba(11,21,30,0.12);
+      }
+
+      /* Sticky cur-panel section headers */
+      .dash-content--report .cur-panel-header {
+        position: sticky;
+        top: var(--lr-sticky-top);
+        z-index: 4;
+        background: var(--dash-content-bg, #0f1117);
+        backdrop-filter: blur(6px);
+      }
+      [data-theme="day"] .dash-content--report .cur-panel-header {
+        background: rgba(245,246,250,0.97);
+      }
+
+      /* Push top of hero below the sticky label */
+      .lr-top-col .lr-top-hero { border-radius: 6px; }
+    }
+
+    @media (max-width: 600px) {
+      .lr-top-col-stat .lr-stat-hero {
+        padding: 14px 16px 12px;
+      }
+
+      .lr-top-col-stat .lr-stat-hero-value {
+        font-size: 32px;
+      }
+    }
+
+    /* ── Discovery row (New Artists / Albums / Tracks) ───────────────────── */
+    .lr-discovery-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .lr-discovery-card {
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.09);
+    }
+    [data-theme="day"] .lr-discovery-card {
+      background: rgba(11,21,30,0.03);
+      border-color: rgba(11,21,30,0.1);
+    }
+
+    .lr-discovery-header {
+      padding: 14px 16px 12px;
+    }
+
+    .lr-discovery-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 4px;
+    }
+    .lr-discovery-card--artist .lr-discovery-label { color: #a78bfa; }
+    .lr-discovery-card--album  .lr-discovery-label { color: #5eead4; }
+    .lr-discovery-card--track  .lr-discovery-label { color: #38bdf8; }
+    [data-theme="day"] .lr-discovery-card--artist .lr-discovery-label { color: #7c3aed; }
+    [data-theme="day"] .lr-discovery-card--album  .lr-discovery-label { color: #0d9488; }
+    [data-theme="day"] .lr-discovery-card--track  .lr-discovery-label { color: #0369a1; }
+
+    .lr-discovery-pct {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+    [data-theme="day"] .lr-discovery-pct { color: #0b151e; }
+
+    .lr-discovery-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    [data-theme="day"] .lr-discovery-item { border-top-color: rgba(11,21,30,0.1); }
+
+    .lr-discovery-thumb {
+      width: 40px; height: 40px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+    .lr-discovery-card--artist .lr-discovery-thumb { border-radius: 50%; }
+    [data-theme="day"] .lr-discovery-thumb { background: rgba(11,21,30,0.08); }
+    .lr-discovery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    .lr-discovery-item-info { min-width: 0; }
+
+    .lr-discovery-item-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .lr-discovery-item-name:hover { text-decoration: underline; }
+    [data-theme="day"] .lr-discovery-item-name { color: #0b151e; }
+
+    .lr-discovery-item-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    [data-theme="day"] .lr-discovery-item-sub { color: rgba(11,21,30,0.45); }
+
+    @media (max-width: 900px) { .lr-discovery-row { grid-template-columns: 1fr; } }
+
+    /* ── Weekly chart ─────────────────────────────────────────────────────── */
+    .lr-weekly-nav {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .lr-weekly-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: rgba(255,255,255,0.7);
+      font-size: 14px;
+      line-height: 1;
+      transition: background 0.15s;
+      padding: 0;
+    }
+    .lr-weekly-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .lr-weekly-btn:disabled { opacity: 0.3; cursor: default; }
+    [data-theme="day"] .lr-weekly-btn { border-color: rgba(11,21,30,0.2); color: rgba(11,21,30,0.55); }
+    [data-theme="day"] .lr-weekly-btn:hover { background: rgba(11,21,30,0.06); color: #0b151e; }
+
+    .lr-weekly-label {
+      font-size: 13px;
+      color: rgba(255,255,255,0.7);
+      flex: 1;
+    }
+    [data-theme="day"] .lr-weekly-label { color: rgba(11,21,30,0.65); }
+
+    .lr-weekly-total {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+    [data-theme="day"] .lr-weekly-total { color: #0b151e; }
+
+    .lr-weekly-chart { width: 100%; overflow: hidden; }
+    .lr-weekly-chart svg { width: 100%; display: block; }
+
+    /* ── Clickable card hover ─────────────────────────────────────────────── */
+    .lr-card[role="button"] { cursor: pointer; }
+    .lr-card[role="button"]:hover .lr-card-footer { background: linear-gradient(to top, rgba(139,92,246,0.72) 0%, transparent 100%); }
+
+    /* ── Top Tags ─────────────────────────────────────────────────────────── */
+    .lr-tag-stream {
+      width: 100%;
+      overflow: hidden;
+      padding: 6px 0 2px;
+    }
+
+    .lr-tag-stream svg {
+      width: 100%;
+      display: block;
+    }
+
+    .lr-tag-stream-band {
+      cursor: help;
+      transition: opacity 0.16s ease, filter 0.16s ease;
+    }
+
+    .lr-tag-stream svg:hover .lr-tag-stream-band {
+      opacity: 0.22;
+    }
+
+    .lr-tag-stream svg:hover .lr-tag-stream-band:hover {
+      opacity: 1;
+      filter: brightness(1.06) saturate(1.08);
+    }
+
+    .lr-tag-stream-axis {
+      font-size: 11px;
+      fill: rgba(255,255,255,0.45);
+    }
+
+    .lr-tag-stream-label {
+      font-size: 12px;
+      font-weight: 700;
+      fill: rgba(255,255,255,0.92);
+      text-anchor: middle;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+
+    .lr-tag-stream-label--priority { font-size: 13px; }
+
+    [data-theme="day"] .lr-tag-stream-axis { fill: rgba(11,21,30,0.45); }
+    [data-theme="day"] .lr-tag-stream-label { fill: rgba(11,21,30,0.9); }
+
+    /* ── Decade chart ─────────────────────────────────────────────────────── */
+    .lr-decade-chart { padding: 4px 0; }
+
+    .lr-decade-row {
+      display: grid;
+      grid-template-columns: 42px 1fr 48px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 7px;
+    }
+
+    .lr-decade-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.55);
+      text-align: right;
+    }
+    [data-theme="day"] .lr-decade-label { color: rgba(11,21,30,0.55); }
+
+    .lr-decade-bar-bg {
+      height: 10px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    [data-theme="day"] .lr-decade-bar-bg { background: rgba(11,21,30,0.08); }
+
+    .lr-decade-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--brand, #8b5cf6);
+      transition: width 0.3s;
+    }
+
+    .lr-decade-plays {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      text-align: right;
+    }
+    [data-theme="day"] .lr-decade-plays { color: rgba(11,21,30,0.4); }
+
+    /* ── Listening Fingerprint radar ──────────────────────────────────────── */
+    .lr-radar-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+      flex-wrap: wrap;
+      padding: 8px 0;
+    }
+
+    .lr-radar-wrap svg text {
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-radar-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .lr-radar-leg-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lr-radar-leg-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: rgba(139,92,246,0.7);
+      flex-shrink: 0;
+    }
+
+    .lr-radar-leg-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.8);
+      min-width: 80px;
+    }
+    [data-theme="day"] .lr-radar-leg-name { color: rgba(11,21,30,0.75); }
+
+    .lr-radar-leg-val {
+      font-size: 12px;
+      color: rgba(255,255,255,0.45);
+    }
+    [data-theme="day"] .lr-radar-leg-val { color: rgba(11,21,30,0.45); }
+  </style>
+
+  <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
+    <aside class="dash-sidebar">
+      <div class="dash-brand">
+        <span class="dash-logo">
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+        </span>
+        <div>
+          <div class="dash-title">Curatorr</div>
+        </div>
+      </div>
+      <div class="dash-nav">
+        <%- include('partials/nav-categories', { navActivePage: '', role: role }) %>
+      </div>
+      <%- include('partials/user-menu') %>
+    </aside>
+
+    <section class="dash-main">
+      <div class="main-window-bar">
+        <button class="sidebar-toggle main-toggle left-toggle" type="button" aria-label="Toggle sidebar">
+          <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
+        </button>
+        <div class="main-window-title">
+          <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
+          <span class="main-window-app">Curatorr</span>
+          <span class="main-window-rest">| Listening Report</span>
+        </div>
+        <div class="main-window-spacer"></div>
+        <div class="main-window-status">
+          <span class="status-dot"></span>
+        </div>
+      </div>
+
+      <div class="dash-content dash-content--report">
+        <%
+          const _displayUsername = String(user?.username || user?.displayName || 'User').trim();
+          const _userAvatar      = String(user?.avatar || '').trim();
+          const _avatarFallback  = String(user?.avatarFallback || '/icons/user-profile.svg').trim();
+          const _avatarInitial   = _displayUsername.charAt(0).toUpperCase();
+
+          const _statsAll  = statsAll  || {};
+          const _stats7d   = stats7d   || {};
+          const _stats30d  = stats30d  || {};
+          const _stats3m   = stats3m   || {};
+          const _stats12m  = stats12m  || {};
+
+          const _ta7d  = Array.isArray(topArtists7d)  ? topArtists7d  : [];
+          const _ta30d = Array.isArray(topArtists30d) ? topArtists30d : [];
+          const _ta3m  = Array.isArray(topArtists3m)  ? topArtists3m  : [];
+          const _ta12m = Array.isArray(topArtists12m) ? topArtists12m : [];
+          const _taAll = Array.isArray(topArtistsAll) ? topArtistsAll : [];
+
+          const _tAlb7d  = Array.isArray(topAlbums7d)  ? topAlbums7d  : [];
+          const _tAlb30d = Array.isArray(topAlbums30d) ? topAlbums30d : [];
+          const _tAlb3m  = Array.isArray(topAlbums3m)  ? topAlbums3m  : [];
+          const _tAlb12m = Array.isArray(topAlbums12m) ? topAlbums12m : [];
+          const _tAlbAll = Array.isArray(topAlbumsAll) ? topAlbumsAll : [];
+
+          const _tt7d  = Array.isArray(topTracks7d)  ? topTracks7d  : [];
+          const _tt30d = Array.isArray(topTracks30d) ? topTracks30d : [];
+          const _tt3m  = Array.isArray(topTracks3m)  ? topTracks3m  : [];
+          const _tt12m = Array.isArray(topTracks12m) ? topTracks12m : [];
+          const _ttAll = Array.isArray(topTracksAll) ? topTracksAll : [];
+
+          const _clock7d = Array.isArray(clockHours7d) ? clockHours7d : [];
+          const _clock30d = Array.isArray(clockHours30d) ? clockHours30d : [];
+          const _clock3m = Array.isArray(clockHours3m) ? clockHours3m : [];
+          const _clock12m = Array.isArray(clockHours12m) ? clockHours12m : [];
+          const _clockAll = Array.isArray(clockHoursAll) ? clockHoursAll : [];
+
+          const _summaryByPeriod = reportSummaryByPeriod || {};
+          const _summaryCompByPeriod = summaryComparisonByPeriod || {};
+          const _quickFactsByPeriod = quickFactsByPeriod || {};
+          const _tagStreamByPeriod = tagStreamByPeriod || {};
+          const _tierByPeriod = tierBreakdownByPeriod || {};
+          const _fpByPeriod = fingerprintByPeriod || {};
+
+          const _heroArtist = _ta30d[0]?.artist_name || _ta7d[0]?.artist_name || _taAll[0]?.artist_name || null;
+
+          function fmtNum(n) { return Number(n || 0).toLocaleString(); }
+
+          function fmtListenTime(ms) {
+            if (!ms) return '—';
+            const totalMins = Math.floor(ms / 60000);
+            if (totalMins >= 60) {
+              const h = Math.round((totalMins / 60) * 10) / 10;
+              return String(h).replace(/\.0$/, '') + 'h';
+            }
+            return totalMins + 'm';
+          }
+
+          function fmtMemberSince(ts) {
+            if (!ts) return null;
+            return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+          }
+
+          const _memberSince = fmtMemberSince(firstPlayAt);
+
+          // Tier SVG (same as overview)
+          function tierSvg(tier, size) {
+            const sz = size || 28;
+            const t = String(tier || 'curatorr').toLowerCase().trim();
+            const cx = sz/2, cy = sz/2, r = sz * 0.42;
+            const q1 = `M ${cx},${cy} L ${cx},${cy-r} A ${r},${r} 0 0,1 ${cx+r},${cy} Z`;
+            const q2 = `M ${cx},${cy} L ${cx+r},${cy} A ${r},${r} 0 0,1 ${cx},${cy+r} Z`;
+            const q3 = `M ${cx},${cy} L ${cx},${cy+r} A ${r},${r} 0 0,1 ${cx-r},${cy} Z`;
+            const q4 = `M ${cx},${cy} L ${cx-r},${cy} A ${r},${r} 0 0,1 ${cx},${cy-r} Z`;
+            const allQ = [q1, q2, q3, q4];
+            let color, count;
+            if      (t === 'skip')        { color = '#ef4444'; count = 1; }
+            else if (t === 'half-decent') { color = '#f97316'; count = 2; }
+            else if (t === 'decent')      { color = '#22c55e'; count = 3; }
+            else if (t === 'belter')      { color = '#eab308'; count = 4; }
+            else                          { color = 'rgba(255,255,255,0.25)'; count = 0; }
+            const filled = allQ.slice(0, count).map(d => `<path d="${d}" fill="${color}"/>`).join('');
+            const empty  = allQ.slice(count).map(d => `<path d="${d}" fill="var(--ov-tier-empty)"/>`).join('');
+            return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--ov-tier-ring)" stroke-width="1"/>${filled}${empty}</svg>`;
+          }
+
+          const LR_TIER_CONFIG = [
+            { key: 'belter', label: 'Belter', color: '#eab308' },
+            { key: 'decent', label: 'Decent', color: '#22c55e' },
+            { key: 'half-decent', label: 'Half-decent', color: '#f97316' },
+            { key: 'curatorr', label: 'Unrated', color: 'rgba(255,255,255,0.24)' },
+            { key: 'skip', label: 'Skip', color: '#ef4444' },
+          ];
+
+          function polarPoint(cx, cy, r, deg) {
+            const rad = (deg - 90) * Math.PI / 180;
+            return {
+              x: cx + Math.cos(rad) * r,
+              y: cy + Math.sin(rad) * r,
+            };
+          }
+
+          function donutArcPath(cx, cy, outerR, innerR, startDeg, endDeg) {
+            const safeEnd = Math.min(endDeg, startDeg + 359.999);
+            const outerStart = polarPoint(cx, cy, outerR, startDeg);
+            const outerEnd = polarPoint(cx, cy, outerR, safeEnd);
+            const innerEnd = polarPoint(cx, cy, innerR, safeEnd);
+            const innerStart = polarPoint(cx, cy, innerR, startDeg);
+            const largeArc = safeEnd - startDeg > 180 ? 1 : 0;
+            return [
+              `M ${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)}`,
+              `A ${outerR} ${outerR} 0 ${largeArc} 1 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)}`,
+              `L ${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)}`,
+              `A ${innerR} ${innerR} 0 ${largeArc} 0 ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)}`,
+              'Z',
+            ].join(' ');
+          }
+
+          // Polar clock SVG
+          function clockSvg(hours) {
+            const sz = 220, cx = 110, cy = 110;
+            const maxR = 88, minR = 22;
+            const max = Math.max(...hours, 1);
+            const toRad = d => d * Math.PI / 180;
+            const px = (r, deg) => (cx + r * Math.sin(toRad(deg))).toFixed(2);
+            const py = (r, deg) => (cy - r * Math.cos(toRad(deg))).toFixed(2);
+            let paths = '';
+            for (let h = 0; h < 24; h++) {
+              const c = hours[h] || 0;
+              if (c === 0) continue;
+              const r = minR + (maxR - minR) * Math.sqrt(c / max);
+              const s = h * 15 + 1.5;
+              const e = (h + 1) * 15 - 1.5;
+              const path = `M ${px(minR,s)} ${py(minR,s)} L ${px(r,s)} ${py(r,s)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${px(r,e)} ${py(r,e)} L ${px(minR,e)} ${py(minR,e)} A ${minR} ${minR} 0 0 0 ${px(minR,s)} ${py(minR,s)} Z`;
+              const isDaytime = h >= 6 && h < 22;
+              const fill = isDaytime ? 'var(--brand,#8b5cf6)' : 'rgba(139,92,246,0.45)';
+              paths += `<path d="${path}" fill="${fill}"/>`;
+            }
+            const labelHours = [0,3,6,9,12,15,18,21];
+            const labelTexts = ['12am','3am','6am','9am','12pm','3pm','6pm','9pm'];
+            let labels = '';
+            for (let i = 0; i < labelHours.length; i++) {
+              const deg = labelHours[i] * 15;
+              labels += `<text x="${px(maxR+13,deg)}" y="${py(maxR+13,deg)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="rgba(255,255,255,0.45)">${labelTexts[i]}</text>`;
+            }
+            return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"><circle cx="${cx}" cy="${cy}" r="${maxR}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/><circle cx="${cx}" cy="${cy}" r="${minR}" fill="rgba(0,0,0,0.25)"/>${paths}${labels}</svg>`;
+          }
+
+          function musicRatioSvg(summary) {
+            const items = [
+              { label: 'Tracks', value: Number(summary?.uniqueTracks || 0), color: '#38bdf8', r: 46 },
+              { label: 'Albums', value: Number(summary?.uniqueAlbums || 0), color: '#5eead4', r: 32 },
+              { label: 'Artists', value: Number(summary?.uniqueArtists || 0), color: '#a78bfa', r: 18 },
+            ];
+            const maxValue = Math.max(...items.map((item) => item.value), 1);
+            return `<svg width="140" height="140" viewBox="0 0 140 140" aria-hidden="true">${
+              items.map((item) => {
+                const circumference = 2 * Math.PI * item.r;
+                const ratio = maxValue > 0 ? item.value / maxValue : 0;
+                const dash = (circumference * ratio).toFixed(2);
+                const gap = (circumference - dash).toFixed(2);
+                return `
+                  <circle cx="70" cy="70" r="${item.r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10" />
+                  <circle cx="70" cy="70" r="${item.r}" fill="none" stroke="${item.color}" stroke-width="10"
+                          stroke-linecap="round" stroke-dasharray="${dash} ${gap}" transform="rotate(-90 70 70)" />
+                `;
+              }).join('')
+            }</svg>`;
+          }
+
+          function escapeHtml(value) {
+            return String(value || '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          }
+
+          function tierRadialSvg(breakdown) {
+            const rows = Array.isArray(breakdown) ? breakdown : [];
+            const counts = new Map(rows.map((row) => [String(row.tier || 'curatorr').toLowerCase(), Number(row.total_plays || 0)]));
+            const items = LR_TIER_CONFIG.map((cfg) => ({
+              ...cfg,
+              value: counts.get(cfg.key) || 0,
+            }));
+            const total = items.reduce((sum, item) => sum + item.value, 0);
+            if (total <= 0) return '';
+
+            const sz = 220;
+            const cx = 110;
+            const cy = 110;
+            const outerR = 84;
+            const innerR = 38;
+            const gapDeg = 1.6;
+            let startDeg = 0;
+            let arcs = '';
+
+            items.forEach((item) => {
+              if (item.value <= 0) return;
+              const sliceDeg = (item.value / total) * 360;
+              const drawStart = startDeg + Math.min(gapDeg / 2, sliceDeg / 4);
+              const drawEnd = startDeg + sliceDeg - Math.min(gapDeg / 2, sliceDeg / 4);
+              if (drawEnd > drawStart) {
+                const pct = Math.round((item.value / total) * 100);
+                arcs += `<path d="${donutArcPath(cx, cy, outerR, innerR, drawStart, drawEnd)}" fill="${item.color}" fill-opacity="${item.key === 'curatorr' ? '0.82' : '0.96'}"><title>${escapeHtml(item.label)}: ${item.value.toLocaleString()} plays (${pct}%)</title></path>`;
+              }
+              startDeg += sliceDeg;
+            });
+
+            return `
+              <svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" aria-hidden="true">
+                <circle cx="${cx}" cy="${cy}" r="${outerR}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"></circle>
+                <circle cx="${cx}" cy="${cy}" r="${innerR}" fill="rgba(0,0,0,0.24)" stroke="rgba(255,255,255,0.08)" stroke-width="1"></circle>
+                ${arcs}
+                <text class="lr-tier-radial-total" x="${cx}" y="${cy - 4}">${total.toLocaleString()}</text>
+                <text class="lr-tier-radial-sub" x="${cx}" y="${cy + 16}">plays</text>
+              </svg>
+            `;
+          }
+
+          function tierLegendHtml(breakdown) {
+            const rows = Array.isArray(breakdown) ? breakdown : [];
+            const counts = new Map(rows.map((row) => [String(row.tier || 'curatorr').toLowerCase(), Number(row.total_plays || 0)]));
+            const items = LR_TIER_CONFIG
+              .map((cfg) => ({
+                ...cfg,
+                value: counts.get(cfg.key) || 0,
+              }))
+              .filter((item) => item.value > 0);
+            const total = items.reduce((sum, item) => sum + item.value, 0) || 1;
+
+            return items.map((item) => {
+              const pct = Math.round((item.value / total) * 100);
+              return `
+                <div class="lr-tier-legend-item">
+                  <span class="lr-tier-legend-dot" style="background:${item.color}"></span>
+                  <span class="lr-tier-legend-copy">
+                    <span class="lr-tier-legend-label">${escapeHtml(item.label)}</span>
+                    <span class="lr-tier-legend-meta">${item.value.toLocaleString()} plays · ${pct}%</span>
+                  </span>
+                </div>
+              `;
+            }).join('');
+          }
+
+          function tagStreamSvg(data) {
+            const labels = Array.isArray(data?.labels) ? data.labels : [];
+            const series = Array.isArray(data?.series) ? data.series : [];
+            if (!series.length || labels.length < 2) return '';
+            const width = 720;
+            const height = 260;
+            const margin = { top: 12, right: 8, bottom: 34, left: 8 };
+            const innerWidth = width - margin.left - margin.right;
+            const innerHeight = height - margin.top - margin.bottom;
+            const midY = margin.top + innerHeight / 2;
+            const pointCount = labels.length;
+            const totals = labels.map((_, idx) => series.reduce((sum, item) => sum + Number(item.values?.[idx] || 0), 0));
+            const maxAbs = Math.max(...totals.map((total) => total / 2), 1);
+            const xAt = (idx) => margin.left + (pointCount === 1 ? innerWidth / 2 : (innerWidth * idx / (pointCount - 1)));
+            const yAt = (unit) => midY - (unit / maxAbs) * (innerHeight / 2);
+
+            const layered = series.map((item) => {
+              const upper = [];
+              const lower = [];
+              return { ...item, upper, lower };
+            });
+
+            labels.forEach((_, idx) => {
+              let offset = -totals[idx] / 2;
+              layered.forEach((item) => {
+                const value = Number(item.values?.[idx] || 0);
+                item.lower.push(offset);
+                item.upper.push(offset + value);
+                offset += value;
+              });
+            });
+
+            const paths = layered.map((item) => {
+              const values = Array.isArray(item.values) ? item.values : [];
+              const topPath = item.upper.map((value, idx) => `${idx === 0 ? 'M' : 'L'} ${xAt(idx).toFixed(2)} ${yAt(value).toFixed(2)}`).join(' ');
+              const bottomPath = item.lower.slice().reverse().map((value, reverseIdx) => {
+                const idx = pointCount - 1 - reverseIdx;
+                return `L ${xAt(idx).toFixed(2)} ${yAt(value).toFixed(2)}`;
+              }).join(' ');
+              const totalValue = values.reduce((sum, value) => sum + Number(value || 0), 0);
+              return `<path class="lr-tag-stream-band" d="${topPath} ${bottomPath} Z" fill="${item.color}" fill-opacity="0.88" stroke="rgba(0,0,0,0.28)" stroke-width="1"><title>${escapeHtml(item.tag)}: ${totalValue.toLocaleString()} plays</title></path>`;
+            }).join('');
+
+            const labelTexts = layered.slice(0, 4).map((item, itemIndex) => {
+              const values = Array.isArray(item.values) ? item.values : [];
+              let peakIndex = 0;
+              let peakValue = 0;
+              values.forEach((value, idx) => {
+                if (Number(value || 0) > peakValue) {
+                  peakValue = Number(value || 0);
+                  peakIndex = idx;
+                }
+              });
+              if (peakValue <= 0) return '';
+              const bandHeight = Math.abs(yAt(item.lower[peakIndex]) - yAt(item.upper[peakIndex]));
+              if (bandHeight < (itemIndex < 2 ? 8 : 18)) return '';
+              let centerY = yAt((item.lower[peakIndex] + item.upper[peakIndex]) / 2);
+              if (bandHeight < 18 && itemIndex < 2) {
+                centerY += centerY < midY ? -10 : 10;
+              }
+              centerY = Math.max(margin.top + 12, Math.min(height - margin.bottom - 8, centerY));
+              const labelClass = itemIndex < 2 ? 'lr-tag-stream-label lr-tag-stream-label--priority' : 'lr-tag-stream-label';
+              return `<text class="${labelClass}" x="${xAt(peakIndex).toFixed(2)}" y="${centerY.toFixed(2)}">${escapeHtml(item.tag)}</text>`;
+            }).join('');
+
+            const axisLabels = labels.map((label, idx) => {
+              return `<text class="lr-tag-stream-axis" x="${xAt(idx).toFixed(2)}" y="${(height - 6).toFixed(2)}" text-anchor="middle">${escapeHtml(label)}</text>`;
+            }).join('');
+
+            return `
+              <svg viewBox="0 0 ${width} ${height}" aria-hidden="true">
+                ${paths}
+                ${labelTexts}
+                ${axisLabels}
+              </svg>
+            `;
+          }
+
+          // Fingerprint radar SVG (pentagon, 5 dimensions)
+          const _fpDims = [
+            { label: 'Consistency', key: 'consistency',  desc: 'Active days / 30' },
+            { label: 'Variety',     key: 'variety',      desc: 'Artist spread' },
+            { label: 'Loyalty',     key: 'loyalty',      desc: 'Top artist focus' },
+            { label: 'Night Owl',   key: 'nightOwl',     desc: 'Late-night plays' },
+            { label: 'Intensity',   key: 'intensity',    desc: 'Plays per active day' },
+          ];
+
+          function radarSvg(fp, dims) {
+            const sz = 200, cx = sz/2, cy = sz/2, maxR = 78, ringR = [maxR*0.25, maxR*0.5, maxR*0.75, maxR];
+            const n = dims.length;
+            const toRad = d => d * Math.PI / 180;
+            const pt = (r, i) => {
+              const a = toRad(i * 360 / n - 90);
+              return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+            };
+            let rings = '';
+            for (const r of ringR) {
+              const pts = dims.map((_, i) => pt(r, i).join(',')).join(' ');
+              rings += `<polygon points="${pts}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
+            }
+            let spokes = '';
+            for (let i = 0; i < n; i++) {
+              const [x, y] = pt(maxR, i);
+              spokes += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
+            }
+            const dataPts = dims.map((d, i) => {
+              const v = Math.min(100, Math.max(0, Number(fp[d.key] || 0)));
+              return pt(maxR * v / 100, i);
+            });
+            const polyPts = dataPts.map(p => p.map(v => v.toFixed(1)).join(',')).join(' ');
+            const fill = `<polygon points="${polyPts}" fill="rgba(139,92,246,0.28)" stroke="rgba(139,92,246,0.8)" stroke-width="2" stroke-linejoin="round"/>`;
+            let labels = '';
+            for (let i = 0; i < n; i++) {
+              const [x, y] = pt(maxR + 16, i);
+              const anchor = x < cx - 2 ? 'end' : x > cx + 2 ? 'start' : 'middle';
+              labels += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="9" fill="rgba(255,255,255,0.5)">${dims[i].label}</text>`;
+            }
+            return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">${rings}${spokes}${fill}${labels}</svg>`;
+          }
+
+          // Decade chart helper
+          function decadeBarHtml(rows) {
+            if (!rows || !rows.length) return '<div class="cur-empty">No decade data available.</div>';
+            const max = Math.max(...rows.map(r => r.plays), 1);
+            return rows.map(r => {
+              const pct = Math.round((r.plays / max) * 100);
+              return `<div class="lr-decade-row">
+                <span class="lr-decade-label">${r.decade}</span>
+                <div class="lr-decade-bar-bg"><div class="lr-decade-bar-fill" style="width:${pct}%"></div></div>
+                <span class="lr-decade-plays">${Number(r.plays).toLocaleString()}</span>
+              </div>`;
+            }).join('');
+          }
+
+          const _nd7d  = newData7d  || {};
+          const _nd30d = newData30d || {};
+          const _nd3m  = newData3m  || {};
+          const _nd12m = newData12m || {};
+
+          function newPct(newCount, totalUnique) {
+            if (!totalUnique) return 0;
+            return Math.min(100, Math.round((newCount / totalUnique) * 100));
+          }
+
+          // Comparison stats for % change
+          const _comp7d  = statsComp7d  || {};
+          const _comp30d = statsComp30d || {};
+          const _comp3m  = statsComp3m  || {};
+          const _comp12m = statsComp12m || {};
+
+          function pctChange(cur, prev) {
+            if (prev === null || prev === undefined) return null;
+            if (prev === 0) return cur > 0 ? { dir: 'up', val: 'New' } : null;
+            const p = Math.round(((cur - prev) / prev) * 100);
+            if (p === 0) return null;
+            return { dir: p > 0 ? 'up' : 'down', val: Math.abs(p) + '%' };
+          }
+
+          function changeBadge(cur, prev) {
+            const c = pctChange(cur, prev);
+            if (!c) return '';
+            const arrow = c.dir === 'up' ? '↑' : '↓';
+            return `<span class="${c.dir}">${arrow} ${c.val}</span>`;
+          }
+          const _dd7d  = Array.isArray(decadeData7d)  ? decadeData7d  : [];
+          const _dd30d = Array.isArray(decadeData30d) ? decadeData30d : [];
+          const _dd3m  = Array.isArray(decadeData3m)  ? decadeData3m  : [];
+          const _dd12m = Array.isArray(decadeData12m) ? decadeData12m : [];
+          const _ddAll = Array.isArray(decadeDataAll) ? decadeDataAll : [];
+        %>
+
+        <%# ── Hero header ─────────────────────────────────────────────────── %>
+        <div class="cur-panel ov-profile" data-panel-collapsible="false">
+          <% if (_heroArtist) { %>
+            <img class="ov-profile-artist-bg"
+                 src="/api/music/thumb/artist/<%= encodeURIComponent(_heroArtist) %>"
+                 alt="" aria-hidden="true" />
+          <% } %>
+          <div class="ov-profile-overlay"></div>
+          <div class="ov-profile-content">
+            <div class="ov-profile-left">
+              <div class="ov-avatar">
+                <% if (_userAvatar) { %>
+                  <img src="<%= _userAvatar %>" alt="<%= _displayUsername %>"
+                       onerror="this.onerror=null;this.src='<%= _avatarFallback %>'" />
+                <% } else { %>
+                  <%= _avatarInitial %>
+                <% } %>
+              </div>
+              <div class="ov-profile-meta">
+                <div class="ov-profile-name"><%= _displayUsername %></div>
+                <% if (_memberSince) { %>
+                  <div class="ov-profile-since">Member since <%= _memberSince %></div>
+                <% } %>
+              </div>
+            </div>
+          </div>
+          <div class="ov-profile-stats-wrap">
+            <div class="ov-profile-stats-row">
+              <div class="ov-profile-stat">
+                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.plays) %></span>
+                <span class="ov-profile-stat-label">All-time Plays</span>
+              </div>
+              <div class="ov-profile-stat">
+                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.uniqueArtists) %></span>
+                <span class="ov-profile-stat-label">Artists</span>
+              </div>
+              <div class="ov-profile-stat">
+                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.uniqueTracks) %></span>
+                <span class="ov-profile-stat-label">Tracks</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%# ── Period selector ─────────────────────────────────────────────── %>
+        <div class="lr-period-bar">
+          <span class="lr-period-label">Period:</span>
+          <button class="lr-period-btn" data-period="7d">7 days</button>
+          <button class="lr-period-btn active" data-period="30d">30 days</button>
+          <button class="lr-period-btn" data-period="3m">3 months</button>
+          <button class="lr-period-btn" data-period="12m">12 months</button>
+          <button class="lr-period-btn" data-period="all">All time</button>
+        </div>
+
+        <%# ── Weekly play chart ───────────────────────────────────────────── %>
+        <div class="cur-panel" data-panel-collapsible="false">
+          <div class="cur-panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <h3 class="cur-panel-title">Plays This Week</h3>
+          </div>
+          <div class="cur-panel-body">
+            <div class="lr-weekly-nav">
+              <button class="lr-weekly-btn" id="lr-week-back" title="Previous week">&#8249;</button>
+              <span class="lr-weekly-label" id="lr-week-label">Loading…</span>
+              <button class="lr-weekly-btn" id="lr-week-fwd" title="Next week" disabled>&#8250;</button>
+              <span class="lr-weekly-total" id="lr-week-total"></span>
+            </div>
+            <div class="lr-weekly-chart" id="lr-weekly-chart"></div>
+          </div>
+        </div>
+
+        <%# ── Period stat heroes ──────────────────────────────────────────── %>
+        <%
+          var _periodPairs = [
+            ['7d',  _stats7d,  _comp7d ],
+            ['30d', _stats30d, _comp30d],
+            ['3m',  _stats3m,  _comp3m ],
+            ['12m', _stats12m, _comp12m],
+            ['all', _statsAll, null],
+          ];
+        %>
+        <% _periodPairs.forEach(function(pair) { %>
+          <% var ps = pair[0]; var st = pair[1]; var cmp = pair[2]; var albumCount = st.uniqueAlbums; %>
+          <div class="lr-stat-heroes<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+            <div class="lr-stat-hero lr-stat-hero--artist">
+              <div class="lr-stat-hero-label">Artists</div>
+              <div class="lr-stat-hero-value"><%= fmtNum(st.uniqueArtists || 0) %></div>
+              <div class="lr-stat-hero-change"><%- changeBadge(st.uniqueArtists || 0, cmp && cmp.unique_artists) %></div>
+            </div>
+            <div class="lr-stat-hero lr-stat-hero--album">
+              <div class="lr-stat-hero-label">Albums</div>
+              <div class="lr-stat-hero-value"><%= fmtNum(albumCount || 0) %></div>
+              <div class="lr-stat-hero-change"><%- changeBadge(albumCount || 0, cmp && cmp.unique_albums) %></div>
+            </div>
+            <div class="lr-stat-hero lr-stat-hero--track">
+              <div class="lr-stat-hero-label">Tracks</div>
+              <div class="lr-stat-hero-value"><%= fmtNum(st.uniqueTracks || 0) %></div>
+              <div class="lr-stat-hero-change"><%- changeBadge(st.uniqueTracks || 0, cmp && cmp.unique_tracks) %></div>
+            </div>
+          </div>
+        <% }) %>
+
+        <div class="lr-section-heading">
+          <div class="lr-section-kicker">Top Picks</div>
+          <h2 class="lr-section-title">Artists, albums and tracks</h2>
+          <div class="lr-section-copy">The strongest performers for the selected window, with discovery surfaced inside each column.</div>
+        </div>
+
+        <%# ── Top Artists / Albums / Tracks — 3-col hero+list ─────────────── %>
+        <% [['7d',_ta7d,_tAlb7d,_tt7d,_nd7d],['30d',_ta30d,_tAlb30d,_tt30d,_nd30d],['3m',_ta3m,_tAlb3m,_tt3m,_nd3m],['12m',_ta12m,_tAlb12m,_tt12m,_nd12m],['all',_taAll,_tAlbAll,_ttAll,null]].forEach(function(quad) { %>
+          <% var ps = quad[0]; var arts = quad[1]; var albs = quad[2]; var trks = quad[3]; var nd = quad[4] || {}; %>
+          <%
+            var _stPeriod = ps === '7d' ? _stats7d : ps === '30d' ? _stats30d : ps === '3m' ? _stats3m : ps === '12m' ? _stats12m : _statsAll;
+            var _cmpPeriod = ps === '7d' ? _comp7d : ps === '30d' ? _comp30d : ps === '3m' ? _comp3m : ps === '12m' ? _comp12m : null;
+            var _albumCount = _stPeriod.uniqueAlbums || 0;
+          %>
+          <div class="lr-top-three<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+
+            <%# Artist column %>
+            <div class="lr-top-col lr-top-col--artist">
+              <div class="lr-top-col-mob-label">Top Artists</div>
+              <div class="lr-top-col-stat">
+                <div class="lr-stat-hero lr-stat-hero--artist">
+                  <div class="lr-stat-hero-label">Artists</div>
+                  <div class="lr-stat-hero-value"><%= fmtNum(_stPeriod.uniqueArtists) %></div>
+                  <div class="lr-stat-hero-change"><%- changeBadge(_stPeriod.uniqueArtists, _cmpPeriod && _cmpPeriod.unique_artists) %></div>
+                </div>
+              </div>
+              <% var _a0 = arts[0]; %>
+              <% if (_a0) { %>
+                <div class="lr-top-hero cur-overview-trigger" role="button" tabindex="0"
+                     data-cur-overview-kind="artist" data-cur-overview-name="<%= _a0.artist_name %>">
+                  <img src="/api/music/thumb/artist/<%= encodeURIComponent(_a0.artist_name) %>"
+                       alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none'" />
+                  <div class="lr-top-hero-overlay"></div>
+                  <span class="lr-top-hero-badge">Top Artist</span>
+                  <div class="lr-top-hero-footer">
+                    <div class="lr-top-hero-rank">#1 <%= _a0.artist_name %></div>
+                    <div class="lr-top-hero-meta">
+                      <span class="lr-top-hero-plays"><%= fmtNum(_a0.play_count) %> plays</span>
+                    </div>
+                  </div>
+                </div>
+                <ul class="lr-top-list">
+                  <% arts.slice(1, 6).forEach(function(a, i) { %>
+                    <li class="lr-top-list-item">
+                      <span class="lr-top-list-rank">#<%= i + 2 %></span>
+                      <span class="lr-top-list-name cur-overview-trigger" role="button" tabindex="0"
+                            data-cur-overview-kind="artist" data-cur-overview-name="<%= a.artist_name %>"><%= a.artist_name %></span>
+                      <span class="lr-top-list-plays"><%= fmtNum(a.play_count) %></span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <div class="cur-empty">No artist data.</div>
+              <% } %>
+              <% if (ps !== 'all') { %>
+                <div class="lr-discovery-card lr-discovery-card--artist" style="margin-top:8px">
+                  <div class="lr-discovery-header">
+                    <div class="lr-discovery-label">New Artists</div>
+                    <div class="lr-discovery-pct"><%= newPct(nd.newArtistCount || 0, _stPeriod.uniqueArtists || 1) %>%</div>
+                  </div>
+                  <% if (nd.topNewArtist) { %>
+                    <div class="lr-discovery-item">
+                      <div class="lr-discovery-thumb">
+                        <img src="/api/music/thumb/artist/<%= encodeURIComponent(nd.topNewArtist.artist_name) %>"
+                             alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none'" />
+                      </div>
+                      <div class="lr-discovery-item-info">
+                        <div class="lr-discovery-item-name cur-overview-trigger" role="button" tabindex="0"
+                             data-cur-overview-kind="artist" data-cur-overview-name="<%= nd.topNewArtist.artist_name %>">#1 <%= nd.topNewArtist.artist_name %></div>
+                        <div class="lr-discovery-item-sub"><%= fmtNum(nd.topNewArtist.play_count) %> play<%= nd.topNewArtist.play_count !== 1 ? 's' : '' %></div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              <% } %>
+            </div>
+
+            <%# Album column %>
+            <div class="lr-top-col lr-top-col--album">
+              <div class="lr-top-col-mob-label">Top Albums</div>
+              <div class="lr-top-col-stat">
+                <div class="lr-stat-hero lr-stat-hero--album">
+                  <div class="lr-stat-hero-label">Albums</div>
+                  <div class="lr-stat-hero-value"><%= fmtNum(_albumCount) %></div>
+                  <div class="lr-stat-hero-change"><%- changeBadge(_albumCount, _cmpPeriod && _cmpPeriod.unique_albums) %></div>
+                </div>
+              </div>
+              <% var _alb0 = albs[0]; %>
+              <% if (_alb0) { %>
+                <div class="lr-top-hero cur-overview-trigger" role="button" tabindex="0"
+                     data-cur-overview-kind="album"
+                     data-cur-overview-artist="<%= _alb0.artist_name %>"
+                     data-cur-overview-album="<%= _alb0.album_name %>">
+                  <img src="/api/music/thumb/album?artist=<%= encodeURIComponent(_alb0.artist_name) %>&album=<%= encodeURIComponent(_alb0.album_name) %>"
+                       alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none'" />
+                  <div class="lr-top-hero-overlay"></div>
+                  <span class="lr-top-hero-badge">Top Album</span>
+                  <div class="lr-top-hero-footer">
+                    <div class="lr-top-hero-rank">#1 <%= _alb0.album_name %></div>
+                    <div class="lr-top-hero-meta">
+                      <span class="lr-top-hero-sub"><%= _alb0.artist_name %></span>
+                      <span class="lr-top-hero-plays"><%= fmtNum(_alb0.play_count) %> plays</span>
+                    </div>
+                  </div>
+                </div>
+                <ul class="lr-top-list">
+                  <% albs.slice(1, 6).forEach(function(alb, i) { %>
+                    <li class="lr-top-list-item">
+                      <span class="lr-top-list-rank">#<%= i + 2 %></span>
+                      <span class="lr-top-list-name cur-overview-trigger" role="button" tabindex="0"
+                            data-cur-overview-kind="album"
+                            data-cur-overview-artist="<%= alb.artist_name %>"
+                            data-cur-overview-album="<%= alb.album_name %>"><%= alb.album_name %></span>
+                      <span class="lr-top-list-sub"><%= alb.artist_name %></span>
+                      <span class="lr-top-list-plays"><%= fmtNum(alb.play_count) %></span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <div class="cur-empty">No album data.</div>
+              <% } %>
+              <% if (ps !== 'all') { %>
+                <div class="lr-discovery-card lr-discovery-card--album" style="margin-top:8px">
+                  <div class="lr-discovery-header">
+                    <div class="lr-discovery-label">New Albums</div>
+                    <div class="lr-discovery-pct"><%= newPct(nd.newAlbumCount || 0, nd.totalAlbums || 1) %>%</div>
+                  </div>
+                  <% if (nd.topNewAlbum) { %>
+                    <div class="lr-discovery-item">
+                      <div class="lr-discovery-thumb">
+                        <img src="/api/music/thumb/album?artist=<%= encodeURIComponent(nd.topNewAlbum.artist_name) %>&album=<%= encodeURIComponent(nd.topNewAlbum.album_name) %>"
+                             alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none'" />
+                      </div>
+                      <div class="lr-discovery-item-info">
+                        <div class="lr-discovery-item-name cur-overview-trigger" role="button" tabindex="0"
+                             data-cur-overview-kind="album"
+                             data-cur-overview-artist="<%= nd.topNewAlbum.artist_name %>"
+                             data-cur-overview-album="<%= nd.topNewAlbum.album_name %>">#1 <%= nd.topNewAlbum.album_name %></div>
+                        <div class="lr-discovery-item-sub"><%= nd.topNewAlbum.artist_name %> · <%= fmtNum(nd.topNewAlbum.play_count) %> play<%= nd.topNewAlbum.play_count !== 1 ? 's' : '' %></div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              <% } %>
+            </div>
+
+            <%# Track column %>
+            <div class="lr-top-col lr-top-col--track">
+              <div class="lr-top-col-mob-label">Top Tracks</div>
+              <div class="lr-top-col-stat">
+                <div class="lr-stat-hero lr-stat-hero--track">
+                  <div class="lr-stat-hero-label">Tracks</div>
+                  <div class="lr-stat-hero-value"><%= fmtNum(_stPeriod.uniqueTracks) %></div>
+                  <div class="lr-stat-hero-change"><%- changeBadge(_stPeriod.uniqueTracks, _cmpPeriod && _cmpPeriod.unique_tracks) %></div>
+                </div>
+              </div>
+              <% var _t0 = trks[0]; %>
+              <% if (_t0) { %>
+                <div class="lr-top-hero cur-overview-trigger" role="button" tabindex="0"
+                     data-cur-overview-kind="track" data-cur-overview-key="<%= _t0.plex_rating_key || '' %>">
+                  <img src="/api/music/thumb/track/<%= encodeURIComponent(_t0.plex_rating_key || '') %>"
+                       alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none'" />
+                  <div class="lr-top-hero-overlay"></div>
+                  <span class="lr-top-hero-badge">Top Track</span>
+                  <div class="lr-top-hero-footer">
+                    <div class="lr-top-hero-rank">#1 <%= _t0.track_title %></div>
+                    <div class="lr-top-hero-meta">
+                      <span class="lr-top-hero-sub"><%= _t0.artist_name %></span>
+                      <span class="lr-top-hero-plays"><%= fmtNum(_t0.play_count) %> plays</span>
+                    </div>
+                  </div>
+                </div>
+                <ul class="lr-top-list">
+                  <% trks.slice(1, 6).forEach(function(t, i) { %>
+                    <li class="lr-top-list-item">
+                      <span class="lr-top-list-rank">#<%= i + 2 %></span>
+                      <span class="lr-top-list-name cur-overview-trigger" role="button" tabindex="0"
+                            data-cur-overview-kind="track" data-cur-overview-key="<%= t.plex_rating_key || '' %>"><%= t.track_title %></span>
+                      <span class="lr-top-list-sub"><%= t.artist_name %></span>
+                      <span class="lr-top-list-plays"><%= fmtNum(t.play_count) %></span>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <div class="cur-empty">No track data.</div>
+              <% } %>
+              <% if (ps !== 'all') { %>
+                <div class="lr-discovery-card lr-discovery-card--track" style="margin-top:8px">
+                  <div class="lr-discovery-header">
+                    <div class="lr-discovery-label">New Tracks</div>
+                    <div class="lr-discovery-pct"><%= newPct(nd.newTrackCount || 0, _stPeriod.uniqueTracks || 1) %>%</div>
+                  </div>
+                  <% if (nd.topNewTrack) { %>
+                    <div class="lr-discovery-item">
+                      <div class="lr-discovery-thumb">
+                        <img src="/api/music/thumb/track/<%= encodeURIComponent(nd.topNewTrack.plex_rating_key || '') %>"
+                             alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none'" />
+                      </div>
+                      <div class="lr-discovery-item-info">
+                        <div class="lr-discovery-item-name cur-overview-trigger" role="button" tabindex="0"
+                             data-cur-overview-kind="track" data-cur-overview-key="<%= nd.topNewTrack.plex_rating_key || '' %>">#1 <%= nd.topNewTrack.track_title %></div>
+                        <div class="lr-discovery-item-sub"><%= nd.topNewTrack.artist_name %> · <%= fmtNum(nd.topNewTrack.play_count) %> play<%= nd.topNewTrack.play_count !== 1 ? 's' : '' %></div>
+                      </div>
+                    </div>
+                  <% } %>
+                </div>
+              <% } %>
+            </div>
+
+          </div><%# end lr-top-three %>
+        <% }) %>
+
+        <div class="lr-section-heading">
+          <div class="lr-section-kicker">Charts</div>
+          <h2 class="lr-section-title">Patterns and ratios</h2>
+          <div class="lr-section-copy">A denser chart stack focused on listening shape rather than dashboard widgets.</div>
+        </div>
+
+        <div class="lr-two-col">
+
+          <div class="cur-panel" data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Music Ratio</h3>
+            </div>
+            <div class="cur-panel-body">
+              <% [['7d', _summaryByPeriod['7d']], ['30d', _summaryByPeriod['30d']], ['3m', _summaryByPeriod['3m']], ['12m', _summaryByPeriod['12m']], ['all', _summaryByPeriod['all']]].forEach(function(pair) { %>
+                <% var ps = pair[0]; var summary = pair[1] || {}; %>
+                <div class="lr-ratio-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                  <%- musicRatioSvg(summary) %>
+                  <div class="lr-ratio-legend">
+                    <div class="lr-ratio-legend-item">
+                      <span class="lr-ratio-dot" style="background:#38bdf8"></span>
+                      <span class="lr-ratio-name">Tracks</span>
+                      <span class="lr-ratio-val"><%= fmtNum(summary.uniqueTracks) %></span>
+                    </div>
+                    <div class="lr-ratio-legend-item">
+                      <span class="lr-ratio-dot" style="background:#5eead4"></span>
+                      <span class="lr-ratio-name">Albums</span>
+                      <span class="lr-ratio-val"><%= fmtNum(summary.uniqueAlbums) %></span>
+                    </div>
+                    <div class="lr-ratio-legend-item">
+                      <span class="lr-ratio-dot" style="background:#a78bfa"></span>
+                      <span class="lr-ratio-name">Artists</span>
+                      <span class="lr-ratio-val"><%= fmtNum(summary.uniqueArtists) %></span>
+                    </div>
+                  </div>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+
+          <div class="cur-panel" data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Listening Fingerprint</h3>
+            </div>
+            <div class="cur-panel-body">
+              <% [['7d', _fpByPeriod['7d']], ['30d', _fpByPeriod['30d']], ['3m', _fpByPeriod['3m']], ['12m', _fpByPeriod['12m']], ['all', _fpByPeriod['all']]].forEach(function(pair) { %>
+                <% var ps = pair[0]; var fp = pair[1] || {}; %>
+                <div class="lr-radar-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                  <%- radarSvg(fp, _fpDims) %>
+                  <div class="lr-radar-legend">
+                    <% _fpDims.forEach(function(d) { %>
+                      <div class="lr-radar-leg-item">
+                        <span class="lr-radar-leg-dot"></span>
+                        <span class="lr-radar-leg-name"><%= d.label %></span>
+                        <span class="lr-radar-leg-val"><%= Math.min(100, Math.max(0, Number(fp[d.key] || 0))) %>%</span>
+                      </div>
+                    <% }) %>
+                  </div>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+
+        </div>
+
+        <%# ── Top Tags + Music by Decade ──────────────────────────────────── %>
+        <div class="lr-two-col">
+
+          <%# Top Tags %>
+          <div class="cur-panel" data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Top Tags</h3>
+            </div>
+            <div class="cur-panel-body">
+              <% [['7d', _tagStreamByPeriod['7d']], ['30d', _tagStreamByPeriod['30d']], ['3m', _tagStreamByPeriod['3m']], ['12m', _tagStreamByPeriod['12m']], ['all', _tagStreamByPeriod['all']]].forEach(function(pair) { %>
+                <% var ps = pair[0]; var stream = pair[1] || {}; var hasSeries = Array.isArray(stream.series) && stream.series.length; %>
+                <div class="lr-tag-stream<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                  <% if (hasSeries) { %>
+                    <%- tagStreamSvg(stream) %>
+                  <% } else { %>
+                    <div class="cur-empty">No tag data available for this period.</div>
+                  <% } %>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+
+          <%# Music by Decade %>
+          <div class="cur-panel" data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Music by Decade</h3>
+            </div>
+            <div class="cur-panel-body">
+              <% [['7d',_dd7d],['30d',_dd30d],['3m',_dd3m],['12m',_dd12m],['all',_ddAll]].forEach(function(pair) { %>
+                <% var ps = pair[0]; var dd = pair[1]; %>
+                <div class="lr-decade-chart<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                  <%- decadeBarHtml(dd) %>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+
+        </div><%# end lr-two-col tags+decade %>
+
+        <div class="cur-panel" data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Listening Clock</h3>
+          </div>
+          <div class="cur-panel-body lr-chart-pair-body">
+            <div>
+              <% [['7d',_clock7d],['30d',_clock30d],['3m',_clock3m],['12m',_clock12m],['all',_clockAll]].forEach(function(pair) { %>
+                <% var ps = pair[0]; var ch = pair[1]; %>
+                <div class="lr-clock-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                  <%- clockSvg(ch) %>
+                </div>
+              <% }) %>
+            </div>
+
+            <div>
+              <div class="cur-panel-header">
+                <h3 class="cur-panel-title">Tier Breakdown</h3>
+              </div>
+              <div class="cur-panel-body">
+                <% [['7d', _tierByPeriod['7d']], ['30d', _tierByPeriod['30d']], ['3m', _tierByPeriod['3m']], ['12m', _tierByPeriod['12m']], ['all', _tierByPeriod['all']]].forEach(function(pair) { %>
+                  <% var ps = pair[0]; var breakdown = pair[1] || []; %>
+                  <div class="lr-tier-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                    <% if (breakdown.length) { %>
+                      <div class="lr-tier-radial"><%- tierRadialSvg(breakdown) %></div>
+                      <div class="lr-tier-legend"><%- tierLegendHtml(breakdown) %></div>
+                    <% } else { %>
+                      <div class="cur-empty">No tier data available for this period.</div>
+                    <% } %>
+                  </div>
+                <% }) %>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lr-section-heading">
+          <div class="lr-section-kicker">Quick Facts</div>
+          <h2 class="lr-section-title">Fast reads</h2>
+          <div class="lr-section-copy">Short facts that update with the selected period instead of staying pinned to 30 days.</div>
+        </div>
+
+        <div class="cur-panel" data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Quick Facts</h3>
+          </div>
+          <div class="cur-panel-body">
+            <% [['7d', _quickFactsByPeriod['7d']], ['30d', _quickFactsByPeriod['30d']], ['3m', _quickFactsByPeriod['3m']], ['12m', _quickFactsByPeriod['12m']], ['all', _quickFactsByPeriod['all']]].forEach(function(pair) { %>
+              <% var ps = pair[0]; var qf = pair[1] || {}; var bestDay = qf.bestDay || {}; var bestDayFmt = bestDay.day ? new Date(bestDay.day + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null; %>
+              <div class="lr-facts-grid<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                <div class="lr-fact-card">
+                  <div class="lr-fact-value"><%= qf.streak || 0 %><span class="lr-fact-unit">days</span></div>
+                  <div class="lr-fact-label">Listening Streak</div>
+                  <div class="lr-fact-sub">consecutive days with plays</div>
+                </div>
+                <div class="lr-fact-card">
+                  <div class="lr-fact-value"><%= bestDay.plays || 0 %><span class="lr-fact-unit">plays</span></div>
+                  <div class="lr-fact-label">Best Day</div>
+                  <div class="lr-fact-sub"><%= bestDayFmt || 'no plays in this period' %></div>
+                </div>
+                <div class="lr-fact-card">
+                  <div class="lr-fact-value"><%= qf.skipRate || 0 %>%</div>
+                  <div class="lr-fact-label">Skip Rate</div>
+                  <div class="lr-fact-sub">for this period</div>
+                </div>
+                <div class="lr-fact-card">
+                  <div class="lr-fact-value"><%= qf.mostActiveHour || '—' %></div>
+                  <div class="lr-fact-label">Most Active Hour</div>
+                  <div class="lr-fact-sub">for this period</div>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+
+        <div class="lr-section-heading">
+          <div class="lr-section-kicker">Overview</div>
+          <h2 class="lr-section-title">Listening snapshot</h2>
+          <div class="lr-section-copy">A tighter report view for the selected period, with listen time and active days broken out into their own cards.</div>
+        </div>
+
+        <% [['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['3m', 'Last 3 months'], ['12m', 'Last 12 months'], ['all', 'All time']].forEach(function(pair) { %>
+          <% var ps = pair[0]; var label = pair[1]; var summary = _summaryByPeriod[ps] || {}; var summaryCmp = _summaryCompByPeriod[ps] || null; %>
+          <div class="lr-summary-strip<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+            <div class="lr-summary-card lr-summary-card--primary">
+              <div class="lr-summary-label"><%= label %></div>
+              <div class="lr-summary-value"><%= fmtNum(summary.plays) %></div>
+              <div class="lr-summary-meta">
+                plays
+                <% if (summaryCmp) { %>
+                  · <span><%- changeBadge(summary.plays, summaryCmp.plays) %></span>
+                <% } %>
+              </div>
+            </div>
+            <div class="lr-summary-card">
+              <div class="lr-summary-label">Artists</div>
+              <div class="lr-summary-value"><%= fmtNum(summary.uniqueArtists) %></div>
+              <div class="lr-summary-meta"><%- changeBadge(summary.uniqueArtists, summaryCmp && summaryCmp.unique_artists) %></div>
+            </div>
+            <div class="lr-summary-card">
+              <div class="lr-summary-label">Albums</div>
+              <div class="lr-summary-value"><%= fmtNum(summary.uniqueAlbums) %></div>
+              <div class="lr-summary-meta"><%- changeBadge(summary.uniqueAlbums, summaryCmp && summaryCmp.unique_albums) %></div>
+            </div>
+            <div class="lr-summary-card">
+              <div class="lr-summary-label">Tracks</div>
+              <div class="lr-summary-value"><%= fmtNum(summary.uniqueTracks) %></div>
+              <div class="lr-summary-meta"><%- changeBadge(summary.uniqueTracks, summaryCmp && summaryCmp.unique_tracks) %></div>
+            </div>
+            <div class="lr-summary-card">
+              <div class="lr-summary-label">Listen time</div>
+              <div class="lr-summary-value"><%= fmtListenTime(summary.listenMs) %></div>
+              <div class="lr-summary-meta"><%- changeBadge(summary.listenMs, summaryCmp && summaryCmp.total_listen_ms) %></div>
+            </div>
+            <div class="lr-summary-card">
+              <div class="lr-summary-label">Active days</div>
+              <div class="lr-summary-value"><%= fmtNum(summary.activeDays) %></div>
+              <div class="lr-summary-meta"><%- changeBadge(summary.activeDays, summaryCmp && summaryCmp.active_days) %></div>
+            </div>
+          </div>
+        <% }) %>
+
+      </div><%# end dash-content %>
+    </section>
+  </div>
+
+  <script src="/sidebar.js?v=<%= assetVersion %>"></script>
+  <script src="/user-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/version-badge.js?v=<%= assetVersion %>"></script>
+  <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
+  <script>
+  (function () {
+    // ── Period selector ────────────────────────────────────────────────────
+    var btns = document.querySelectorAll('.lr-period-btn');
+    var sets = document.querySelectorAll('[data-period-set]');
+
+    btns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var p = btn.dataset.period;
+        btns.forEach(function (b) { b.classList.toggle('active', b === btn); });
+        sets.forEach(function (el) {
+          el.classList.toggle('lr-hidden', el.dataset.periodSet !== p);
+        });
+      });
+    });
+
+    // ── Weekly chart ───────────────────────────────────────────────────────
+    var weekOffset  = 0;
+    var labelEl  = document.getElementById('lr-week-label');
+    var totalEl  = document.getElementById('lr-week-total');
+    var chartEl  = document.getElementById('lr-weekly-chart');
+    var backBtn  = document.getElementById('lr-week-back');
+    var fwdBtn   = document.getElementById('lr-week-fwd');
+
+    function isDayTheme() {
+      return document.documentElement.getAttribute('data-theme') === 'day';
+    }
+
+    function renderWeekChart(data) {
+      var week     = data.week;
+      var prevWeek = data.prevWeek;
+      var allPlays = week.days.concat(prevWeek.days).map(function(d){ return d.plays; });
+      var maxPlays = Math.max.apply(null, allPlays.concat([1]));
+
+      labelEl.textContent = week.label;
+      totalEl.textContent = week.totalPlays.toLocaleString() + ' plays';
+      backBtn.disabled    = false;
+      fwdBtn.disabled     = !data.canGoForward;
+
+      var W = chartEl.offsetWidth || 560;
+      var H = 120;
+      var padL = 8, padR = 8, padT = 12, padB = 28;
+      var innerW = W - padL - padR;
+      var innerH = H - padT - padB;
+      var barW = Math.floor(innerW / 7);
+      var groupW = barW;
+      var bW = Math.max(4, Math.floor(groupW * 0.36));
+
+      var isDark = !isDayTheme();
+      var prevCol  = isDark ? 'rgba(139,92,246,0.22)' : 'rgba(139,92,246,0.15)';
+      var curCol   = isDark ? 'rgba(139,92,246,0.85)' : 'rgba(109,40,217,0.80)';
+      var textCol  = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(11,21,30,0.4)';
+      var gridCol  = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(11,21,30,0.07)';
+
+      var svgParts = ['<svg width="' + W + '" height="' + H + '" xmlns="http://www.w3.org/2000/svg">'];
+
+      // grid line at top
+      var yTop = padT;
+      svgParts.push('<line x1="' + padL + '" y1="' + yTop + '" x2="' + (W - padR) + '" y2="' + yTop + '" stroke="' + gridCol + '" stroke-width="1"/>');
+
+      week.days.forEach(function(day, i) {
+        var prev = prevWeek.days[i] || { plays: 0 };
+        var x = padL + i * groupW;
+        var cx = x + groupW / 2;
+
+        // prev bar (behind, lighter)
+        if (prev.plays > 0) {
+          var ph = Math.round((prev.plays / maxPlays) * innerH);
+          svgParts.push('<rect x="' + (cx - bW - 1).toFixed(1) + '" y="' + (padT + innerH - ph) + '" width="' + bW + '" height="' + ph + '" rx="2" fill="' + prevCol + '"/>');
+        }
+
+        // current bar
+        if (day.plays > 0) {
+          var ch = Math.round((day.plays / maxPlays) * innerH);
+          svgParts.push('<rect x="' + (cx + 1).toFixed(1) + '" y="' + (padT + innerH - ch) + '" width="' + bW + '" height="' + ch + '" rx="2" fill="' + curCol + '"/>');
+          // play count label above bar if > 0
+          if (ch > 14) {
+            svgParts.push('<text x="' + (cx + 1 + bW/2).toFixed(1) + '" y="' + (padT + innerH - ch - 3) + '" text-anchor="middle" font-size="9" fill="' + curCol + '">' + day.plays + '</text>');
+          }
+        }
+
+        // Day label
+        svgParts.push('<text x="' + cx.toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" font-family="Segoe UI,sans-serif" fill="' + textCol + '">' + day.dow + '</text>');
+      });
+
+      svgParts.push('</svg>');
+      chartEl.innerHTML = svgParts.join('');
+    }
+
+    function loadWeek(offset) {
+      labelEl.textContent = 'Loading…';
+      totalEl.textContent = '';
+      fetch('/api/music/report/weekly?offset=' + offset, { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          weekOffset = offset;
+          renderWeekChart(data);
+        })
+        .catch(function() {
+          labelEl.textContent = 'Could not load data';
+        });
+    }
+
+    backBtn.addEventListener('click', function() { loadWeek(weekOffset + 1); });
+    fwdBtn.addEventListener('click',  function() { if (weekOffset > 0) loadWeek(weekOffset - 1); });
+
+    // Initial load
+    loadWeek(0);
+
+    // Re-render on theme change to update colours
+    var themeObserver = new MutationObserver(function() {
+      if (chartEl.querySelector('svg')) loadWeek(weekOffset);
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }());
+  </script>
+</body>
+</html>

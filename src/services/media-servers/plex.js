@@ -57,6 +57,18 @@ function extractPlexReleaseDate(metadata = {}) {
   return year ? String(year) : '';
 }
 
+function extractPlexMetadataKey(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/\/library\/metadata\/([^/?]+)/);
+  return match ? String(match[1] || '').trim() : raw;
+}
+
+function extractPlexTagList(metadata = {}, fieldName = '') {
+  const items = Array.isArray(metadata?.[fieldName]) ? metadata[fieldName] : [];
+  return [...new Set(items.map((item) => String(item?.tag || item || '').trim()).filter(Boolean))];
+}
+
 // ── Connection verification ───────────────────────────────────────────────────
 
 export async function verifyConnection(url, token) {
@@ -121,11 +133,15 @@ export async function getLibraryTracks(url, token, libraryKeys) {
           artistName:  String(t.originalTitle || t.grandparentTitle || ''),
           trackTitle:  String(t.title || ''),
           albumName:   String(t.parentTitle || ''),
+          albumRatingKey: extractPlexMetadataKey(t.parentRatingKey || t.parentKey || ''),
           recordingMbid: extractPlexRecordingMbid(t),
           trackYear:    extractPlexReleaseYear(t),
           originalReleaseDate: extractPlexReleaseDate(t),
           genres:      (t.Genre || []).map((g) => g.tag),
           moods:       [],
+          albumGenres: [],
+          albumStyles: [],
+          albumMoods:  [],
           libraryKey:  String(key),
           filePath:    String(t.Media?.[0]?.Part?.[0]?.file || ''),
           durationMs:  Number(t.duration || 0),
@@ -186,6 +202,37 @@ export async function getLibraryTracks(url, token, libraryKeys) {
   for (const t of tracks) {
     const moods = moodMap.get(t.ratingKey);
     if (moods) t.moods = [...moods];
+  }
+
+  const albumIds = [...new Set(tracks.map((track) => String(track.albumRatingKey || '').trim()).filter(Boolean))];
+  const albumMetadataMap = new Map();
+  const ALBUM_BATCH_SIZE = 200;
+  for (let index = 0; index < albumIds.length; index += ALBUM_BATCH_SIZE) {
+    const batch = albumIds.slice(index, index + ALBUM_BATCH_SIZE);
+    const metadataUrl = buildUrl(url, `library/metadata/${batch.map((id) => encodeURIComponent(id)).join(',')}`);
+    const response = await fetch(metadataUrl.toString(), {
+      headers: plexHeaders(token, { Accept: 'application/json' }),
+    });
+    if (!response.ok) continue;
+    const json = await response.json();
+    const metadataItems = Array.isArray(json?.MediaContainer?.Metadata) ? json.MediaContainer.Metadata : [];
+    for (const item of metadataItems) {
+      const albumKey = extractPlexMetadataKey(item?.ratingKey);
+      if (!albumKey) continue;
+      albumMetadataMap.set(albumKey, {
+        albumGenres: extractPlexTagList(item, 'Genre'),
+        albumStyles: extractPlexTagList(item, 'Style'),
+        albumMoods: extractPlexTagList(item, 'Mood'),
+      });
+    }
+  }
+
+  for (const track of tracks) {
+    const albumMeta = albumMetadataMap.get(String(track.albumRatingKey || '').trim());
+    if (!albumMeta) continue;
+    track.albumGenres = albumMeta.albumGenres || [];
+    track.albumStyles = albumMeta.albumStyles || [];
+    track.albumMoods = albumMeta.albumMoods || [];
   }
 
   return tracks;

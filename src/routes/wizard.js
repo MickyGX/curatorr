@@ -476,6 +476,15 @@ function isLoopbackHostname(hostname) {
   );
 }
 
+function parseBaseUrl(url) {
+  try { return new URL(String(url || '')); } catch (_) { return null; }
+}
+
+function isLoopbackBaseUrl(url) {
+  const parsed = parseBaseUrl(url);
+  return Boolean(parsed && isLoopbackHostname(parsed.hostname));
+}
+
 function buildReachableWebhookUrl(ctx, config, req, webhookPath) {
   const {
     buildAppApiUrl,
@@ -489,16 +498,22 @@ function buildReachableWebhookUrl(ctx, config, req, webhookPath) {
       config?.tautulli?.curatorrUrl
       || config?.general?.remoteUrl
       || config?.general?.localUrl
-      || ''
-    ).trim()
+        || ''
+      ).trim()
   );
-  if (configuredBase) return { ok: true, url: buildConfiguredWebhookUrl(config, webhookPath), derivedFromRequest: false };
+  if (configuredBase && !isLoopbackBaseUrl(configuredBase)) {
+    return { ok: true, url: buildConfiguredWebhookUrl(config, webhookPath), derivedFromRequest: false };
+  }
   const requestBase = normalizeBaseUrl(resolvePublicBaseUrl(req));
   if (!requestBase) return { ok: false, reason: 'Curatorr base URL is not configured.' };
-  let parsed = null;
-  try { parsed = new URL(requestBase); } catch (_) { parsed = null; }
+  const parsed = parseBaseUrl(requestBase);
   if (!parsed || isLoopbackHostname(parsed.hostname)) {
-    return { ok: false, reason: 'Set a Curatorr local or remote URL, or open Curatorr via a reachable LAN address before registering the Plex webhook.' };
+    return {
+      ok: false,
+      reason: configuredBase
+        ? 'Curatorr local or remote URL points to localhost/127.0.0.1. Set a reachable LAN or remote URL before registering the Plex webhook.'
+        : 'Set a Curatorr local or remote URL, or open Curatorr via a reachable LAN address before registering the Plex webhook.',
+    };
   }
   const url = buildAppApiUrl(requestBase, webhookPath);
   const secret = String(getWebhookSharedSecret(config) || '').trim();

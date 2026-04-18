@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   album_name    TEXT NOT NULL DEFAULT '',
   recording_mbid TEXT NOT NULL DEFAULT '',
   genres        TEXT NOT NULL DEFAULT '[]',
+  album_genres  TEXT NOT NULL DEFAULT '[]',
+  album_styles  TEXT NOT NULL DEFAULT '[]',
+  album_moods   TEXT NOT NULL DEFAULT '[]',
   library_key   TEXT NOT NULL DEFAULT '',
   file_path     TEXT NOT NULL DEFAULT '',
   duration_ms   INTEGER NOT NULL DEFAULT 0,
@@ -574,6 +577,12 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
   if (!masterCols.includes('recording_mbid'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
+  if (!masterCols.includes('album_genres'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN album_genres TEXT NOT NULL DEFAULT '[]'");
+  if (!masterCols.includes('album_styles'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN album_styles TEXT NOT NULL DEFAULT '[]'");
+  if (!masterCols.includes('album_moods'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN album_moods TEXT NOT NULL DEFAULT '[]'");
   const masterColsNow = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (masterColsNow.includes('recording_mbid'))
     db.exec(`CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid ON master_tracks(recording_mbid) WHERE recording_mbid != ''`);
@@ -1545,6 +1554,11 @@ export function getPlayStats(db, userPlexId, sinceMs = 0) {
       COUNT(*) AS total_plays,
       SUM(is_skip) AS total_skips,
       COUNT(DISTINCT artist_name) AS unique_artists,
+      COUNT(DISTINCT CASE
+        WHEN TRIM(album_name) != '' AND TRIM(artist_name) != ''
+          THEN TRIM(album_name) || '|||' || TRIM(artist_name)
+        ELSE NULL
+      END) AS unique_albums,
       COUNT(DISTINCT plex_rating_key) AS unique_tracks,
       SUM(duration_ms) AS total_listen_ms
     FROM play_events
@@ -1920,12 +1934,13 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, library_key, file_path, duration_ms, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, album_genres, album_styles, album_moods, library_key, file_path, duration_ms, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
       album_name = excluded.album_name, recording_mbid = excluded.recording_mbid,
       genres = excluded.genres, moods = excluded.moods,
+      album_genres = excluded.album_genres, album_styles = excluded.album_styles, album_moods = excluded.album_moods,
       library_key = excluded.library_key, file_path = excluded.file_path,
       duration_ms = excluded.duration_ms, rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
@@ -1950,6 +1965,9 @@ export function refreshMasterTracks(db, tracks) {
         String(r.recordingMbid || '').trim(),
         JSON.stringify(r.genres || []),
         JSON.stringify(r.moods || []),
+        JSON.stringify(r.albumGenres || []),
+        JSON.stringify(r.albumStyles || []),
+        JSON.stringify(r.albumMoods || []),
         r.libraryKey,
         String(r.filePath || ''),
         Number(r.durationMs ?? 0),
@@ -2002,6 +2020,9 @@ export function getMasterTracks(db) {
     albumName: r.album_name,
     genres: JSON.parse(r.genres || '[]'),
     moods: JSON.parse(r.moods || '[]'),
+    albumGenres: JSON.parse(r.album_genres || '[]'),
+    albumStyles: JSON.parse(r.album_styles || '[]'),
+    albumMoods: JSON.parse(r.album_moods || '[]'),
     libraryKey: r.library_key,
     filePath: String(r.file_path || ''),
     recordingMbid: String(r.recording_mbid || '').trim(),
@@ -2454,22 +2475,39 @@ export function clearPlaylistState(db, userId, playlistKey) {
 }
 
 export function getGenresFromMaster(db) {
-  const rows = db.prepare('SELECT DISTINCT value FROM master_tracks, json_each(master_tracks.genres) ORDER BY value').all();
-  // Jellyfin may store genres as semicolon-joined strings; split and deduplicate
-  const genres = new Set();
+  return collectDistinctMasterJsonValues(db, 'genres', { splitSemicolons: true });
+}
+
+function collectDistinctMasterJsonValues(db, columnName, { splitSemicolons = false } = {}) {
+  const rows = db.prepare(`SELECT DISTINCT value FROM master_tracks, json_each(master_tracks.${columnName}) ORDER BY value`).all();
+  const values = new Set();
   for (const row of rows) {
     if (!row.value) continue;
-    for (const g of String(row.value).split(';').map((s) => s.trim()).filter(Boolean)) {
-      if (/^\d+$/.test(g)) continue; // skip bare numeric IDs
-      genres.add(g);
+    const items = splitSemicolons
+      ? String(row.value).split(';').map((s) => s.trim()).filter(Boolean)
+      : [String(row.value).trim()].filter(Boolean);
+    for (const item of items) {
+      if (/^\d+$/.test(item)) continue;
+      values.add(item);
     }
   }
-  return [...genres].sort();
+  return [...values].sort();
 }
 
 export function getMoodsFromMaster(db) {
-  const rows = db.prepare('SELECT DISTINCT value FROM master_tracks, json_each(master_tracks.moods) ORDER BY value').all();
-  return rows.map((r) => r.value).filter(Boolean);
+  return collectDistinctMasterJsonValues(db, 'moods');
+}
+
+export function getAlbumGenresFromMaster(db) {
+  return collectDistinctMasterJsonValues(db, 'album_genres', { splitSemicolons: true });
+}
+
+export function getAlbumStylesFromMaster(db) {
+  return collectDistinctMasterJsonValues(db, 'album_styles');
+}
+
+export function getAlbumMoodsFromMaster(db) {
+  return collectDistinctMasterJsonValues(db, 'album_moods');
 }
 
 // ─── Artist tags (Last.fm) ────────────────────────────────────────────────────
@@ -3639,6 +3677,9 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
   const trackTierFilter  = parseTriStateFilter(rules?.trackTiers);
   const gf = parseTriStateFilter(rules?.genres);
   const mf = parseTriStateFilter(rules?.moods);
+  const agf = parseTriStateFilter(rules?.albumGenres);
+  const asf = parseTriStateFilter(rules?.albumStyles);
+  const amf = parseTriStateFilter(rules?.albumMoods);
   const tf = parseTriStateFilter(rules?.tags);
   const df = parseTriStateFilter(rules?.decades);
   const topN = rules?.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
@@ -3680,6 +3721,15 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
     return genreMatch || keywordMatch;
   }
 
+  function matchesTriStateValues(values, filter) {
+    const items = Array.isArray(values) ? values : [];
+    if (filter.include && !(filter.includeMode === 'all'
+      ? Array.from(filter.include).every((value) => items.includes(value))
+      : items.some((value) => filter.include.has(value)))) return false;
+    if (filter.exclude && items.some((value) => filter.exclude.has(value))) return false;
+    return true;
+  }
+
   // Returns both the eligible pool and the final output estimate for a given pre-built artistMap + trackMap.
   function runWithMaps(artistMap, trackMap) {
     const matchedTracks = [];
@@ -3695,14 +3745,11 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
 
-      if (gf.include && !(gf.includeMode === 'all'
-        ? Array.from(gf.include).every((g) => (t.genres || []).includes(g))
-        : (t.genres || []).some((g) => gf.include.has(g)))) continue;
-      if (gf.exclude && (t.genres || []).some((g) => gf.exclude.has(g))) continue;
-      if (mf.include && !(mf.includeMode === 'all'
-        ? Array.from(mf.include).every((m) => (t.moods || []).includes(m))
-        : (t.moods || []).some((m) => mf.include.has(m)))) continue;
-      if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
+      if (!matchesTriStateValues(t.genres || [], gf)) continue;
+      if (!matchesTriStateValues(t.moods || [], mf)) continue;
+      if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
+      if (!matchesTriStateValues(t.albumStyles || [], asf)) continue;
+      if (!matchesTriStateValues(t.albumMoods || [], amf)) continue;
       if (tf.include || tf.exclude) {
         const artistTags = getEffectiveTrackTags(t, artistTagMap);
         if (tf.include && !(tf.includeMode === 'all'
@@ -3773,14 +3820,11 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
-      if (gf.include && !(gf.includeMode === 'all'
-        ? Array.from(gf.include).every((g) => (t.genres || []).includes(g))
-        : (t.genres || []).some((g) => gf.include.has(g)))) continue;
-      if (gf.exclude && (t.genres || []).some((g) => gf.exclude.has(g))) continue;
-      if (mf.include && !(mf.includeMode === 'all'
-        ? Array.from(mf.include).every((m) => (t.moods || []).includes(m))
-        : (t.moods || []).some((m) => mf.include.has(m)))) continue;
-      if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
+      if (!matchesTriStateValues(t.genres || [], gf)) continue;
+      if (!matchesTriStateValues(t.moods || [], mf)) continue;
+      if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
+      if (!matchesTriStateValues(t.albumStyles || [], asf)) continue;
+      if (!matchesTriStateValues(t.albumMoods || [], amf)) continue;
       if (tf.include || tf.exclude) {
         const artistTags = getEffectiveTrackTags(t, artistTagMap);
         if (tf.include && !(tf.includeMode === 'all'

@@ -19,6 +19,9 @@ import {
   getUserPreferences,
   getGenresFromMaster,
   getMoodsFromMaster,
+  getAlbumGenresFromMaster,
+  getAlbumStylesFromMaster,
+  getAlbumMoodsFromMaster,
   getAllLastfmTags,
   getAllTrackDecadeTags,
   listUserPersonalPlaylists,
@@ -34,6 +37,7 @@ import {
   getDistinctPathSegments,
   classifyTier,
   listSuggestedAlbums,
+  getArtistTagMap,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildFeaturePresetAvailability } from '../services/playlists.js';
@@ -1469,11 +1473,13 @@ export function registerPages(app, ctx) {
     const now = Date.now();
     const since7d  = now - 7  * 24 * 60 * 60 * 1000;
     const since30d = now - 30 * 24 * 60 * 60 * 1000;
+    const since52w = now - 364 * 24 * 60 * 60 * 1000;
 
     const normalizeStats = (r) => ({
       plays:         r?.total_plays    || 0,
       skips:         r?.total_skips    || 0,
       uniqueArtists: r?.unique_artists || 0,
+      uniqueAlbums:  r?.unique_albums  || 0,
       uniqueTracks:  r?.unique_tracks  || 0,
       totalListenMs: r?.total_listen_ms || 0,
     });
@@ -1552,6 +1558,32 @@ export function registerPages(app, ctx) {
       `).all(...params);
     }
 
+    function queryTierBreakdown(since) {
+      const sinceClause = since > 0 ? 'AND pe.started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, userPlexId, since] : [userPlexId, userPlexId];
+      return db.prepare(`
+        SELECT
+          COALESCE(ts.tier, 'curatorr') AS tier,
+          COUNT(*) AS total_plays
+        FROM play_events pe
+        LEFT JOIN track_stats ts
+          ON ts.user_plex_id = ?
+         AND ts.plex_rating_key = pe.plex_rating_key
+        WHERE pe.user_plex_id = ?
+          ${sinceClause}
+        GROUP BY tier
+        ORDER BY
+          CASE tier
+            WHEN 'belter'      THEN 1
+            WHEN 'decent'      THEN 2
+            WHEN 'half-decent' THEN 3
+            WHEN 'curatorr'    THEN 4
+            WHEN 'skip'        THEN 5
+            ELSE 6
+          END
+      `).all(...params);
+    }
+
     const topArtists7d   = queryTopArtists(since7d);
     const topArtists30d  = queryTopArtists(since30d);
     const topArtistsAll  = queryTopArtists(0);
@@ -1583,6 +1615,26 @@ export function registerPages(app, ctx) {
     const recentPopularity = getAlbumPopularTrackRanks(db, recentHistoryBase.map((e) => e.plex_rating_key).filter(Boolean));
     const recentHistory = attachAlbumPopularity(recentHistoryBase, recentPopularity, 'plex_rating_key');
 
+    const heatmapRows = db.prepare(`
+      SELECT
+        date(started_at / 1000, 'unixepoch', 'localtime') AS day,
+        COUNT(*) AS plays
+      FROM play_events
+      WHERE user_plex_id = ?
+        AND started_at >= ?
+        AND is_skip = 0
+      GROUP BY day
+      ORDER BY day ASC
+    `).all(userPlexId, since52w);
+    const heatmapMap = new Map(heatmapRows.map((row) => [row.day, row.plays]));
+    const heatmapData = [];
+    for (let i = 363; i >= 0; i--) {
+      const d = new Date(now - i * 86400000);
+      const key = d.toISOString().slice(0, 10);
+      heatmapData.push({ day: key, plays: heatmapMap.get(key) || 0 });
+    }
+    const heatmapStartDow = (new Date(heatmapData[0].day + 'T12:00:00Z').getDay() + 6) % 7;
+
     res.render('overview', {
       title: 'Overview — Curatorr',
       user,
@@ -1605,6 +1657,645 @@ export function registerPages(app, ctx) {
       topTracks30d,
       topTracksAll,
       recentHistory,
+      heatmapData,
+      heatmapStartDow,
+      tierBreakdown7d: queryTierBreakdown(since7d),
+      tierBreakdown30d: queryTierBreakdown(since30d),
+      tierBreakdownAll: queryTierBreakdown(0),
+      extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
+    });
+  });
+
+  // ── Listening Report ──────────────────────────────────────────────────────
+
+  app.get('/report', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
+    const config = loadConfig();
+    const user = req.session.user;
+    const { adminPreview, role, userPlexId } = await buildPageScope(req, config);
+
+    const now = Date.now();
+    const since7d  = now -   7 * 24 * 60 * 60 * 1000;
+    const since14d = now -  14 * 24 * 60 * 60 * 1000;
+    const since30d = now -  30 * 24 * 60 * 60 * 1000;
+    const since60d = now -  60 * 24 * 60 * 60 * 1000;
+    const since3m  = now -  91 * 24 * 60 * 60 * 1000;
+    const since6m  = now - 182 * 24 * 60 * 60 * 1000;
+    const since12m = now - 365 * 24 * 60 * 60 * 1000;
+    const since24m = now - 730 * 24 * 60 * 60 * 1000;
+
+    const normalizeStats = (r) => ({
+      plays:         r?.total_plays     || 0,
+      skips:         r?.total_skips     || 0,
+      uniqueArtists: r?.unique_artists  || 0,
+      uniqueAlbums:  r?.unique_albums   || 0,
+      uniqueTracks:  r?.unique_tracks   || 0,
+      totalListenMs: r?.total_listen_ms || 0,
+    });
+
+    const statsAll = normalizeStats(getPlayStats(db, userPlexId, 0));
+    const stats7d  = normalizeStats(getPlayStats(db, userPlexId, since7d));
+    const stats30d = normalizeStats(getPlayStats(db, userPlexId, since30d));
+    const stats3m  = normalizeStats(getPlayStats(db, userPlexId, since3m));
+    const stats12m = normalizeStats(getPlayStats(db, userPlexId, since12m));
+
+    const firstPlayRow = db.prepare(
+      'SELECT MIN(started_at) AS first_play FROM play_events WHERE user_plex_id = ?',
+    ).get(userPlexId);
+    const firstPlayAt = firstPlayRow?.first_play || null;
+
+    function queryTopArtists(since, limit = 12) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
+      return db.prepare(`
+        SELECT artist_name, COUNT(*) AS play_count
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          AND LOWER(TRIM(artist_name)) != 'various artists'
+          AND TRIM(artist_name) != ''
+          ${sinceClause}
+        GROUP BY LOWER(TRIM(artist_name))
+        ORDER BY play_count DESC
+        LIMIT ?
+      `).all(...params);
+    }
+
+    function queryTopAlbums(since, limit = 12) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
+      return db.prepare(`
+        SELECT album_name, artist_name, COUNT(*) AS play_count,
+               MAX(plex_rating_key) AS sample_rating_key
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          AND LOWER(TRIM(artist_name)) != 'various artists'
+          AND TRIM(artist_name) != ''
+          AND TRIM(album_name) != ''
+          ${sinceClause}
+        GROUP BY LOWER(TRIM(album_name)), LOWER(TRIM(artist_name))
+        ORDER BY play_count DESC
+        LIMIT ?
+      `).all(...params);
+    }
+
+    function queryTopTracks(since, limit = 10) {
+      const sinceClause = since > 0 ? 'AND pe.started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, userPlexId, since, limit] : [userPlexId, userPlexId, limit];
+      return db.prepare(`
+        SELECT
+          MAX(CASE WHEN TRIM(pe.plex_rating_key) != '' THEN pe.plex_rating_key ELSE '' END) AS plex_rating_key,
+          MAX(pe.track_title) AS track_title,
+          MAX(pe.artist_name) AS artist_name,
+          MAX(pe.album_name) AS album_name,
+          COUNT(*) AS play_count,
+          MAX(pe.started_at) AS last_played_at,
+          MAX(CASE WHEN TRIM(pe.plex_rating_key) != '' THEN 1 ELSE 0 END) AS has_rating_key,
+          MAX(COALESCE(ts.tier, 'curatorr')) AS tier
+        FROM play_events pe
+        LEFT JOIN track_stats ts
+          ON ts.user_plex_id = ?
+         AND ts.plex_rating_key = pe.plex_rating_key
+        WHERE pe.user_plex_id = ?
+          AND pe.is_skip = 0
+          AND LOWER(TRIM(pe.artist_name)) != 'various artists'
+          AND TRIM(pe.artist_name) != ''
+          ${sinceClause}
+        GROUP BY
+          LOWER(TRIM(REPLACE(REPLACE(pe.track_title, '\u2019', ''''), '\u2018', ''''))),
+          LOWER(TRIM(REPLACE(REPLACE(pe.artist_name, '\u2019', ''''), '\u2018', '''')))
+        ORDER BY play_count DESC, has_rating_key DESC, last_played_at DESC
+        LIMIT ?
+      `).all(...params);
+    }
+
+    function queryDistinctDays(since, until = null) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const untilClause = until !== null ? 'AND started_at < ?' : '';
+      const params = [userPlexId];
+      if (since > 0) params.push(since);
+      if (until !== null) params.push(until);
+      return db.prepare(`
+        SELECT COUNT(DISTINCT date(started_at / 1000, 'unixepoch', 'localtime')) AS cnt
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          ${sinceClause}
+          ${untilClause}
+      `).get(...params)?.cnt || 0;
+    }
+
+    function queryBestDay(since) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since] : [userPlexId];
+      return db.prepare(`
+        SELECT
+          date(started_at / 1000, 'unixepoch', 'localtime') AS day,
+          COUNT(*) AS plays
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          ${sinceClause}
+        GROUP BY day
+        ORDER BY plays DESC, day DESC
+        LIMIT 1
+      `).get(...params) || { day: null, plays: 0 };
+    }
+
+    function queryStreak(since = 0) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since] : [userPlexId];
+      const streakRows = db.prepare(`
+        SELECT date(started_at / 1000, 'unixepoch', 'localtime') AS day
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          ${sinceClause}
+        GROUP BY day
+        ORDER BY day DESC
+      `).all(...params);
+      if (!streakRows.length) return 0;
+      const todayKey = new Date(now).toISOString().slice(0, 10);
+      const yesterdayKey = new Date(now - 86400000).toISOString().slice(0, 10);
+      if (streakRows[0].day !== todayKey && streakRows[0].day !== yesterdayKey) return 0;
+      let streak = 1;
+      let prevDay = new Date(streakRows[0].day + 'T12:00:00Z');
+      for (let i = 1; i < streakRows.length; i++) {
+        const currDay = new Date(streakRows[i].day + 'T12:00:00Z');
+        if (Math.round((prevDay - currDay) / 86400000) !== 1) break;
+        streak++;
+        prevDay = currDay;
+      }
+      return streak;
+    }
+
+    function queryClockHours(since) {
+      const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since] : [userPlexId];
+      const rows = db.prepare(`
+        SELECT
+          CAST(strftime('%H', started_at / 1000, 'unixepoch', 'localtime') AS INTEGER) AS hour,
+          COUNT(*) AS plays
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          ${sinceClause}
+        GROUP BY hour
+        ORDER BY hour ASC
+      `).all(...params);
+      const hours = Array(24).fill(0);
+      rows.forEach((r) => { hours[r.hour] = r.plays; });
+      return hours;
+    }
+
+    const topArtists7d = queryTopArtists(since7d);
+    const topArtists30d = queryTopArtists(since30d);
+    const topArtists3m = queryTopArtists(since3m);
+    const topArtists12m = queryTopArtists(since12m);
+    const topArtistsAll = queryTopArtists(0);
+
+    const topAlbums7d = queryTopAlbums(since7d);
+    const topAlbums30d = queryTopAlbums(since30d);
+    const topAlbums3m = queryTopAlbums(since3m);
+    const topAlbums12m = queryTopAlbums(since12m);
+    const topAlbumsAll = queryTopAlbums(0);
+
+    const topTracks7dBase = queryTopTracks(since7d);
+    const topTracks30dBase = queryTopTracks(since30d);
+    const topTracks3mBase = queryTopTracks(since3m);
+    const topTracks12mBase = queryTopTracks(since12m);
+    const topTracksAllBase = queryTopTracks(0);
+    const allTopTrackKeys = [
+      ...topTracks7dBase,
+      ...topTracks30dBase,
+      ...topTracks3mBase,
+      ...topTracks12mBase,
+      ...topTracksAllBase,
+    ].map((t) => t.plex_rating_key).filter(Boolean);
+    const topTrackPopularity = getAlbumPopularTrackRanks(db, allTopTrackKeys);
+    const topTracks7d = attachAlbumPopularity(topTracks7dBase, topTrackPopularity, 'plex_rating_key');
+    const topTracks30d = attachAlbumPopularity(topTracks30dBase, topTrackPopularity, 'plex_rating_key');
+    const topTracks3m = attachAlbumPopularity(topTracks3mBase, topTrackPopularity, 'plex_rating_key');
+    const topTracks12m = attachAlbumPopularity(topTracks12mBase, topTrackPopularity, 'plex_rating_key');
+    const topTracksAll = attachAlbumPopularity(topTracksAllBase, topTrackPopularity, 'plex_rating_key');
+
+    const clockHours7d = queryClockHours(since7d);
+    const clockHours30d = queryClockHours(since30d);
+    const clockHours3m = queryClockHours(since3m);
+    const clockHours12m = queryClockHours(since12m);
+    const clockHoursAll = queryClockHours(0);
+
+    // New discovery data: items heard for the first time in this period
+    function queryNewData(since, until) {
+      const untilC = until !== null ? 'AND pe.started_at < ?' : '';
+      const p = (extra) => {
+        const arr = [userPlexId, since];
+        if (until !== null) arr.push(until);
+        arr.push(userPlexId, since, ...extra);
+        return arr;
+      };
+
+      const newArtists = db.prepare(`
+        SELECT pe.artist_name, COUNT(*) AS play_count
+        FROM play_events pe
+        WHERE pe.user_plex_id = ? AND pe.is_skip = 0 AND pe.started_at >= ? ${untilC}
+          AND TRIM(pe.artist_name) != '' AND LOWER(TRIM(pe.artist_name)) != 'various artists'
+          AND LOWER(TRIM(pe.artist_name)) NOT IN (
+            SELECT LOWER(TRIM(artist_name)) FROM play_events
+            WHERE user_plex_id = ? AND is_skip = 0 AND started_at < ? AND TRIM(artist_name) != ''
+          )
+        GROUP BY LOWER(TRIM(pe.artist_name))
+        ORDER BY play_count DESC LIMIT 200
+      `).all(...p([]));
+
+      const newAlbums = db.prepare(`
+        SELECT pe.album_name, pe.artist_name,
+               MAX(CASE WHEN TRIM(pe.plex_rating_key) != '' THEN pe.plex_rating_key ELSE '' END) AS sample_key,
+               COUNT(*) AS play_count
+        FROM play_events pe
+        WHERE pe.user_plex_id = ? AND pe.is_skip = 0 AND pe.started_at >= ? ${untilC}
+          AND TRIM(pe.album_name) != '' AND TRIM(pe.artist_name) != ''
+          AND LOWER(TRIM(pe.album_name)) || '|||' || LOWER(TRIM(pe.artist_name)) NOT IN (
+            SELECT LOWER(TRIM(album_name)) || '|||' || LOWER(TRIM(artist_name)) FROM play_events
+            WHERE user_plex_id = ? AND is_skip = 0 AND started_at < ? AND TRIM(album_name) != ''
+          )
+        GROUP BY LOWER(TRIM(pe.album_name)), LOWER(TRIM(pe.artist_name))
+        ORDER BY play_count DESC LIMIT 200
+      `).all(...p([]));
+
+      const newTracks = db.prepare(`
+        SELECT
+          MAX(CASE WHEN TRIM(pe.plex_rating_key) != '' THEN pe.plex_rating_key ELSE '' END) AS plex_rating_key,
+          MAX(pe.track_title) AS track_title, MAX(pe.artist_name) AS artist_name,
+          COUNT(*) AS play_count
+        FROM play_events pe
+        WHERE pe.user_plex_id = ? AND pe.is_skip = 0 AND pe.started_at >= ? ${untilC}
+          AND TRIM(pe.track_title) != ''
+          AND LOWER(TRIM(pe.track_title)) || '|||' || LOWER(TRIM(pe.artist_name)) NOT IN (
+            SELECT LOWER(TRIM(track_title)) || '|||' || LOWER(TRIM(artist_name)) FROM play_events
+            WHERE user_plex_id = ? AND is_skip = 0 AND started_at < ? AND TRIM(track_title) != ''
+          )
+        GROUP BY LOWER(TRIM(pe.track_title)), LOWER(TRIM(pe.artist_name))
+        ORDER BY play_count DESC LIMIT 200
+      `).all(...p([]));
+
+      const pOuter = until !== null ? [userPlexId, since, until] : [userPlexId, since];
+      const totalAlbums = db.prepare(`
+        SELECT COUNT(DISTINCT LOWER(TRIM(pe.album_name)) || '|||' || LOWER(TRIM(pe.artist_name))) AS cnt
+        FROM play_events pe
+        WHERE pe.user_plex_id = ? AND pe.is_skip = 0 AND pe.started_at >= ? ${untilC}
+          AND TRIM(pe.album_name) != ''
+      `).get(...pOuter)?.cnt || 0;
+
+      return {
+        newArtistCount: newArtists.length, topNewArtist: newArtists[0] || null,
+        newAlbumCount:  newAlbums.length,  topNewAlbum:  newAlbums[0]  || null,
+        newTrackCount:  newTracks.length,  topNewTrack:  newTracks[0]  || null,
+        totalAlbums,
+      };
+    }
+
+    const newData7d  = queryNewData(since7d,  null);
+    const newData30d = queryNewData(since30d, null);
+    const newData3m  = queryNewData(since3m,  null);
+    const newData12m = queryNewData(since12m, null);
+
+    // Previous-period comparison stats (for % change in hero stat cards)
+    function queryRangeStats(from, to) {
+      return db.prepare(`
+        SELECT
+          COUNT(DISTINCT LOWER(TRIM(artist_name))) AS unique_artists,
+          COUNT(DISTINCT LOWER(TRIM(album_name)))  AS unique_albums,
+          COUNT(DISTINCT CASE WHEN TRIM(plex_rating_key) != '' THEN plex_rating_key
+                              ELSE LOWER(TRIM(track_title)) END) AS unique_tracks
+        FROM play_events
+        WHERE user_plex_id = ? AND is_skip = 0 AND started_at >= ? AND started_at < ?
+      `).get(userPlexId, from, to) || {};
+    }
+    function queryRangeSummary(from, to) {
+      return db.prepare(`
+        SELECT
+          COUNT(*) AS plays,
+          SUM(duration_ms) AS total_listen_ms,
+          COUNT(DISTINCT date(started_at / 1000, 'unixepoch', 'localtime')) AS active_days
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND started_at >= ?
+          AND started_at < ?
+      `).get(userPlexId, from, to) || {};
+    }
+    const statsComp7d = queryRangeStats(since14d, since7d);
+    const statsComp30d = queryRangeStats(since60d, since30d);
+    const statsComp3m = queryRangeStats(since6m, since3m);
+    const statsComp12m = queryRangeStats(since24m, since12m);
+    const summaryComp7d = queryRangeSummary(since14d, since7d);
+    const summaryComp30d = queryRangeSummary(since60d, since30d);
+    const summaryComp3m = queryRangeSummary(since6m, since3m);
+    const summaryComp12m = queryRangeSummary(since24m, since12m);
+
+    const artistTagMap = getArtistTagMap(db);
+    function queryTagStreamData(since, bucketCount = 5, tagLimit = 6) {
+      const startMs = since > 0 ? since : (firstPlayAt || now);
+      const effectiveStart = Math.min(startMs, now);
+      const span = Math.max(1, now - effectiveStart);
+      const buckets = Math.max(2, bucketCount);
+      const bucketSize = Math.max(1, Math.ceil(span / buckets));
+      const rows = db.prepare(`
+        SELECT
+          LOWER(TRIM(artist_name)) AS artist_key,
+          CASE
+            WHEN ? <= 1 THEN 0
+            WHEN CAST((started_at - ?) / ? AS INTEGER) >= ? THEN ? - 1
+            ELSE CAST((started_at - ?) / ? AS INTEGER)
+          END AS bucket_idx,
+          COUNT(*) AS play_count
+        FROM play_events
+        WHERE user_plex_id = ?
+          AND is_skip = 0
+          AND started_at >= ?
+          AND TRIM(artist_name) != ''
+          AND LOWER(TRIM(artist_name)) != 'various artists'
+        GROUP BY artist_key, bucket_idx
+        ORDER BY bucket_idx ASC
+      `).all(
+        buckets, effectiveStart, bucketSize, buckets, buckets, effectiveStart, bucketSize,
+        userPlexId, effectiveStart,
+      );
+
+      const totalsByTag = new Map();
+      const bucketMaps = Array.from({ length: buckets }, () => new Map());
+      rows.forEach((row) => {
+        const tags = artistTagMap.get(row.artist_key) || [];
+        tags.forEach((tag) => {
+          totalsByTag.set(tag, (totalsByTag.get(tag) || 0) + row.play_count);
+          bucketMaps[row.bucket_idx].set(tag, (bucketMaps[row.bucket_idx].get(tag) || 0) + row.play_count);
+        });
+      });
+
+      const topTags = [...totalsByTag.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, tagLimit);
+      const palette = ['#c084fc', '#7c3aed', '#4338ca', '#4fd1c5', '#60a5fa', '#a855f7'];
+      const labels = Array.from({ length: buckets }, (_, index) => new Date(
+        Math.min(now, effectiveStart + index * bucketSize),
+      ).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+
+      return {
+        labels,
+        series: topTags.map(([tag], index) => ({
+          tag,
+          color: palette[index % palette.length],
+          values: bucketMaps.map((bucketMap) => bucketMap.get(tag) || 0),
+        })),
+      };
+    }
+
+    function queryTierBreakdown(since) {
+      const sinceClause = since > 0 ? 'AND pe.started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, userPlexId, since] : [userPlexId, userPlexId];
+      return db.prepare(`
+        SELECT
+          COALESCE(ts.tier, 'curatorr') AS tier,
+          COUNT(*) AS total_plays
+        FROM play_events pe
+        LEFT JOIN track_stats ts
+          ON ts.user_plex_id = ?
+         AND ts.plex_rating_key = pe.plex_rating_key
+        WHERE pe.user_plex_id = ?
+          ${sinceClause}
+        GROUP BY tier
+        ORDER BY
+          CASE tier
+            WHEN 'belter'      THEN 1
+            WHEN 'decent'      THEN 2
+            WHEN 'half-decent' THEN 3
+            WHEN 'curatorr'    THEN 4
+            WHEN 'skip'        THEN 5
+            ELSE 6
+          END
+      `).all(...params);
+    }
+
+    // Music by decade: join play_events → track_enrichment, group by decade
+    function queryDecades(since) {
+      const sinceClause = since > 0 ? 'AND pe.started_at >= ?' : '';
+      const params = since > 0 ? [userPlexId, since] : [userPlexId];
+      return db.prepare(`
+        SELECT
+          CASE
+            WHEN te.track_year BETWEEN 1900 AND 2099
+              THEN (CAST(te.track_year / 10 AS INTEGER) * 10) || 's'
+            WHEN te.original_release_date GLOB '[0-9][0-9][0-9][0-9]*'
+              AND CAST(substr(te.original_release_date, 1, 4) AS INTEGER) BETWEEN 1900 AND 2099
+              THEN (CAST(CAST(substr(te.original_release_date, 1, 4) AS INTEGER) / 10 AS INTEGER) * 10) || 's'
+            ELSE NULL
+          END AS decade,
+          COUNT(*) AS plays
+        FROM play_events pe
+        LEFT JOIN track_enrichment te ON te.rating_key = pe.plex_rating_key
+        WHERE pe.user_plex_id = ?
+          AND pe.is_skip = 0
+          ${sinceClause}
+        GROUP BY decade
+        HAVING decade IS NOT NULL
+        ORDER BY decade ASC
+      `).all(...params);
+    }
+
+    function formatHourLabel(clockHours) {
+      const max = Math.max(...clockHours, 0);
+      if (max <= 0) return null;
+      const h = clockHours.indexOf(max);
+      const ampm = h < 12 ? 'am' : 'pm';
+      const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+      return h12 + ampm;
+    }
+
+    function buildFingerprint(stats, clockHours, activeDays, windowDays, topArtistPlays) {
+      const safeWindowDays = Math.max(1, Number(windowDays || 1));
+      const consistency = Math.min(100, Math.round((activeDays / safeWindowDays) * 100));
+      const variety = Math.min(100, Math.round(Math.sqrt(stats.uniqueArtists || 0) / Math.sqrt(Math.max(stats.plays, 1)) * 220));
+      const loyalty = stats.plays > 0 ? Math.min(100, Math.round((topArtistPlays / stats.plays) * 300)) : 0;
+      const nightTotal = [22, 23, 0, 1, 2, 3, 4, 5].reduce((sum, hour) => sum + (clockHours[hour] || 0), 0);
+      const nightOwl = stats.plays > 0 ? Math.min(100, Math.round((nightTotal / stats.plays) * 350)) : 0;
+      const avgPlaysPerDay = activeDays > 0 ? stats.plays / activeDays : 0;
+      const intensity = Math.min(100, Math.round(Math.sqrt(avgPlaysPerDay) / Math.sqrt(60) * 100));
+      return { consistency, variety, loyalty, nightOwl, intensity };
+    }
+
+    const activeDays7d = queryDistinctDays(since7d);
+    const activeDays30d = queryDistinctDays(since30d);
+    const activeDays3m = queryDistinctDays(since3m);
+    const activeDays12m = queryDistinctDays(since12m);
+    const activeDaysAll = queryDistinctDays(0);
+    const allTimeWindowDays = Math.max(1, Math.ceil((now - (firstPlayAt || now)) / 86400000));
+
+    const reportSummaryByPeriod = {
+      '7d': {
+        plays: stats7d.plays,
+        listenMs: stats7d.totalListenMs,
+        activeDays: activeDays7d,
+        uniqueArtists: stats7d.uniqueArtists,
+        uniqueAlbums: stats7d.uniqueAlbums,
+        uniqueTracks: stats7d.uniqueTracks,
+      },
+      '30d': {
+        plays: stats30d.plays,
+        listenMs: stats30d.totalListenMs,
+        activeDays: activeDays30d,
+        uniqueArtists: stats30d.uniqueArtists,
+        uniqueAlbums: stats30d.uniqueAlbums,
+        uniqueTracks: stats30d.uniqueTracks,
+      },
+      '3m': {
+        plays: stats3m.plays,
+        listenMs: stats3m.totalListenMs,
+        activeDays: activeDays3m,
+        uniqueArtists: stats3m.uniqueArtists,
+        uniqueAlbums: stats3m.uniqueAlbums,
+        uniqueTracks: stats3m.uniqueTracks,
+      },
+      '12m': {
+        plays: stats12m.plays,
+        listenMs: stats12m.totalListenMs,
+        activeDays: activeDays12m,
+        uniqueArtists: stats12m.uniqueArtists,
+        uniqueAlbums: stats12m.uniqueAlbums,
+        uniqueTracks: stats12m.uniqueTracks,
+      },
+      'all': {
+        plays: statsAll.plays,
+        listenMs: statsAll.totalListenMs,
+        activeDays: activeDaysAll,
+        uniqueArtists: statsAll.uniqueArtists,
+        uniqueAlbums: statsAll.uniqueAlbums,
+        uniqueTracks: statsAll.uniqueTracks,
+      },
+    };
+
+    const summaryComparisonByPeriod = {
+      '7d': summaryComp7d,
+      '30d': summaryComp30d,
+      '3m': summaryComp3m,
+      '12m': summaryComp12m,
+      'all': null,
+    };
+
+    const quickFactsByPeriod = {
+      '7d': {
+        streak: queryStreak(since7d),
+        bestDay: queryBestDay(since7d),
+        skipRate: stats7d.plays > 0 ? Math.round((stats7d.skips / stats7d.plays) * 100) : 0,
+        mostActiveHour: formatHourLabel(clockHours7d),
+      },
+      '30d': {
+        streak: queryStreak(since30d),
+        bestDay: queryBestDay(since30d),
+        skipRate: stats30d.plays > 0 ? Math.round((stats30d.skips / stats30d.plays) * 100) : 0,
+        mostActiveHour: formatHourLabel(clockHours30d),
+      },
+      '3m': {
+        streak: queryStreak(since3m),
+        bestDay: queryBestDay(since3m),
+        skipRate: stats3m.plays > 0 ? Math.round((stats3m.skips / stats3m.plays) * 100) : 0,
+        mostActiveHour: formatHourLabel(clockHours3m),
+      },
+      '12m': {
+        streak: queryStreak(since12m),
+        bestDay: queryBestDay(since12m),
+        skipRate: stats12m.plays > 0 ? Math.round((stats12m.skips / stats12m.plays) * 100) : 0,
+        mostActiveHour: formatHourLabel(clockHours12m),
+      },
+      'all': {
+        streak: queryStreak(0),
+        bestDay: queryBestDay(0),
+        skipRate: statsAll.plays > 0 ? Math.round((statsAll.skips / statsAll.plays) * 100) : 0,
+        mostActiveHour: formatHourLabel(clockHoursAll),
+      },
+    };
+
+    const tagStreamByPeriod = {
+      '7d': queryTagStreamData(since7d),
+      '30d': queryTagStreamData(since30d),
+      '3m': queryTagStreamData(since3m),
+      '12m': queryTagStreamData(since12m),
+      'all': queryTagStreamData(0),
+    };
+
+    const tierBreakdownByPeriod = {
+      '7d': queryTierBreakdown(since7d),
+      '30d': queryTierBreakdown(since30d),
+      '3m': queryTierBreakdown(since3m),
+      '12m': queryTierBreakdown(since12m),
+      'all': queryTierBreakdown(0),
+    };
+
+    const fingerprintByPeriod = {
+      '7d': buildFingerprint(stats7d, clockHours7d, activeDays7d, 7, topArtists7d[0]?.play_count || 0),
+      '30d': buildFingerprint(stats30d, clockHours30d, activeDays30d, 30, topArtists30d[0]?.play_count || 0),
+      '3m': buildFingerprint(stats3m, clockHours3m, activeDays3m, 91, topArtists3m[0]?.play_count || 0),
+      '12m': buildFingerprint(stats12m, clockHours12m, activeDays12m, 365, topArtists12m[0]?.play_count || 0),
+      'all': buildFingerprint(statsAll, clockHoursAll, activeDaysAll, allTimeWindowDays, topArtistsAll[0]?.play_count || 0),
+    };
+
+    const decadeData7d = queryDecades(since7d);
+    const decadeData30d = queryDecades(since30d);
+    const decadeData3m = queryDecades(since3m);
+    const decadeData12m = queryDecades(since12m);
+    const decadeDataAll = queryDecades(0);
+
+    res.render('listening-report', {
+      title: 'Listening Report — Curatorr',
+      user,
+      role,
+      actualRole: getActualRole(req),
+      adminPreview,
+      config: safeConfig(config),
+      firstPlayAt,
+      statsAll,
+      stats7d,
+      stats30d,
+      stats3m,
+      stats12m,
+      topArtists7d,
+      topArtists30d,
+      topArtists3m,
+      topArtists12m,
+      topArtistsAll,
+      topAlbums7d,
+      topAlbums30d,
+      topAlbums3m,
+      topAlbums12m,
+      topAlbumsAll,
+      topTracks7d,
+      topTracks30d,
+      topTracks3m,
+      topTracksAll,
+      topTracks12m,
+      clockHours7d,
+      clockHours30d,
+      clockHours3m,
+      clockHours12m,
+      clockHoursAll,
+      newData7d,
+      newData30d,
+      newData3m,
+      newData12m,
+      statsComp7d,
+      statsComp30d,
+      statsComp3m,
+      statsComp12m,
+      reportSummaryByPeriod,
+      summaryComparisonByPeriod,
+      quickFactsByPeriod,
+      tagStreamByPeriod,
+      tierBreakdownByPeriod,
+      decadeData7d,
+      decadeData30d,
+      decadeData3m,
+      decadeData12m,
+      decadeDataAll,
+      fingerprintByPeriod,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });
@@ -1872,6 +2563,9 @@ export function registerPages(app, ctx) {
       plexMachineId: String(config.plex?.machineId || ''),
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
+      allAlbumGenres: (() => { try { return getAlbumGenresFromMaster(db); } catch { return []; } })(),
+      allAlbumStyles: (() => { try { return getAlbumStylesFromMaster(db); } catch { return []; } })(),
+      allAlbumMoods: (() => { try { return getAlbumMoodsFromMaster(db); } catch { return []; } })(),
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       allTrackDecades: (() => { try { return getAllTrackDecadeTags(db); } catch { return []; } })(),
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),

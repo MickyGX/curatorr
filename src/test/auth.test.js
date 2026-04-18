@@ -6106,6 +6106,47 @@ describe('security guards', () => {
     }
   });
 
+  it('rejects loopback-only Curatorr URLs when configuring the Plex webhook', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      general: {
+        ...(originalConfig.general || {}),
+        localUrl: 'http://localhost:7676',
+        remoteUrl: '',
+      },
+      plex: {
+        ...(originalConfig.plex || {}),
+        url: 'http://plex.local',
+        token: 'plex-secret-token',
+      },
+    });
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith('https://plex.tv/api/v2/user/webhooks') || target.startsWith('http://plex.local')) {
+        throw new Error(`Unexpected upstream fetch during loopback webhook validation: ${target}`);
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const webhookRes = await client.postJson('/api/wizard/configure-plex-webhook', {}, '/settings');
+      assert.equal(webhookRes.status, 400);
+      assert.equal(
+        webhookRes.json?.reason,
+        'Curatorr local or remote URL points to localhost/127.0.0.1. Set a reachable LAN or remote URL before registering the Plex webhook.',
+      );
+    } finally {
+      global.fetch = originalFetch;
+      await writeConfig(originalConfig);
+    }
+  });
+
   it('redirects the server wizard token fetch action into Plex auth', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);

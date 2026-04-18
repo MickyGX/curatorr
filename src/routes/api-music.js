@@ -284,7 +284,7 @@ function sanitizeImportedSourceInput(value) {
 
 function sanitizeImportedContentSetInput(value) {
   if (!value || typeof value !== 'object') return null;
-  const kinds = ['genres', 'moods', 'tags', 'decades'];
+  const kinds = ['genres', 'moods', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'];
   const next = {};
   let hasAny = false;
   for (const kind of kinds) {
@@ -384,6 +384,9 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
   const danceabilityRange = inferImportedValueRange(matchedTracks.map((track) => track?.danceability), { round: (value) => Number(value.toFixed(2)) });
   const topGenres = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.genres) ? track.genres : []), { minShare: 0.18, maxValues: 4 });
   const topMoods = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []), { minShare: 0.18, maxValues: 4 });
+  const topAlbumGenres = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.albumGenres) ? track.albumGenres : []), { minShare: 0.18, maxValues: 4 });
+  const topAlbumStyles = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.albumStyles) ? track.albumStyles : []), { minShare: 0.18, maxValues: 4 });
+  const topAlbumMoods = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.albumMoods) ? track.albumMoods : []), { minShare: 0.18, maxValues: 4 });
 
   const artistTagMap = getArtistTagMap(db);
   const topTags = inferImportedTopValues(
@@ -399,6 +402,15 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
   );
   const allDetectedMoods = inferImportedAllValues(
     matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []),
+  );
+  const allDetectedAlbumGenres = inferImportedAllValues(
+    matchedTracks.flatMap((track) => Array.isArray(track?.albumGenres) ? track.albumGenres : []),
+  );
+  const allDetectedAlbumStyles = inferImportedAllValues(
+    matchedTracks.flatMap((track) => Array.isArray(track?.albumStyles) ? track.albumStyles : []),
+  );
+  const allDetectedAlbumMoods = inferImportedAllValues(
+    matchedTracks.flatMap((track) => Array.isArray(track?.albumMoods) ? track.albumMoods : []),
   );
   const allDetectedTags = inferImportedAllValues(
     matchedTracks.flatMap((track) => getEffectiveTrackTags(track, artistTagMap)),
@@ -425,6 +437,9 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     rebuildSchedule: 'daily',
     genres: { include: topGenres, exclude: [], includeMode: 'any' },
     moods: { include: topMoods, exclude: [], includeMode: 'any' },
+    albumGenres: { include: topAlbumGenres, exclude: [], includeMode: 'any' },
+    albumStyles: { include: topAlbumStyles, exclude: [], includeMode: 'any' },
+    albumMoods: { include: topAlbumMoods, exclude: [], includeMode: 'any' },
     tags: { include: topTags, exclude: [], includeMode: 'any' },
     decades: { include: topDecades, exclude: [], includeMode: 'any' },
     artistTiers: { include: [], exclude: [], includeMode: 'any' },
@@ -466,12 +481,18 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     importSuggestedContent: {
       genres: { include: topGenres, exclude: [], includeMode: 'any' },
       moods: { include: topMoods, exclude: [], includeMode: 'any' },
+      albumGenres: { include: topAlbumGenres, exclude: [], includeMode: 'any' },
+      albumStyles: { include: topAlbumStyles, exclude: [], includeMode: 'any' },
+      albumMoods: { include: topAlbumMoods, exclude: [], includeMode: 'any' },
       tags: { include: topTags, exclude: [], includeMode: 'any' },
       decades: { include: topDecades, exclude: [], includeMode: 'any' },
     },
     importDetectedContent: {
       genres: { include: allDetectedGenres, exclude: [], includeMode: 'any' },
       moods: { include: allDetectedMoods, exclude: [], includeMode: 'any' },
+      albumGenres: { include: allDetectedAlbumGenres, exclude: [], includeMode: 'any' },
+      albumStyles: { include: allDetectedAlbumStyles, exclude: [], includeMode: 'any' },
+      albumMoods: { include: allDetectedAlbumMoods, exclude: [], includeMode: 'any' },
       tags: { include: allDetectedTags, exclude: [], includeMode: 'any' },
       decades: { include: allDetectedDecades, exclude: [], includeMode: 'any' },
     },
@@ -6527,6 +6548,9 @@ export function registerApiMusic(app, ctx) {
       trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
       genres:          normaliseTriStateInput(req.body?.genres),
       moods:           normaliseTriStateInput(req.body?.moods),
+      albumGenres:     normaliseTriStateInput(req.body?.albumGenres),
+      albumStyles:     normaliseTriStateInput(req.body?.albumStyles),
+      albumMoods:      normaliseTriStateInput(req.body?.albumMoods),
       tags:            normaliseTriStateInput(req.body?.tags),
       decades:         normaliseTriStateInput(req.body?.decades),
       topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
@@ -6631,6 +6655,9 @@ export function registerApiMusic(app, ctx) {
       trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
       genres:          normaliseTriStateInput(req.body?.genres),
       moods:           normaliseTriStateInput(req.body?.moods),
+      albumGenres:     normaliseTriStateInput(req.body?.albumGenres),
+      albumStyles:     normaliseTriStateInput(req.body?.albumStyles),
+      albumMoods:      normaliseTriStateInput(req.body?.albumMoods),
       tags:            normaliseTriStateInput(req.body?.tags),
       decades:         normaliseTriStateInput(req.body?.decades),
       topNPerArtist:   req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
@@ -6831,6 +6858,56 @@ export function registerApiMusic(app, ctx) {
 
   // GET /api/blend/stats?users[]=u1&users[]=u2[&limit=20]
   // Returns compatibility score, shared artist counts, and blended top artists/tracks.
+  app.get('/api/music/report/weekly', requireUser, (req, res) => {
+    const userPlexId = resolveQueryUserId(req);
+    if (!userPlexId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const offset = Math.max(0, Math.min(104, Number(req.query.offset) || 0));
+
+    const now = new Date();
+    const dow = (now.getDay() + 6) % 7; // Mon=0, Sun=6
+    const thisMon = new Date(now);
+    thisMon.setHours(0, 0, 0, 0);
+    thisMon.setDate(thisMon.getDate() - dow);
+
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const targetMon = new Date(thisMon.getTime() - offset * weekMs);
+    const nextMon   = new Date(targetMon.getTime() + weekMs);
+    const prevMon   = new Date(targetMon.getTime() - weekMs);
+
+    function fetchWeek(startMs, endMs) {
+      const rows = db.prepare(`
+        SELECT date(started_at / 1000, 'unixepoch', 'localtime') AS day, COUNT(*) AS plays
+        FROM play_events
+        WHERE user_plex_id = ? AND is_skip = 0
+          AND started_at >= ? AND started_at < ?
+        GROUP BY day
+      `).all(userPlexId, startMs, endMs);
+      const map = new Map(rows.map((r) => [r.day, r.plays]));
+      const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const days = [];
+      let d = new Date(startMs);
+      for (let i = 0; i < 7; i++, d = new Date(d.getTime() + 86400000)) {
+        const key = d.toISOString().slice(0, 10);
+        days.push({ date: key, dow: DOW_LABELS[i], plays: map.get(key) || 0 });
+      }
+      return { days, totalPlays: days.reduce((s, dd) => s + dd.plays, 0) };
+    }
+
+    function weekLabel(startMs) {
+      const s = new Date(startMs);
+      const e = new Date(startMs + weekMs - 86400000);
+      const o1 = { day: 'numeric', month: 'short' };
+      const o2 = { day: 'numeric', month: 'short', year: 'numeric' };
+      return `${s.toLocaleDateString('en-GB', o1)} – ${e.toLocaleDateString('en-GB', o2)}`;
+    }
+
+    const week     = { label: weekLabel(targetMon.getTime()), ...fetchWeek(targetMon.getTime(), nextMon.getTime()) };
+    const prevWeek = { label: weekLabel(prevMon.getTime()),   ...fetchWeek(prevMon.getTime(),   targetMon.getTime()) };
+
+    res.json({ offset, canGoForward: offset > 0, week, prevWeek });
+  });
+
   app.get('/api/blend/stats', requireUser, (req, res) => {
     const raw = req.query.users;
     const users = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String).filter(Boolean);

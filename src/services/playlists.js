@@ -2260,6 +2260,9 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const trackTierFilter  = parseTriStateFilter(rules.trackTiers);
   const gf = parseTriStateFilter(rules.genres);
   const mf = parseTriStateFilter(rules.moods);
+  const agf = parseTriStateFilter(rules.albumGenres);
+  const asf = parseTriStateFilter(rules.albumStyles);
+  const amf = parseTriStateFilter(rules.albumMoods);
   const tf = parseTriStateFilter(rules.tags);
   const df = parseTriStateFilter(rules.decades);
   const artistTagMap = (tf.include || tf.exclude) ? getArtistTagMap(db) : null;
@@ -2269,6 +2272,15 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const sortBy = rules.sortBy || 'ratingCount';
   const eligibleTracks = applyFeaturePresetFilters(masterTracks, rules);
   const eligibleTrackMap = new Map(eligibleTracks.map((track) => [track.ratingKey, track]));
+
+  function matchesTriStateValues(values, filter) {
+    const items = Array.isArray(values) ? values : [];
+    if (filter.include && !(filter.includeMode === 'all'
+      ? Array.from(filter.include).every((value) => items.includes(value))
+      : items.some((value) => filter.include.has(value)))) return false;
+    if (filter.exclude && items.some((value) => filter.exclude.has(value))) return false;
+    return true;
+  }
 
   const matchedTracks = [];
   for (const t of eligibleTracks) {
@@ -2283,14 +2295,11 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
     if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
     if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
 
-    if (gf.include && !(gf.includeMode === 'all'
-      ? Array.from(gf.include).every((g) => (t.genres || []).includes(g))
-      : (t.genres || []).some((g) => gf.include.has(g)))) continue;
-    if (gf.exclude && (t.genres || []).some((g) => gf.exclude.has(g))) continue;
-    if (mf.include && !(mf.includeMode === 'all'
-      ? Array.from(mf.include).every((m) => (t.moods || []).includes(m))
-      : (t.moods || []).some((m) => mf.include.has(m)))) continue;
-    if (mf.exclude && (t.moods || []).some((m) => mf.exclude.has(m))) continue;
+    if (!matchesTriStateValues(t.genres || [], gf)) continue;
+    if (!matchesTriStateValues(t.moods || [], mf)) continue;
+    if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
+    if (!matchesTriStateValues(t.albumStyles || [], asf)) continue;
+    if (!matchesTriStateValues(t.albumMoods || [], amf)) continue;
     if (tf.include || tf.exclude) {
       const artistTags = getEffectiveTrackTags(t, artistTagMap);
       if (tf.include && !(tf.includeMode === 'all'

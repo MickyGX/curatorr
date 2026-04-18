@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.80 (2026-04-18)
+
+- Added a new Listening Report experience with period-led analytics, weekly activity comparison, top artists/albums/tracks, tag and decade charts, listening clock, tier breakdown, and quick facts, while moving slower-burn stats to the Overview page.
+- Added album-level metadata support across the master track cache and smart-playlist pipeline, so album genres, album styles, and album moods can be filtered independently from track-level genres and moods.
+- Reworked smart-playlist content filters and imported-playlist prefills to separate media-server metadata, Curatorr-derived values, and Last.fm tags more clearly, and fixed a report rendering bug that could trigger a `/report` error.
+
 ## v0.1.79 (2026-04-18)
 
 - Imported playlists are now much easier to manage from the Playlists page: you can rename them, change their auto-refresh period, and admins can promote supported imported playlists into global shared playlists.

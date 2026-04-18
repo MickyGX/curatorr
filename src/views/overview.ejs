@@ -603,6 +603,157 @@
       color: #111827;
     }
 
+    .ov-extended-heading {
+      margin: 20px 0 10px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .ov-extended-kicker {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.48);
+      margin-bottom: 4px;
+    }
+
+    .ov-extended-title {
+      font-size: 29px;
+      line-height: 1.05;
+      font-weight: 700;
+      color: #fff;
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .ov-extended-copy {
+      margin-top: 4px;
+      color: rgba(255,255,255,0.56);
+      font-size: 13px;
+    }
+
+    .ov-two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .ov-heatmap-wrap {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .ov-heatmap-labels {
+      display: flex;
+      padding-left: 28px;
+      margin-bottom: 4px;
+      min-width: 640px;
+    }
+
+    .ov-heatmap-month-label {
+      flex: 1;
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    .ov-heatmap-body {
+      display: flex;
+      gap: 3px;
+      min-width: 640px;
+    }
+
+    .ov-heatmap-dow {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding-right: 4px;
+      flex-shrink: 0;
+      width: 24px;
+    }
+
+    .ov-heatmap-dow-label {
+      font-size: 9px;
+      color: rgba(255,255,255,0.35);
+      height: 11px;
+      line-height: 11px;
+    }
+
+    .ov-heatmap-grid {
+      display: grid;
+      grid-template-rows: repeat(7, 11px);
+      grid-auto-flow: column;
+      gap: 3px;
+    }
+
+    .ov-heatmap-cell {
+      width: 11px;
+      height: 11px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .ov-heatmap-cell[data-bucket="1"] { background: rgba(139,92,246,0.35); }
+    .ov-heatmap-cell[data-bucket="2"] { background: rgba(139,92,246,0.55); }
+    .ov-heatmap-cell[data-bucket="3"] { background: rgba(139,92,246,0.78); }
+    .ov-heatmap-cell[data-bucket="4"] { background: rgba(139,92,246,1); }
+
+    .ov-tier-wrap { padding: 8px 0; }
+
+    .ov-tier-bar {
+      display: flex;
+      height: 18px;
+      border-radius: 4px;
+      overflow: hidden;
+      gap: 2px;
+      margin-bottom: 14px;
+    }
+
+    .ov-tier-segment {
+      height: 100%;
+      min-width: 2px;
+    }
+
+    .ov-tier-legend {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px 14px;
+    }
+
+    .ov-tier-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ov-tier-legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .ov-tier-legend-label {
+      font-size: 11px;
+      color: rgba(255,255,255,0.65);
+    }
+
+    .ov-tier-legend-count {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      margin-left: auto;
+    }
+
+    [data-theme="day"] .ov-extended-heading { border-top-color: rgba(11,21,30,0.08); }
+    [data-theme="day"] .ov-extended-kicker { color: rgba(11,21,30,0.45); }
+    [data-theme="day"] .ov-extended-title { color: #0b151e; }
+    [data-theme="day"] .ov-extended-copy { color: rgba(11,21,30,0.55); }
+    [data-theme="day"] .ov-heatmap-month-label { color: rgba(11,21,30,0.4); }
+    [data-theme="day"] .ov-heatmap-dow-label { color: rgba(11,21,30,0.35); }
+    [data-theme="day"] .ov-heatmap-cell { background: rgba(11,21,30,0.08); }
+    [data-theme="day"] .ov-tier-legend-label { color: rgba(11,21,30,0.65); }
+    [data-theme="day"] .ov-tier-legend-count { color: rgba(11,21,30,0.4); }
+
     @media (max-width: 1100px) {
       .ov-card-grid {
         grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -664,6 +815,7 @@
       .ov-track-plays {
         grid-column: 2 / span 2;
       }
+      .ov-two-col { grid-template-columns: 1fr; }
     }
     @media (max-width: 600px) {
       .ov-profile {
@@ -752,6 +904,10 @@
           const _topTracks7d    = Array.isArray(topTracks7d)    ? topTracks7d    : [];
           const _topTracks30d   = Array.isArray(topTracks30d)   ? topTracks30d   : [];
           const _topTracksAll   = Array.isArray(topTracksAll)   ? topTracksAll   : [];
+          const _heatmap = Array.isArray(heatmapData) ? heatmapData : [];
+          const _tier7d = Array.isArray(tierBreakdown7d) ? tierBreakdown7d : [];
+          const _tier30d = Array.isArray(tierBreakdown30d) ? tierBreakdown30d : [];
+          const _tierAll = Array.isArray(tierBreakdownAll) ? tierBreakdownAll : [];
 
           // Featured track = all-time #1
           const _featuredTrack   = _topTracksAll[0] || null;
@@ -806,6 +962,52 @@
             const empty  = allQ.slice(count).map(d => `<path d="${d}" fill="var(--ov-tier-empty)"/>`).join('');
             return `<svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--ov-tier-ring)" stroke-width="1"/>${filled}${empty}</svg>`;
           }
+
+          function heatmapMonthLabels(data) {
+            const months = [];
+            let lastMonth = -1;
+            data.forEach((d, i) => {
+              const col = Math.floor(i / 7);
+              const m = new Date(d.day).getMonth();
+              if (m !== lastMonth) {
+                months.push({ col, label: new Date(d.day).toLocaleDateString('en-GB', { month: 'short' }) });
+                lastMonth = m;
+              }
+            });
+            return months;
+          }
+
+          function heatmapBucket(plays) {
+            if (plays === 0) return 0;
+            if (plays <= 2) return 1;
+            if (plays <= 5) return 2;
+            if (plays <= 9) return 3;
+            return 4;
+          }
+
+          const OV_TIER_CONFIG = {
+            'belter':      { color: '#eab308', label: 'Belter' },
+            'decent':      { color: '#22c55e', label: 'Decent' },
+            'half-decent': { color: '#f97316', label: 'Half-decent' },
+            'curatorr':    { color: 'rgba(255,255,255,0.22)', label: 'Unrated' },
+            'skip':        { color: '#ef4444', label: 'Skip' },
+          };
+
+          function tierBarHtml(breakdown) {
+            const rows = Array.isArray(breakdown) ? breakdown : [];
+            const total = rows.reduce((sum, row) => sum + (row.total_plays || 0), 0) || 1;
+            let bar = '';
+            let legend = '';
+            rows.forEach((row) => {
+              const cfg = OV_TIER_CONFIG[row.tier] || { color: 'rgba(255,255,255,0.2)', label: row.tier };
+              const pct = ((row.total_plays / total) * 100).toFixed(1);
+              bar += `<div class="ov-tier-segment" style="flex:${pct};background:${cfg.color}" title="${cfg.label}: ${Number(row.total_plays).toLocaleString()} plays (${pct}%)"></div>`;
+              legend += `<div class="ov-tier-legend-item"><span class="ov-tier-legend-dot" style="background:${cfg.color}"></span><span class="ov-tier-legend-label">${cfg.label}</span><span class="ov-tier-legend-count">${Number(row.total_plays).toLocaleString()}</span></div>`;
+            });
+            return `<div class="ov-tier-bar">${bar}</div><div class="ov-tier-legend">${legend}</div>`;
+          }
+
+          const _hmMonths = heatmapMonthLabels(_heatmap);
         %>
 
         <%# ── Profile header ────────────────────────────────────────────── %>
@@ -1016,6 +1218,53 @@
                 <% } %>
               </div>
             <% }) %>
+          </div>
+        </div>
+
+        <div class="ov-extended-heading">
+          <div class="ov-extended-kicker">Extended Stats</div>
+          <h2 class="ov-extended-title">Longer-view patterns</h2>
+          <div class="ov-extended-copy">The slower-burn analytics now live here instead of breaking the report flow.</div>
+        </div>
+
+        <div class="ov-two-col">
+          <div class="cur-panel" data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Activity — last 52 weeks</h3>
+            </div>
+            <div class="cur-panel-body">
+              <div class="ov-heatmap-wrap">
+                <%
+                  const _cols = Math.ceil((_heatmap.length + heatmapStartDow) / 7);
+                %>
+                <div class="ov-heatmap-labels" style="grid-template-columns: repeat(<%= _cols %>, 14px); display:grid; padding-left:28px; min-width: <%= _cols * 14 + 28 %>px;">
+                  <% _hmMonths.forEach(function(m) { %>
+                    <span style="grid-column:<%= Math.floor(m.col) + 1 %>" class="ov-heatmap-month-label"><%= m.label %></span>
+                  <% }) %>
+                </div>
+                <div class="ov-heatmap-body" style="min-width: <%= _cols * 14 + 28 %>px;">
+                  <div class="ov-heatmap-dow">
+                    <span class="ov-heatmap-dow-label"></span>
+                    <span class="ov-heatmap-dow-label">Mon</span>
+                    <span class="ov-heatmap-dow-label"></span>
+                    <span class="ov-heatmap-dow-label">Wed</span>
+                    <span class="ov-heatmap-dow-label"></span>
+                    <span class="ov-heatmap-dow-label">Fri</span>
+                    <span class="ov-heatmap-dow-label"></span>
+                  </div>
+                  <div class="ov-heatmap-grid" style="grid-template-columns: repeat(<%= _cols %>, 11px);">
+                    <% for (var s = 0; s < heatmapStartDow; s++) { %>
+                      <span class="ov-heatmap-cell" style="visibility:hidden"></span>
+                    <% } %>
+                    <% _heatmap.forEach(function(d) { %>
+                      <span class="ov-heatmap-cell"
+                            data-bucket="<%= heatmapBucket(d.plays) %>"
+                            title="<%= d.day %>: <%= d.plays %> play<%= d.plays !== 1 ? 's' : '' %>"></span>
+                    <% }) %>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
