@@ -4,7 +4,9 @@ import crypto from 'crypto';
 const loginAttempts = new Map(); // ip -> { failures: number, windowStart: ms }
 
 const PIN_MAX_AGE_MS = 15 * 60 * 1000; // Plex PIN valid for 15 minutes
+const HOME_USER_PENDING_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes to complete selection
 const homeUserSelections = new Map();
+const pendingPlexHomeSessions = new Map();
 const HOME_USER_SELECTION_TTL_MS = 15 * 1000;
 
 function isValidPlexPinId(v) {
@@ -92,7 +94,7 @@ function rememberHomeUserSelection(selectionKey, promise) {
 
 function completeHomeUserSelectionResponse(res, result) {
   const authMode = String(result?.authMode || 'redirect').trim().toLowerCase();
-  const redirectTarget = String(result?.redirectTarget || '/dashboard').trim() || '/dashboard';
+  const redirectTarget = String(result?.redirectTarget || '/overview').trim() || '/overview';
   if (authMode === 'popup') {
     return res.render('plex-auth-complete', {
       title: 'Plex Login Complete',
@@ -100,6 +102,29 @@ function completeHomeUserSelectionResponse(res, result) {
     });
   }
   return res.redirect(redirectTarget);
+}
+
+function rememberPendingHomeSession(req, mainToken, homeUsers) {
+  const sessionId = crypto.randomBytes(18).toString('hex');
+  pendingPlexHomeSessions.set(sessionId, {
+    mainToken: String(mainToken || '').trim(),
+    homeUsers: Array.isArray(homeUsers) ? homeUsers : [],
+    issuedAt: Date.now(),
+  });
+  if (req?.session) {
+    req.session.pendingHomeSessionId = sessionId;
+    delete req.session.pendingHomeUsers;
+    delete req.session.pendingHomeUsersAt;
+  }
+  return sessionId;
+}
+
+function clearPendingHomeSessionCookie(req) {
+  if (!req?.session) return;
+  delete req.session.pendingHomeSessionId;
+  delete req.session.pendingHomeUserId;
+  delete req.session.pendingHomeUsers;
+  delete req.session.pendingHomeUsersAt;
 }
 
 // Rate limiting for POST /setup — 5 failures per 15 min per IP
@@ -118,6 +143,14 @@ setInterval(() => {
   for (const [selectionKey, entry] of homeUserSelections) {
     const age = now - Number(entry?.completedAt || entry?.startedAt || 0);
     if (age > HOME_USER_SELECTION_TTL_MS) homeUserSelections.delete(selectionKey);
+  }
+}, 60 * 1000).unref();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, entry] of pendingPlexHomeSessions) {
+    const age = now - Number(entry?.issuedAt || 0);
+    if (age > HOME_USER_PENDING_MAX_AGE_MS) pendingPlexHomeSessions.delete(sessionId);
   }
 }, 60 * 1000).unref();
 
@@ -177,7 +210,7 @@ function recordPlexPinStatusRequest(ip) {
 export function resetLoginAttempts() { loginAttempts.clear(); }
 export { checkLoginRateLimit, recordLoginFailure, clearLoginFailures };
 
-function normalizePostLoginRedirectPath(value, fallback = '/dashboard') {
+function normalizePostLoginRedirectPath(value, fallback = '/overview') {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
   if (!raw.startsWith('/') || raw.startsWith('//')) return fallback;
@@ -190,19 +223,141 @@ function normalizePostLoginRedirectPath(value, fallback = '/dashboard') {
 function setPostLoginRedirect(req, value) {
   try {
     if (!req?.session) return;
-    req.session.postLoginRedirect = normalizePostLoginRedirectPath(value, '/dashboard');
+    req.session.postLoginRedirect = normalizePostLoginRedirectPath(value, '/overview');
   } catch (err) {
     /* ignore session write failures */
   }
 }
 
-function consumePostLoginRedirect(req, fallback = '/dashboard') {
+function consumePostLoginRedirect(req, fallback = '/overview') {
   try {
     const next = normalizePostLoginRedirectPath(req?.session?.postLoginRedirect, fallback);
     if (req?.session) delete req.session.postLoginRedirect;
     return next;
   } catch (err) {
     return fallback;
+  }
+}
+
+function normalizePlexHomeFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return false;
+  if (['1', 'true', 'yes', 'on'].includes(raw)) return true;
+  if (['0', 'false', 'no', 'off'].includes(raw)) return false;
+  return Boolean(raw);
+}
+
+function firstPlexHomeValue(...values) {
+  for (const value of values) {
+    const raw = String(value || '').trim();
+    if (raw) return raw;
+  }
+  return '';
+}
+
+function resolvePlexHomeThumbUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  if (raw.startsWith('/')) return `https://plex.tv${raw}`;
+  return raw;
+}
+
+function buildAuthorizedPlexHomeThumbUrl(value, token) {
+  const resolved = resolvePlexHomeThumbUrl(value);
+  const authToken = String(token || '').trim();
+  if (!resolved || !authToken) return resolved;
+  try {
+    const url = new URL(resolved);
+    if (!url.searchParams.get('X-Plex-Token')) url.searchParams.set('X-Plex-Token', authToken);
+    return url.toString();
+  } catch (_err) {
+    return resolved;
+  }
+}
+
+function resolvePublicPlexHomeThumbUrl(value) {
+  const resolved = resolvePlexHomeThumbUrl(value);
+  if (!resolved) return '';
+  try {
+    const url = new URL(resolved);
+    const host = String(url.hostname || '').trim().toLowerCase();
+    const hasToken = Boolean(String(url.searchParams.get('X-Plex-Token') || '').trim());
+    const isPlexHost = host === 'plex.tv' || host.endsWith('.plex.tv');
+    if (!isPlexHost || hasToken) return '';
+    return url.toString();
+  } catch (_err) {
+    return '';
+  }
+}
+
+function normalizePlexHomeIdentityList(user) {
+  return [
+    user?.title,
+    user?.username,
+    user?.email,
+    String(user?.id || ''),
+    String(user?.uuid || ''),
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function parsePlexUserThumbEntries(xmlText) {
+  const blocks = String(xmlText || '').match(/<User\b[^>]*\/>|<User\b[^>]*>[\s\S]*?<\/User>/g) || [];
+  return blocks.map((block) => {
+    const tagMatch = block.match(/<User\b[^>]*>/);
+    if (!tagMatch) return null;
+    const attrs = {};
+    tagMatch[0].replace(/(\w+)="([^"]*)"/g, (_m, key, value) => {
+      attrs[key] = value;
+      return '';
+    });
+    return {
+      id: String(attrs.id || attrs.uuid || '').trim(),
+      uuid: String(attrs.uuid || '').trim(),
+      username: String(attrs.username || '').trim(),
+      email: String(attrs.email || '').trim(),
+      title: String(attrs.title || '').trim(),
+      thumb: firstPlexHomeValue(attrs.thumb, attrs.avatar, attrs.avatarUrl, attrs.avatar_url, attrs.thumbUrl, attrs.image),
+    };
+  }).filter(Boolean);
+}
+
+async function enrichPendingPlexHomeUsers(homeUsers, mainToken) {
+  const list = Array.isArray(homeUsers) ? homeUsers : [];
+  if (!list.length) return [];
+  if (list.every((user) => String(user?.thumb || '').trim())) return list;
+  try {
+    const res = await fetch('https://plex.tv/api/users', {
+      method: 'GET',
+      headers: { Accept: 'application/xml', 'X-Plex-Token': mainToken, ...plexHeaders() },
+    });
+    if (!res.ok) return list;
+    const xmlText = await res.text();
+    const thumbByKey = new Map();
+    parsePlexUserThumbEntries(xmlText).forEach((entry) => {
+      const thumb = String(entry?.thumb || '').trim();
+      if (!thumb) return;
+      normalizePlexHomeIdentityList(entry).forEach((value) => {
+        const key = String(value || '').trim().toLowerCase();
+        if (!key || thumbByKey.has(key)) return;
+        thumbByKey.set(key, thumb);
+      });
+    });
+    return list.map((user) => {
+      const existingThumb = String(user?.thumb || '').trim();
+      if (existingThumb) return user;
+      const matchedThumb = normalizePlexHomeIdentityList(user)
+        .map((value) => thumbByKey.get(String(value || '').trim().toLowerCase()))
+        .find(Boolean) || '';
+      return matchedThumb ? { ...user, thumb: matchedThumb } : user;
+    });
+  } catch (_err) {
+    return list;
   }
 }
 
@@ -215,8 +370,11 @@ function serializePendingPlexHomeUsers(homeUsers) {
       return {
         id,
         title: String(user?.title || user?.username || 'User').trim() || 'User',
-        protected: Boolean(user?.protected),
-        admin: Boolean(user?.admin),
+        thumb: firstPlexHomeValue(user?.thumb, user?.avatar, user?.avatarUrl, user?.avatar_url, user?.thumbUrl, user?.image),
+        protected: normalizePlexHomeFlag(
+          user?.protected ?? user?.restricted ?? user?.hasPassword ?? user?.pinRequired ?? user?.requiresPassword
+        ),
+        admin: normalizePlexHomeFlag(user?.admin ?? user?.homeAdmin ?? user?.owner ?? user?.isAdmin),
       };
     })
     .filter(Boolean);
@@ -369,12 +527,12 @@ export function registerAuth(app, ctx) {
   app.get('/', (req, res) => {
     const user = req.session?.user || null;
     if (!user) return res.redirect('/login');
-    return res.redirect('/dashboard');
+    return res.redirect('/overview');
   });
 
   app.get('/login', (req, res) => {
     const user = req.session?.user || null;
-    if (user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    if (user) return res.redirect(consumePostLoginRedirect(req, '/overview'));
     if (req.query?.next) setPostLoginRedirect(req, req.query.next);
     const config = loadConfig();
     if (!hasLocalAdmin(config)) return res.redirect('/setup');
@@ -390,7 +548,7 @@ export function registerAuth(app, ctx) {
 
   app.post('/login', (req, res) => {
     const user = req.session?.user || null;
-    if (user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    if (user) return res.redirect(consumePostLoginRedirect(req, '/overview'));
     if (req.body?.next) setPostLoginRedirect(req, req.body.next);
 
     const ip = getClientIp(req);
@@ -450,12 +608,12 @@ export function registerAuth(app, ctx) {
       curatorr: true,
     });
     if (loginConfig !== config) saveConfig(loginConfig);
-    return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    return res.redirect(consumePostLoginRedirect(req, '/overview'));
   });
 
   app.get('/setup', (req, res) => {
     const user = req.session?.user || null;
-    if (user) return res.redirect('/dashboard');
+    if (user) return res.redirect('/overview');
     const config = loadConfig();
     if (hasLocalAdmin(config)) return res.redirect('/login');
     res.render('setup', {
@@ -471,7 +629,7 @@ export function registerAuth(app, ctx) {
 
   app.post('/setup', (req, res) => {
     const user = req.session?.user || null;
-    if (user) return res.redirect('/dashboard');
+    if (user) return res.redirect('/overview');
     const config = loadConfig();
     if (hasLocalAdmin(config)) return res.redirect('/login');
 
@@ -561,7 +719,7 @@ export function registerAuth(app, ctx) {
     saveConfig(nextConfig);
     setSessionUser(req, newUser, 'local');
     if (!nextConfig.wizard?.completed) return res.redirect('/wizard');
-    return res.redirect('/dashboard');
+    return res.redirect('/overview');
   });
 
   app.get('/auth/plex', async (req, res) => {
@@ -714,10 +872,12 @@ export function registerAuth(app, ctx) {
       }
 
       if (homeUsers.length > 1) {
-        // Store main token and home users for the selection step
-        req.session.plexMainToken = authToken;
-        req.session.pendingHomeUsers = serializePendingPlexHomeUsers(homeUsers);
-        req.session.pendingHomeUsersAt = Date.now();
+        const pendingHomeUsers = await enrichPendingPlexHomeUsers(
+          serializePendingPlexHomeUsers(homeUsers),
+          authToken
+        );
+        // Store home-user selection state server-side to keep the session cookie small.
+        rememberPendingHomeSession(req, authToken, pendingHomeUsers);
         // Clean up PIN/state (preserve plexAuthMode and postLoginRedirect)
         req.session.plexState = null;
         req.session.pinId = null;
@@ -729,7 +889,7 @@ export function registerAuth(app, ctx) {
       await completePlexLogin(req, authToken);
       const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
       if (req.session) delete req.session.plexAuthMode;
-      const redirectTarget = consumePostLoginRedirect(req, '/dashboard');
+      const redirectTarget = consumePostLoginRedirect(req, '/overview');
       if (authMode === 'popup') {
         return res.render('plex-auth-complete', {
           title: 'Plex Login Complete',
@@ -751,7 +911,7 @@ export function registerAuth(app, ctx) {
 
   app.get('/api/plex/pin/status', async (req, res) => {
     try {
-      const redirectFallback = normalizePostLoginRedirectPath(req.query?.next, '/dashboard');
+      const redirectFallback = normalizePostLoginRedirectPath(req.query?.next, '/overview');
       const ip = getClientIp(req);
       const plexPinBlocked = checkPlexPinStatusRateLimit(ip);
       if (plexPinBlocked !== null) {
@@ -773,7 +933,7 @@ export function registerAuth(app, ctx) {
 
       // If the home-users selection flow is already in progress (set by /oauth/callback),
       // don't touch the session — let the popup window complete it.
-      if (req.session?.plexMainToken) return res.json({ ok: false });
+      if (validatePendingHomeSession(req)) return res.json({ ok: false });
 
       const authToken = await exchangePin(pinId);
       if (!authToken) return res.json({ ok: false });
@@ -797,8 +957,6 @@ export function registerAuth(app, ctx) {
   });
 
   // ─── Plex Home User flow ─────────────────────────────────────────────────────
-
-  const HOME_USER_PENDING_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes to complete selection
 
   // Rate limiting for home user PIN attempts — 5 failures per 15 min per IP
   const homeUserPinAttempts = new Map();
@@ -831,13 +989,27 @@ export function registerAuth(app, ctx) {
     }
   }
 
-  function validatePendingHomeSession(req) {
-    const mainToken = String(req.session?.plexMainToken || '').trim();
-    const homeUsers = req.session?.pendingHomeUsers;
-    const issuedAt = Number(req.session?.pendingHomeUsersAt || 0);
-    if (!mainToken || !Array.isArray(homeUsers) || !homeUsers.length) return null;
-    if (issuedAt && Date.now() - issuedAt > HOME_USER_PENDING_MAX_AGE_MS) return null;
-    return { mainToken, homeUsers };
+  function validatePendingHomeSession(req, explicitSessionId = '') {
+    const sessionId = String(explicitSessionId || req.session?.pendingHomeSessionId || '').trim();
+    if (!sessionId) return null;
+    const entry = pendingPlexHomeSessions.get(sessionId);
+    if (!entry) {
+      if (!explicitSessionId) clearPendingHomeSessionCookie(req);
+      return null;
+    }
+    const issuedAt = Number(entry.issuedAt || 0);
+    if (issuedAt && Date.now() - issuedAt > HOME_USER_PENDING_MAX_AGE_MS) {
+      pendingPlexHomeSessions.delete(sessionId);
+      if (!explicitSessionId) clearPendingHomeSessionCookie(req);
+      return null;
+    }
+    const mainToken = String(entry.mainToken || '').trim();
+    const homeUsers = Array.isArray(entry.homeUsers) ? entry.homeUsers : [];
+    if (!mainToken || !homeUsers.length) {
+      if (!explicitSessionId) clearPendingHomeSessionCookie(req);
+      return null;
+    }
+    return { mainToken, homeUsers, sessionId };
   }
 
   app.get('/auth/plex/home-users', (req, res) => {
@@ -846,15 +1018,68 @@ export function registerAuth(app, ctx) {
       req.session = null;
       return res.redirect('/login');
     }
+    const homeUsers = pending.homeUsers.map((entry) => {
+      const thumb = String(entry?.thumb || '').trim();
+      return {
+        ...entry,
+        publicThumbUrl: resolvePublicPlexHomeThumbUrl(thumb),
+        proxyThumbUrl: `/auth/plex/home-users/avatar/${encodeURIComponent(pending.sessionId)}/${encodeURIComponent(String(entry?.id || ''))}`,
+      };
+    });
     return res.render('plex-home-users', {
       title: "Who's watching?",
-      homeUsers: pending.homeUsers,
+      pendingSessionId: pending.sessionId,
+      homeUsers,
     });
+  });
+
+  async function handlePlexHomeAvatarRequest(req, res, explicitSessionId = '') {
+    try {
+      const pending = validatePendingHomeSession(req, explicitSessionId);
+      if (!pending) return res.status(404).end();
+      const userId = String(req.params?.id || '').trim();
+      if (!userId) return res.status(404).end();
+      let user = pending.homeUsers.find((entry) => String(entry?.id || '') === userId);
+      if (!String(user?.thumb || '').trim()) {
+        const enrichedHomeUsers = await enrichPendingPlexHomeUsers(pending.homeUsers, pending.mainToken);
+        const pendingEntry = pendingPlexHomeSessions.get(pending.sessionId);
+        if (pendingEntry) pendingEntry.homeUsers = enrichedHomeUsers;
+        user = enrichedHomeUsers.find((entry) => String(entry?.id || '') === userId) || user;
+      }
+      const thumbUrl = buildAuthorizedPlexHomeThumbUrl(user?.thumb, pending.mainToken);
+      if (!thumbUrl) return res.status(404).end();
+
+      const imageRes = await fetch(thumbUrl, {
+        method: 'GET',
+        headers: {
+          Accept: 'image/*,*/*;q=0.8',
+          'X-Plex-Token': pending.mainToken,
+          ...plexHeaders(),
+        },
+      });
+      if (!imageRes.ok) return res.status(imageRes.status || 404).end();
+
+      const contentType = String(imageRes.headers.get('content-type') || '').trim() || 'image/jpeg';
+      const cacheControl = String(imageRes.headers.get('cache-control') || '').trim() || 'private, max-age=300';
+      const buffer = Buffer.from(await imageRes.arrayBuffer());
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', cacheControl);
+      return res.send(buffer);
+    } catch (_err) {
+      return res.status(404).end();
+    }
+  }
+
+  app.get('/auth/plex/home-users/avatar/:id', async (req, res) => handlePlexHomeAvatarRequest(req, res));
+  app.get('/auth/plex/home-users/avatar/:sessionId/:id', async (req, res) => {
+    const explicitSessionId = String(req.params?.sessionId || '').trim();
+    return handlePlexHomeAvatarRequest(req, res, explicitSessionId);
   });
 
   app.post('/auth/plex/home-users/select', async (req, res) => {
     try {
-      if (req.session?.user) return res.redirect('/dashboard');
+      const currentSource = String(req.session?.user?.source || '').trim().toLowerCase();
+      if (req.session?.user && currentSource && currentSource !== 'local') return res.redirect('/overview');
 
       const pending = validatePendingHomeSession(req);
       if (!pending) {
@@ -866,7 +1091,7 @@ export function registerAuth(app, ctx) {
       const selectedUser = userId ? homeUsers.find((u) => String(u.uuid || u.id || '') === userId) : null;
       if (!selectedUser) return res.redirect('/auth/plex/home-users');
 
-      if (selectedUser.protected && !selectedUser.admin) {
+      if (selectedUser.protected) {
         req.session.pendingHomeUserId = userId;
         return res.redirect('/auth/plex/home-users/pin');
       }
@@ -891,14 +1116,12 @@ export function registerAuth(app, ctx) {
         await completePlexLogin(req, homeUserToken);
         req.session.plexMainToken = mainToken;
         if (req.session) {
-          delete req.session.pendingHomeUsers;
-          delete req.session.pendingHomeUserId;
-          delete req.session.pendingHomeUsersAt;
+          clearPendingHomeSessionCookie(req);
           delete req.session.plexAuthMode;
         }
         return {
           authMode,
-          redirectTarget: consumePostLoginRedirect(req, '/dashboard'),
+          redirectTarget: consumePostLoginRedirect(req, '/overview'),
         };
       })();
       rememberHomeUserSelection(selectionKey, selectionPromise);
@@ -924,7 +1147,14 @@ export function registerAuth(app, ctx) {
 
     return res.render('plex-home-pin', {
       title: 'Enter PIN',
-      user: { id: pendingHomeUserId, title: selectedUser.title, thumb: selectedUser.thumb || null },
+      user: {
+        id: pendingHomeUserId,
+        sessionId: pending.sessionId,
+        title: selectedUser.title,
+        thumb: selectedUser.thumb || null,
+        publicThumbUrl: resolvePublicPlexHomeThumbUrl(selectedUser.thumb),
+        proxyThumbUrl: `/auth/plex/home-users/avatar/${encodeURIComponent(pending.sessionId)}/${encodeURIComponent(pendingHomeUserId)}`,
+      },
       error: null,
     });
   });
@@ -951,7 +1181,14 @@ export function registerAuth(app, ctx) {
       if (!selectedUser) return res.redirect('/auth/plex/home-users');
 
       const pin = String(req.body?.pin || '').trim();
-      const userRenderData = { id: pendingHomeUserId, title: selectedUser.title, thumb: selectedUser.thumb || null };
+      const userRenderData = {
+        id: pendingHomeUserId,
+        sessionId: pending.sessionId,
+        title: selectedUser.title,
+        thumb: selectedUser.thumb || null,
+        publicThumbUrl: resolvePublicPlexHomeThumbUrl(selectedUser.thumb),
+        proxyThumbUrl: `/auth/plex/home-users/avatar/${encodeURIComponent(pending.sessionId)}/${encodeURIComponent(pendingHomeUserId)}`,
+      };
 
       if (!pin) {
         return res.render('plex-home-pin', { title: 'Enter PIN', user: userRenderData, error: 'PIN is required.' });
@@ -978,15 +1215,13 @@ export function registerAuth(app, ctx) {
 
       const authMode = String(req.session?.plexAuthMode || 'redirect').trim().toLowerCase();
       if (req.session) {
-        delete req.session.pendingHomeUsers;
-        delete req.session.pendingHomeUserId;
-        delete req.session.pendingHomeUsersAt;
+        clearPendingHomeSessionCookie(req);
         delete req.session.plexAuthMode;
       }
       await completePlexLogin(req, homeUserToken);
       req.session.plexMainToken = mainToken;
 
-      const redirectTarget = consumePostLoginRedirect(req, '/dashboard');
+      const redirectTarget = consumePostLoginRedirect(req, '/overview');
       if (authMode === 'popup') return res.render('plex-auth-complete', { title: 'Plex Login Complete', redirectTarget });
       return res.redirect(redirectTarget);
     } catch (err) {
@@ -1073,32 +1308,32 @@ export function registerAuth(app, ctx) {
     if (loginConfig !== config) saveConfig(loginConfig);
 
     pushLog({ level: 'info', app: serverType, action: 'login.success', message: `${serverLabel} login successful.`, meta: { user: username } });
-    return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    return res.redirect(consumePostLoginRedirect(req, '/overview'));
   }
 
   app.get('/auth/jellyfin', (req, res) => {
-    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/overview'));
     const config = loadConfig();
     if (String(config?.mediaServer?.type || 'plex') !== 'jellyfin') return res.redirect('/login');
     return res.render('jellyfin-login', { title: 'Jellyfin Sign In', error: null });
   });
 
   app.post('/auth/jellyfin', async (req, res) => {
-    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/overview'));
     const config = loadConfig();
     if (String(config?.mediaServer?.type || 'plex') !== 'jellyfin') return res.redirect('/login');
     return handleMediaServerLogin(req, res, 'jellyfin');
   });
 
   app.get('/auth/emby', (req, res) => {
-    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/overview'));
     const config = loadConfig();
     if (String(config?.mediaServer?.type || 'plex') !== 'emby') return res.redirect('/login');
     return res.render('emby-login', { title: 'Emby Sign In', error: null });
   });
 
   app.post('/auth/emby', async (req, res) => {
-    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/dashboard'));
+    if (req.session?.user) return res.redirect(consumePostLoginRedirect(req, '/overview'));
     const config = loadConfig();
     if (String(config?.mediaServer?.type || 'plex') !== 'emby') return res.redirect('/login');
     return handleMediaServerLogin(req, res, 'emby');

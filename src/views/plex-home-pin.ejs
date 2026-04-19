@@ -113,9 +113,15 @@
   <body>
     <div class="wrap">
       <div class="avatar-wrap">
-        <% if (user.thumb) { %>
-          <img class="avatar" src="<%= user.thumb %>" alt=""
-            onerror="this.style.display='none';document.getElementById('avatar-fallback').style.display='flex'" />
+        <% if (user.id) { %>
+          <img class="avatar" src="<%= user.publicThumbUrl || user.proxyThumbUrl || (user.sessionId ? `/auth/plex/home-users/avatar/${encodeURIComponent(user.sessionId || '')}/${encodeURIComponent(user.id || '')}` : `/auth/plex/home-users/avatar/${encodeURIComponent(user.id || '')}`) %>" alt=""
+            <% if (user.publicThumbUrl && user.proxyThumbUrl && user.publicThumbUrl !== user.proxyThumbUrl) { %>
+            data-proxy-src="<%= user.proxyThumbUrl %>"
+            onerror="if(this.dataset.proxySrc && this.dataset.proxyTried !== '1'){this.dataset.proxyTried='1';this.src=this.dataset.proxySrc;return;}this.style.display='none';document.getElementById('avatar-fallback').style.display='flex'"
+            <% } else { %>
+            onerror="this.style.display='none';document.getElementById('avatar-fallback').style.display='flex'"
+            <% } %>
+          />
           <div class="avatar-placeholder" id="avatar-fallback" style="display:none">
             <%= String(user.title || '?').charAt(0).toUpperCase() %>
           </div>

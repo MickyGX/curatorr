@@ -632,7 +632,7 @@ export function registerWizard(app, ctx) {
 
   app.get('/wizard', (req, res) => {
     const config = loadConfig();
-    if (config.wizard?.completed) return res.redirect('/dashboard');
+    if (config.wizard?.completed) return res.redirect('/overview');
     const hasAdminAccount = resolveLocalUsers(config).length > 0;
     const minimumStep = hasAdminAccount ? 2 : 1;
     const maximumStep = resolveServerSteps(config);

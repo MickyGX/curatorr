@@ -660,6 +660,33 @@ function buildArtistScoreMap(db, userPlexId) {
   );
 }
 
+function normalizeLastPlayedMode(value) {
+  const raw = String(value || '').trim();
+  return ['any', 'within', 'notWithin', 'never'].includes(raw) ? raw : 'any';
+}
+
+function matchesLastPlayedRule(stat, rules = {}, now = Date.now()) {
+  const mode = normalizeLastPlayedMode(rules?.lastPlayedMode);
+  if (mode === 'any') return true;
+
+  const lastPlayedAt = Number(stat?.last_played_at ?? stat?.lastPlayedAt ?? 0);
+  const playCount = Number(stat?.play_count ?? stat?.playCount ?? 0);
+  const hasPlayed = lastPlayedAt > 0 || playCount > 0;
+
+  if (mode === 'never') return !hasPlayed;
+
+  const days = Number(rules?.lastPlayedDays || 0);
+  if (!Number.isFinite(days) || days <= 0) return true;
+
+  if (!hasPlayed) return mode === 'notWithin';
+
+  const ageMs = now - lastPlayedAt;
+  if (!Number.isFinite(ageMs) || ageMs < 0) return mode === 'within';
+
+  const thresholdMs = days * 24 * 60 * 60 * 1000;
+  return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
+}
+
 function buildRecentPenalty(lastPlayedAt, cooldownDays = 0) {
   const cooldownMs = Math.max(0, Number(cooldownDays || 0)) * 24 * 60 * 60 * 1000;
   if (!cooldownMs || !lastPlayedAt) return 0;
@@ -2199,7 +2226,7 @@ function _getUserStatMaps(db, userId) {
       .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
   );
   const trackMap = new Map(
-    db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(userId)
+    db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count, last_played_at FROM track_stats WHERE user_plex_id = ?').all(userId)
       .map((r) => [r.plex_rating_key, r]),
   );
   return { artistMap, trackMap };
@@ -2217,13 +2244,19 @@ function _buildAverageStatMaps(db, userIds) {
         if (!artistGroups.has(key)) artistGroups.set(key, []);
         artistGroups.get(key).push(r.ranking_score);
       });
-    db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
+    db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count, last_played_at FROM track_stats WHERE user_plex_id = ?').all(uid)
       .forEach((r) => {
-        if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, { weights: [], tiers: [], playCounts: [] });
+        if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, {
+          weights: [],
+          tiers: [],
+          playCounts: [],
+          lastPlayedAts: [],
+        });
         const d = trackGroups.get(r.plex_rating_key);
         d.weights.push(r.tier_weight || 0);
         d.tiers.push(r.tier || 'curatorr');
         d.playCounts.push(r.play_count || 0);
+        if (Number(r.last_played_at || 0) > 0) d.lastPlayedAts.push(Number(r.last_played_at || 0));
       });
   }
   const artistMap = new Map();
@@ -2234,10 +2267,16 @@ function _buildAverageStatMaps(db, userIds) {
   for (const [key, data] of trackGroups) {
     const avgWeight    = data.weights.reduce((a, b) => a + b, 0) / data.weights.length;
     const avgPlayCount = Math.round(data.playCounts.reduce((a, b) => a + b, 0) / data.playCounts.length);
+    const latestPlayedAt = data.lastPlayedAts.length ? Math.max(...data.lastPlayedAts) : 0;
     const tierCounts   = {};
     for (const t of data.tiers) tierCounts[t] = (tierCounts[t] || 0) + 1;
     const tier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
-    trackMap.set(key, { tier, tier_weight: avgWeight, play_count: avgPlayCount });
+    trackMap.set(key, {
+      tier,
+      tier_weight: avgWeight,
+      play_count: avgPlayCount,
+      last_played_at: latestPlayedAt,
+    });
   }
   return { artistMap, trackMap };
 }
@@ -2294,6 +2333,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
     const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
     if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
     if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
+    if (!matchesLastPlayedRule(stat, rules)) continue;
 
     if (!matchesTriStateValues(t.genres || [], gf)) continue;
     if (!matchesTriStateValues(t.moods || [], mf)) continue;

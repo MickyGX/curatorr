@@ -67,6 +67,44 @@ function stripArtistSuffix(title, artist) {
   return title.endsWith(suffix) ? title.slice(0, -suffix.length) : title;
 }
 
+function getDatePartsInTimeZone(value, timeZone = 'UTC') {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    if (!map.year || !map.month || !map.day) return null;
+    return { year: map.year, month: map.month, day: map.day };
+  } catch (_err) {
+    return null;
+  }
+}
+
+function formatDayKeyInTimeZone(value, timeZone = 'UTC') {
+  const parts = getDatePartsInTimeZone(value, timeZone);
+  if (!parts) return '';
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function formatDayLabelInTimeZone(value, timeZone = 'UTC', locale = 'en-GB') {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      timeZone,
+      day: 'numeric',
+      month: 'short',
+    }).format(date);
+  } catch (_err) {
+    return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
+  }
+}
+
 function attachAlbumPopularity(items = [], popularityByKey = new Map(), keyField = 'rating_key') {
   return (Array.isArray(items) ? items : []).map((item) => {
     const popularity = popularityByKey.get(String(item?.[keyField] || '')) || null;
@@ -1258,6 +1296,7 @@ export function registerPages(app, ctx) {
     fetchPlexPlaylistsForToken,
     spotifyService,
     youtubeService,
+    SERVER_TIME_ZONE,
     fetchPlexUser,
     fetchPlexHomeUsers,
     parsePlexUsers,
@@ -1266,7 +1305,7 @@ export function registerPages(app, ctx) {
   // Root redirect
   app.get('/', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
-    return res.redirect('/dashboard');
+    return res.redirect('/overview');
   });
 
   async function buildPageScope(req, config) {
@@ -1298,6 +1337,31 @@ export function registerPages(app, ctx) {
       suggestionUserId: scopedCanonicalId,
       personalUserId: scopedCanonicalId,
     };
+  }
+
+  function buildActivityHeatmap(userPlexId, since, now = Date.now()) {
+    const heatmapRows = db.prepare(`
+      SELECT
+        date(started_at / 1000, 'unixepoch', 'localtime') AS day,
+        COUNT(*) AS plays
+      FROM play_events
+      WHERE user_plex_id = ?
+        AND started_at >= ?
+        AND is_skip = 0
+      GROUP BY day
+      ORDER BY day ASC
+    `).all(userPlexId, since);
+    const heatmapMap = new Map(heatmapRows.map((row) => [row.day, row.plays]));
+    const heatmapData = [];
+    for (let i = 363; i >= 0; i--) {
+      const d = new Date(now - i * 86400000);
+      const key = formatDayKeyInTimeZone(d, SERVER_TIME_ZONE);
+      heatmapData.push({ day: key, plays: heatmapMap.get(key) || 0 });
+    }
+    const heatmapStartDow = heatmapData.length
+      ? (new Date(heatmapData[0].day + 'T12:00:00Z').getDay() + 6) % 7
+      : 0;
+    return { heatmapData, heatmapStartDow };
   }
 
   // ── Admin users ────────────────────────────────────────────────────────────
@@ -1358,8 +1422,8 @@ export function registerPages(app, ctx) {
     const byDayMap = Object.fromEntries(byDayRaw.map((r) => [r.day, r]));
     const byDay = Array.from({ length: 14 }, (_, i) => {
       const d = new Date(now - (13 - i) * 24 * 60 * 60 * 1000);
-      const key = d.toISOString().slice(0, 10);
-      const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      const key = formatDayKeyInTimeZone(d, SERVER_TIME_ZONE);
+      const label = formatDayLabelInTimeZone(d, SERVER_TIME_ZONE, 'en-GB');
       return byDayMap[key] ? { ...byDayMap[key], label } : { day: key, plays: 0, skips: 0, label };
     });
     const topArtists = getTopArtists(db, userPlexId, 5).map((artist) => ({
@@ -1468,7 +1532,7 @@ export function registerPages(app, ctx) {
   app.get('/overview', requireUser, requireWizardComplete, requireUserWizardComplete, async (req, res) => {
     const config = loadConfig();
     const user = req.session.user;
-    const { adminPreview, role, userPlexId } = await buildPageScope(req, config);
+    const { adminPreview, role, userPlexId, personalUserId } = await buildPageScope(req, config);
 
     const now = Date.now();
     const since7d  = now - 7  * 24 * 60 * 60 * 1000;
@@ -1495,8 +1559,14 @@ export function registerPages(app, ctx) {
 
     const prefs = getUserPreferences(db, userPlexId);
     const lastfmUsername = prefs?.lastfmUsername || null;
+    const generatedPlaylists = listUserGeneratedPlaylists(db, personalUserId, { activeOnly: true });
+    const generatedPlaylistByKey = new Map(
+      generatedPlaylists
+        .map((playlist) => [String(playlist?.playlistKey || '').trim(), playlist])
+        .filter(([playlistKey]) => playlistKey),
+    );
 
-    function queryTopArtists(since, limit = 10) {
+    function queryTopArtists(since, limit = 12) {
       const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
       const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
       return db.prepare(`
@@ -1513,7 +1583,7 @@ export function registerPages(app, ctx) {
       `).all(...params);
     }
 
-    function queryTopAlbums(since, limit = 10) {
+    function queryTopAlbums(since, limit = 12) {
       const sinceClause = since > 0 ? 'AND started_at >= ?' : '';
       const params = since > 0 ? [userPlexId, since, limit] : [userPlexId, limit];
       return db.prepare(`
@@ -1556,6 +1626,57 @@ export function registerPages(app, ctx) {
         ORDER BY play_count DESC, has_rating_key DESC, last_played_at DESC
         LIMIT ?
       `).all(...params);
+    }
+
+    function queryTopPlaylists(since, limit = 10) {
+      const sinceClause = since > 0 ? 'AND pe.started_at >= ?' : '';
+      const params = since > 0 ? [personalUserId, userPlexId, since, limit] : [personalUserId, userPlexId, limit];
+      const rows = db.prepare(`
+        SELECT
+          pt.playlist_key AS playlist_key,
+          COUNT(DISTINCT pt.rating_key) AS played_track_count,
+          COUNT(*) AS matched_play_count,
+          MAX(pe.started_at) AS last_played_at,
+          MAX(CASE WHEN TRIM(COALESCE(pe.plex_rating_key, '')) != '' THEN pe.plex_rating_key ELSE '' END) AS sample_rating_key
+        FROM play_events pe
+        INNER JOIN playlist_tracks pt
+          ON pt.user_plex_id = ?
+         AND pt.rating_key = pe.plex_rating_key
+        WHERE pe.user_plex_id = ?
+          AND pe.is_skip = 0
+          AND TRIM(COALESCE(pe.plex_rating_key, '')) != ''
+          ${sinceClause}
+        GROUP BY pt.playlist_key
+        ORDER BY played_track_count DESC, matched_play_count DESC, last_played_at DESC
+        LIMIT ?
+      `).all(...params);
+      return rows
+        .map((row) => {
+          const playlistKey = String(row?.playlist_key || '').trim();
+          const playlist = generatedPlaylistByKey.get(playlistKey) || null;
+          if (!playlist) return null;
+          return {
+            playlist_key: playlistKey,
+            playlistKey,
+            playlist_title: String(playlist.playlistTitle || playlist.titleOverride || playlistKey || 'Playlist').trim() || 'Playlist',
+            playlistTitle: String(playlist.playlistTitle || playlist.titleOverride || playlistKey || 'Playlist').trim() || 'Playlist',
+            playlist_type: String(playlist.playlistType || '').trim(),
+            playlistType: String(playlist.playlistType || '').trim(),
+            plex_playlist_id: String(playlist.plexPlaylistId || '').trim(),
+            plexPlaylistId: String(playlist.plexPlaylistId || '').trim(),
+            played_track_count: Number(row?.played_track_count || 0),
+            matched_play_count: Number(row?.matched_play_count || 0),
+            last_played_at: Number(row?.last_played_at || 0),
+            sample_rating_key: String(row?.sample_rating_key || '').trim(),
+            artPath: '',
+            artUrl: buildStoredPlaylistArtworkUrl(
+              playlist.artworkMode === 'custom'
+                ? playlist.customArtworkAsset
+                : (playlist.artworkMode === 'preserve' ? playlist.preservedArtworkAsset : ''),
+            ),
+          };
+        })
+        .filter(Boolean);
     }
 
     function queryTierBreakdown(since) {
@@ -1605,6 +1726,15 @@ export function registerPages(app, ctx) {
     const topTracks30d = attachAlbumPopularity(topTracks30dBase, topTrackPopularity, 'plex_rating_key');
     const topTracksAll = attachAlbumPopularity(topTracksAllBase, topTrackPopularity, 'plex_rating_key');
 
+    const topPlaylists7d = queryTopPlaylists(since7d);
+    const topPlaylists30d = queryTopPlaylists(since30d);
+    const topPlaylistsAll = queryTopPlaylists(0);
+    const topPlaylistCards = [...topPlaylists7d, ...topPlaylists30d, ...topPlaylistsAll];
+    if (topPlaylistCards.length) {
+      const userPlexToken = ctx.resolveUserPlexServerToken(config, personalUserId) || config?.plex?.token || '';
+      await attachPlaylistArtwork(topPlaylistCards, config, fetchPlexPlaylistsForToken, userPlexToken);
+    }
+
     const { history: recentHistoryBase } = paginateRolledHistory(
       (chunkLimit, chunkOffset) => getRecentHistory(db, userPlexId, chunkLimit, chunkOffset).map((event) => ({
         ...event,
@@ -1615,25 +1745,7 @@ export function registerPages(app, ctx) {
     const recentPopularity = getAlbumPopularTrackRanks(db, recentHistoryBase.map((e) => e.plex_rating_key).filter(Boolean));
     const recentHistory = attachAlbumPopularity(recentHistoryBase, recentPopularity, 'plex_rating_key');
 
-    const heatmapRows = db.prepare(`
-      SELECT
-        date(started_at / 1000, 'unixepoch', 'localtime') AS day,
-        COUNT(*) AS plays
-      FROM play_events
-      WHERE user_plex_id = ?
-        AND started_at >= ?
-        AND is_skip = 0
-      GROUP BY day
-      ORDER BY day ASC
-    `).all(userPlexId, since52w);
-    const heatmapMap = new Map(heatmapRows.map((row) => [row.day, row.plays]));
-    const heatmapData = [];
-    for (let i = 363; i >= 0; i--) {
-      const d = new Date(now - i * 86400000);
-      const key = d.toISOString().slice(0, 10);
-      heatmapData.push({ day: key, plays: heatmapMap.get(key) || 0 });
-    }
-    const heatmapStartDow = (new Date(heatmapData[0].day + 'T12:00:00Z').getDay() + 6) % 7;
+    const { heatmapData, heatmapStartDow } = buildActivityHeatmap(userPlexId, since52w, now);
 
     res.render('overview', {
       title: 'Overview — Curatorr',
@@ -1656,6 +1768,9 @@ export function registerPages(app, ctx) {
       topTracks7d,
       topTracks30d,
       topTracksAll,
+      topPlaylists7d,
+      topPlaylists30d,
+      topPlaylistsAll,
       recentHistory,
       heatmapData,
       heatmapStartDow,
@@ -1682,6 +1797,7 @@ export function registerPages(app, ctx) {
     const since6m  = now - 182 * 24 * 60 * 60 * 1000;
     const since12m = now - 365 * 24 * 60 * 60 * 1000;
     const since24m = now - 730 * 24 * 60 * 60 * 1000;
+    const since52w = now - 364 * 24 * 60 * 60 * 1000;
 
     const normalizeStats = (r) => ({
       plays:         r?.total_plays     || 0,
@@ -1815,8 +1931,8 @@ export function registerPages(app, ctx) {
         ORDER BY day DESC
       `).all(...params);
       if (!streakRows.length) return 0;
-      const todayKey = new Date(now).toISOString().slice(0, 10);
-      const yesterdayKey = new Date(now - 86400000).toISOString().slice(0, 10);
+      const todayKey = formatDayKeyInTimeZone(now, SERVER_TIME_ZONE);
+      const yesterdayKey = formatDayKeyInTimeZone(now - 86400000, SERVER_TIME_ZONE);
       if (streakRows[0].day !== todayKey && streakRows[0].day !== yesterdayKey) return 0;
       let streak = 1;
       let prevDay = new Date(streakRows[0].day + 'T12:00:00Z');
@@ -2036,9 +2152,11 @@ export function registerPages(app, ctx) {
         .sort((a, b) => b[1] - a[1])
         .slice(0, tagLimit);
       const palette = ['#c084fc', '#7c3aed', '#4338ca', '#4fd1c5', '#60a5fa', '#a855f7'];
-      const labels = Array.from({ length: buckets }, (_, index) => new Date(
+      const labels = Array.from({ length: buckets }, (_, index) => formatDayLabelInTimeZone(
         Math.min(now, effectiveStart + index * bucketSize),
-      ).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
+        SERVER_TIME_ZONE,
+        'en-GB',
+      ));
 
       return {
         labels,
@@ -2243,6 +2361,7 @@ export function registerPages(app, ctx) {
     const decadeData3m = queryDecades(since3m);
     const decadeData12m = queryDecades(since12m);
     const decadeDataAll = queryDecades(0);
+    const { heatmapData, heatmapStartDow } = buildActivityHeatmap(userPlexId, since52w, now);
 
     res.render('listening-report', {
       title: 'Listening Report — Curatorr',
@@ -2296,6 +2415,8 @@ export function registerPages(app, ctx) {
       decadeData12m,
       decadeDataAll,
       fingerprintByPeriod,
+      heatmapData,
+      heatmapStartDow,
       extraCss: ['/styles-layout.css', '/styles-curatorr.css'],
     });
   });

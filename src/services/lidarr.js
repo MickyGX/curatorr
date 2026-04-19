@@ -25,6 +25,9 @@ export const DEFAULT_LIDARR_AUTOMATION_SETTINGS = {
     weeklyArtists: 1,
     weeklyAlbums: 1,
   },
+  defaultQualityProfileId: null,
+  defaultMetadataProfileId: null,
+  newArtistMonitoringMode: 'none',
   autoTriggerManualSearch: false,
   manualSearchFallbackAttempts: 2,
   manualSearchFallbackHours: 24,
@@ -51,6 +54,25 @@ const CURATORR_LIDARR_TAGS = {
     album: 'curatorr-auto-album',
   },
 };
+
+export const LIDARR_NEW_ARTIST_MONITOR_MODES = ['none', 'all', 'new', 'existing', 'latest', 'first'];
+
+export function normalizeLidarrNewArtistMonitoringMode(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return LIDARR_NEW_ARTIST_MONITOR_MODES.includes(raw)
+    ? raw
+    : DEFAULT_LIDARR_AUTOMATION_SETTINGS.newArtistMonitoringMode;
+}
+
+export function normalizeLidarrQualityProfileId(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+}
+
+export function normalizeLidarrMetadataProfileId(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+}
 
 function normalizeNumber(value, fallback = 0) {
   const n = Number(value);
@@ -255,6 +277,9 @@ export function createLidarrService(ctx) {
       apiKey: String(source.apiKey || '').trim(),
       ...DEFAULT_LIDARR_AUTOMATION_SETTINGS,
       ...source,
+      defaultQualityProfileId: normalizeLidarrQualityProfileId(source.defaultQualityProfileId),
+      defaultMetadataProfileId: normalizeLidarrMetadataProfileId(source.defaultMetadataProfileId),
+      newArtistMonitoringMode: normalizeLidarrNewArtistMonitoringMode(source.newArtistMonitoringMode),
       autoAddQuotas: normalizeAutoAddQuotas(source.autoAddQuotas),
       roleQuotas: normalizeRoleQuotas(source.roleQuotas),
     };
@@ -579,6 +604,11 @@ export function createLidarrService(ctx) {
 
   async function getQualityProfiles() {
     const list = await request('/qualityprofile', { method: 'GET' });
+    return Array.isArray(list) ? list : [];
+  }
+
+  async function getMetadataProfiles() {
+    const list = await request('/metadataprofile', { method: 'GET' });
     return Array.isArray(list) ? list : [];
   }
 
@@ -2301,6 +2331,10 @@ export function createLidarrService(ctx) {
       searchForMissingAlbums: Boolean(options.searchForMissingAlbums),
     });
     try {
+      const settings = getSettings();
+      const newArtistMonitoringMode = normalizeLidarrNewArtistMonitoringMode(
+        options.newArtistMonitoringMode || settings.newArtistMonitoringMode,
+      );
       const match = options.lookupArtistResult && typeof options.lookupArtistResult === 'object'
         ? options.lookupArtistResult
         : pickLookupArtist(await lookupArtist(artistName), artistName, { foreignArtistId: options.foreignArtistId });
@@ -2347,8 +2381,29 @@ export function createLidarrService(ctx) {
       }
 
       const qualityProfiles = await getQualityProfiles();
-      const qualityProfileId = Number(match.qualityProfileId || rootFolder.defaultQualityProfileId || qualityProfiles[0]?.id || 0);
-      const metadataProfileId = Number(match.metadataProfileId || rootFolder.defaultMetadataProfileId || 1);
+      const configuredQualityProfileId = normalizeLidarrQualityProfileId(settings.defaultQualityProfileId);
+      const configuredQualityProfileExists = configuredQualityProfileId
+        ? qualityProfiles.some((profile) => Number(profile?.id || 0) === configuredQualityProfileId)
+        : false;
+      const qualityProfileId = Number(
+        (configuredQualityProfileExists ? configuredQualityProfileId : null)
+        || match.qualityProfileId
+        || rootFolder.defaultQualityProfileId
+        || qualityProfiles[0]?.id
+        || 0
+      );
+      const metadataProfiles = await getMetadataProfiles();
+      const configuredMetadataProfileId = normalizeLidarrMetadataProfileId(settings.defaultMetadataProfileId);
+      const configuredMetadataProfileExists = configuredMetadataProfileId
+        ? metadataProfiles.some((profile) => Number(profile?.id || 0) === configuredMetadataProfileId)
+        : false;
+      const metadataProfileId = Number(
+        (configuredMetadataProfileExists ? configuredMetadataProfileId : null)
+        || match.metadataProfileId
+        || rootFolder.defaultMetadataProfileId
+        || metadataProfiles[0]?.id
+        || 1
+      );
       if (!qualityProfileId) {
         const err = new Error('No Lidarr quality profile is configured.');
         err.code = 'QUALITY_PROFILE_MISSING';
@@ -2362,15 +2417,16 @@ export function createLidarrService(ctx) {
         rootFolderPath: String(rootFolder.path || ''),
         path: buildArtistPath(rootFolder.path, match),
         monitored: true,
-        monitorNewItems: 'none',
+        monitorNewItems: newArtistMonitoringMode,
         addOptions: {
-          monitor: 'none',
+          monitor: newArtistMonitoringMode,
           searchForMissingAlbums: Boolean(options.searchForMissingAlbums),
         },
       };
       logEvent('info', 'artist.add.prepare', `Prepared Lidarr add payload for ${artistName}`, {
         qualityProfileId,
         metadataProfileId,
+        newArtistMonitoringMode,
         rootFolderPath: payload.rootFolderPath,
         path: payload.path,
       });
@@ -2882,6 +2938,7 @@ export function createLidarrService(ctx) {
     assertQuotaAvailable,
     getRootFolders,
     getQualityProfiles,
+    getMetadataProfiles,
     lookupArtist,
     listArtists,
     pickLookupArtist,

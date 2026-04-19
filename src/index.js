@@ -19,7 +19,13 @@ import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
 import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists } from './db.js';
 import { createRecommendationService } from './services/recommendations.js';
-import { createLidarrService, DEFAULT_LIDARR_AUTOMATION_SETTINGS } from './services/lidarr.js';
+import {
+  createLidarrService,
+  DEFAULT_LIDARR_AUTOMATION_SETTINGS,
+  normalizeLidarrMetadataProfileId,
+  normalizeLidarrNewArtistMonitoringMode,
+  normalizeLidarrQualityProfileId,
+} from './services/lidarr.js';
 import { createPlaylistService } from './services/playlists.js';
 import { createJobService } from './services/jobs.js';
 import { rebuildSmartPlaylist } from './routes/api-music.js';
@@ -80,6 +86,17 @@ const LOG_BUFFER = [];
 const LOG_PATH = process.env.LOG_PATH || path.join(DATA_DIR, 'logs.json');
 const VERSION_CACHE_TTL_MS = 10 * 60 * 1000;
 let versionCache = { fetchedAt: 0, payload: null };
+
+function resolveServerTimeZone() {
+  const envTz = String(process.env.TZ || '').trim();
+  try {
+    const tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim();
+    if (tz) return tz;
+  } catch (_err) { /* ignore */ }
+  return envTz || 'UTC';
+}
+
+const SERVER_TIME_ZONE = resolveServerTimeZone();
 
 const DEFAULT_LOG_SETTINGS = { maxEntries: 500, maxDays: 30, visibleRows: 25 };
 
@@ -1104,6 +1121,9 @@ function resolveLidarrAutomationSettings(config) {
     ...source,
     automationEnabled,
     automationScope: automationEnabled ? automationScope : 'off',
+    defaultQualityProfileId: normalizeLidarrQualityProfileId(source.defaultQualityProfileId),
+    defaultMetadataProfileId: normalizeLidarrMetadataProfileId(source.defaultMetadataProfileId),
+    newArtistMonitoringMode: normalizeLidarrNewArtistMonitoringMode(source.newArtistMonitoringMode),
     enabledUsers,
     autoAddQuotas: normalizeAutoAddQuotas(source.autoAddQuotas),
     roleQuotas: normalizeRoleQuotas(source.roleQuotas),
@@ -1465,7 +1485,7 @@ function isPlexServerOwner(server) {
 function parsePlexUsers(xmlText, options = {}) {
   const machineId = String(options.machineId || '').trim();
   const users = [];
-  const blocks = String(xmlText || '').match(/<User\b[^>]*>[\s\S]*?<\/User>/g) || [];
+  const blocks = String(xmlText || '').match(/<User\b[^>]*\/>|<User\b[^>]*>[\s\S]*?<\/User>/g) || [];
   blocks.forEach((block) => {
     const tagMatch = block.match(/<User\b[^>]*>/);
     if (!tagMatch) return;
@@ -1771,6 +1791,9 @@ const _routeCtx = {
   buildPlexAuthHeaders,
   normalizeIdentityList,
   normalizeLidarrAutomationScope,
+  normalizeLidarrMetadataProfileId,
+  normalizeLidarrNewArtistMonitoringMode,
+  normalizeLidarrQualityProfileId,
   resolveLidarrAutomationSettings,
   canUserAccessLidarrAutomation,
   userHasOwnPlexToken,
@@ -1829,6 +1852,7 @@ const _routeCtx = {
   // version
   normalizeVersionTag,
   APP_VERSION,
+  SERVER_TIME_ZONE,
   VERSION_CACHE_TTL_MS,
   buildReleaseNotesUrl,
   loadReleaseHighlights,

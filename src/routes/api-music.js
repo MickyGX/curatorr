@@ -96,6 +96,7 @@ const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
+const PLAYLIST_LAST_PLAYED_MODES = ['any', 'within', 'notWithin', 'never'];
 const LASTFM_STATION_LABELS = {
   recommended: 'Recommended',
   mix: 'Mix',
@@ -139,6 +140,12 @@ function parseNullablePlaylistNumber(value) {
   if (value === '' || value == null) return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
+}
+
+function parseNullablePlaylistDayCount(value) {
+  const num = parseNullablePlaylistNumber(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(1, Math.round(num));
 }
 
 function formatOverviewReleaseDate(value) {
@@ -242,6 +249,10 @@ function buildPlaylistFeatureRules(payload = {}) {
     seasonalExcludeKeywords: Array.isArray(payload.seasonalExcludeKeywords) ? payload.seasonalExcludeKeywords.map(String).filter(Boolean) : [],
     seasonalGenresMode: String(payload.seasonalGenresMode || '').trim() === 'all' ? 'all' : 'any',
     seasonalKeywordsMode: String(payload.seasonalKeywordsMode || '').trim() === 'all' ? 'all' : 'any',
+    lastPlayedMode: PLAYLIST_LAST_PLAYED_MODES.includes(String(payload.lastPlayedMode || '').trim())
+      ? String(payload.lastPlayedMode).trim()
+      : 'any',
+    lastPlayedDays: parseNullablePlaylistDayCount(payload.lastPlayedDays),
   };
 }
 
@@ -469,6 +480,8 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     seasonalExcludeKeywords: [],
     seasonalGenresMode: 'any',
     seasonalKeywordsMode: 'any',
+    lastPlayedMode: 'any',
+    lastPlayedDays: null,
     includeFolders: [],
     excludeFolders: [],
     advancedRules: [],
@@ -5110,7 +5123,8 @@ export function registerApiMusic(app, ctx) {
       return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
     }
     try {
-      const auth = await tryGetSpotifyAuthForUser(userPlexId);
+      const forcePublic = req.query?.source === 'url';
+      const auth = forcePublic ? null : await tryGetSpotifyAuthForUser(userPlexId);
       const playlistSource = auth
         ? await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId)
         : await fetchSpotifyPlaylistFromPublicPage(playlistId);
@@ -5340,7 +5354,8 @@ export function registerApiMusic(app, ctx) {
       return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
     }
     try {
-      const auth = await tryGetSpotifyAuthForUser(userPlexId);
+      const forcePublic = req.body?.source === 'url';
+      const auth = forcePublic ? null : await tryGetSpotifyAuthForUser(userPlexId);
       const playlistSource = auth
         ? await fetchSpotifyPlaylistImportSource(auth.accessToken, playlistId)
         : await fetchSpotifyPlaylistFromPublicPage(playlistId);

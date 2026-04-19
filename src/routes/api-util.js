@@ -78,8 +78,8 @@ export function registerApiUtil(app, ctx) {
       const idMap = req.session?.previewUserMap || {};
       req.session.previewCanonicalId = idMap[requestedUserId] || requestedUserId || null;
     }
-    const nextPath = String(req.body?.next || req.headers?.referer || '/dashboard').trim();
-    return res.redirect(nextPath.startsWith('/') ? nextPath : '/dashboard');
+    const nextPath = String(req.body?.next || req.headers?.referer || '/overview').trim();
+    return res.redirect(nextPath.startsWith('/') ? nextPath : '/overview');
   });
 
   app.get('/api/version', requireUser, async (_req, res) => {

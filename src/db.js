@@ -3685,6 +3685,29 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
   const topN = rules?.topNPerArtist ? Math.max(1, Number(rules.topNPerArtist)) : null;
   const maxT = rules?.maxTracks     ? Math.max(1, Number(rules.maxTracks))     : null;
   const maxPerAlbum = rules?.maxTracksPerAlbum ? Math.max(1, Number(rules.maxTracksPerAlbum)) : null;
+  const lastPlayedMode = String(rules?.lastPlayedMode || '').trim();
+
+  function matchesLastPlayedRule(stat) {
+    const mode = ['any', 'within', 'notWithin', 'never'].includes(lastPlayedMode) ? lastPlayedMode : 'any';
+    if (mode === 'any') return true;
+
+    const lastPlayedAt = Number(stat?.last_played_at ?? stat?.lastPlayedAt ?? 0);
+    const playCount = Number(stat?.play_count ?? stat?.playCount ?? 0);
+    const hasPlayed = lastPlayedAt > 0 || playCount > 0;
+
+    if (mode === 'never') return !hasPlayed;
+
+    const days = Number(rules?.lastPlayedDays || 0);
+    if (!Number.isFinite(days) || days <= 0) return true;
+
+    if (!hasPlayed) return mode === 'notWithin';
+
+    const ageMs = Date.now() - lastPlayedAt;
+    if (!Number.isFinite(ageMs) || ageMs < 0) return mode === 'within';
+
+    const thresholdMs = days * 24 * 60 * 60 * 1000;
+    return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
+  }
 
   function matchesSeasonalRule(track) {
     const seasonalGenres = Array.isArray(rules?.seasonalGenres) ? rules.seasonalGenres.filter(Boolean) : [];
@@ -3744,6 +3767,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
+      if (!matchesLastPlayedRule(stat)) continue;
 
       if (!matchesTriStateValues(t.genres || [], gf)) continue;
       if (!matchesTriStateValues(t.moods || [], mf)) continue;
@@ -3806,7 +3830,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
     );
     const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
+      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count, last_played_at FROM track_stats WHERE user_plex_id = ?').all(uid)
         .map((r) => [r.plex_rating_key, r]),
     );
     const matchedTracks = [];
@@ -3820,6 +3844,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       const normTier = rawTier === 'half-decent' ? 'halfDecent' : rawTier === 'curatorr' ? 'unplayed' : rawTier;
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
+      if (!matchesLastPlayedRule(stat)) continue;
       if (!matchesTriStateValues(t.genres || [], gf)) continue;
       if (!matchesTriStateValues(t.moods || [], mf)) continue;
       if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
@@ -3871,7 +3896,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         .map((r) => [r.artist_name.toLowerCase(), r.ranking_score]),
     );
     const trackMap = new Map(
-      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
+      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count, last_played_at FROM track_stats WHERE user_plex_id = ?').all(uid)
         .map((r) => [r.plex_rating_key, r]),
     );
     return runWithMaps(artistMap, trackMap);
@@ -3891,12 +3916,19 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
           if (!artistGroups.has(key)) artistGroups.set(key, []);
           artistGroups.get(key).push(r.ranking_score);
         });
-      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count FROM track_stats WHERE user_plex_id = ?').all(uid)
+      db.prepare('SELECT plex_rating_key, tier, tier_weight, play_count, last_played_at FROM track_stats WHERE user_plex_id = ?').all(uid)
         .forEach((r) => {
-          if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, { weights: [], tiers: [] });
+          if (!trackGroups.has(r.plex_rating_key)) trackGroups.set(r.plex_rating_key, {
+            weights: [],
+            tiers: [],
+            playCounts: [],
+            lastPlayedAts: [],
+          });
           const d = trackGroups.get(r.plex_rating_key);
           d.weights.push(r.tier_weight || 0);
           d.tiers.push(r.tier || 'curatorr');
+          d.playCounts.push(r.play_count || 0);
+          if (Number(r.last_played_at || 0) > 0) d.lastPlayedAts.push(Number(r.last_played_at || 0));
         });
     }
     const avgArtistMap = new Map();
@@ -3908,7 +3940,14 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       const tierCounts = {};
       for (const t of data.tiers) tierCounts[t] = (tierCounts[t] || 0) + 1;
       const tier = Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0][0];
-      avgTrackMap.set(key, { tier, tier_weight: data.weights.reduce((a, b) => a + b, 0) / data.weights.length });
+      avgTrackMap.set(key, {
+        tier,
+        tier_weight: data.weights.reduce((a, b) => a + b, 0) / data.weights.length,
+        play_count: data.playCounts.length
+          ? Math.round(data.playCounts.reduce((a, b) => a + b, 0) / data.playCounts.length)
+          : 0,
+        last_played_at: data.lastPlayedAts.length ? Math.max(...data.lastPlayedAts) : 0,
+      });
     }
     return { forUser: runWithMaps(avgArtistMap, avgTrackMap), average: null };
   }

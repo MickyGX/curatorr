@@ -111,6 +111,113 @@ describe('Spotify playlist API requests', () => {
       else process.env.SPOTIFY_CLIENT_SECRET = originalClientSecret;
     }
   });
+
+  it('follows playlist item pagination past the second page', async () => {
+    const originalFetch = global.fetch;
+    const originalClientId = process.env.SPOTIFY_CLIENT_ID;
+    const originalClientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+    process.env.SPOTIFY_CLIENT_ID = 'client-id';
+    process.env.SPOTIFY_CLIENT_SECRET = 'client-secret';
+    const requests = [];
+    global.fetch = async (url) => {
+      const requestUrl = new URL(String(url));
+      requests.push(requestUrl.toString());
+      const offset = Number(requestUrl.searchParams.get('offset') || 0);
+      const page = offset === 0
+        ? {
+            items: {
+              total: 250,
+              limit: 100,
+              offset: 0,
+              next: 'https://api.spotify.com/v1/playlists/playlist-1/tracks?offset=100&limit=100',
+              items: Array.from({ length: 100 }, (_, index) => ({
+                added_at: `2025-04-12T00:00:${String(index).padStart(2, '0')}Z`,
+                is_local: false,
+                item: {
+                  id: `track-${index + 1}`,
+                  name: `Song ${index + 1}`,
+                  duration_ms: 180000,
+                  explicit: false,
+                  popularity: 42,
+                  preview_url: null,
+                  external_urls: { spotify: `https://open.spotify.com/track/track-${index + 1}` },
+                  external_ids: { isrc: `GBABC1234${String(index).padStart(3, '0')}` },
+                  artists: [{ id: 'artist-1', name: 'Artist' }],
+                  album: {
+                    id: 'album-1',
+                    name: 'Album',
+                    album_type: 'album',
+                    release_date: '2025-01-01',
+                    images: [{ url: 'https://i.scdn.co/image/test' }],
+                    external_urls: { spotify: 'https://open.spotify.com/album/album-1' },
+                  },
+                },
+              })),
+            },
+          }
+        : {
+            total: 250,
+            limit: 100,
+            offset,
+            next: offset === 100
+              ? 'https://api.spotify.com/v1/playlists/playlist-1/tracks?offset=200&limit=100'
+              : null,
+            items: Array.from({ length: offset === 100 ? 100 : 50 }, (_, index) => {
+              const trackNumber = offset + index + 1;
+              return {
+                added_at: `2025-04-12T00:00:${String(index).padStart(2, '0')}Z`,
+                is_local: false,
+                item: {
+                  id: `track-${trackNumber}`,
+                  name: `Song ${trackNumber}`,
+                  duration_ms: 180000,
+                  explicit: false,
+                  popularity: 42,
+                  preview_url: null,
+                  external_urls: { spotify: `https://open.spotify.com/track/track-${trackNumber}` },
+                  external_ids: { isrc: `GBABC2234${String(trackNumber).padStart(3, '0')}` },
+                  artists: [{ id: 'artist-1', name: 'Artist' }],
+                  album: {
+                    id: 'album-1',
+                    name: 'Album',
+                    album_type: 'album',
+                    release_date: '2025-01-01',
+                    images: [{ url: 'https://i.scdn.co/image/test' }],
+                    external_urls: { spotify: 'https://open.spotify.com/album/album-1' },
+                  },
+                },
+              };
+            }),
+          };
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify(page);
+        },
+      };
+    };
+
+    try {
+      const spotify = createSpotifyService();
+      const items = await spotify.getPlaylistItems('access-token', 'playlist-1', { limit: 100 });
+      assert.equal(items.total, 250);
+      assert.equal(items.items.length, 250);
+      assert.equal(items.items[0].trackId, 'track-1');
+      assert.equal(items.items[249].trackId, 'track-250');
+      assert.equal(requests.length, 3);
+      assert.match(requests[1], /offset=100/);
+      assert.match(requests[2], /offset=200/);
+      assert.match(requests[1], /next/);
+      assert.match(requests[2], /next/);
+    } finally {
+      global.fetch = originalFetch;
+      if (originalClientId === undefined) delete process.env.SPOTIFY_CLIENT_ID;
+      else process.env.SPOTIFY_CLIENT_ID = originalClientId;
+      if (originalClientSecret === undefined) delete process.env.SPOTIFY_CLIENT_SECRET;
+      else process.env.SPOTIFY_CLIENT_SECRET = originalClientSecret;
+    }
+  });
 });
 
 describe('Spotify client credentials token', () => {

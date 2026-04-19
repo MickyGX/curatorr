@@ -398,7 +398,11 @@ describe('auth flows', () => {
       let res = await client.request('/auth/plex');
       assert.equal(res.status, 200);
 
-      res = await client.postJson('/api/plex/pin', { pinId: '123456' }, '/login');
+      res = await client.request('/api/plex/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: '123456' }),
+      });
       assert.equal(res.status, 200);
       assert.equal(res.json?.ok, true);
 
@@ -418,7 +422,223 @@ describe('auth flows', () => {
       assert.equal(res.status, 200);
       assert.match(res.text, /Who&#39;s watching\?/);
       assert.match(res.text, /Kid One/);
-      assert.doesNotMatch(res.text, /metadata\.plex\.tv/);
+      assert.match(res.text, /(metadata\.plex\.tv|\/auth\/plex\/home-users\/avatar\/(?:[^"'\/]+\/)?home-kid-1)/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('routes protected Plex Home users with string flags to the PIN screen', async () => {
+    const client = createClient();
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === 'https://plex.tv/api/v2/pins/123456') {
+        return new Response(JSON.stringify({ authToken: 'plex-main-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users') {
+        return new Response(JSON.stringify([
+          {
+            id: 'home-owner',
+            title: 'Owner',
+            protected: '0',
+            admin: '1',
+            thumb: 'https://metadata.plex.tv/home-owner',
+          },
+          {
+            id: 'home-protected',
+            title: 'Protected Kid',
+            protected: '1',
+            admin: '0',
+            thumb: 'https://metadata.plex.tv/protected-kid',
+          },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in protected home-user test: ${target}`);
+    };
+
+    try {
+      let res = await client.request('/auth/plex');
+      assert.equal(res.status, 200);
+
+      res = await client.request('/api/plex/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: '123456' }),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+
+      res = await client.request('/oauth/callback');
+      assert.equal(res.status, 302);
+      assert.equal(res.location, '/auth/plex/home-users');
+
+      const selectionPage = await client.request('/auth/plex/home-users');
+      assert.equal(selectionPage.status, 200);
+      const csrfToken = extractCsrfToken(selectionPage.text);
+      assert.ok(csrfToken, 'Expected CSRF token on home user selector');
+
+      const selectRes = await client.request('/auth/plex/home-users/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ _csrf: csrfToken, userId: 'home-protected' }),
+      });
+      assert.equal(selectRes.status, 302);
+      assert.equal(selectRes.location, '/auth/plex/home-users/pin');
+
+      const pinPage = await client.request('/auth/plex/home-users/pin');
+      assert.equal(pinPage.status, 200);
+      assert.match(pinPage.text, /Enter your PIN to continue/);
+      assert.match(pinPage.text, /(metadata\.plex\.tv|\/auth\/plex\/home-users\/avatar\/(?:[^"'\/]+\/)?home-protected)/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('routes protected Plex Home admins to the PIN screen', async () => {
+    const client = createClient();
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === 'https://plex.tv/api/v2/pins/123456') {
+        return new Response(JSON.stringify({ authToken: 'plex-main-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users') {
+        return new Response(JSON.stringify([
+          {
+            id: 'home-owner',
+            title: 'Owner',
+            protected: '1',
+            admin: '1',
+            thumb: 'https://metadata.plex.tv/home-owner',
+          },
+          {
+            id: 'home-kid',
+            title: 'Kid',
+            protected: '0',
+            admin: '0',
+            thumb: 'https://metadata.plex.tv/home-kid',
+          },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in protected home-admin test: ${target}`);
+    };
+
+    try {
+      let res = await client.request('/auth/plex');
+      assert.equal(res.status, 200);
+
+      res = await client.request('/api/plex/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: '123456' }),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+
+      res = await client.request('/oauth/callback');
+      assert.equal(res.status, 302);
+      assert.equal(res.location, '/auth/plex/home-users');
+
+      const selectionPage = await client.request('/auth/plex/home-users');
+      assert.equal(selectionPage.status, 200);
+      const csrfToken = extractCsrfToken(selectionPage.text);
+      assert.ok(csrfToken, 'Expected CSRF token on home user selector');
+
+      const selectRes = await client.request('/auth/plex/home-users/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ _csrf: csrfToken, userId: 'home-owner' }),
+      });
+      assert.equal(selectRes.status, 302);
+      assert.equal(selectRes.location, '/auth/plex/home-users/pin');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('renders Plex Home avatar proxy URLs even when thumbs need fallback lookup', async () => {
+    const client = createClient();
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === 'https://plex.tv/api/v2/pins/123456') {
+        return new Response(JSON.stringify({ authToken: 'plex-main-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users') {
+        return new Response(JSON.stringify([
+          {
+            id: 'home-owner',
+            title: 'Owner',
+            protected: false,
+            admin: true,
+            avatarUrl: '',
+          },
+          {
+            id: 'home-kid-1',
+            title: 'Kid One',
+            protected: false,
+            admin: false,
+            thumb: '',
+          },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/users') {
+        return new Response(
+          '<MediaContainer>'
+          + '<User id="home-owner" title="Owner" thumb="https://metadata.plex.tv/home-owner-avatar" />'
+          + '<User id="home-kid-1" title="Kid One" thumb="https://metadata.plex.tv/home-kid-avatar" />'
+          + '</MediaContainer>',
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/xml' },
+          }
+        );
+      }
+      throw new Error(`Unexpected fetch in home avatar proxy test: ${target}`);
+    };
+
+    try {
+      let res = await client.request('/auth/plex');
+      assert.equal(res.status, 200);
+
+      res = await client.request('/api/plex/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: '123456' }),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+
+      res = await client.request('/oauth/callback');
+      assert.equal(res.status, 302);
+      assert.equal(res.location, '/auth/plex/home-users');
+
+      const selectorRes = await client.request('/auth/plex/home-users');
+      assert.equal(selectorRes.status, 200);
+      assert.match(selectorRes.text, /(home-owner-avatar|\/auth\/plex\/home-users\/avatar\/(?:[^"'\/]+\/)?home-owner)/);
+      assert.match(selectorRes.text, /(home-kid-avatar|\/auth\/plex\/home-users\/avatar\/(?:[^"'\/]+\/)?home-kid-1)/);
     } finally {
       global.fetch = originalFetch;
     }
@@ -480,7 +700,11 @@ describe('auth flows', () => {
       let res = await client.request('/auth/plex');
       assert.equal(res.status, 200);
 
-      res = await client.postJson('/api/plex/pin', { pinId: '123456' }, '/login');
+      res = await client.request('/api/plex/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: '123456' }),
+      });
       assert.equal(res.status, 200);
       assert.equal(res.json?.ok, true);
 
@@ -527,6 +751,96 @@ describe('auth flows', () => {
       const postLoginRes = await client.request(firstSelect.location);
       assert.notEqual(postLoginRes.location, '/login');
       assert.doesNotMatch(postLoginRes.text, /Incorrect username or password/i);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('lets a signed-in local admin complete Plex Home user selection and switch into Plex', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      if (target === 'https://plex.tv/api/v2/pins/123456') {
+        return new Response(JSON.stringify({ authToken: 'plex-main-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users') {
+        return new Response(JSON.stringify([
+          { id: 'home-owner', title: 'Owner', protected: false, admin: true },
+          { id: 'home-kid-2', title: 'Kid Two', protected: false, admin: false },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/home/users/home-kid-2/switch') {
+        return new Response(JSON.stringify({ authToken: 'plex-home-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'https://plex.tv/api/v2/user') {
+        const authToken = String(options?.headers?.['X-Plex-Token'] || options?.headers?.get?.('X-Plex-Token') || '');
+        if (authToken === 'plex-home-token') {
+          return new Response(JSON.stringify({
+            id: 'home-kid-2',
+            username: 'KidTwo',
+            title: 'Kid Two',
+            email: 'kidtwo@example.com',
+            thumb: '',
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      if (target.startsWith('https://plex.tv/api/v2/resources')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in local-admin home-user switch test: ${target}`);
+    };
+
+    try {
+      let res = await client.request('/auth/plex');
+      assert.equal(res.status, 200);
+
+      res = await client.request('/api/plex/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: '123456' }),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json?.ok, true);
+
+      res = await client.request('/oauth/callback');
+      assert.equal(res.status, 302);
+      assert.equal(res.location, '/auth/plex/home-users');
+
+      const selectionPage = await client.request('/auth/plex/home-users');
+      assert.equal(selectionPage.status, 200);
+      const csrfToken = extractCsrfToken(selectionPage.text);
+      assert.ok(csrfToken, 'Expected CSRF token on home user selector for local admin');
+
+      const selectRes = await client.request('/auth/plex/home-users/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ _csrf: csrfToken, userId: 'home-kid-2' }),
+      });
+      assert.equal(selectRes.status, 302);
+      assert.match(selectRes.location, /^\/wizard(?:\/user)?$/);
+
+      const dashboardRes = await client.request('/dashboard');
+      assert.equal(dashboardRes.status, 302);
+      assert.match(dashboardRes.location, /^\/wizard(?:\/user)?$/);
     } finally {
       global.fetch = originalFetch;
     }
@@ -2217,6 +2531,9 @@ describe('security guards', () => {
       lidarrRemoteUrl: 'https://lidarr.example.com',
       apiKey: 'lidarr-api-key',
       automationEnabled: '1',
+      defaultMetadataProfileId: '4',
+      defaultQualityProfileId: '7',
+      newArtistMonitoringMode: 'latest',
       autoAddArtists: '1',
       autoAddWeeklyArtists: '1',
       autoAddWeeklyAlbums: '1',
@@ -2235,8 +2552,101 @@ describe('security guards', () => {
     assert.equal(saveRes.status, 302);
 
     const config = await readConfig();
+    assert.equal(Number(config?.lidarr?.defaultMetadataProfileId || 0), 4);
+    assert.equal(Number(config?.lidarr?.defaultQualityProfileId || 0), 7);
     assert.equal(Number(config?.lidarr?.autoAddQuotas?.weeklyArtists), 1);
     assert.equal(Number(config?.lidarr?.autoAddQuotas?.weeklyAlbums), 1);
+    assert.equal(config?.lidarr?.newArtistMonitoringMode, 'latest');
+  });
+
+  it('uses the configured new-artist monitoring mode in the Lidarr add payload', async () => {
+    const lidarrService = createLidarrService({
+      db: null,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+          defaultMetadataProfileId: 4,
+          defaultQualityProfileId: 7,
+          newArtistMonitoringMode: 'latest',
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    const originalFetch = global.fetch;
+    let createdArtistPayload = null;
+    global.fetch = async (url, init = {}) => {
+      const target = String(url || '');
+      if (target === 'http://lidarr.local/api/v1/rootfolder') {
+        return new Response(JSON.stringify([
+          { path: '/music', accessible: true, defaultQualityProfileId: 7, defaultMetadataProfileId: 4 },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/qualityprofile') {
+        return new Response(JSON.stringify([
+          { id: 7, name: 'HQ' },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/metadataprofile') {
+        return new Response(JSON.stringify([
+          { id: 4, name: 'Albums and EP' },
+        ]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/artist' && String(init.method || 'GET').toUpperCase() === 'POST') {
+        createdArtistPayload = JSON.parse(String(init.body || '{}'));
+        return new Response(JSON.stringify({
+          id: 42,
+          artistName: 'The National',
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/artist/42') {
+        return new Response(JSON.stringify({
+          id: 42,
+          artistName: 'The National',
+          monitored: true,
+          monitorNewItems: 'latest',
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in new-artist monitoring mode test: ${target}`);
+    };
+
+    try {
+      const result = await lidarrService.addArtistFromSuggestion('The National', {
+        lookupArtistResult: {
+          artistName: 'The National',
+          foreignArtistId: 'mbid-the-national',
+          folder: 'the-national',
+        },
+      });
+      assert.equal(result.created, true);
+      assert.equal(createdArtistPayload?.metadataProfileId, 4);
+      assert.equal(createdArtistPayload?.qualityProfileId, 7);
+      assert.equal(createdArtistPayload?.monitorNewItems, 'latest');
+      assert.equal(createdArtistPayload?.addOptions?.monitor, 'latest');
+      assert.equal(createdArtistPayload?.monitored, true);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   it('allows the default weekly Last.fm tag sync interval on the jobs page', async () => {
@@ -4819,6 +5229,90 @@ describe('security guards', () => {
         {},
       );
       assert.equal(cappedPreview.forUser?.trackCount, 2);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('filters smart playlist previews by last played recency', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-last-played-preview-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `last-played-user-${Date.now()}`;
+    const now = Date.now();
+
+    refreshMasterTracks(db, [
+      {
+        ratingKey: 'last-played-recent',
+        artistName: 'Recency Artist',
+        trackTitle: 'Played Recently',
+        albumName: 'Recency Album',
+        libraryKey: '1',
+        filePath: '/music/recent.flac',
+        durationMs: 180000,
+        ratingCount: 10,
+        viewCount: 0,
+      },
+      {
+        ratingKey: 'last-played-stale',
+        artistName: 'Recency Artist',
+        trackTitle: 'Played Ages Ago',
+        albumName: 'Recency Album',
+        libraryKey: '1',
+        filePath: '/music/stale.flac',
+        durationMs: 180000,
+        ratingCount: 9,
+        viewCount: 0,
+      },
+      {
+        ratingKey: 'last-played-never',
+        artistName: 'Recency Artist',
+        trackTitle: 'Never Played',
+        albumName: 'Recency Album',
+        libraryKey: '1',
+        filePath: '/music/never.flac',
+        durationMs: 180000,
+        ratingCount: 8,
+        viewCount: 0,
+      },
+    ]);
+
+    const insertTrackStats = db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+    `);
+    insertTrackStats.run('last-played-recent', userId, 'Played Recently', 'Recency Artist', 'Recency Album', 12, 'belter', 1.5, now - 3 * 24 * 60 * 60 * 1000, now);
+    insertTrackStats.run('last-played-stale', userId, 'Played Ages Ago', 'Recency Artist', 'Recency Album', 7, 'decent', 0.5, now - 45 * 24 * 60 * 60 * 1000, now);
+
+    try {
+      const withinPreview = previewGlobalPlaylist(
+        db,
+        { lastPlayedMode: 'within', lastPlayedDays: 7 },
+        userId,
+        {},
+      );
+      assert.equal(withinPreview.forUser?.eligibleTrackCount, 1);
+      assert.equal(withinPreview.forUser?.trackCount, 1);
+
+      const notWithinPreview = previewGlobalPlaylist(
+        db,
+        { lastPlayedMode: 'notWithin', lastPlayedDays: 30 },
+        userId,
+        {},
+      );
+      assert.equal(notWithinPreview.forUser?.eligibleTrackCount, 2);
+      assert.equal(notWithinPreview.forUser?.trackCount, 2);
+
+      const neverPreview = previewGlobalPlaylist(
+        db,
+        { lastPlayedMode: 'never' },
+        userId,
+        {},
+      );
+      assert.equal(neverPreview.forUser?.eligibleTrackCount, 1);
+      assert.equal(neverPreview.forUser?.trackCount, 1);
     } finally {
       db.close();
     }

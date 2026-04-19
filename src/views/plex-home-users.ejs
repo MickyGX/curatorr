@@ -100,8 +100,8 @@
   <body>
     <script>
       // Stop the Launcharr login page from polling /api/plex/pin/status while the
-      // user selects a home profile.  If we don't stop it here the poll can write a
-      // stale session cookie that wipes out the plexMainToken set by /oauth/callback.
+      // user selects a home profile. If we do not stop it here the poll can write a
+      // stale session cookie that wipes out the pending home-user selection state.
       if (window.opener) {
         try {
           window.opener.postMessage(
@@ -117,7 +117,8 @@
       <% homeUsers.forEach(function(u) {
         const userId = String(u.uuid || u.id || '');
         const name = String(u.title || u.username || 'User');
-        const thumb = u.thumb || null;
+        const thumbUrl = String(u.publicThumbUrl || '').trim();
+        const proxyThumbUrl = String(u.proxyThumbUrl || '').trim();
         const isProtected = !!u.protected;
         const initial = name.charAt(0).toUpperCase();
       %>
@@ -126,8 +127,15 @@
         <input type="hidden" name="userId" value="<%= userId %>" />
         <button class="user-btn" type="submit" aria-label="<%= name %><%= isProtected ? ' (PIN protected)' : '' %>">
           <% if (isProtected) { %><span class="user-lock" aria-hidden="true">🔒</span><% } %>
-          <% if (thumb) { %>
-            <img class="user-avatar" src="<%= thumb %>" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+          <% if (thumbUrl || proxyThumbUrl) { %>
+            <img class="user-avatar" src="<%= thumbUrl || proxyThumbUrl %>" alt=""
+              <% if (proxyThumbUrl && thumbUrl && proxyThumbUrl !== thumbUrl) { %>
+              data-proxy-src="<%= proxyThumbUrl %>"
+              onerror="if(this.dataset.proxySrc && this.dataset.proxyTried !== '1'){this.dataset.proxyTried='1';this.src=this.dataset.proxySrc;return;}this.style.display='none';this.nextElementSibling.style.display='flex'"
+              <% } else { %>
+              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+              <% } %>
+            />
             <div class="user-avatar-placeholder" style="display:none"><%= initial %></div>
           <% } else { %>
             <div class="user-avatar-placeholder"><%= initial %></div>

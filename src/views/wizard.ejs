@@ -270,7 +270,7 @@
             </div>
             <div class="wizard-actions wizard-actions--col">
               <a href="/auth/plex" class="btn btn-primary">Sign in with Plex →</a>
-              <a href="/dashboard" class="wizard-skip-link">Continue as administrator only</a>
+              <a href="/overview" class="wizard-skip-link">Continue as administrator only</a>
             </div>
           <% } else { %>
             <% var serverDisplayName = finalServerType === 'jellyfin' ? 'Jellyfin' : 'Emby'; %>
@@ -287,7 +287,7 @@
             </div>
             <div class="wizard-actions wizard-actions--col">
               <a href="/auth/<%= finalServerType %>" class="btn btn-primary">Sign in with <%= serverDisplayName %> →</a>
-              <a href="/dashboard" class="wizard-skip-link">Continue as administrator only</a>
+              <a href="/overview" class="wizard-skip-link">Continue as administrator only</a>
             </div>
           <% } %>
         </div>

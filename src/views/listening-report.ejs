@@ -17,15 +17,15 @@
       border: 0;
       border-bottom: 1px solid var(--ov-panel-line);
       border-radius: 0;
-      padding: 9px 0 8px;
+      padding: 10px 0 12px;
     }
 
     .dash-content--report .cur-panel-title {
-      font-size: 22px;
-      line-height: 1.1;
-      font-weight: 600;
-      text-transform: none;
-      letter-spacing: 0;
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
       text-shadow: none;
       font-family: "Segoe UI", "Helvetica Neue", sans-serif;
     }
@@ -34,7 +34,7 @@
       background: transparent;
       border: 0;
       border-radius: 0;
-      padding: 12px 0 0;
+      padding: 16px 0 0;
     }
 
     .dash-content--report .cur-empty {
@@ -48,11 +48,11 @@
       --ov-hero-avatar-size: 128px;
       --ov-hero-content-left: 170px;
       position: relative;
-      min-height: 264px;
+      min-height: 228px;
       padding: 170px 0 0 !important;
       overflow: visible !important;
       border-bottom: 0;
-      margin-bottom: 12px;
+      margin-bottom: 6px;
     }
 
     .ov-profile-artist-bg {
@@ -150,8 +150,8 @@
       position: relative;
       z-index: 2;
       margin-top: 0;
-      padding: 10px 0 0 var(--ov-hero-content-left);
-      min-height: 52px;
+      padding: 4px 0 0 var(--ov-hero-content-left);
+      min-height: 44px;
     }
 
     .ov-profile-stats-row { display: flex; gap: 0; flex-wrap: nowrap; }
@@ -184,6 +184,81 @@
     [data-theme="day"] .ov-profile-stat-value { color: #0b151e; }
     [data-theme="day"] .ov-profile-stat-label  { color: rgba(11,21,30,0.5); }
 
+    .ov-featured {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 170px;
+      z-index: 2;
+      display: flex;
+      align-items: flex-end;
+      padding: 12px 18px 14px;
+      gap: 11px;
+      max-width: 310px;
+    }
+
+    .ov-featured-art {
+      width: 79px;
+      height: 79px;
+      border-radius: 5px;
+      overflow: hidden;
+      box-shadow: 0 3px 14px rgba(0,0,0,0.7);
+      background: rgba(255,255,255,0.12);
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .ov-featured-art img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .ov-featured-meta {
+      min-width: 0;
+      text-align: right;
+    }
+
+    .ov-featured-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #fff;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .ov-featured-track {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.05;
+    }
+
+    .ov-featured-artist {
+      font-size: 15px;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 4px;
+    }
+
+    .ov-featured-plays {
+      font-size: 12px;
+      color: #fff;
+      margin-top: 4px;
+    }
+
+    [data-theme="day"] .ov-featured-artist { color: #fff; }
+    [data-theme="day"] .ov-featured-plays { color: rgba(255,255,255,0.8); }
+
     /* ── Period selector ──────────────────────────────────────────────────── */
     .lr-period-bar {
       position: sticky;
@@ -191,23 +266,17 @@
       z-index: 10;
       display: flex;
       align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
       gap: 6px;
-      padding: 8px 0 10px;
-      background: var(--dash-content-bg, #0f1117);
+      padding: 2px 0 8px;
+      background: transparent;
       border-bottom: 1px solid var(--ov-panel-line);
-      margin-bottom: 16px;
-      backdrop-filter: blur(8px);
+      margin-bottom: 10px;
     }
 
     [data-theme="day"] .lr-period-bar {
-      background: rgba(245,246,250,0.95);
-    }
-
-    .lr-period-label {
-      font-size: 12px;
-      color: var(--ov-muted);
-      margin-right: 4px;
-      white-space: nowrap;
+      background: transparent;
     }
 
     .lr-period-btn {
@@ -590,8 +659,74 @@
     /* ── Listening clock ──────────────────────────────────────────────────── */
     .lr-clock-wrap {
       display: flex;
+      align-items: center;
       justify-content: center;
-      padding: 8px 0 4px;
+      min-height: 286px;
+      padding: 14px 0 4px;
+    }
+
+    .lr-clock-panel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 28px;
+      width: 100%;
+    }
+
+    .lr-clock-graphic svg {
+      width: min(280px, 100%);
+      height: auto;
+    }
+
+    .lr-clock-copy {
+      display: grid;
+      gap: 16px;
+      min-width: 168px;
+    }
+
+    .lr-clock-copy-stat {
+      display: grid;
+      gap: 4px;
+    }
+
+    .lr-clock-copy-label {
+      color: rgba(255,255,255,0.42);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .lr-clock-copy-value {
+      color: rgba(255,255,255,0.96);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 700;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-clock-copy-meta {
+      color: rgba(255,255,255,0.76);
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    [data-theme="day"] .lr-clock-copy-label { color: rgba(11,21,30,0.42); }
+    [data-theme="day"] .lr-clock-copy-value { color: rgba(11,21,30,0.94); }
+    [data-theme="day"] .lr-clock-copy-meta { color: rgba(11,21,30,0.74); }
+
+    .lr-clock-segment {
+      cursor: help;
+      transition: opacity 0.16s ease, filter 0.16s ease;
+    }
+
+    .lr-clock-svg:hover .lr-clock-segment {
+      opacity: 0.22;
+    }
+
+    .lr-clock-svg:hover .lr-clock-segment:hover {
+      opacity: 1;
+      filter: brightness(1.08) saturate(1.06);
     }
 
     .lr-clock-wrap svg text {
@@ -603,20 +738,64 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 24px;
-      align-items: start;
+      align-items: stretch;
+    }
+
+    .lr-chart-pair-section {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .lr-chart-pair-title {
+      margin: 0;
+      padding: 0 0 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #fff;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    [data-theme="day"] .lr-chart-pair-title {
+      border-bottom-color: rgba(11,21,30,0.08);
+      color: #0b151e;
     }
 
     .lr-tier-wrap {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 24px;
+      min-height: 286px;
+      gap: 28px;
       flex-wrap: wrap;
-      padding: 8px 0 4px;
+      padding: 14px 0 4px;
     }
 
     .lr-tier-radial svg text {
       font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .lr-tier-radial svg {
+      width: min(240px, 100%);
+      height: auto;
+    }
+
+    .lr-tier-slice {
+      cursor: help;
+      transition: opacity 0.16s ease, filter 0.16s ease;
+    }
+
+    .lr-tier-radial svg:hover .lr-tier-slice {
+      opacity: 0.22;
+    }
+
+    .lr-tier-radial svg:hover .lr-tier-slice:hover {
+      opacity: 1;
+      filter: brightness(1.05) saturate(1.06);
     }
 
     .lr-tier-radial-total {
@@ -636,7 +815,7 @@
 
     .lr-tier-legend {
       display: grid;
-      gap: 10px;
+      gap: 12px;
       min-width: 190px;
     }
 
@@ -688,14 +867,34 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 24px;
+      min-height: 286px;
+      gap: 34px;
       flex-wrap: wrap;
-      padding: 8px 0;
+      padding: 8px 0 2px;
+    }
+
+    .lr-ratio-svg {
+      width: min(220px, 100%);
+      height: auto;
+    }
+
+    .lr-ratio-ring {
+      cursor: help;
+      transition: opacity 0.16s ease, filter 0.16s ease;
+    }
+
+    .lr-ratio-svg:hover .lr-ratio-ring {
+      opacity: 0.22;
+    }
+
+    .lr-ratio-svg:hover .lr-ratio-ring:hover {
+      opacity: 1;
+      filter: brightness(1.08) saturate(1.08);
     }
 
     .lr-ratio-legend {
       display: grid;
-      gap: 10px;
+      gap: 12px;
       min-width: 180px;
     }
 
@@ -713,14 +912,14 @@
     }
 
     .lr-ratio-name {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       color: rgba(255,255,255,0.82);
-      min-width: 54px;
+      min-width: 58px;
     }
 
     .lr-ratio-val {
-      font-size: 12px;
+      font-size: 13px;
       color: rgba(255,255,255,0.5);
       margin-left: auto;
     }
@@ -781,6 +980,21 @@
         --ov-hero-content-left: 150px;
       }
       .ov-profile-meta { transform: translateY(30px); }
+      .ov-featured {
+        position: static;
+        height: auto;
+        max-width: none;
+        flex-direction: row-reverse;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 14px 0 6px;
+        gap: 14px;
+        border-top: 1px solid rgba(255,255,255,0.12);
+        margin-top: 10px;
+      }
+      .ov-featured-meta { text-align: left; }
+      .ov-featured-track { font-size: 18px; white-space: normal; }
+      .ov-featured-artist { white-space: normal; }
       .lr-two-col { grid-template-columns: 1fr; }
       .lr-chart-pair-body { grid-template-columns: 1fr; }
       .lr-card-grid { grid-template-columns: repeat(4, 1fr); }
@@ -800,6 +1014,8 @@
       .lr-track-row { grid-template-columns: 18px 28px 28px minmax(0,1fr) auto; gap: 6px; }
       .lr-section-title { font-size: 24px; }
       .lr-summary-value { font-size: 34px; }
+      .dash-content--report .cur-panel-title,
+      .lr-chart-pair-title { font-size: 15px; }
     }
 
     /* ── Period stat heroes (Artists / Albums / Tracks) ──────────────────── */
@@ -1190,7 +1406,8 @@
     .lr-tag-stream {
       width: 100%;
       overflow: hidden;
-      padding: 6px 0 2px;
+      min-height: 278px;
+      padding: 10px 0 4px;
     }
 
     .lr-tag-stream svg {
@@ -1232,63 +1449,163 @@
     [data-theme="day"] .lr-tag-stream-label { fill: rgba(11,21,30,0.9); }
 
     /* ── Decade chart ─────────────────────────────────────────────────────── */
-    .lr-decade-chart { padding: 4px 0; }
+    .lr-decade-chart {
+      min-height: 330px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 8px 0 4px;
+    }
+
+    .lr-decade-stack {
+      display: grid;
+      gap: 16px;
+      min-height: 228px;
+      align-content: start;
+    }
 
     .lr-decade-row {
       display: grid;
       grid-template-columns: 42px 1fr 48px;
       align-items: center;
       gap: 8px;
-      margin-bottom: 7px;
+      transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+
+    .lr-decade-chart:hover .lr-decade-row {
+      opacity: 0.28;
+    }
+
+    .lr-decade-chart:hover .lr-decade-row:hover {
+      opacity: 1;
+    }
+
+    .lr-decade-row:hover {
+      transform: translateX(2px);
     }
 
     .lr-decade-label {
-      font-size: 11px;
-      color: rgba(255,255,255,0.55);
+      font-size: 12px;
+      color: rgba(255,255,255,0.62);
       text-align: right;
     }
-    [data-theme="day"] .lr-decade-label { color: rgba(11,21,30,0.55); }
+    [data-theme="day"] .lr-decade-label { color: rgba(11,21,30,0.58); }
 
     .lr-decade-bar-bg {
-      height: 10px;
-      border-radius: 3px;
-      background: rgba(255,255,255,0.06);
+      position: relative;
+      height: 14px;
+      border-radius: 4px;
+      background:
+        repeating-linear-gradient(
+          90deg,
+          rgba(255,255,255,0.03) 0,
+          rgba(255,255,255,0.03) 9px,
+          rgba(255,255,255,0.075) 9px,
+          rgba(255,255,255,0.075) 11px
+        );
       overflow: hidden;
     }
-    [data-theme="day"] .lr-decade-bar-bg { background: rgba(11,21,30,0.08); }
+    [data-theme="day"] .lr-decade-bar-bg {
+      background:
+        repeating-linear-gradient(
+          90deg,
+          rgba(11,21,30,0.03) 0,
+          rgba(11,21,30,0.03) 9px,
+          rgba(11,21,30,0.08) 9px,
+          rgba(11,21,30,0.08) 11px
+        );
+    }
 
     .lr-decade-bar-fill {
       height: 100%;
-      border-radius: 3px;
-      background: var(--brand, #8b5cf6);
+      border-radius: 4px;
+      background: linear-gradient(90deg, rgba(139,92,246,0.92) 0%, rgba(167,139,250,0.98) 100%);
       transition: width 0.3s;
     }
 
     .lr-decade-plays {
-      font-size: 11px;
-      color: rgba(255,255,255,0.4);
+      font-size: 12px;
+      color: rgba(255,255,255,0.44);
       text-align: right;
     }
-    [data-theme="day"] .lr-decade-plays { color: rgba(11,21,30,0.4); }
+    [data-theme="day"] .lr-decade-plays { color: rgba(11,21,30,0.44); }
+
+    .lr-decade-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 18px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      font-size: 12px;
+    }
+
+    .lr-decade-foot-label {
+      color: rgba(255,255,255,0.42);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .lr-decade-foot-value {
+      color: rgba(255,255,255,0.82);
+      font-weight: 600;
+      text-align: right;
+    }
+
+    [data-theme="day"] .lr-decade-foot {
+      border-top-color: rgba(11,21,30,0.08);
+    }
+    [data-theme="day"] .lr-decade-foot-label { color: rgba(11,21,30,0.42); }
+    [data-theme="day"] .lr-decade-foot-value { color: rgba(11,21,30,0.78); }
 
     /* ── Listening Fingerprint radar ──────────────────────────────────────── */
     .lr-radar-wrap {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 32px;
+      min-height: 286px;
+      gap: 36px;
       flex-wrap: wrap;
-      padding: 8px 0;
+      padding: 8px 0 2px;
     }
 
     .lr-radar-wrap svg text {
       font-family: "Segoe UI", "Helvetica Neue", sans-serif;
     }
 
+    .lr-radar-svg {
+      width: min(290px, 100%);
+      height: auto;
+      overflow: visible;
+      display: block;
+    }
+
+    .lr-radar-grid,
+    .lr-radar-spoke,
+    .lr-radar-shape,
+    .lr-radar-node {
+      transition: opacity 0.16s ease, filter 0.16s ease;
+    }
+
+    .lr-radar-svg:hover .lr-radar-node {
+      opacity: 0.28;
+    }
+
+    .lr-radar-svg:hover .lr-radar-node:hover {
+      opacity: 1;
+      filter: brightness(1.08);
+    }
+
+    .lr-radar-svg:hover .lr-radar-shape {
+      opacity: 0.62;
+    }
+
     .lr-radar-legend {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
+      min-width: 180px;
     }
 
     .lr-radar-leg-item {
@@ -1298,22 +1615,22 @@
     }
 
     .lr-radar-leg-dot {
-      width: 10px; height: 10px;
+      width: 11px; height: 11px;
       border-radius: 50%;
       background: rgba(139,92,246,0.7);
       flex-shrink: 0;
     }
 
     .lr-radar-leg-name {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       color: rgba(255,255,255,0.8);
-      min-width: 80px;
+      min-width: 92px;
     }
     [data-theme="day"] .lr-radar-leg-name { color: rgba(11,21,30,0.75); }
 
     .lr-radar-leg-val {
-      font-size: 12px;
+      font-size: 13px;
       color: rgba(255,255,255,0.45);
     }
     [data-theme="day"] .lr-radar-leg-val { color: rgba(11,21,30,0.45); }
@@ -1330,7 +1647,7 @@
         </div>
       </div>
       <div class="dash-nav">
-        <%- include('partials/nav-categories', { navActivePage: '', role: role }) %>
+        <%- include('partials/nav-categories', { navActivePage: 'report', role: role }) %>
       </div>
       <%- include('partials/user-menu') %>
     </aside>
@@ -1341,7 +1658,7 @@
           <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
         </button>
         <div class="main-window-title">
-          <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
+          <img class="main-window-icon" src="/icons/documents.svg" alt="" />
           <span class="main-window-app">Curatorr</span>
           <span class="main-window-rest">| Listening Report</span>
         </div>
@@ -1352,6 +1669,7 @@
       </div>
 
       <div class="dash-content dash-content--report">
+        <%- include('partials/plex-banner') %>
         <%
           const _displayUsername = String(user?.username || user?.displayName || 'User').trim();
           const _userAvatar      = String(user?.avatar || '').trim();
@@ -1394,8 +1712,21 @@
           const _tagStreamByPeriod = tagStreamByPeriod || {};
           const _tierByPeriod = tierBreakdownByPeriod || {};
           const _fpByPeriod = fingerprintByPeriod || {};
-
-          const _heroArtist = _ta30d[0]?.artist_name || _ta7d[0]?.artist_name || _taAll[0]?.artist_name || null;
+          const _heatmap = Array.isArray(heatmapData) ? heatmapData : [];
+          const _featuredTrackByPeriod = {
+            '7d': _tt7d[0] || null,
+            '30d': _tt30d[0] || null,
+            '3m': _tt3m[0] || null,
+            '12m': _tt12m[0] || null,
+            'all': _ttAll[0] || null,
+          };
+          const _heroArtistByPeriod = {
+            '7d': _featuredTrackByPeriod['7d']?.artist_name || _ta7d[0]?.artist_name || null,
+            '30d': _featuredTrackByPeriod['30d']?.artist_name || _ta30d[0]?.artist_name || null,
+            '3m': _featuredTrackByPeriod['3m']?.artist_name || _ta3m[0]?.artist_name || null,
+            '12m': _featuredTrackByPeriod['12m']?.artist_name || _ta12m[0]?.artist_name || null,
+            'all': _featuredTrackByPeriod['all']?.artist_name || _taAll[0]?.artist_name || null,
+          };
 
           function fmtNum(n) { return Number(n || 0).toLocaleString(); }
 
@@ -1413,6 +1744,30 @@
             if (!ts) return null;
             return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
           }
+
+          function heatmapMonthLabels(data) {
+            const months = [];
+            let lastMonth = -1;
+            data.forEach((d, i) => {
+              const col = Math.floor(i / 7);
+              const m = new Date(d.day).getMonth();
+              if (m !== lastMonth) {
+                months.push({ col, label: new Date(d.day).toLocaleDateString('en-GB', { month: 'short' }) });
+                lastMonth = m;
+              }
+            });
+            return months;
+          }
+
+          function heatmapBucket(plays) {
+            if (plays === 0) return 0;
+            if (plays <= 2) return 1;
+            if (plays <= 5) return 2;
+            if (plays <= 9) return 3;
+            return 4;
+          }
+
+          const _hmMonths = heatmapMonthLabels(_heatmap);
 
           const _memberSince = fmtMemberSince(firstPlayAt);
 
@@ -1471,51 +1826,80 @@
 
           // Polar clock SVG
           function clockSvg(hours) {
-            const sz = 220, cx = 110, cy = 110;
-            const maxR = 88, minR = 22;
+            const sz = 280, cx = 140, cy = 140;
+            const maxR = 104, minR = 32;
             const max = Math.max(...hours, 1);
             const toRad = d => d * Math.PI / 180;
             const px = (r, deg) => (cx + r * Math.sin(toRad(deg))).toFixed(2);
             const py = (r, deg) => (cy - r * Math.cos(toRad(deg))).toFixed(2);
+            let basePaths = '';
             let paths = '';
             for (let h = 0; h < 24; h++) {
+              const s = h * 15 + 1.5;
+              const e = (h + 1) * 15 - 1.5;
+              const basePath = `M ${px(minR,s)} ${py(minR,s)} L ${px(maxR,s)} ${py(maxR,s)} A ${maxR.toFixed(2)} ${maxR.toFixed(2)} 0 0 1 ${px(maxR,e)} ${py(maxR,e)} L ${px(minR,e)} ${py(minR,e)} A ${minR} ${minR} 0 0 0 ${px(minR,s)} ${py(minR,s)} Z`;
+              basePaths += `<path d="${basePath}" fill="rgba(255,255,255,0.08)"/>`;
               const c = hours[h] || 0;
               if (c === 0) continue;
               const r = minR + (maxR - minR) * Math.sqrt(c / max);
-              const s = h * 15 + 1.5;
-              const e = (h + 1) * 15 - 1.5;
               const path = `M ${px(minR,s)} ${py(minR,s)} L ${px(r,s)} ${py(r,s)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${px(r,e)} ${py(r,e)} L ${px(minR,e)} ${py(minR,e)} A ${minR} ${minR} 0 0 0 ${px(minR,s)} ${py(minR,s)} Z`;
               const isDaytime = h >= 6 && h < 22;
               const fill = isDaytime ? 'var(--brand,#8b5cf6)' : 'rgba(139,92,246,0.45)';
-              paths += `<path d="${path}" fill="${fill}"/>`;
+              const startHour = h % 12 || 12;
+              const endHour24 = (h + 1) % 24;
+              const endHour = endHour24 % 12 || 12;
+              const range = `${startHour}${h < 12 ? 'am' : 'pm'}-${endHour}${endHour24 < 12 ? 'am' : 'pm'}`;
+              paths += `<path class="lr-clock-segment" d="${path}" fill="${fill}"><title>${range}: ${Number(c).toLocaleString()} plays</title></path>`;
             }
             const labelHours = [0,3,6,9,12,15,18,21];
             const labelTexts = ['12am','3am','6am','9am','12pm','3pm','6pm','9pm'];
             let labels = '';
             for (let i = 0; i < labelHours.length; i++) {
               const deg = labelHours[i] * 15;
-              labels += `<text x="${px(maxR+13,deg)}" y="${py(maxR+13,deg)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="rgba(255,255,255,0.45)">${labelTexts[i]}</text>`;
+              labels += `<text x="${px(maxR+16,deg)}" y="${py(maxR+16,deg)}" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="rgba(255,255,255,0.45)">${labelTexts[i]}</text>`;
             }
-            return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"><circle cx="${cx}" cy="${cy}" r="${maxR}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/><circle cx="${cx}" cy="${cy}" r="${minR}" fill="rgba(0,0,0,0.25)"/>${paths}${labels}</svg>`;
+            return `<svg class="lr-clock-svg" width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"><circle cx="${cx}" cy="${cy}" r="${maxR}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/><circle cx="${cx}" cy="${cy}" r="${minR}" fill="rgba(0,0,0,0.25)"/>${basePaths}${paths}${labels}</svg>`;
+          }
+
+          function clockInsight(hours) {
+            const values = Array.isArray(hours) ? hours.map((value) => Number(value || 0)) : [];
+            let bestHour = 0;
+            let bestValue = 0;
+            values.forEach((value, idx) => {
+              if (value > bestValue) {
+                bestValue = value;
+                bestHour = idx;
+              }
+            });
+            const hour12 = bestHour % 12 || 12;
+            const meridiem = bestHour < 12 ? 'AM' : 'PM';
+            const label = `${hour12}:00${meridiem}`;
+            return {
+              label: bestValue > 0 ? label : 'No plays',
+              plays: bestValue,
+            };
           }
 
           function musicRatioSvg(summary) {
             const items = [
-              { label: 'Tracks', value: Number(summary?.uniqueTracks || 0), color: '#38bdf8', r: 46 },
-              { label: 'Albums', value: Number(summary?.uniqueAlbums || 0), color: '#5eead4', r: 32 },
-              { label: 'Artists', value: Number(summary?.uniqueArtists || 0), color: '#a78bfa', r: 18 },
+              { label: 'Tracks', value: Number(summary?.uniqueTracks || 0), color: '#38bdf8', r: 72 },
+              { label: 'Albums', value: Number(summary?.uniqueAlbums || 0), color: '#5eead4', r: 50 },
+              { label: 'Artists', value: Number(summary?.uniqueArtists || 0), color: '#a78bfa', r: 28 },
             ];
             const maxValue = Math.max(...items.map((item) => item.value), 1);
-            return `<svg width="140" height="140" viewBox="0 0 140 140" aria-hidden="true">${
+            return `<svg class="lr-ratio-svg" width="220" height="220" viewBox="0 0 220 220" aria-hidden="true">${
               items.map((item) => {
                 const circumference = 2 * Math.PI * item.r;
                 const ratio = maxValue > 0 ? item.value / maxValue : 0;
                 const dash = (circumference * ratio).toFixed(2);
                 const gap = (circumference - dash).toFixed(2);
                 return `
-                  <circle cx="70" cy="70" r="${item.r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10" />
-                  <circle cx="70" cy="70" r="${item.r}" fill="none" stroke="${item.color}" stroke-width="10"
-                          stroke-linecap="round" stroke-dasharray="${dash} ${gap}" transform="rotate(-90 70 70)" />
+                  <g class="lr-ratio-ring">
+                    <title>${escapeHtml(item.label)}: ${item.value.toLocaleString()}</title>
+                    <circle cx="110" cy="110" r="${item.r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="12" />
+                    <circle cx="110" cy="110" r="${item.r}" fill="none" stroke="${item.color}" stroke-width="12"
+                            stroke-linecap="round" stroke-dasharray="${dash} ${gap}" transform="rotate(-90 110 110)" />
+                  </g>
                 `;
               }).join('')
             }</svg>`;
@@ -1556,7 +1940,7 @@
               const drawEnd = startDeg + sliceDeg - Math.min(gapDeg / 2, sliceDeg / 4);
               if (drawEnd > drawStart) {
                 const pct = Math.round((item.value / total) * 100);
-                arcs += `<path d="${donutArcPath(cx, cy, outerR, innerR, drawStart, drawEnd)}" fill="${item.color}" fill-opacity="${item.key === 'curatorr' ? '0.82' : '0.96'}"><title>${escapeHtml(item.label)}: ${item.value.toLocaleString()} plays (${pct}%)</title></path>`;
+                arcs += `<path class="lr-tier-slice" d="${donutArcPath(cx, cy, outerR, innerR, drawStart, drawEnd)}" fill="${item.color}" fill-opacity="${item.key === 'curatorr' ? '0.82' : '0.96'}"><title>${escapeHtml(item.label)}: ${item.value.toLocaleString()} plays (${pct}%)</title></path>`;
               }
               startDeg += sliceDeg;
             });
@@ -1657,9 +2041,13 @@
               if (bandHeight < 18 && itemIndex < 2) {
                 centerY += centerY < midY ? -10 : 10;
               }
+              const labelWidth = Math.max(34, item.tag.length * 6.4);
+              const minX = margin.left + 6 + labelWidth / 2;
+              const maxX = width - margin.right - 6 - labelWidth / 2;
+              const labelX = Math.max(minX, Math.min(maxX, xAt(peakIndex)));
               centerY = Math.max(margin.top + 12, Math.min(height - margin.bottom - 8, centerY));
               const labelClass = itemIndex < 2 ? 'lr-tag-stream-label lr-tag-stream-label--priority' : 'lr-tag-stream-label';
-              return `<text class="${labelClass}" x="${xAt(peakIndex).toFixed(2)}" y="${centerY.toFixed(2)}">${escapeHtml(item.tag)}</text>`;
+              return `<text class="${labelClass}" x="${labelX.toFixed(2)}" y="${centerY.toFixed(2)}">${escapeHtml(item.tag)}</text>`;
             }).join('');
 
             const axisLabels = labels.map((label, idx) => {
@@ -1685,7 +2073,7 @@
           ];
 
           function radarSvg(fp, dims) {
-            const sz = 200, cx = sz/2, cy = sz/2, maxR = 78, ringR = [maxR*0.25, maxR*0.5, maxR*0.75, maxR];
+            const sz = 290, cx = sz/2, cy = sz/2, maxR = 92, labelR = maxR + 28, ringR = [maxR*0.25, maxR*0.5, maxR*0.75, maxR];
             const n = dims.length;
             const toRad = d => d * Math.PI / 180;
             const pt = (r, i) => {
@@ -1695,40 +2083,47 @@
             let rings = '';
             for (const r of ringR) {
               const pts = dims.map((_, i) => pt(r, i).join(',')).join(' ');
-              rings += `<polygon points="${pts}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
+              rings += `<polygon class="lr-radar-grid" points="${pts}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
             }
             let spokes = '';
             for (let i = 0; i < n; i++) {
               const [x, y] = pt(maxR, i);
-              spokes += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
+              spokes += `<line class="lr-radar-spoke" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
             }
             const dataPts = dims.map((d, i) => {
               const v = Math.min(100, Math.max(0, Number(fp[d.key] || 0)));
               return pt(maxR * v / 100, i);
             });
             const polyPts = dataPts.map(p => p.map(v => v.toFixed(1)).join(',')).join(' ');
-            const fill = `<polygon points="${polyPts}" fill="rgba(139,92,246,0.28)" stroke="rgba(139,92,246,0.8)" stroke-width="2" stroke-linejoin="round"/>`;
+            const fill = `<polygon class="lr-radar-shape" points="${polyPts}" fill="rgba(139,92,246,0.28)" stroke="rgba(139,92,246,0.8)" stroke-width="2" stroke-linejoin="round"/>`;
+            const nodes = dataPts.map((point, i) => {
+              const val = Math.min(100, Math.max(0, Number(fp[dims[i].key] || 0)));
+              return `<circle class="lr-radar-node" cx="${point[0].toFixed(1)}" cy="${point[1].toFixed(1)}" r="4.8" fill="rgba(167,139,250,0.96)" stroke="rgba(15,23,42,0.55)" stroke-width="1.5"><title>${escapeHtml(dims[i].label)}: ${val}%</title></circle>`;
+            }).join('');
             let labels = '';
             for (let i = 0; i < n; i++) {
-              const [x, y] = pt(maxR + 16, i);
+              const [x, y] = pt(labelR, i);
               const anchor = x < cx - 2 ? 'end' : x > cx + 2 ? 'start' : 'middle';
-              labels += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="9" fill="rgba(255,255,255,0.5)">${dims[i].label}</text>`;
+              labels += `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}" dominant-baseline="middle" font-size="10" fill="rgba(255,255,255,0.5)">${dims[i].label}</text>`;
             }
-            return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">${rings}${spokes}${fill}${labels}</svg>`;
+            return `<svg class="lr-radar-svg" width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">${rings}${spokes}${fill}${nodes}${labels}</svg>`;
           }
 
           // Decade chart helper
           function decadeBarHtml(rows) {
             if (!rows || !rows.length) return '<div class="cur-empty">No decade data available.</div>';
             const max = Math.max(...rows.map(r => r.plays), 1);
-            return rows.map(r => {
+            const topRow = rows.reduce((best, row) => Number(row.plays || 0) > Number(best?.plays || 0) ? row : best, rows[0]);
+            const body = rows.map(r => {
               const pct = Math.round((r.plays / max) * 100);
-              return `<div class="lr-decade-row">
+              return `<div class="lr-decade-row" title="${escapeHtml(r.decade)}: ${Number(r.plays || 0).toLocaleString()} plays">
                 <span class="lr-decade-label">${r.decade}</span>
                 <div class="lr-decade-bar-bg"><div class="lr-decade-bar-fill" style="width:${pct}%"></div></div>
                 <span class="lr-decade-plays">${Number(r.plays).toLocaleString()}</span>
               </div>`;
             }).join('');
+            const foot = topRow ? `<div class="lr-decade-foot"><span class="lr-decade-foot-label">Top decade</span><span class="lr-decade-foot-value">${escapeHtml(topRow.decade)} · ${Number(topRow.plays || 0).toLocaleString()} plays</span></div>` : '';
+            return `<div class="lr-decade-stack">${body}</div>${foot}`;
           }
 
           const _nd7d  = newData7d  || {};
@@ -1770,11 +2165,15 @@
 
         <%# ── Hero header ─────────────────────────────────────────────────── %>
         <div class="cur-panel ov-profile" data-panel-collapsible="false">
-          <% if (_heroArtist) { %>
-            <img class="ov-profile-artist-bg"
-                 src="/api/music/thumb/artist/<%= encodeURIComponent(_heroArtist) %>"
-                 alt="" aria-hidden="true" />
-          <% } %>
+          <% [['7d', _heroArtistByPeriod['7d']], ['30d', _heroArtistByPeriod['30d']], ['3m', _heroArtistByPeriod['3m']], ['12m', _heroArtistByPeriod['12m']], ['all', _heroArtistByPeriod['all']]].forEach(function(pair) { %>
+            <% var ps = pair[0]; var heroArtist = pair[1]; %>
+            <% if (heroArtist) { %>
+              <img class="ov-profile-artist-bg<%= ps !== '30d' ? ' lr-hidden' : '' %>"
+                   data-period-set="<%= ps %>"
+                   src="/api/music/thumb/artist/<%= encodeURIComponent(heroArtist) %>"
+                   alt="" aria-hidden="true" />
+            <% } %>
+          <% }) %>
           <div class="ov-profile-overlay"></div>
           <div class="ov-profile-content">
             <div class="ov-profile-left">
@@ -1795,38 +2194,56 @@
             </div>
           </div>
           <div class="ov-profile-stats-wrap">
-            <div class="ov-profile-stats-row">
-              <div class="ov-profile-stat">
-                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.plays) %></span>
-                <span class="ov-profile-stat-label">All-time Plays</span>
+            <% [['7d', _stats7d], ['30d', _stats30d], ['3m', _stats3m], ['12m', _stats12m], ['all', _statsAll]].forEach(function(pair) { %>
+              <% var ps = pair[0]; var stats = pair[1] || {}; %>
+              <div class="ov-profile-stats-row<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                <div class="ov-profile-stat">
+                  <span class="ov-profile-stat-value"><%= fmtNum(stats.plays || 0) %></span>
+                  <span class="ov-profile-stat-label">Plays</span>
+                </div>
+                <div class="ov-profile-stat">
+                  <span class="ov-profile-stat-value"><%= fmtNum(stats.uniqueArtists || 0) %></span>
+                  <span class="ov-profile-stat-label">Artists</span>
+                </div>
+                <div class="ov-profile-stat">
+                  <span class="ov-profile-stat-value"><%= fmtNum(stats.uniqueTracks || 0) %></span>
+                  <span class="ov-profile-stat-label">Tracks</span>
+                </div>
               </div>
-              <div class="ov-profile-stat">
-                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.uniqueArtists) %></span>
-                <span class="ov-profile-stat-label">Artists</span>
-              </div>
-              <div class="ov-profile-stat">
-                <span class="ov-profile-stat-value"><%= fmtNum(_statsAll.uniqueTracks) %></span>
-                <span class="ov-profile-stat-label">Tracks</span>
-              </div>
-            </div>
+            <% }) %>
           </div>
+
+          <% [['7d', _featuredTrackByPeriod['7d']], ['30d', _featuredTrackByPeriod['30d']], ['3m', _featuredTrackByPeriod['3m']], ['12m', _featuredTrackByPeriod['12m']], ['all', _featuredTrackByPeriod['all']]].forEach(function(pair) { %>
+            <% var ps = pair[0]; var featuredTrack = pair[1]; var featuredArtist = featuredTrack ? featuredTrack.artist_name : null; %>
+            <% if (featuredTrack) { %>
+              <div class="ov-featured<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                <div class="ov-featured-meta">
+                  <div class="ov-featured-label">Top Track</div>
+                  <div class="ov-featured-track" title="<%= featuredTrack.track_title %>"><%= featuredTrack.track_title %></div>
+                  <div class="ov-featured-artist" title="<%= featuredArtist %>"><%= featuredArtist %></div>
+                  <div class="ov-featured-plays"><%= fmtNum(featuredTrack.play_count) %> plays</div>
+                </div>
+                <div class="ov-featured-art">
+                  <img src="/api/music/thumb/track/<%= encodeURIComponent(featuredTrack.plex_rating_key || '') %>"
+                       alt="" loading="eager"
+                       onerror="this.onerror=null;this.src='/api/music/thumb/album?artist=<%= encodeURIComponent(featuredArtist || '') %>&album=<%= encodeURIComponent(featuredTrack.album_name || '') %>&noArtistFallback=1';this.onerror=function(){this.onerror=null;this.src='/icons/music.svg';}" />
+                </div>
+              </div>
+            <% } %>
+          <% }) %>
         </div>
 
         <%# ── Period selector ─────────────────────────────────────────────── %>
         <div class="lr-period-bar">
-          <span class="lr-period-label">Period:</span>
           <button class="lr-period-btn" data-period="7d">7 days</button>
           <button class="lr-period-btn active" data-period="30d">30 days</button>
-          <button class="lr-period-btn" data-period="3m">3 months</button>
-          <button class="lr-period-btn" data-period="12m">12 months</button>
+          <button class="lr-period-btn" data-period="3m">90 days</button>
+          <button class="lr-period-btn" data-period="12m">1 year</button>
           <button class="lr-period-btn" data-period="all">All time</button>
         </div>
 
         <%# ── Weekly play chart ───────────────────────────────────────────── %>
         <div class="cur-panel" data-panel-collapsible="false">
-          <div class="cur-panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-            <h3 class="cur-panel-title">Plays This Week</h3>
-          </div>
           <div class="cur-panel-body">
             <div class="lr-weekly-nav">
               <button class="lr-weekly-btn" id="lr-week-back" title="Previous week">&#8249;</button>
@@ -1868,12 +2285,6 @@
             </div>
           </div>
         <% }) %>
-
-        <div class="lr-section-heading">
-          <div class="lr-section-kicker">Top Picks</div>
-          <h2 class="lr-section-title">Artists, albums and tracks</h2>
-          <div class="lr-section-copy">The strongest performers for the selected window, with discovery surfaced inside each column.</div>
-        </div>
 
         <%# ── Top Artists / Albums / Tracks — 3-col hero+list ─────────────── %>
         <% [['7d',_ta7d,_tAlb7d,_tt7d,_nd7d],['30d',_ta30d,_tAlb30d,_tt30d,_nd30d],['3m',_ta3m,_tAlb3m,_tt3m,_nd3m],['12m',_ta12m,_tAlb12m,_tt12m,_nd12m],['all',_taAll,_tAlbAll,_ttAll,null]].forEach(function(quad) { %>
@@ -2081,12 +2492,6 @@
           </div><%# end lr-top-three %>
         <% }) %>
 
-        <div class="lr-section-heading">
-          <div class="lr-section-kicker">Charts</div>
-          <h2 class="lr-section-title">Patterns and ratios</h2>
-          <div class="lr-section-copy">A denser chart stack focused on listening shape rather than dashboard widgets.</div>
-        </div>
-
         <div class="lr-two-col">
 
           <div class="cur-panel" data-panel-collapsible="false">
@@ -2185,50 +2590,87 @@
         </div><%# end lr-two-col tags+decade %>
 
         <div class="cur-panel" data-panel-collapsible="false">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Listening Clock</h3>
-          </div>
           <div class="cur-panel-body lr-chart-pair-body">
-            <div>
+            <div class="lr-chart-pair-section">
+              <h4 class="lr-chart-pair-title">Listening Clock</h4>
               <% [['7d',_clock7d],['30d',_clock30d],['3m',_clock3m],['12m',_clock12m],['all',_clockAll]].forEach(function(pair) { %>
                 <% var ps = pair[0]; var ch = pair[1]; %>
+                <% var clockMeta = clockInsight(ch); %>
                 <div class="lr-clock-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
-                  <%- clockSvg(ch) %>
+                  <div class="lr-clock-panel">
+                    <div class="lr-clock-graphic"><%- clockSvg(ch) %></div>
+                    <div class="lr-clock-copy">
+                      <div class="lr-clock-copy-stat">
+                        <div class="lr-clock-copy-label">Busiest hour</div>
+                        <div class="lr-clock-copy-value"><%= clockMeta.label %></div>
+                      </div>
+                      <div class="lr-clock-copy-stat">
+                        <div class="lr-clock-copy-label">Plays in busiest hour</div>
+                        <div class="lr-clock-copy-meta"><%= fmtNum(clockMeta.plays) %> play<%= Number(clockMeta.plays || 0) === 1 ? '' : 's' %></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               <% }) %>
             </div>
 
-            <div>
-              <div class="cur-panel-header">
-                <h3 class="cur-panel-title">Tier Breakdown</h3>
-              </div>
-              <div class="cur-panel-body">
-                <% [['7d', _tierByPeriod['7d']], ['30d', _tierByPeriod['30d']], ['3m', _tierByPeriod['3m']], ['12m', _tierByPeriod['12m']], ['all', _tierByPeriod['all']]].forEach(function(pair) { %>
-                  <% var ps = pair[0]; var breakdown = pair[1] || []; %>
-                  <div class="lr-tier-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
-                    <% if (breakdown.length) { %>
-                      <div class="lr-tier-radial"><%- tierRadialSvg(breakdown) %></div>
-                      <div class="lr-tier-legend"><%- tierLegendHtml(breakdown) %></div>
-                    <% } else { %>
-                      <div class="cur-empty">No tier data available for this period.</div>
-                    <% } %>
-                  </div>
+            <div class="lr-chart-pair-section">
+              <h4 class="lr-chart-pair-title">Tier Breakdown</h4>
+              <% [['7d', _tierByPeriod['7d']], ['30d', _tierByPeriod['30d']], ['3m', _tierByPeriod['3m']], ['12m', _tierByPeriod['12m']], ['all', _tierByPeriod['all']]].forEach(function(pair) { %>
+                <% var ps = pair[0]; var breakdown = pair[1] || []; %>
+                <div class="lr-tier-wrap<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
+                  <% if (breakdown.length) { %>
+                    <div class="lr-tier-radial"><%- tierRadialSvg(breakdown) %></div>
+                    <div class="lr-tier-legend"><%- tierLegendHtml(breakdown) %></div>
+                  <% } else { %>
+                    <div class="cur-empty">No tier data available for this period.</div>
+                  <% } %>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+        </div>
+
+        <div class="cur-panel" data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Activity — last 52 weeks</h3>
+          </div>
+          <div class="cur-panel-body">
+            <div class="lr-heatmap-wrap">
+              <%
+                const _cols = Math.ceil((_heatmap.length + heatmapStartDow) / 7);
+              %>
+              <div class="lr-heatmap-labels" style="display:grid;grid-template-columns:repeat(<%= _cols %>, 14px);padding-left:28px;min-width:<%= _cols * 14 + 28 %>px;">
+                <% _hmMonths.forEach(function(m) { %>
+                  <span style="grid-column:<%= Math.floor(m.col) + 1 %>" class="lr-heatmap-month-label"><%= m.label %></span>
                 <% }) %>
+              </div>
+              <div class="lr-heatmap-body" style="min-width:<%= _cols * 14 + 28 %>px;">
+                <div class="lr-heatmap-dow">
+                  <span class="lr-heatmap-dow-label"></span>
+                  <span class="lr-heatmap-dow-label">Mon</span>
+                  <span class="lr-heatmap-dow-label"></span>
+                  <span class="lr-heatmap-dow-label">Wed</span>
+                  <span class="lr-heatmap-dow-label"></span>
+                  <span class="lr-heatmap-dow-label">Fri</span>
+                  <span class="lr-heatmap-dow-label"></span>
+                </div>
+                <div class="lr-heatmap-grid" style="grid-template-columns: repeat(<%= _cols %>, 11px);">
+                  <% for (var s = 0; s < heatmapStartDow; s++) { %>
+                    <span class="lr-heatmap-cell" style="visibility:hidden"></span>
+                  <% } %>
+                  <% _heatmap.forEach(function(d) { %>
+                    <span class="lr-heatmap-cell"
+                          data-bucket="<%= heatmapBucket(d.plays) %>"
+                          title="<%= d.day %>: <%= d.plays %> play<%= d.plays !== 1 ? 's' : '' %>"></span>
+                  <% }) %>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="lr-section-heading">
-          <div class="lr-section-kicker">Quick Facts</div>
-          <h2 class="lr-section-title">Fast reads</h2>
-          <div class="lr-section-copy">Short facts that update with the selected period instead of staying pinned to 30 days.</div>
-        </div>
-
         <div class="cur-panel" data-panel-collapsible="false">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Quick Facts</h3>
-          </div>
           <div class="cur-panel-body">
             <% [['7d', _quickFactsByPeriod['7d']], ['30d', _quickFactsByPeriod['30d']], ['3m', _quickFactsByPeriod['3m']], ['12m', _quickFactsByPeriod['12m']], ['all', _quickFactsByPeriod['all']]].forEach(function(pair) { %>
               <% var ps = pair[0]; var qf = pair[1] || {}; var bestDay = qf.bestDay || {}; var bestDayFmt = bestDay.day ? new Date(bestDay.day + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null; %>
@@ -2258,13 +2700,7 @@
           </div>
         </div>
 
-        <div class="lr-section-heading">
-          <div class="lr-section-kicker">Overview</div>
-          <h2 class="lr-section-title">Listening snapshot</h2>
-          <div class="lr-section-copy">A tighter report view for the selected period, with listen time and active days broken out into their own cards.</div>
-        </div>
-
-        <% [['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['3m', 'Last 3 months'], ['12m', 'Last 12 months'], ['all', 'All time']].forEach(function(pair) { %>
+        <% [['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['3m', 'Last 90 days'], ['12m', 'Last 1 year'], ['all', 'All time']].forEach(function(pair) { %>
           <% var ps = pair[0]; var label = pair[1]; var summary = _summaryByPeriod[ps] || {}; var summaryCmp = _summaryCompByPeriod[ps] || null; %>
           <div class="lr-summary-strip<%= ps !== '30d' ? ' lr-hidden' : '' %>" data-period-set="<%= ps %>">
             <div class="lr-summary-card lr-summary-card--primary">

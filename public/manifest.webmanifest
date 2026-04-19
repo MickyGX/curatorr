@@ -2,7 +2,7 @@
   "name": "Curatorr",
   "short_name": "Curatorr",
   "description": "Smart playlist curator for Plex — automatic skip detection and playlist management",
-  "start_url": "/dashboard",
+  "start_url": "/overview",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0b0e15",

@@ -149,6 +149,12 @@ Current support is for:
 - importing Spotify playlists into Curatorr as managed custom playlists
 - refreshing imported Spotify playlists against the current library
 
+Important restrictions:
+
+- The connected-account Spotify tab is intended for playlists owned by the connected Spotify user and is the most reliable import path for larger playlists.
+- Shared or public Spotify playlist URLs from the `URL` tab rely on Spotify's public web pages, not full authenticated playlist access, so Spotify may expose only part of the playlist to Curatorr.
+- If a shared/public playlist does not show all expected tracks, copy its contents into a new playlist you own in Spotify, then import that owned playlist from the Spotify tab instead of the URL tab.
+
 Spotify requires app-level credentials on the Curatorr container:
 
 - `SPOTIFY_CLIENT_ID`

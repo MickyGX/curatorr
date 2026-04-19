@@ -808,14 +808,12 @@ html[data-sidebar-invert="1"] .dash-brand-menu-toggle{
   padding-left:9px;
 }
 
-.dash-nav .nav-item[href="/dashboard"].active,
 .dash-nav .nav-item[href="/settings"].active{
   background:var(--teal);
   border-color:rgba(0,0,0,.7);
   box-shadow:none;
 }
 
-html[data-sidebar-invert="1"] .dash-nav .nav-item[href="/dashboard"].active,
 html[data-sidebar-invert="1"] .dash-nav .nav-item[href="/settings"].active{
   background:rgba(7,12,19,.72);
   color:#eaf2fb;

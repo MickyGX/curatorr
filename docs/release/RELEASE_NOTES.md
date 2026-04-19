@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.81 (2026-04-19)
+
+- Overview and Report now replace Dashboard as the primary analytics destinations, with dedicated sidebar entries, Overview as the default landing page, the admin "Viewing" strip on both pages, and the old dashboard hidden from normal navigation.
+- Refined the analytics UI substantially: Overview now adds period pickers, clickable artist/album/track cards, top playlists, and cleaner heatmap treatment, while Listening Report adds a featured top-track hero, a 52-week activity heatmap, improved chart layouts, and more consistent time-zone-aware date handling.
+- Improved workflow reliability across the app: Plex Home user selection now keeps pending state server-side with better avatar handling and protected-user PIN routing, smart playlists gain last-played filters, Lidarr automation can choose default quality/metadata profiles plus monitoring mode for new artists, and Spotify owned-playlist imports handle larger paginated playlists more reliably while URL imports explicitly stay on the public-source path.
+
 ## v0.1.80 (2026-04-18)
 
 - Added a new Listening Report experience with period-led analytics, weekly activity comparison, top artists/albums/tracks, tag and decade charts, listening clock, tier breakdown, and quick facts, while moving slower-burn stats to the Overview page.

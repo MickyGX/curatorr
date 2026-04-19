@@ -22,6 +22,7 @@ const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
+const PLAYLIST_LAST_PLAYED_MODES = ['any', 'within', 'notWithin', 'never'];
 const JOB_INTERVAL_MAX_MINUTES = 10080;
 
 function normaliseTriStateInput(value) {
@@ -320,6 +321,12 @@ function parseNullableNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function parseNullableDayCount(value) {
+  const num = parseNullableNumber(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(1, Math.round(num));
+}
+
 function normalizePlaylistFeaturePreset(value) {
   const raw = String(value || '').trim().toLowerCase();
   return PLAYLIST_FEATURE_PRESETS.includes(raw) ? raw : 'none';
@@ -349,6 +356,10 @@ function buildPlaylistFeatureRuleConfig(input = {}) {
     seasonalExcludeKeywords: Array.isArray(input.seasonalExcludeKeywords) ? input.seasonalExcludeKeywords.map(String).filter(Boolean) : [],
     seasonalGenresMode: String(input.seasonalGenresMode || '').trim() === 'all' ? 'all' : 'any',
     seasonalKeywordsMode: String(input.seasonalKeywordsMode || '').trim() === 'all' ? 'all' : 'any',
+    lastPlayedMode: PLAYLIST_LAST_PLAYED_MODES.includes(String(input.lastPlayedMode || '').trim())
+      ? String(input.lastPlayedMode).trim()
+      : 'any',
+    lastPlayedDays: parseNullableDayCount(input.lastPlayedDays),
   };
 }
 
@@ -426,6 +437,7 @@ export function registerSettings(app, ctx) {
     USER_AVATAR_BASE,
     normalizeVersionTag,
     APP_VERSION,
+    SERVER_TIME_ZONE,
     loadSettingsReleases,
     DATA_DIR,
     loadAdmins,
@@ -453,6 +465,7 @@ export function registerSettings(app, ctx) {
     playlistService,
     resolvePublicBaseUrl,
     spotifyService,
+    lidarrService,
   } = ctx;
 
   function sanitizeRelativeReturnPath(value, fallback = '/user-settings') {
@@ -508,6 +521,36 @@ export function registerSettings(app, ctx) {
     const plexGuestUsers = loadGuestUsers();
     const plexDisabledUsers = loadDisabledUsers();
     const lidarrAutomation = resolveLidarrAutomationSettings(config);
+    let lidarrQualityProfiles = [];
+    let lidarrQualityProfilesError = '';
+    let lidarrMetadataProfiles = [];
+    let lidarrMetadataProfilesError = '';
+    if (actualRole === 'admin' && lidarrService?.isConfigured?.()) {
+      try {
+        const profiles = await lidarrService.getQualityProfiles();
+        lidarrQualityProfiles = (Array.isArray(profiles) ? profiles : [])
+          .map((profile) => ({
+            id: Number(profile?.id || 0) || 0,
+            name: String(profile?.name || profile?.title || '').trim() || `Profile ${profile?.id ?? ''}`.trim(),
+          }))
+          .filter((profile) => profile.id > 0)
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch (err) {
+        lidarrQualityProfilesError = safeMessage(err);
+      }
+      try {
+        const profiles = await lidarrService.getMetadataProfiles();
+        lidarrMetadataProfiles = (Array.isArray(profiles) ? profiles : [])
+          .map((profile) => ({
+            id: Number(profile?.id || 0) || 0,
+            name: String(profile?.name || profile?.title || '').trim() || `Profile ${profile?.id ?? ''}`.trim(),
+          }))
+          .filter((profile) => profile.id > 0)
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch (err) {
+        lidarrMetadataProfilesError = safeMessage(err);
+      }
+    }
     const logSettings = resolveLogSettings(config);
     const renderedConfig = {
       ...config,
@@ -566,12 +609,17 @@ export function registerSettings(app, ctx) {
       plexGuestUsers,
       plexDisabledUsers,
       lidarrAutomation,
+      lidarrQualityProfiles,
+      lidarrQualityProfilesError,
+      lidarrMetadataProfiles,
+      lidarrMetadataProfilesError,
       logSettings,
       jobDefs: JOB_DEFS,
       jobStatus: jobService?.getStatus() || {},
       aboutCurrentVersion,
       aboutLatestVersion: String(aboutReleases[0]?.tag || '').trim() || aboutCurrentVersion,
       aboutDataDirectory: DATA_DIR || '/data',
+      aboutServerTimeZone: SERVER_TIME_ZONE || 'UTC',
       aboutReleases,
       themeDefaultsResult,
       themeDefaultsError,
@@ -819,10 +867,16 @@ export function registerSettings(app, ctx) {
 
   app.post('/settings/lidarr', requireAdmin, (req, res) => {
     const config = loadConfig();
+    const { normalizeLidarrNewArtistMonitoringMode } = ctx;
+    const { normalizeLidarrMetadataProfileId } = ctx;
+    const { normalizeLidarrQualityProfileId } = ctx;
     const localUrl = normalizeBaseUrl(String(req.body?.lidarrLocalUrl || '').trim());
     const remoteUrl = normalizeBaseUrl(String(req.body?.lidarrRemoteUrl || '').trim());
     const apiKey = String(req.body?.apiKey || '').trim();
     const automationEnabled = Boolean(req.body?.automationEnabled);
+    const defaultMetadataProfileId = normalizeLidarrMetadataProfileId(req.body?.defaultMetadataProfileId);
+    const defaultQualityProfileId = normalizeLidarrQualityProfileId(req.body?.defaultQualityProfileId);
+    const newArtistMonitoringMode = normalizeLidarrNewArtistMonitoringMode(req.body?.newArtistMonitoringMode);
     const autoTriggerManualSearch = Boolean(req.body?.autoTriggerManualSearch);
     const autoAddArtists = Boolean(req.body?.autoAddArtists);
     const manualSearchFallbackAttempts = Math.max(1, Math.min(10, Number(req.body?.manualSearchFallbackAttempts) || 2));
@@ -866,6 +920,9 @@ export function registerSettings(app, ctx) {
         remoteUrl,
         apiKey,
         automationEnabled,
+        defaultMetadataProfileId,
+        defaultQualityProfileId,
+        newArtistMonitoringMode,
         autoTriggerManualSearch,
         autoAddArtists,
         autoAddQuotas,
@@ -1896,6 +1953,8 @@ export function registerSettings(app, ctx) {
           danceabilityMax: req.body?.danceabilityMax !== undefined ? req.body.danceabilityMax : existing.rules?.danceabilityMax,
           camelotFocus: req.body?.camelotFocus !== undefined ? req.body.camelotFocus : existing.rules?.camelotFocus,
           camelotMode: req.body?.camelotMode !== undefined ? req.body.camelotMode : existing.rules?.camelotMode,
+          lastPlayedMode: req.body?.lastPlayedMode !== undefined ? req.body.lastPlayedMode : existing.rules?.lastPlayedMode,
+          lastPlayedDays: req.body?.lastPlayedDays !== undefined ? req.body.lastPlayedDays : existing.rules?.lastPlayedDays,
         }),
       },
       trackFilters: req.body?.trackFilters !== undefined ? (() => {

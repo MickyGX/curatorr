@@ -3,9 +3,13 @@
   const _navRole = locals.role || '';
   const _navActualRole = locals.actualRole || _navRole || '';
 %>
-<a class="nav-item<%= _navActivePage === 'dashboard' ? ' active' : '' %>" href="/dashboard">
-  <img class="nav-icon" src="/icons/dashboard.svg" alt="" />
-  <span class="nav-label">Dashboard</span>
+<a class="nav-item<%= _navActivePage === 'overview' ? ' active' : '' %>" href="/overview">
+  <img class="nav-icon" src="/icons/overview.svg" alt="" />
+  <span class="nav-label">Overview</span>
+</a>
+<a class="nav-item<%= _navActivePage === 'report' ? ' active' : '' %>" href="/report">
+  <img class="nav-icon" src="/icons/documents.svg" alt="" />
+  <span class="nav-label">Report</span>
 </a>
 <a class="nav-item<%= _navActivePage === 'discover' ? ' active' : '' %>" href="/discover">
   <img class="nav-icon" src="/icons/search.svg" alt="" />

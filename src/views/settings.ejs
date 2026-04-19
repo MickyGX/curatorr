@@ -601,6 +601,47 @@
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
                     <span class="settings-toggle-text">Enable Lidarr automation</span>
                   </label>
+                  <label class="field" style="margin-top:12px">
+                    <span>Default quality profile for new artists</span>
+                    <select name="defaultQualityProfileId">
+                      <option value="">Use Lidarr default</option>
+                      <% (lidarrQualityProfiles || []).forEach(function(profile) { %>
+                        <option value="<%= profile.id %>" <%= Number(lidarrAutomation?.defaultQualityProfileId || 0) === Number(profile.id || 0) ? 'selected' : '' %>><%= profile.name %></option>
+                      <% }) %>
+                    </select>
+                  </label>
+                  <% if (lidarrQualityProfilesError) { %>
+                    <div class="settings-card-sub" style="margin-top:2px;color:#fca5a5">Could not load Lidarr quality profiles: <%= lidarrQualityProfilesError %></div>
+                  <% } else if (!(lidarrQualityProfiles || []).length) { %>
+                    <div class="settings-card-sub" style="margin-top:2px">No quality profiles were loaded from Lidarr yet. Curatorr will fall back to Lidarr defaults until profiles are available.</div>
+                  <% } else { %>
+                    <div class="settings-card-sub" style="margin-top:2px">When set, Curatorr will prefer this Lidarr quality profile for newly created artists before falling back to Lidarr root-folder defaults.</div>
+                  <% } %>
+                  <label class="field" style="margin-top:12px">
+                    <span>Default metadata profile for new artists</span>
+                    <select name="defaultMetadataProfileId">
+                      <option value="">Use Lidarr default</option>
+                      <% (lidarrMetadataProfiles || []).forEach(function(profile) { %>
+                        <option value="<%= profile.id %>" <%= Number(lidarrAutomation?.defaultMetadataProfileId || 0) === Number(profile.id || 0) ? 'selected' : '' %>><%= profile.name %></option>
+                      <% }) %>
+                    </select>
+                  </label>
+                  <% if (lidarrMetadataProfilesError) { %>
+                    <div class="settings-card-sub" style="margin-top:2px;color:#fca5a5">Could not load Lidarr metadata profiles: <%= lidarrMetadataProfilesError %></div>
+                  <% } else if (!(lidarrMetadataProfiles || []).length) { %>
+                    <div class="settings-card-sub" style="margin-top:2px">No metadata profiles were loaded from Lidarr yet. Curatorr will fall back to Lidarr defaults until profiles are available.</div>
+                  <% } else { %>
+                    <div class="settings-card-sub" style="margin-top:2px">When set, Curatorr will prefer this Lidarr metadata profile for newly created artists before falling back to Lidarr root-folder defaults.</div>
+                  <% } %>
+                  <label class="field" style="margin-top:12px">
+                    <span>New artist monitoring mode</span>
+                    <select name="newArtistMonitoringMode">
+                      <% ['none', 'all', 'new', 'existing', 'latest', 'first'].forEach(function(mode) { %>
+                        <option value="<%= mode %>" <%= (lidarrAutomation?.newArtistMonitoringMode || 'none') === mode ? 'selected' : '' %>><%= mode %></option>
+                      <% }) %>
+                    </select>
+                  </label>
+                  <div class="settings-card-sub" style="margin-top:2px">Controls what Lidarr monitors when Curatorr creates a brand-new artist. Curatorr still picks the starter album itself, so <code class="settings-inline-code">none</code> keeps the current behavior where Curatorr targets one album first and expands later only if needed.</div>
                   <label class="settings-toggle" style="margin-top:4px">
                     <input type="checkbox" name="autoTriggerManualSearch" value="1" <%= lidarrAutomation?.autoTriggerManualSearch ? 'checked' : '' %> />
                     <span class="settings-toggle-slider" aria-hidden="true"></span>
@@ -2788,9 +2829,9 @@
                   </div>
                 </div>
                 <div class="settings-about-row">
-                  <span>Time Zone</span>
+                  <span>Server Time Zone</span>
                   <div class="settings-about-value">
-                    <span id="settingsAboutTimeZone">Detecting...</span>
+                    <span id="settingsAboutTimeZone"><%= aboutServerTimeZone || 'Unknown' %></span>
                   </div>
                 </div>
               </div>
@@ -3292,7 +3333,15 @@
     function formatLogTime(value) {
       var date = value ? new Date(value) : null;
       if (!date || Number.isNaN(date.getTime())) return '';
-      return date.toLocaleString();
+      try {
+        return date.toLocaleString(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+          timeZone: settingsServerTimeZone || undefined,
+        });
+      } catch (_err) {
+        return date.toLocaleString();
+      }
     }
 
     function renderSettingsLogs() {
@@ -3359,6 +3408,7 @@
   // ── About ─────────────────────────────────────────────────────────────────
   (function() {
     try {
+      var settingsServerTimeZone = <%- safeJson(aboutServerTimeZone || 'UTC') %>;
       var settingsAboutVersion = document.getElementById('settingsAboutVersion');
       var settingsAboutLatest = document.getElementById('settingsAboutLatest');
       var settingsAboutVersionState = document.getElementById('settingsAboutVersionState');
@@ -3486,10 +3536,7 @@
       });
 
       updateReleaseRelativeTimes();
-      if (settingsAboutTimeZone) {
-        var tz = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim();
-        settingsAboutTimeZone.textContent = tz || 'Unknown';
-      }
+      if (settingsAboutTimeZone) settingsAboutTimeZone.textContent = String(settingsServerTimeZone || 'Unknown').trim() || 'Unknown';
 
       var fallbackCurrent = normalizeVersionTag(settingsAboutVersion && settingsAboutVersion.textContent || '');
       var fallbackLatest = normalizeVersionTag(settingsAboutLatest && settingsAboutLatest.textContent || '');

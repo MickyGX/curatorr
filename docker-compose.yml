@@ -26,7 +26,7 @@ services:
       # - COOKIE_SECURE=true
       # - PUID=${PUID}
       # - PGID=${PGID}
-      # - TZ=${TZ}
+      - TZ=${TZ:-UTC}
     volumes:
       - ./config:/app/config
       - ./data:/app/data

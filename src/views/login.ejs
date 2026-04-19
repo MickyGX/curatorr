@@ -116,7 +116,7 @@
           stopPlexPolling();
           closePlexPopup();
           plexPopup = null;
-          window.location.assign(typeof data.redirect === "string" && data.redirect ? data.redirect : "/dashboard");
+          window.location.assign(typeof data.redirect === "string" && data.redirect ? data.redirect : "/overview");
         } catch (_err) {
           if (Date.now() - plexPollStartedAt > 180000) stopPlexPolling();
         }
@@ -139,7 +139,7 @@
         stopPlexPolling();
         closePlexPopup();
         plexPopup = null;
-        var redirect = typeof payload.redirect === "string" && payload.redirect ? payload.redirect : "/dashboard";
+        var redirect = typeof payload.redirect === "string" && payload.redirect ? payload.redirect : "/overview";
         window.location.assign(redirect);
       });
 

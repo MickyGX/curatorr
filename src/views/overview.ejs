@@ -13,19 +13,27 @@
     }
 
     .dash-content--overview .cur-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       background: transparent;
       border: 0;
       border-bottom: 1px solid var(--ov-panel-line);
       border-radius: 0;
       padding: 9px 0 8px;
+      min-height: 42px;
     }
 
     .dash-content--overview .cur-panel-title {
-      font-size: 33px;
-      line-height: 1.04;
-      font-weight: 500;
-      text-transform: none;
-      letter-spacing: 0;
+      margin: 0;
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
       text-shadow: none;
       font-family: "Segoe UI", "Helvetica Neue", sans-serif;
     }
@@ -35,6 +43,12 @@
       border: 0;
       border-radius: 0;
       padding: 6px 0 0;
+    }
+
+    .dash-content--overview .cur-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
     }
 
     .dash-content--overview .cur-empty {
@@ -305,58 +319,149 @@
       color: rgba(255,255,255,0.8);
     }
 
-    /* Recent tracks — full width now (no stats panel beside it) */
-    .ov-upper-cols {
-      display: block;
+    .ov-sections-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      align-items: stretch;
+      margin-bottom: 16px;
     }
 
-    /* Period tabs */
-    .ov-tabs {
+    .ov-sections-grid > .cur-panel {
+      margin-bottom: 0;
       display: flex;
-      gap: 6px;
-      align-items: flex-end;
+      flex-direction: column;
+      min-height: 100%;
     }
-    .ov-tab {
-      padding: 5px 9px 4px;
-      border-radius: 4px;
-      border: 1px solid rgba(255,255,255,0.18);
-      background: none;
-      color: rgba(255,255,255,0.82);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
+
+    .ov-sections-grid > .cur-panel > .cur-panel-body {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    /* Period picker */
+    .ov-period-picker {
+      position: relative;
+      display: inline-block;
+    }
+
+    .ov-period-summary {
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 154px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.92);
       cursor: pointer;
-      transition: background 0.12s, color 0.12s, border-color 0.12s;
-      font-family: inherit;
+      user-select: none;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
     }
-    .ov-tab:hover {
-      color: #fff;
-      background: rgba(255,255,255,0.12);
+
+    .ov-period-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .ov-period-summary:hover,
+    .ov-period-picker[open] .ov-period-summary {
+      background: rgba(255,255,255,0.14);
       border-color: rgba(255,255,255,0.28);
-    }
-    .ov-tab.active {
-      border-color: rgba(255,255,255,0.38);
-      background: rgba(255,255,255,0.18);
       color: #fff;
     }
 
-    [data-theme="day"] .ov-tab {
-      color: #1f2937;
-      background: rgba(255,255,255,0.78);
-      border-color: rgba(31,41,55,0.24);
+    .ov-period-summary-label {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
     }
 
-    [data-theme="day"] .ov-tab:hover {
-      color: #111827;
-      background: #ffffff;
-      border-color: rgba(31,41,55,0.38);
+    .ov-period-summary-caret {
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(45deg) translateY(-1px);
+      transition: transform 0.12s ease;
+      flex-shrink: 0;
     }
 
-    [data-theme="day"] .ov-tab.active {
+    .ov-period-picker[open] .ov-period-summary-caret {
+      transform: rotate(-135deg) translateY(-1px);
+    }
+
+    .ov-period-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 184px;
+      padding: 8px 0;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(18,22,30,0.98);
+      box-shadow: 0 18px 34px rgba(0,0,0,0.38);
+      z-index: 20;
+    }
+
+    .ov-period-option {
+      display: block;
+      width: 100%;
+      padding: 9px 16px;
+      border: 0;
+      background: transparent;
+      color: rgba(255,255,255,0.74);
+      text-align: left;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .ov-period-option:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+
+    .ov-period-option.active {
+      color: #fff;
+      background: rgba(139,92,246,0.22);
+    }
+
+    [data-theme="day"] .ov-period-summary {
+      background: rgba(255,255,255,0.92);
       color: #0f172a;
-      border-color: rgba(15,23,42,0.55);
-      background: #e8edf5;
+      border-color: rgba(15,23,42,0.16);
+    }
+
+    [data-theme="day"] .ov-period-summary:hover,
+    [data-theme="day"] .ov-period-picker[open] .ov-period-summary {
+      background: #ffffff;
+      border-color: rgba(15,23,42,0.28);
+      color: #0b151e;
+    }
+
+    [data-theme="day"] .ov-period-menu {
+      background: rgba(255,255,255,0.98);
+      border-color: rgba(15,23,42,0.12);
+      box-shadow: 0 16px 30px rgba(15,23,42,0.16);
+    }
+
+    [data-theme="day"] .ov-period-option {
+      color: rgba(15,23,42,0.78);
+    }
+
+    [data-theme="day"] .ov-period-option:hover {
+      background: rgba(15,23,42,0.06);
+      color: #0b151e;
+    }
+
+    [data-theme="day"] .ov-period-option.active {
+      color: #5b21b6;
+      background: rgba(139,92,246,0.12);
     }
 
     .dash-content--overview .cur-list-item {
@@ -368,10 +473,34 @@
       min-height: 45px;
       padding: 4px 0;
       border-bottom: 1px solid rgba(255,255,255,0.08);
+      transition: background 0.1s;
     }
 
     .dash-content--overview .cur-list-item:last-child {
       border-bottom: 0;
+    }
+
+    .dash-content--overview .cur-list-item:hover {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .dash-content--overview .cur-overview-trigger {
+      cursor: pointer;
+    }
+
+    .dash-content--overview .cur-overview-trigger:focus-visible {
+      outline: 2px solid rgba(139,92,246,0.9);
+      outline-offset: 3px;
+    }
+
+    .dash-content--overview .cur-list-item.cur-overview-trigger:hover .cur-list-name,
+    .dash-content--overview .cur-list-item.cur-overview-trigger:hover .cur-list-sub {
+      color: #fff;
+    }
+
+    [data-theme="day"] .dash-content--overview .cur-list-item.cur-overview-trigger:hover .cur-list-name,
+    [data-theme="day"] .dash-content--overview .cur-list-item.cur-overview-trigger:hover .cur-list-sub {
+      color: #0b151e;
     }
 
     .ov-tier-icon {
@@ -425,12 +554,17 @@
     }
 
     /* Card grids (artists / albums) — Last.fm-style large image blocks */
+    .ov-card-period {
+      display: block;
+    }
+
     .ov-card-grid {
       display: grid;
       grid-template-columns: repeat(12, minmax(0, 1fr));
       grid-template-rows: repeat(2, minmax(112px, 1fr));
       gap: 4px;
     }
+
     .ov-hidden { display: none !important; }
     .ov-card {
       position: relative;
@@ -440,6 +574,9 @@
       min-width: 0;
       cursor: default;
       min-height: 112px;
+    }
+    .ov-card.cur-overview-trigger {
+      cursor: pointer;
     }
     .ov-card:nth-child(1) { grid-column: 1 / span 6;  grid-row: 1 / span 2; min-height: 228px; }
     .ov-card:nth-child(2) { grid-column: 7 / span 3;  grid-row: 1; }
@@ -455,6 +592,12 @@
     }
     .ov-card:hover img {
       transform: scale(1.04);
+    }
+    .ov-card.cur-overview-trigger:hover .ov-card-overlay {
+      background: linear-gradient(to top,
+        rgba(0,0,0,0.9) 0%,
+        rgba(0,0,0,0.42) 45%,
+        rgba(0,0,0,0.04) 100%);
     }
     /* gradient overlay so text is readable */
     .ov-card-overlay {
@@ -513,6 +656,13 @@
     }
     .ov-track-row:hover {
       background: rgba(255,255,255,0.03);
+    }
+    .ov-track-row.cur-overview-trigger {
+      cursor: pointer;
+    }
+    .ov-track-row.cur-overview-trigger:hover .ov-track-title,
+    .ov-track-row.cur-overview-trigger:hover .ov-track-artist {
+      color: #fff;
     }
     .ov-track-rank {
       font-size: 14px;
@@ -590,6 +740,11 @@
       color: rgba(22,26,32,0.6);
     }
 
+    [data-theme="day"] .ov-track-row.cur-overview-trigger:hover .ov-track-title,
+    [data-theme="day"] .ov-track-row.cur-overview-trigger:hover .ov-track-artist {
+      color: #0b151e;
+    }
+
     [data-theme="day"] .ov-track-plays-bar {
       border-color: rgba(22,26,32,0.2);
       background: rgba(22,26,32,0.05);
@@ -603,70 +758,38 @@
       color: #111827;
     }
 
-    .ov-extended-heading {
-      margin: 20px 0 10px;
-      padding-top: 6px;
-      border-top: 1px solid rgba(255,255,255,0.08);
-    }
-
-    .ov-extended-kicker {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.48);
-      margin-bottom: 4px;
-    }
-
-    .ov-extended-title {
-      font-size: 29px;
-      line-height: 1.05;
-      font-weight: 700;
-      color: #fff;
-      margin: 0;
-      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
-    }
-
-    .ov-extended-copy {
-      margin-top: 4px;
-      color: rgba(255,255,255,0.56);
-      font-size: 13px;
-    }
-
-    .ov-two-col {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
     .ov-heatmap-wrap {
-      overflow-x: auto;
+      width: 100%;
       padding-bottom: 4px;
     }
 
     .ov-heatmap-labels {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(var(--ov-heatmap-cols, 53), minmax(0, 1fr));
       padding-left: 28px;
       margin-bottom: 4px;
-      min-width: 640px;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     .ov-heatmap-month-label {
-      flex: 1;
       font-size: 10px;
       color: rgba(255,255,255,0.4);
+      white-space: nowrap;
     }
 
     .ov-heatmap-body {
-      display: flex;
-      gap: 3px;
-      min-width: 640px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 4px;
+      width: 100%;
+      align-items: start;
     }
 
     .ov-heatmap-dow {
       display: flex;
       flex-direction: column;
-      gap: 3px;
+      gap: 4px;
       padding-right: 4px;
       flex-shrink: 0;
       width: 24px;
@@ -681,15 +804,17 @@
 
     .ov-heatmap-grid {
       display: grid;
-      grid-template-rows: repeat(7, 11px);
+      grid-template-columns: repeat(var(--ov-heatmap-cols, 53), minmax(0, 1fr));
+      grid-template-rows: repeat(7, minmax(0, 1fr));
       grid-auto-flow: column;
-      gap: 3px;
+      gap: 4px;
+      width: 100%;
     }
 
     .ov-heatmap-cell {
-      width: 11px;
-      height: 11px;
-      border-radius: 2px;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 3px;
       background: rgba(255,255,255,0.06);
     }
 
@@ -744,27 +869,17 @@
       margin-left: auto;
     }
 
-    [data-theme="day"] .ov-extended-heading { border-top-color: rgba(11,21,30,0.08); }
-    [data-theme="day"] .ov-extended-kicker { color: rgba(11,21,30,0.45); }
-    [data-theme="day"] .ov-extended-title { color: #0b151e; }
-    [data-theme="day"] .ov-extended-copy { color: rgba(11,21,30,0.55); }
     [data-theme="day"] .ov-heatmap-month-label { color: rgba(11,21,30,0.4); }
     [data-theme="day"] .ov-heatmap-dow-label { color: rgba(11,21,30,0.35); }
-    [data-theme="day"] .ov-heatmap-cell { background: rgba(11,21,30,0.08); }
+    [data-theme="day"] .ov-heatmap-cell { background: rgba(148,163,184,0.22); }
+    [data-theme="day"] .ov-heatmap-cell[data-bucket="1"] { background: rgba(139,92,246,0.32); }
+    [data-theme="day"] .ov-heatmap-cell[data-bucket="2"] { background: rgba(139,92,246,0.5); }
+    [data-theme="day"] .ov-heatmap-cell[data-bucket="3"] { background: rgba(124,58,237,0.72); }
+    [data-theme="day"] .ov-heatmap-cell[data-bucket="4"] { background: rgba(109,40,217,0.92); }
     [data-theme="day"] .ov-tier-legend-label { color: rgba(11,21,30,0.65); }
     [data-theme="day"] .ov-tier-legend-count { color: rgba(11,21,30,0.4); }
 
     @media (max-width: 1100px) {
-      .ov-card-grid {
-        grid-template-columns: repeat(8, minmax(0, 1fr));
-        grid-template-rows: repeat(2, minmax(96px, 1fr));
-      }
-      .ov-card { min-height: 96px; }
-      .ov-card:nth-child(1) { grid-column: 1 / span 4; grid-row: 1 / span 2; min-height: 196px; }
-      .ov-card:nth-child(2) { grid-column: 5 / span 2; grid-row: 1; }
-      .ov-card:nth-child(3) { grid-column: 7 / span 2; grid-row: 1; }
-      .ov-card:nth-child(4) { grid-column: 5 / span 2; grid-row: 2; }
-      .ov-card:nth-child(5) { grid-column: 7 / span 2; grid-row: 2; }
       .ov-featured-track { font-size: 17px; }
       .ov-track-row {
         grid-template-columns: 24px 36px minmax(0,1fr) minmax(118px, 33%);
@@ -780,7 +895,7 @@
       .ov-profile-meta {
         transform: translateY(30px);
       }
-      .ov-upper-cols { grid-template-columns: 1fr; }
+      .ov-sections-grid { grid-template-columns: 1fr; }
       .ov-card-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         grid-template-rows: auto;
@@ -806,16 +921,22 @@
       .ov-featured-meta { text-align: left; }
       .ov-featured-track { font-size: 18px; white-space: normal; }
       .ov-featured-artist { white-space: normal; }
-      .dash-content--overview .cur-panel-title {
-        font-size: 29px;
-      }
       .ov-track-row {
         grid-template-columns: 24px 36px minmax(0,1fr);
       }
       .ov-track-plays {
         grid-column: 2 / span 2;
       }
-      .ov-two-col { grid-template-columns: 1fr; }
+      .ov-period-summary {
+        min-width: 142px;
+      }
+      .ov-heatmap-wrap {
+        overflow-x: auto;
+      }
+      .ov-heatmap-labels,
+      .ov-heatmap-body {
+        min-width: 720px;
+      }
     }
     @media (max-width: 600px) {
       .ov-profile {
@@ -848,9 +969,6 @@
       .ov-profile-stat-value {
         font-size: 18px;
       }
-      .dash-content--overview .cur-panel-title {
-        font-size: 24px;
-      }
     }
   </style>
 
@@ -876,7 +994,7 @@
           <img class="toggle-icon" src="/icons/sidebar-toggle.svg" alt="" />
         </button>
         <div class="main-window-title">
-          <img class="main-window-icon" src="/icons/user-profile.svg" alt="" />
+          <img class="main-window-icon" src="/icons/overview.svg" alt="" />
           <span class="main-window-app">Curatorr</span>
           <span class="main-window-rest">| Overview</span>
         </div>
@@ -887,6 +1005,7 @@
       </div>
 
       <div class="dash-content dash-content--overview">
+        <%- include('partials/plex-banner') %>
         <%
           const _displayUsername = String(user?.username || user?.displayName || 'User').trim();
           const _userAvatar      = String(user?.avatar || '').trim();
@@ -901,6 +1020,9 @@
           const _topAlbums7d    = Array.isArray(topAlbums7d)    ? topAlbums7d    : [];
           const _topAlbums30d   = Array.isArray(topAlbums30d)   ? topAlbums30d   : [];
           const _topAlbumsAll   = Array.isArray(topAlbumsAll)   ? topAlbumsAll   : [];
+          const _topPlaylists7d  = Array.isArray(topPlaylists7d)  ? topPlaylists7d  : [];
+          const _topPlaylists30d = Array.isArray(topPlaylists30d) ? topPlaylists30d : [];
+          const _topPlaylistsAll = Array.isArray(topPlaylistsAll) ? topPlaylistsAll : [];
           const _topTracks7d    = Array.isArray(topTracks7d)    ? topTracks7d    : [];
           const _topTracks30d   = Array.isArray(topTracks30d)   ? topTracks30d   : [];
           const _topTracksAll   = Array.isArray(topTracksAll)   ? topTracksAll   : [];
@@ -1079,8 +1201,8 @@
 
         </div>
 
-        <%# ── Recent Tracks + Listening Stats ───────────────────────────── %>
-        <div class="ov-upper-cols">
+        <%# ── Overview Grid ─────────────────────────────────────────────── %>
+        <div class="ov-sections-grid">
 
           <div class="cur-panel" data-panel-collapsible="false">
             <div class="cur-panel-header">
@@ -1090,7 +1212,8 @@
               <% if (_recentHistory.length) { %>
                 <ul class="cur-list">
                   <% _recentHistory.forEach(function(h) { %>
-                    <li class="cur-list-item">
+                    <li class="cur-list-item<%= h.plex_rating_key ? ' cur-overview-trigger' : '' %>"
+                        <% if (h.plex_rating_key) { %>role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= h.plex_rating_key || '' %>"<% } %>>
                       <span class="ov-tier-icon"><%- tierSvg(h.current_tier) %></span>
                       <span class="cur-list-thumb">
                         <img src="/api/music/thumb/track/<%= encodeURIComponent(h.plex_rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
@@ -1109,162 +1232,189 @@
             </div>
           </div>
 
-        </div>
-
-        <%# ── Top Artists ────────────────────────────────────────────────── %>
-        <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Top Artists</h3>
-            <div class="ov-tabs">
-              <button class="ov-tab active" data-period="7d">7 days</button>
-              <button class="ov-tab" data-period="30d">30 days</button>
-              <button class="ov-tab" data-period="all">All time</button>
-            </div>
-          </div>
-          <div class="cur-panel-body">
-            <% [['7d', _topArtists7d], ['30d', _topArtists30d], ['all', _topArtistsAll]].forEach(function(pair) { %>
-              <% var period = pair[0]; var artists = pair[1]; %>
-              <div class="ov-card-grid<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
-                <% if (artists.length) { %>
-                  <% artists.slice(0, 5).forEach(function(a) { %>
-                    <div class="ov-card">
-                      <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-                      <div class="ov-card-overlay"></div>
-                      <div class="ov-card-info">
-                        <div class="ov-card-name" title="<%= a.artist_name %>"><%= a.artist_name %></div>
-                        <div class="ov-card-sub"><%= fmtNum(a.play_count) %> plays</div>
-                      </div>
-                    </div>
-                  <% }) %>
-                <% } else { %>
-                  <div class="cur-empty">No data for this period.</div>
-                <% } %>
-              </div>
-            <% }) %>
-          </div>
-        </div>
-
-        <%# ── Top Albums ─────────────────────────────────────────────────── %>
-        <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Top Albums</h3>
-            <div class="ov-tabs">
-              <button class="ov-tab active" data-period="7d">7 days</button>
-              <button class="ov-tab" data-period="30d">30 days</button>
-              <button class="ov-tab" data-period="all">All time</button>
-            </div>
-          </div>
-          <div class="cur-panel-body">
-            <% [['7d', _topAlbums7d], ['30d', _topAlbums30d], ['all', _topAlbumsAll]].forEach(function(pair) { %>
-              <% var period = pair[0]; var albums = pair[1]; %>
-              <div class="ov-card-grid<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
-                <% if (albums.length) { %>
-                  <% albums.slice(0, 5).forEach(function(alb) { %>
-                    <div class="ov-card">
-                      <img src="/api/music/thumb/track/<%= encodeURIComponent(alb.sample_rating_key || '') %>"
-                           alt="" loading="lazy"
-                           onerror="this.onerror=null;this.src='/icons/music.svg'" />
-                      <div class="ov-card-overlay"></div>
-                      <div class="ov-card-info">
-                        <div class="ov-card-name" title="<%= alb.album_name %>"><%= alb.album_name %></div>
-                        <div class="ov-card-sub" title="<%= alb.artist_name %>"><%= alb.artist_name %></div>
-                        <div class="ov-card-sub"><%= fmtNum(alb.play_count) %> plays</div>
-                      </div>
-                    </div>
-                  <% }) %>
-                <% } else { %>
-                  <div class="cur-empty">No data for this period.</div>
-                <% } %>
-              </div>
-            <% }) %>
-          </div>
-        </div>
-
-        <%# ── Top Tracks ─────────────────────────────────────────────────── %>
-        <div class="cur-panel" data-ov-section data-panel-collapsible="false">
-          <div class="cur-panel-header">
-            <h3 class="cur-panel-title">Top Tracks</h3>
-            <div class="ov-tabs">
-              <button class="ov-tab active" data-period="7d">7 days</button>
-              <button class="ov-tab" data-period="30d">30 days</button>
-              <button class="ov-tab" data-period="all">All time</button>
-            </div>
-          </div>
-          <div class="cur-panel-body">
-            <% [['7d', _topTracks7d], ['30d', _topTracks30d], ['all', _topTracksAll]].forEach(function(pair) { %>
-              <% var period = pair[0]; var tracks = pair[1]; var maxPlays = tracks.reduce(function(max, t) { return Math.max(max, Number(t.play_count || 0)); }, 1); %>
-              <div class="ov-tracks-list<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
-                <% if (tracks.length) { %>
-                  <% tracks.forEach(function(t, idx) { %>
-                    <% var barPct = Math.max(8, Math.round((Number(t.play_count || 0) / maxPlays) * 100)); %>
-                    <div class="ov-track-row">
-                      <span class="ov-track-rank"><%= idx + 1 %></span>
-                      <span class="ov-track-thumb">
-                        <img src="/api/music/thumb/track/<%= encodeURIComponent(t.plex_rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-                      </span>
-                      <span class="ov-track-info">
-                        <div class="ov-track-title" title="<%= t.track_title %>"><%= t.track_title || '—' %><% if (Number(t.popularRank || 0) > 0 && Number(t.popularRank || 0) <= 3 && Number(t.ratingCount || 0) > 0) { %><span class="cur-track-flame" title="Popular on this album — Top <%= t.popularRank %> by Plex rating count (<%= Number(t.ratingCount || 0).toLocaleString() %>)" aria-label="Popular on this album">🔥</span><% } %></div>
-                        <div class="ov-track-artist" title="<%= t.artist_name %>"><%= t.artist_name || '—' %></div>
-                      </span>
-                      <span class="ov-track-plays">
-                        <span class="ov-track-plays-bar" style="--bar-pct:<%= barPct %>%;">
-                          <span class="ov-track-plays-label"><%= fmtNum(t.play_count) %> plays</span>
-                        </span>
-                      </span>
-                    </div>
-                  <% }) %>
-                <% } else { %>
-                  <div class="cur-empty">No data for this period.</div>
-                <% } %>
-              </div>
-            <% }) %>
-          </div>
-        </div>
-
-        <div class="ov-extended-heading">
-          <div class="ov-extended-kicker">Extended Stats</div>
-          <h2 class="ov-extended-title">Longer-view patterns</h2>
-          <div class="ov-extended-copy">The slower-burn analytics now live here instead of breaking the report flow.</div>
-        </div>
-
-        <div class="ov-two-col">
-          <div class="cur-panel" data-panel-collapsible="false">
+          <%# ── Top Artists ─────────────────────────────────────────────── %>
+          <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
             <div class="cur-panel-header">
-              <h3 class="cur-panel-title">Activity — last 52 weeks</h3>
+              <h3 class="cur-panel-title">Top Artists</h3>
+              <details class="ov-period-picker">
+                <summary class="ov-period-summary">
+                  <span class="ov-period-summary-label" data-period-current-label>Last 7 days</span>
+                  <span class="ov-period-summary-caret" aria-hidden="true"></span>
+                </summary>
+                <div class="ov-period-menu">
+                  <button class="ov-period-option active" type="button" data-period="7d" data-period-label="Last 7 days">Last 7 days</button>
+                  <button class="ov-period-option" type="button" data-period="30d" data-period-label="Last 30 days">Last 30 days</button>
+                  <button class="ov-period-option" type="button" data-period="all" data-period-label="All time">All time</button>
+                </div>
+              </details>
             </div>
             <div class="cur-panel-body">
-              <div class="ov-heatmap-wrap">
-                <%
-                  const _cols = Math.ceil((_heatmap.length + heatmapStartDow) / 7);
-                %>
-                <div class="ov-heatmap-labels" style="grid-template-columns: repeat(<%= _cols %>, 14px); display:grid; padding-left:28px; min-width: <%= _cols * 14 + 28 %>px;">
-                  <% _hmMonths.forEach(function(m) { %>
-                    <span style="grid-column:<%= Math.floor(m.col) + 1 %>" class="ov-heatmap-month-label"><%= m.label %></span>
-                  <% }) %>
+              <% [['7d', _topArtists7d], ['30d', _topArtists30d], ['all', _topArtistsAll]].forEach(function(pair) { %>
+                <% var period = pair[0]; var artists = pair[1]; %>
+                <div class="ov-card-period<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                  <% if (artists.length) { %>
+                    <div class="ov-card-grid">
+                      <% artists.slice(0, 5).forEach(function(a) { %>
+                        <div class="ov-card cur-overview-trigger"
+                             role="button"
+                             tabindex="0"
+                             data-cur-overview-kind="artist"
+                             data-cur-overview-name="<%= a.artist_name %>">
+                          <img src="/api/music/thumb/artist/<%= encodeURIComponent(a.artist_name) %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                          <div class="ov-card-overlay"></div>
+                          <div class="ov-card-info">
+                            <div class="ov-card-name" title="<%= a.artist_name %>"><%= a.artist_name %></div>
+                            <div class="ov-card-sub"><%= fmtNum(a.play_count) %> plays</div>
+                          </div>
+                        </div>
+                      <% }) %>
+                    </div>
+                  <% } else { %>
+                    <div class="cur-empty">No data for this period.</div>
+                  <% } %>
                 </div>
-                <div class="ov-heatmap-body" style="min-width: <%= _cols * 14 + 28 %>px;">
-                  <div class="ov-heatmap-dow">
-                    <span class="ov-heatmap-dow-label"></span>
-                    <span class="ov-heatmap-dow-label">Mon</span>
-                    <span class="ov-heatmap-dow-label"></span>
-                    <span class="ov-heatmap-dow-label">Wed</span>
-                    <span class="ov-heatmap-dow-label"></span>
-                    <span class="ov-heatmap-dow-label">Fri</span>
-                    <span class="ov-heatmap-dow-label"></span>
-                  </div>
-                  <div class="ov-heatmap-grid" style="grid-template-columns: repeat(<%= _cols %>, 11px);">
-                    <% for (var s = 0; s < heatmapStartDow; s++) { %>
-                      <span class="ov-heatmap-cell" style="visibility:hidden"></span>
-                    <% } %>
-                    <% _heatmap.forEach(function(d) { %>
-                      <span class="ov-heatmap-cell"
-                            data-bucket="<%= heatmapBucket(d.plays) %>"
-                            title="<%= d.day %>: <%= d.plays %> play<%= d.plays !== 1 ? 's' : '' %>"></span>
-                    <% }) %>
-                  </div>
-                </div>
-              </div>
+              <% }) %>
             </div>
+          </div>
+
+          <%# ── Top Albums ──────────────────────────────────────────────── %>
+          <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Top Albums</h3>
+              <details class="ov-period-picker">
+                <summary class="ov-period-summary">
+                  <span class="ov-period-summary-label" data-period-current-label>Last 7 days</span>
+                  <span class="ov-period-summary-caret" aria-hidden="true"></span>
+                </summary>
+                <div class="ov-period-menu">
+                  <button class="ov-period-option active" type="button" data-period="7d" data-period-label="Last 7 days">Last 7 days</button>
+                  <button class="ov-period-option" type="button" data-period="30d" data-period-label="Last 30 days">Last 30 days</button>
+                  <button class="ov-period-option" type="button" data-period="all" data-period-label="All time">All time</button>
+                </div>
+              </details>
+            </div>
+            <div class="cur-panel-body">
+              <% [['7d', _topAlbums7d], ['30d', _topAlbums30d], ['all', _topAlbumsAll]].forEach(function(pair) { %>
+                <% var period = pair[0]; var albums = pair[1]; %>
+                <div class="ov-card-period<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                  <% if (albums.length) { %>
+                    <div class="ov-card-grid">
+                      <% albums.slice(0, 5).forEach(function(alb) { %>
+                        <div class="ov-card cur-overview-trigger"
+                             role="button"
+                             tabindex="0"
+                             data-cur-overview-kind="album"
+                             data-cur-overview-artist="<%= alb.artist_name %>"
+                             data-cur-overview-album="<%= alb.album_name %>">
+                          <img src="/api/music/thumb/track/<%= encodeURIComponent(alb.sample_rating_key || '') %>"
+                               alt="" loading="lazy"
+                               onerror="this.onerror=null;this.src='/icons/music.svg'" />
+                          <div class="ov-card-overlay"></div>
+                          <div class="ov-card-info">
+                            <div class="ov-card-name" title="<%= alb.album_name %>"><%= alb.album_name %></div>
+                            <div class="ov-card-sub" title="<%= alb.artist_name %>"><%= alb.artist_name %></div>
+                            <div class="ov-card-sub"><%= fmtNum(alb.play_count) %> plays</div>
+                          </div>
+                        </div>
+                      <% }) %>
+                    </div>
+                  <% } else { %>
+                    <div class="cur-empty">No data for this period.</div>
+                  <% } %>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+
+          <%# ── Top Tracks ──────────────────────────────────────────────── %>
+          <div class="cur-panel" data-ov-section data-panel-collapsible="false">
+            <div class="cur-panel-header">
+              <h3 class="cur-panel-title">Top Tracks</h3>
+              <details class="ov-period-picker">
+                <summary class="ov-period-summary">
+                  <span class="ov-period-summary-label" data-period-current-label>Last 7 days</span>
+                  <span class="ov-period-summary-caret" aria-hidden="true"></span>
+                </summary>
+                <div class="ov-period-menu">
+                  <button class="ov-period-option active" type="button" data-period="7d" data-period-label="Last 7 days">Last 7 days</button>
+                  <button class="ov-period-option" type="button" data-period="30d" data-period-label="Last 30 days">Last 30 days</button>
+                  <button class="ov-period-option" type="button" data-period="all" data-period-label="All time">All time</button>
+                </div>
+              </details>
+            </div>
+            <div class="cur-panel-body">
+              <% [['7d', _topTracks7d], ['30d', _topTracks30d], ['all', _topTracksAll]].forEach(function(pair) { %>
+                <% var period = pair[0]; var tracks = pair[1]; var maxPlays = tracks.reduce(function(max, t) { return Math.max(max, Number(t.play_count || 0)); }, 1); %>
+                <div class="ov-tracks-list<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                  <% if (tracks.length) { %>
+                    <% tracks.forEach(function(t, idx) { %>
+                      <% var barPct = Math.max(8, Math.round((Number(t.play_count || 0) / maxPlays) * 100)); %>
+                      <div class="ov-track-row<%= t.plex_rating_key ? ' cur-overview-trigger' : '' %>"
+                           <% if (t.plex_rating_key) { %>role="button" tabindex="0" data-cur-overview-kind="track" data-cur-overview-key="<%= t.plex_rating_key || '' %>"<% } %>>
+                        <span class="ov-track-rank"><%= idx + 1 %></span>
+                        <span class="ov-track-thumb">
+                          <img src="/api/music/thumb/track/<%= encodeURIComponent(t.plex_rating_key || '') %>" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+                        </span>
+                        <span class="ov-track-info">
+                          <div class="ov-track-title" title="<%= t.track_title %>"><%= t.track_title || '—' %><% if (Number(t.popularRank || 0) > 0 && Number(t.popularRank || 0) <= 3 && Number(t.ratingCount || 0) > 0) { %><span class="cur-track-flame" title="Popular on this album — Top <%= t.popularRank %> by Plex rating count (<%= Number(t.ratingCount || 0).toLocaleString() %>)" aria-label="Popular on this album">🔥</span><% } %></div>
+                          <div class="ov-track-artist" title="<%= t.artist_name %>"><%= t.artist_name || '—' %></div>
+                        </span>
+                        <span class="ov-track-plays">
+                          <span class="ov-track-plays-bar" style="--bar-pct:<%= barPct %>%;">
+                            <span class="ov-track-plays-label"><%= fmtNum(t.play_count) %> plays</span>
+                          </span>
+                        </span>
+                      </div>
+                    <% }) %>
+                  <% } else { %>
+                    <div class="cur-empty">No data for this period.</div>
+                  <% } %>
+                </div>
+              <% }) %>
+            </div>
+          </div>
+
+        </div>
+
+        <%# ── Top Playlists ──────────────────────────────────────────────── %>
+        <div class="cur-panel" data-ov-section data-ov-card-section data-panel-collapsible="false">
+          <div class="cur-panel-header">
+            <h3 class="cur-panel-title">Top Playlists</h3>
+            <details class="ov-period-picker">
+              <summary class="ov-period-summary">
+                <span class="ov-period-summary-label" data-period-current-label>Last 7 days</span>
+                <span class="ov-period-summary-caret" aria-hidden="true"></span>
+              </summary>
+              <div class="ov-period-menu">
+                <button class="ov-period-option active" type="button" data-period="7d" data-period-label="Last 7 days">Last 7 days</button>
+                <button class="ov-period-option" type="button" data-period="30d" data-period-label="Last 30 days">Last 30 days</button>
+                <button class="ov-period-option" type="button" data-period="all" data-period-label="All time">All time</button>
+              </div>
+            </details>
+          </div>
+          <div class="cur-panel-body">
+            <% [['7d', _topPlaylists7d], ['30d', _topPlaylists30d], ['all', _topPlaylistsAll]].forEach(function(pair) { %>
+              <% var period = pair[0]; var playlists = pair[1]; %>
+              <div class="ov-card-grid<%= period !== '7d' ? ' ov-hidden' : '' %>" data-period-set="<%= period %>">
+                <% if (playlists.length) { %>
+                  <% playlists.slice(0, 5).forEach(function(pl) { %>
+                    <div class="ov-card">
+                      <% var playlistCardImg = pl.artUrl || (pl.sample_rating_key ? ('/api/music/thumb/track/' + encodeURIComponent(pl.sample_rating_key)) : '/icons/music.svg'); %>
+                      <img src="<%= playlistCardImg %>"
+                           alt="" loading="lazy"
+                           onerror="this.onerror=null;<% if (pl.artUrl && pl.sample_rating_key) { %>this.src='/api/music/thumb/track/<%= encodeURIComponent(pl.sample_rating_key) %>';<% } else { %>this.src='/icons/music.svg';<% } %>" />
+                      <div class="ov-card-overlay"></div>
+                      <div class="ov-card-info">
+                        <div class="ov-card-name" title="<%= pl.playlist_title %>"><%= pl.playlist_title %></div>
+                        <div class="ov-card-sub"><%= fmtNum(pl.played_track_count) %> track<%= Number(pl.played_track_count) === 1 ? '' : 's' %> played</div>
+                      </div>
+                    </div>
+                  <% }) %>
+                <% } else { %>
+                  <div class="cur-empty">No data for this period.</div>
+                <% } %>
+              </div>
+            <% }) %>
           </div>
         </div>
 
@@ -1272,22 +1422,56 @@
     </section>
   </div>
 
+  <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script src="/sidebar.js?v=<%= assetVersion %>"></script>
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script>
   (function () {
+    function setSectionPeriod(section, period) {
+      var picker = section.querySelector('.ov-period-picker');
+      var label = section.querySelector('[data-period-current-label]');
+      var chosen = section.querySelector('.ov-period-option[data-period="' + period + '"]');
+      if (!chosen) return;
+
+      if (label) {
+        label.textContent = chosen.dataset.periodLabel || chosen.textContent.trim();
+      }
+
+      section.querySelectorAll('.ov-period-option').forEach(function (option) {
+        option.classList.toggle('active', option === chosen);
+      });
+
+      section.querySelectorAll('[data-period-set]').forEach(function (set) {
+        set.classList.toggle('ov-hidden', set.dataset.periodSet !== period);
+      });
+
+      if (picker) {
+        picker.removeAttribute('open');
+      }
+    }
+
+    document.querySelectorAll('.ov-period-picker').forEach(function (picker) {
+      picker.addEventListener('toggle', function () {
+        if (!picker.open) return;
+        document.querySelectorAll('.ov-period-picker[open]').forEach(function (other) {
+          if (other !== picker) {
+            other.removeAttribute('open');
+          }
+        });
+      });
+    });
+
     document.querySelectorAll('[data-ov-section]').forEach(function (section) {
-      section.querySelectorAll('.ov-tab').forEach(function (tab) {
-        tab.addEventListener('click', function () {
-          var period = tab.dataset.period;
-          section.querySelectorAll('.ov-tab').forEach(function (t) {
-            t.classList.toggle('active', t === tab);
-          });
-          section.querySelectorAll('[data-period-set]').forEach(function (set) {
-            set.classList.toggle('ov-hidden', set.dataset.periodSet !== period);
-          });
+      var active = section.querySelector('.ov-period-option.active');
+      if (active) {
+        setSectionPeriod(section, active.dataset.period);
+      }
+
+      section.querySelectorAll('.ov-period-option').forEach(function (option) {
+        option.addEventListener('click', function () {
+          setSectionPeriod(section, option.dataset.period);
         });
       });
     });

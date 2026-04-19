@@ -7,8 +7,9 @@ ENV NODE_ENV=production \
     APP_VERSION=${APP_VERSION}
 
 # better-sqlite3 requires native compilation tools, su-exec handles privilege drop,
-# and wget keeps existing compose healthchecks working unchanged.
-RUN apk add --no-cache python3 make g++ su-exec wget
+# wget keeps existing compose healthchecks working unchanged, and tzdata allows
+# TZ to drive SQLite/localtime and server-side date formatting reliably.
+RUN apk add --no-cache python3 make g++ su-exec wget tzdata
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev

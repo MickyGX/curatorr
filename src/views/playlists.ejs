@@ -2225,13 +2225,14 @@
       return '/api/music/import/spotify/preview';
     }
 
-    function buildImportPreviewUrl(provider, item) {
+    function buildImportPreviewUrl(provider, item, sourceTab) {
       var endpoint = getUrlImportEndpoint(provider, 'preview');
       var params = new URLSearchParams();
       if (provider === 'lastfm' || provider === 'listenbrainz') {
         params.set('sourceKey', String(item && item.sourceKey || item && item.id || '').trim());
       } else {
         params.set('playlistId', String(item && item.id || '').trim());
+        if (provider === 'spotify' && sourceTab === 'url') params.set('source', 'url');
       }
       return endpoint + '?' + params.toString();
     }
@@ -2747,7 +2748,7 @@
         if (document.getElementById('importSpotifyPreviewSections')) document.getElementById('importSpotifyPreviewSections').style.display = 'none';
         if (statusEl) statusEl.textContent = 'Checking local matches…';
       }
-      fetch(buildImportPreviewUrl(provider, item))
+      fetch(buildImportPreviewUrl(provider, item, activeTab))
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (!data.ok) throw new Error(data.error || 'Failed to preview playlist.');
@@ -2799,6 +2800,7 @@
             playlistId: spotifySelection.id,
             title: title,
             audience: makeGlobal ? 'global' : 'personal',
+            source: (_importSourceTab === 'url' && provider === 'spotify') ? 'url' : undefined,
           }),
         })
           .then(function(r) { return r.json(); })
@@ -3963,6 +3965,8 @@
         seasonalExcludeKeywords: Array.isArray(rules.seasonalExcludeKeywords) ? rules.seasonalExcludeKeywords.slice() : [],
         seasonalGenresMode: rules.seasonalGenresMode === 'all' ? 'all' : 'any',
         seasonalKeywordsMode: rules.seasonalKeywordsMode === 'all' ? 'all' : 'any',
+        lastPlayedMode: String(rules.lastPlayedMode || 'any'),
+        lastPlayedDays: rules.lastPlayedDays != null ? Number(rules.lastPlayedDays) : null,
         includeFolders: trackFilters.includeFolders,
         excludeFolders: trackFilters.excludeFolders,
         advancedRules: trackFilters.rules,
@@ -4743,6 +4747,8 @@
         seasonalExcludeKeywords: [],
         seasonalGenresMode: 'any',
         seasonalKeywordsMode: 'any',
+        lastPlayedMode: 'any',
+        lastPlayedDays: null,
         deduplicateByMbid: false,
         deduplicateByArtistTitle: false,
         deduplicateByDuration: false,
@@ -4808,6 +4814,10 @@
         seasonalExcludeKeywords: Array.isArray(ws.seasonalExcludeKeywords) ? ws.seasonalExcludeKeywords : [],
         seasonalGenresMode: ws.seasonalGenresMode === 'all' ? 'all' : 'any',
         seasonalKeywordsMode: ws.seasonalKeywordsMode === 'all' ? 'all' : 'any',
+        lastPlayedMode: ws.lastPlayedMode || 'any',
+        lastPlayedDays: (ws.lastPlayedMode === 'within' || ws.lastPlayedMode === 'notWithin')
+          ? (ws.lastPlayedDays || null)
+          : null,
         rebuildSchedule: ws.rebuildSchedule || 'daily',
         featurePreset: ws.featurePreset || 'none',
         bpmMin: ws.bpmMin || null, bpmMax: ws.bpmMax || null,
@@ -5112,6 +5122,8 @@
       state.seasonalKeywordsMode = 'any';
       state.artistTiers = { include: [], exclude: [], includeMode: 'any' };
       state.trackTiers = { include: [], exclude: [], includeMode: 'any' };
+      state.lastPlayedMode = 'any';
+      state.lastPlayedDays = null;
     }
 
     var WIZARD_TEXT_RULE_OPS = [
@@ -5715,6 +5727,25 @@
         'Curatorr',
         'These values are computed or inferred inside Curatorr. Decades come from stored release dates, while artist and track tiers come from your listening history and skip behaviour.',
         renderWizChips(ALLDECADES, _wizardState.decades, 'decade', 'Filter decades…') +
+        '<div class="spm-filter-section" style="margin-top:14px">' +
+          '<div class="spm-filter-label">Last played</div>' +
+          '<div class="spm-wizard-subsection-copy" style="margin-bottom:10px">Filter tracks by how recently they were played. "Not played within" also keeps tracks with no play history.</div>' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">' +
+            '<label style="display:flex;flex-direction:column;gap:6px;min-width:220px">' +
+              '<span class="spm-chip-hint" style="margin:0">Timing rule</span>' +
+              '<select id="wiz-last-played-mode" class="input">' +
+                '<option value="any"' + ((_wizardState.lastPlayedMode || 'any') === 'any' ? ' selected' : '') + '>Any time</option>' +
+                '<option value="within"' + (_wizardState.lastPlayedMode === 'within' ? ' selected' : '') + '>Played within last</option>' +
+                '<option value="notWithin"' + (_wizardState.lastPlayedMode === 'notWithin' ? ' selected' : '') + '>Not played within last</option>' +
+                '<option value="never"' + (_wizardState.lastPlayedMode === 'never' ? ' selected' : '') + '>Never played</option>' +
+              '</select>' +
+            '</label>' +
+            '<label id="wiz-last-played-days-wrap" style="display:' + (((_wizardState.lastPlayedMode === 'within') || (_wizardState.lastPlayedMode === 'notWithin')) ? 'flex' : 'none') + ';flex-direction:column;gap:6px;min-width:120px">' +
+              '<span class="spm-chip-hint" style="margin:0">Days</span>' +
+              '<input type="number" id="wiz-last-played-days" class="input" min="1" step="1" placeholder="30" value="' + escH(_wizardState.lastPlayedDays != null ? String(_wizardState.lastPlayedDays) : '') + '" />' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
         '<div class="spm-wizard-subsection spm-wizard-accordion' + (tiersOpen ? ' is-open' : '') + '" data-accordion-kind="tiers">' +
           '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="tiers">' +
             '<span class="spm-wizard-subsection-title">Artist and track tiers</span>' +
@@ -6018,6 +6049,14 @@
       if (hasAlbumMood) html += row(wizardMediaServerLabel() + ' album moods', chipList(ws.albumMoods));
       if (hasTag)   html += row('Last.fm tags', chipList(ws.tags));
       if (hasDecade) html += row('Curatorr decades', chipList(ws.decades));
+      if (ws.lastPlayedMode && ws.lastPlayedMode !== 'any') {
+        var lastPlayedLabel = ws.lastPlayedMode === 'within'
+          ? ('Played within last ' + escH(String(ws.lastPlayedDays || '')) + ' days')
+          : (ws.lastPlayedMode === 'notWithin'
+            ? ('Not played within last ' + escH(String(ws.lastPlayedDays || '')) + ' days')
+            : 'Never played');
+        html += row('Last played', lastPlayedLabel);
+      }
       if (ws.featurePreset && ws.featurePreset !== 'none') html += row('Curatorr audio profile', escH(ws.featurePreset));
       if ((ws.seasonalGenres && ws.seasonalGenres.length) || (ws.seasonalExcludeGenres && ws.seasonalExcludeGenres.length)) {
         html += row('Seasonal genres', chipList({ include: ws.seasonalGenres || [], exclude: ws.seasonalExcludeGenres || [], includeMode: ws.seasonalGenresMode || 'any' }));
@@ -6157,6 +6196,15 @@
           });
           _wizardState[key] = { include: inc, exclude: exc, includeMode: selectedMode || prev.includeMode || 'any' };
         });
+        _wizardState.lastPlayedMode = document.getElementById('wiz-last-played-mode')
+          ? (document.getElementById('wiz-last-played-mode').value || 'any')
+          : 'any';
+        _wizardState.lastPlayedDays = parseInt(document.getElementById('wiz-last-played-days')
+          ? document.getElementById('wiz-last-played-days').value
+          : '', 10) || null;
+        if (_wizardState.lastPlayedMode !== 'within' && _wizardState.lastPlayedMode !== 'notWithin') {
+          _wizardState.lastPlayedDays = null;
+        }
       } else if (step === 3) {
         _wizardState.topNPerArtist = parseInt(document.getElementById('wiz-top-n') ? document.getElementById('wiz-top-n').value : '', 10) || null;
         _wizardState.maxTracksPerAlbum = parseInt(document.getElementById('wiz-max-album-tracks') ? document.getElementById('wiz-max-album-tracks').value : '', 10) || null;
@@ -6641,6 +6689,26 @@
             setTimeout(wizardRunPreview, 200);
           });
         });
+        var lastPlayedModeEl = document.getElementById('wiz-last-played-mode');
+        if (lastPlayedModeEl) {
+          lastPlayedModeEl.addEventListener('change', function() {
+            wizardSaveStateFromStep(2);
+            if ((_wizardState.lastPlayedMode === 'within' || _wizardState.lastPlayedMode === 'notWithin') && !_wizardState.lastPlayedDays) {
+              _wizardState.lastPlayedDays = 30;
+            }
+            wizardRenderStep(2);
+            setTimeout(wizardRunPreview, 50);
+          });
+        }
+        var lastPlayedDaysEl = document.getElementById('wiz-last-played-days');
+        if (lastPlayedDaysEl) {
+          var lastPlayedDaysHandler = function() {
+            wizardSaveStateFromStep(2);
+            setTimeout(wizardRunPreview, 200);
+          };
+          lastPlayedDaysEl.addEventListener('change', lastPlayedDaysHandler);
+          lastPlayedDaysEl.addEventListener('input', lastPlayedDaysHandler);
+        }
         document.querySelectorAll('#spm-wizard-body .spm-chip').forEach(function(chip) {
           chip.addEventListener('click', function() {
             var s = chip.dataset.state || 'neutral';

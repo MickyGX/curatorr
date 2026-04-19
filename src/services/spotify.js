@@ -461,6 +461,7 @@ export function createSpotifyService(ctx = {}) {
       ')',
     ].join('');
     const itemFields = [
+      'total,limit,offset,next,',
       'items(',
       'added_at,is_local,',
       'item(',
