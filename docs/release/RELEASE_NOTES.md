@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.83 (2026-04-30)
+
+- Fixed Plex playlist artwork reapplication so Curatorr now uploads stored playlist images directly to Plex instead of relying on Plex to fetch a Curatorr-hosted artwork URL later.
+- This hardens imported and generated playlist behavior when Curatorr is temporarily offline, including the reported case where Plex could repeatedly destabilize when opening Spotify-imported playlists after a reboot.
+- Added regression coverage for both the new direct artwork upload path and the compatibility fallback to the older URL-based Plex artwork update flow.
+
 ## v0.1.82 (2026-04-30)
 
 - Fixed the setup/local admin account model so the recovery account can no longer enter the personal music wizard, build personal playlists, or participate in Lidarr automation as if it were a real listener profile.

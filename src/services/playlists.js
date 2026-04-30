@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
 import {
   getUserPersonalPlaylist,
   getUserPlaylist,
@@ -552,11 +553,32 @@ async function applyPlexPlaylistArtworkAsset(ctx, userPlexId, plexPlaylistId, as
   const config = ctx.loadConfig();
   const base = String(config?.plex?.url || '').trim().replace(/\/$/, '');
   const token = ctx.resolveUserPlexServerToken(config, userPlexId);
-  const artworkUrl = buildLocalPlaylistArtworkAppUrl(ctx, assetName);
-  if (!base || !token || !plexPlaylistId || !artworkUrl) return false;
-  const requestUrl = ctx.buildAppApiUrl(base, `library/metadata/${encodeURIComponent(String(plexPlaylistId || ''))}/thumb`);
-  requestUrl.searchParams.set('url', artworkUrl);
-  const response = await fetch(requestUrl.toString(), {
+  const storedArtwork = getStoredPlaylistArtworkInfo(assetName);
+  if (!base || !token || !plexPlaylistId || !storedArtwork?.filePath) return false;
+
+  const uploadUrl = ctx.buildAppApiUrl(base, `library/metadata/${encodeURIComponent(String(plexPlaylistId || ''))}/thumb`);
+  const requestHeaders = ctx.buildPlexAuthHeaders(token, {
+    Accept: 'application/json',
+    'Content-Type': storedArtwork.mime || 'application/octet-stream',
+  });
+
+  try {
+    const buffer = await fs.readFile(storedArtwork.filePath);
+    const uploadResponse = await fetch(uploadUrl.toString(), {
+      method: 'POST',
+      headers: requestHeaders,
+      body: buffer,
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (uploadResponse.ok) return true;
+  } catch (_err) {
+    // Fall through to the URL-based Plex artwork API for compatibility.
+  }
+
+  const artworkUrl = buildLocalPlaylistArtworkAppUrl(ctx, storedArtwork.assetName || assetName);
+  if (!artworkUrl) return false;
+  uploadUrl.searchParams.set('url', artworkUrl);
+  const response = await fetch(uploadUrl.toString(), {
     method: 'PUT',
     headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
     signal: AbortSignal.timeout(20_000),
