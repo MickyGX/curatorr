@@ -1591,6 +1591,62 @@ export function getAllUserIds(db) {
   return [...new Set(rows.map((r) => r.user_plex_id))];
 }
 
+export function purgeUserScopedMusicData(db, userIds = []) {
+  const identities = [...new Set((Array.isArray(userIds) ? userIds : [userIds])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean))];
+  if (!identities.length) {
+    return { userIds: [], tableCounts: {}, totalChanges: 0 };
+  }
+
+  const lowered = [...new Set(identities.map((value) => value.toLowerCase()))];
+  const placeholders = lowered.map(() => '?').join(', ');
+  const deleteWhereUser = (table, column = 'user_plex_id') => db.prepare(
+    `DELETE FROM ${table} WHERE LOWER(${column}) IN (${placeholders})`,
+  );
+
+  const statements = {
+    open_sessions: deleteWhereUser('open_sessions'),
+    play_events: deleteWhereUser('play_events'),
+    signal_events: deleteWhereUser('signal_events'),
+    track_stats: deleteWhereUser('track_stats'),
+    artist_stats: deleteWhereUser('artist_stats'),
+    playlist_syncs: deleteWhereUser('playlist_syncs'),
+    user_preferences: deleteWhereUser('user_preferences'),
+    user_playlists: deleteWhereUser('user_playlists'),
+    playlist_jobs: deleteWhereUser('playlist_jobs'),
+    suggested_artists: deleteWhereUser('suggested_artists'),
+    suggested_albums: deleteWhereUser('suggested_albums'),
+    suggested_tracks: deleteWhereUser('suggested_tracks'),
+    user_generated_playlists: deleteWhereUser('user_generated_playlists'),
+    playlist_tracks: deleteWhereUser('playlist_tracks'),
+    imported_playlist_unmatched: deleteWhereUser('imported_playlist_unmatched'),
+    playlist_artist_state: deleteWhereUser('playlist_artist_state'),
+    lidarr_artist_progress: deleteWhereUser('lidarr_artist_progress'),
+    lidarr_usage: deleteWhereUser('lidarr_usage'),
+    lidarr_requests: deleteWhereUser('lidarr_requests'),
+    user_personal_playlists: deleteWhereUser('user_personal_playlists'),
+    playlist_rule_templates: deleteWhereUser('playlist_rule_templates'),
+  };
+
+  const tableCounts = {};
+  let totalChanges = 0;
+  const tx = db.transaction(() => {
+    for (const [table, statement] of Object.entries(statements)) {
+      const info = statement.run(...lowered);
+      tableCounts[table] = Number(info?.changes || 0);
+      totalChanges += tableCounts[table];
+    }
+  });
+  tx();
+
+  return {
+    userIds: identities,
+    tableCounts,
+    totalChanges,
+  };
+}
+
 export function recordPlaylistSync(db, {
   userPlexId, plexPlaylistId, playlistTitle, trackCount, excludedTracks, excludedArtists, trigger,
   tracksAdded, tracksRemoved,

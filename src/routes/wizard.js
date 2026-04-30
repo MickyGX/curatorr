@@ -613,6 +613,7 @@ export function registerWizard(app, ctx) {
     loadConfig, saveConfig,
     resolveLocalUsers, serializeLocalUsers,
     hashPassword, validateLocalPasswordStrength, setSessionUser,
+    isSetupAdminUser,
     resolveUserPlexServerToken,
     fetchPlexMusicLibraries,
     buildAppApiUrl,
@@ -626,6 +627,11 @@ export function registerWizard(app, ctx) {
     const notice = req.session?.serverWizardNotice || null;
     if (req.session) delete req.session.serverWizardNotice;
     return notice && typeof notice === 'object' ? notice : null;
+  }
+
+  function isSetupLocalAdminRequest(req) {
+    const source = String(req.session?.user?.source || '').trim().toLowerCase();
+    return source === 'local' && typeof isSetupAdminUser === 'function' && isSetupAdminUser(loadConfig(), req.session?.user);
   }
 
   // ── Server wizard entry ───────────────────────────────────────────────────
@@ -954,6 +960,7 @@ export function registerWizard(app, ctx) {
 
   app.get('/wizard/user', async (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const config = loadConfig();
     if (!config.wizard?.completed) return res.redirect('/wizard');
     req.session.userWizard = resolveWizardState(req, db, loadConfig);
@@ -971,6 +978,7 @@ export function registerWizard(app, ctx) {
   // Step 1: Genres you like
   app.post('/wizard/user/genres-like', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const selected = parseCheckboxArray(req.body?.genres);
     const wizardState = storeWizardState(req, db, loadConfig, { likedGenres: selected });
     const artists = filterWizardArtists(req, db, loadConfig, getArtistsFromMaster(db, selected), wizardState);
@@ -980,6 +988,7 @@ export function registerWizard(app, ctx) {
   // Step 2: Artists you like (from liked genres)
   app.post('/wizard/user/artists-like', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const selected = parseCheckboxArray(req.body?.artists);
     const wizardState = storeWizardState(req, db, loadConfig, { likedArtists: selected });
     const likedGenres = wizardState.likedGenres || [];
@@ -991,6 +1000,7 @@ export function registerWizard(app, ctx) {
   // Step 3: Genres to ignore
   app.post('/wizard/user/genres-ignore', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const selected = parseCheckboxArray(req.body?.genres);
     const wizardState = storeWizardState(req, db, loadConfig, { ignoredGenres: selected });
     const artists = filterWizardArtists(req, db, loadConfig, getArtistsFromMaster(db, selected), wizardState);
@@ -1000,6 +1010,7 @@ export function registerWizard(app, ctx) {
   // Step 4: Artists to ignore (from ignored genres, not already liked)
   app.post('/wizard/user/artists-ignore', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const selected = parseCheckboxArray(req.body?.artists);
     storeWizardState(req, db, loadConfig, { ignoredArtists: selected });
     return renderUserWizard(res, req, 5, null, {});
@@ -1008,6 +1019,7 @@ export function registerWizard(app, ctx) {
   // Step 5: Curation preset
   app.post('/wizard/user/preset', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const userId = req.session.user.username;
     const preset = String(req.body?.preset || '').trim();
     if (PRESET_VALUES[preset]) {
@@ -1022,6 +1034,7 @@ export function registerWizard(app, ctx) {
   // Step 6: Create playlist
   app.post('/wizard/user/create-playlist', async (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const user = req.session.user;
     const userId = user.username;
     const w = req.session.userWizard || {};
@@ -1060,6 +1073,7 @@ export function registerWizard(app, ctx) {
   // User wizard back
   app.post('/wizard/user/back', (req, res) => {
     if (!req.session?.user) return res.redirect('/login');
+    if (isSetupLocalAdminRequest(req)) return res.redirect('/overview');
     const step = Math.max(1, Number(req.body?.step || 1) - 1);
     const w = storeWizardState(req, db, loadConfig);
     const extra = {};
@@ -1164,6 +1178,7 @@ export function registerWizard(app, ctx) {
   // Rebuild user playlist from master cache (re-adds tracks using correct URI format)
   app.post('/api/wizard/rebuild-playlist', async (req, res) => {
     if (!req.session?.user) return res.status(401).json({ error: 'Auth required.' });
+    if (isSetupLocalAdminRequest(req)) return res.status(403).json({ error: 'The setup admin account cannot build personal music data.' });
     const userId = req.session.user.username;
     const playlistRow = getUserPlaylist(db, userId);
     if (!playlistRow?.playlist_id) return res.status(400).json({ error: 'No playlist found — complete the user wizard first.' });

@@ -17,7 +17,7 @@ import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
-import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists } from './db.js';
+import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists, purgeUserScopedMusicData } from './db.js';
 import { createRecommendationService } from './services/recommendations.js';
 import {
   createLidarrService,
@@ -806,6 +806,98 @@ function normalizeLocalUsers(items) {
 
 function resolveLocalUsers(config) { return normalizeLocalUsers(config?.users); }
 
+function resolveSetupAdminUser(config) {
+  return resolveLocalUsers(config).find((user) => user?.isSetupAdmin) || null;
+}
+
+function resolveSetupAdminIdentityList(config) {
+  const setupAdmin = resolveSetupAdminUser(config);
+  if (!setupAdmin) return [];
+  return normalizeIdentityList([setupAdmin.username, setupAdmin.email]);
+}
+
+function isSetupAdminUser(config, userOrId) {
+  const setupIds = new Set(resolveSetupAdminIdentityList(config).map((entry) => entry.toLowerCase()));
+  if (!setupIds.size) return false;
+
+  if (typeof userOrId === 'string') {
+    const value = String(userOrId || '').trim().toLowerCase();
+    return Boolean(value) && setupIds.has(value);
+  }
+
+  const user = userOrId && typeof userOrId === 'object' ? userOrId : {};
+  const source = String(user?.source || '').trim().toLowerCase();
+  if (source === 'local' && (
+    user?.isSetupAdmin === true
+    || user?.setupAccount === true
+    || String(user?.createdBy || '').trim().toLowerCase() === 'setup'
+  )) {
+    return true;
+  }
+
+  return normalizeIdentityList([user?.username, user?.email])
+    .map((entry) => entry.toLowerCase())
+    .some((entry) => setupIds.has(entry));
+}
+
+function cleanupSetupAdminMusicState(db) {
+  const config = loadConfig();
+  const setupAdminIds = resolveSetupAdminIdentityList(config);
+  if (!setupAdminIds.length) {
+    return {
+      dbCleanup: { userIds: [], tableCounts: {}, totalChanges: 0 },
+      removedTokenAliases: [],
+      removedPlexLoginAliases: [],
+    };
+  }
+
+  const dbCleanup = purgeUserScopedMusicData(db, setupAdminIds);
+  const loweredIds = new Set(setupAdminIds.map((entry) => entry.toLowerCase()));
+  const sourceTokenMap = config?.plex?.userServerTokens && typeof config.plex.userServerTokens === 'object'
+    ? config.plex.userServerTokens
+    : {};
+  const nextTokenMap = {};
+  const removedTokenAliases = [];
+  for (const [key, value] of Object.entries(sourceTokenMap)) {
+    if (loweredIds.has(String(key || '').trim().toLowerCase())) {
+      removedTokenAliases.push(String(key || '').trim());
+      continue;
+    }
+    nextTokenMap[key] = value;
+  }
+
+  const loginStore = resolveUserLogins(config);
+  const nextPlexLogins = {};
+  const removedPlexLoginAliases = [];
+  for (const [key, value] of Object.entries(loginStore.plex || {})) {
+    if (loweredIds.has(String(key || '').trim().toLowerCase())) {
+      removedPlexLoginAliases.push(String(key || '').trim());
+      continue;
+    }
+    nextPlexLogins[key] = value;
+  }
+
+  if (removedTokenAliases.length || removedPlexLoginAliases.length) {
+    saveConfig({
+      ...config,
+      plex: {
+        ...(config?.plex && typeof config.plex === 'object' ? config.plex : {}),
+        userServerTokens: nextTokenMap,
+      },
+      userLogins: {
+        ...loginStore,
+        plex: nextPlexLogins,
+      },
+    });
+  }
+
+  return {
+    dbCleanup,
+    removedTokenAliases,
+    removedPlexLoginAliases,
+  };
+}
+
 function serializeLocalUsers(users) {
   if (!Array.isArray(users)) return [];
   return users.map((entry) => {
@@ -884,6 +976,8 @@ function setSessionUser(req, user, source = 'local') {
     avatarFallback: src === 'local' ? resolveLocalAvatarFallback(user) : '/icons/user-profile.svg',
     role: user.role || 'admin',
     source: src,
+    setupAccount: user?.setupAccount === true,
+    isSetupAdmin: user?.isSetupAdmin === true || user?.setupAccount === true || String(user?.createdBy || '').toLowerCase() === 'setup',
   };
   req.session.viewRole = null;
   req.session.previewUserId = null;
@@ -1166,6 +1260,7 @@ function canUserAccessLidarrAutomation(config, user) {
   if (!user || typeof user !== 'object') return false;
   const role = normalizeLocalRole(user.role, 'guest');
   if (role === 'guest' || role === 'disabled') return false;
+  if (String(user?.source || '').trim().toLowerCase() === 'local' && isSetupAdminUser(config, user)) return false;
   const lidarr = resolveLidarrAutomationSettings(config);
   if (!lidarr.automationEnabled || lidarr.automationScope === 'off') return false;
   const quota = lidarr.roleQuotas?.[role] || { weeklyArtists: 0, weeklyAlbums: 0 };
@@ -1177,7 +1272,7 @@ function canUserAccessLidarrAutomation(config, user) {
   return resolveUserIdentifiers(user).some((entry) => enabled.has(entry));
 }
 
-export { canUserAccessLidarrAutomation, completePlexLogin };
+export { canUserAccessLidarrAutomation, completePlexLogin, isSetupAdminUser };
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
@@ -1795,6 +1890,7 @@ const _routeCtx = {
   normalizeLidarrNewArtistMonitoringMode,
   normalizeLidarrQualityProfileId,
   resolveLidarrAutomationSettings,
+  isSetupAdminUser,
   canUserAccessLidarrAutomation,
   userHasOwnPlexToken,
   resolveUserPlexServerToken,
@@ -1892,6 +1988,7 @@ export async function start() {
     }
     // Initialize SQLite DB
     const db = initDb(DB_PATH);
+    const setupAdminCleanup = cleanupSetupAdminMusicState(db);
     _routeCtx.db = db;
     _routeCtx.recommendationService = createRecommendationService(_routeCtx);
     _routeCtx.lidarrService = createLidarrService(_routeCtx);
@@ -1920,12 +2017,31 @@ export async function start() {
     // Load persisted logs
     loadLogsFromDisk(resolveLogSettings(loadConfig()));
     ensureWebhookSharedSecret();
+    if (
+      Number(setupAdminCleanup?.dbCleanup?.totalChanges || 0) > 0
+      || (setupAdminCleanup?.removedTokenAliases || []).length
+      || (setupAdminCleanup?.removedPlexLoginAliases || []).length
+    ) {
+      pushLog({
+        level: 'info',
+        app: 'system',
+        action: 'setup_admin.cleanup',
+        message: `Cleaned stale setup-admin music data (${Number(setupAdminCleanup?.dbCleanup?.totalChanges || 0)} row${Number(setupAdminCleanup?.dbCleanup?.totalChanges || 0) === 1 ? '' : 's'})`,
+        meta: {
+          userIds: setupAdminCleanup?.dbCleanup?.userIds || [],
+          tableCounts: setupAdminCleanup?.dbCleanup?.tableCounts || {},
+          removedTokenAliases: setupAdminCleanup?.removedTokenAliases || [],
+          removedPlexLoginAliases: setupAdminCleanup?.removedPlexLoginAliases || [],
+        },
+      });
+    }
 
     // Create job service and start scheduled jobs (if wizard is complete)
     const _jobFunctions = {
       masterTrackRefresh: () => refreshMasterTrackCache(_routeCtx),
       smartPlaylistSync: async () => {
-        const userIds = getAllUserIds(db);
+        const currentConfig = loadConfig();
+        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
           if (!prefs.userWizardCompleted) continue;
@@ -1956,6 +2072,7 @@ export async function start() {
         const blendGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && p.rules?.blendUsers?.length);
         for (const gp of blendGlobal) {
           for (const blendUserId of gp.rules.blendUsers) {
+            if (isSetupAdminUser(loadConfig(), blendUserId)) continue;
             await _routeCtx.playlistService.syncGlobalPlaylist(blendUserId, gp).catch(() => {});
           }
         }
@@ -1971,7 +2088,8 @@ export async function start() {
         const MAX_RETRIES = 3;
         const STUCK_PROCESSING_MS = 60 * 60 * 1000; // 1 hour
         const now = Date.now();
-        const userIds = getAllUserIds(db);
+        const currentConfig = loadConfig();
+        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         let requeued = 0;
         let unstuck = 0;
         for (const userId of userIds) {
@@ -1998,7 +2116,8 @@ export async function start() {
         return { requeued, unstuck };
       },
       dailyMixSync: async () => {
-        const userIds = getAllUserIds(db);
+        const currentConfig = loadConfig();
+        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         const smartPlaylistConfig = loadConfig().smartPlaylist || {};
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
@@ -2038,7 +2157,8 @@ export async function start() {
       lastfmHistorySync: () => runLastfmHistorySync(_routeCtx),
       lastfmHistoryBackfill: () => runLastfmHistoryBackfill(_routeCtx),
       suggestionRebuild: async () => {
-        const userIds = getAllUserIds(db);
+        const currentConfig = loadConfig();
+        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         let rebuilt = 0;
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);

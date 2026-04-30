@@ -1282,6 +1282,7 @@ export function registerPages(app, ctx) {
     getEffectiveRole,
     getPreviewUserId,
     setPreviewUserId,
+    isSetupAdminUser,
     canUserAccessLidarrAutomation,
     normalizeIdentityList,
     loadAdmins,
@@ -1326,10 +1327,12 @@ export function registerPages(app, ctx) {
     const previewCanonicalId = String(adminPreview?.selectedCanonicalId || previewUserId).trim();
     const user = req.session?.user || {};
     const role = getEffectiveRole(req);
+    const source = String(user?.source || '').trim().toLowerCase();
+    const isSetupLocalAdmin = !previewUserId && source === 'local' && typeof isSetupAdminUser === 'function' && isSetupAdminUser(config, user);
     // userPlexId: play_events identity — used for history/stats queries
     // personalUserId: OAuth canonical identity — used for playlists/preferences
-    const scopedUserId = previewUserId || String(user.username || '').trim();
-    const scopedCanonicalId = previewCanonicalId || scopedUserId;
+    const scopedUserId = previewUserId || (isSetupLocalAdmin ? '' : String(user.username || '').trim());
+    const scopedCanonicalId = previewCanonicalId || (isSetupLocalAdmin ? '' : scopedUserId);
     return {
       adminPreview,
       role,

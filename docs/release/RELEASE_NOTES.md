@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.82 (2026-04-30)
+
+- Fixed the setup/local admin account model so the recovery account can no longer enter the personal music wizard, build personal playlists, or participate in Lidarr automation as if it were a real listener profile.
+- Added startup cleanup for stale setup-admin music data, automatically purging old listening stats, discovery rows, preferences, and other user-scoped records that had already been written to the fallback admin identity in existing installs.
+- Tightened scheduler and page scoping behavior so background sync jobs, recommendation rebuilds, and personal overview/discovery state now consistently ignore the setup admin unless an administrator is explicitly previewing another user.
+
 ## v0.1.81 (2026-04-19)
 
 - Overview and Report now replace Dashboard as the primary analytics destinations, with dedicated sidebar entries, Overview as the default landing page, the admin "Viewing" strip on both pages, and the old dashboard hidden from normal navigation.

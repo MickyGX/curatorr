@@ -32,6 +32,7 @@ const {
   initDb,
   listLidarrRequests,
   listTracksMissingPlexLoudness,
+  purgeUserScopedMusicData,
   getUserPreferences,
   rebuildArtistStatsFromEvents,
   rebuildTrackStatsFromEvents,
@@ -296,10 +297,10 @@ describe('auth flows', () => {
     assert.equal(res.status, 401);
   });
 
-  it('POST /login with correct credentials redirects to /dashboard', async () => {
+  it('POST /login with correct credentials redirects to /overview', async () => {
     const { response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
-    assert.ok(response.location.includes('/dashboard'));
+    assert.ok(response.location.includes('/overview'));
   });
 
   it('derives history tier from listened duration instead of a stale skip flag', () => {
@@ -2717,6 +2718,34 @@ describe('security guards', () => {
     assert.equal(blocked, false);
   });
 
+  it('blocks the local setup admin from Lidarr automation even when admin quotas are enabled', () => {
+    const blocked = canUserAccessLidarrAutomation({
+      users: [{
+        username: 'testadmin',
+        email: 'test@curatorr.test',
+        role: 'admin',
+        passwordHash: 'hash',
+        salt: 'salt',
+        createdBy: 'setup',
+        setupAccount: true,
+      }],
+      lidarr: {
+        automationEnabled: true,
+        automationScope: 'global',
+        roleQuotas: {
+          admin: { weeklyArtists: -1, weeklyAlbums: -1 },
+        },
+      },
+    }, {
+      username: 'testadmin',
+      email: 'test@curatorr.test',
+      role: 'admin',
+      source: 'local',
+      setupAccount: true,
+    });
+    assert.equal(blocked, false);
+  });
+
   it('resolves Lidarr automation roles across shared Plex token aliases', () => {
     const lidarrService = createLidarrService({
       db: null,
@@ -2739,6 +2768,33 @@ describe('security guards', () => {
     });
 
     assert.equal(lidarrService.resolveAutomationRoleForUserId('emmal142'), 'co-admin');
+  });
+
+  it('treats the setup admin identity as disabled for background Lidarr automation', () => {
+    const lidarrService = createLidarrService({
+      db: null,
+      loadConfig: () => ({
+        users: [{
+          username: 'testadmin',
+          email: 'test@curatorr.test',
+          role: 'admin',
+          passwordHash: 'hash',
+          salt: 'salt',
+          createdBy: 'setup',
+          setupAccount: true,
+        }],
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'admin',
+      resolveLocalUsers: (config) => config.users.map((user) => ({
+        ...user,
+        isSetupAdmin: true,
+      })),
+    });
+
+    assert.equal(lidarrService.resolveAutomationRoleForUserId('testadmin'), 'disabled');
   });
 
   it('wraps Lidarr artist-list abort errors without mutating read-only error codes', async () => {
@@ -6926,107 +6982,56 @@ describe('security guards', () => {
     assert.equal(nextConfig?.plex?.userServerTokens?.mickygx, 'plex-owner-server-token');
   });
 
-  it('bootstraps Plex libraries and genres on first user wizard load after tokenless setup', async () => {
-    runDbStatement('DELETE FROM master_tracks');
-
+  it('redirects the local setup admin away from the personal user wizard', async () => {
     const config = await readConfig();
     await writeConfig({
       ...config,
       wizard: { completed: true, completedAt: new Date().toISOString() },
-      mediaServer: { ...(config.mediaServer || {}), type: 'plex' },
-      plex: {
-        ...(config.plex || {}),
-        url: 'http://plex.local',
-        token: '',
-        machineId: '',
-        libraries: [],
-        availableLibraries: [],
-        userServerTokens: {
-          ...((config.plex && config.plex.userServerTokens) || {}),
-          testadmin: 'plex-user-token',
-        },
-      },
     });
 
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
+    const wizardRes = await client.request('/wizard/user');
+    assert.equal(wizardRes.status, 302);
+    assert.equal(wizardRes.location, '/overview');
+  });
 
-    const originalFetch = global.fetch;
-    global.fetch = async (url, options = {}) => {
-      const target = String(url || '');
-      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+  it('purges stale setup-admin music rows without touching other users', () => {
+    runDbStatement("DELETE FROM user_preferences WHERE user_plex_id IN ('testadmin', 'listener1')");
+    runDbStatement("DELETE FROM suggested_artists WHERE user_plex_id IN ('testadmin', 'listener1')");
+    runDbStatement("DELETE FROM lidarr_requests WHERE user_plex_id IN ('testadmin', 'listener1')");
+    runDbStatement("DELETE FROM playlist_rule_templates WHERE user_plex_id IN ('testadmin', 'listener1')");
 
-      const headers = options?.headers || {};
-      const token = typeof headers.get === 'function' ? headers.get('X-Plex-Token') : headers['X-Plex-Token'];
-      assert.equal(token, 'plex-user-token');
+    runDbStatement("INSERT INTO user_preferences (user_plex_id, user_wizard_completed) VALUES ('testadmin', 1)");
+    runDbStatement("INSERT INTO user_preferences (user_plex_id, user_wizard_completed) VALUES ('listener1', 1)");
+    runDbStatement("INSERT INTO suggested_artists (user_plex_id, artist_name) VALUES ('testadmin', 'Cleanup Artist')");
+    runDbStatement("INSERT INTO suggested_artists (user_plex_id, artist_name) VALUES ('listener1', 'Keep Artist')");
+    runDbStatement("INSERT INTO lidarr_requests (user_plex_id, artist_name) VALUES ('testadmin', 'Cleanup Artist')");
+    runDbStatement("INSERT INTO lidarr_requests (user_plex_id, artist_name) VALUES ('listener1', 'Keep Artist')");
+    runDbStatement("INSERT INTO playlist_rule_templates (id, user_plex_id, name, rules) VALUES ('setup-template', 'testadmin', 'Setup Admin', '{}')");
+    runDbStatement("INSERT INTO playlist_rule_templates (id, user_plex_id, name, rules) VALUES ('listener-template', 'listener1', 'Listener', '{}')");
 
-      if (target === 'http://plex.local' || target === 'http://plex.local/') {
-        return new Response(JSON.stringify({
-          MediaContainer: { machineIdentifier: 'wizard-machine' },
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (target === 'http://plex.local/library/sections' || target.startsWith('http://plex.local/library/sections?')) {
-        return new Response(JSON.stringify({
-          MediaContainer: {
-            Directory: [{ key: '12', title: 'Music', type: 'artist', agent: 'tv.plex.agents.music' }],
-          },
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (target.startsWith('http://plex.local/library/sections/12/all?')) {
-        return new Response(JSON.stringify({
-          MediaContainer: {
-            totalSize: 1,
-            Metadata: [{
-              ratingKey: 'track-1',
-              originalTitle: 'Bootstrap Artist',
-              title: 'Bootstrap Song',
-              parentTitle: 'Bootstrap Album',
-              Genre: [{ tag: 'Rock' }],
-              ratingCount: 0,
-              viewCount: 0,
-            }],
-          },
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (target.startsWith('http://plex.local/library/sections/12/mood?')) {
-        return new Response(JSON.stringify({
-          MediaContainer: { Directory: [] },
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      throw new Error('Unexpected fetch in test: ' + target);
-    };
-
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
     try {
-      const wizardRes = await client.request('/wizard/user');
-      assert.equal(wizardRes.status, 200);
-      assert.ok(!wizardRes.text.includes('No genres found yet'));
+      const result = purgeUserScopedMusicData(db, ['testadmin', 'test@curatorr.test']);
+      assert.ok(Number(result.totalChanges || 0) >= 4);
+      assert.equal(Number(result.tableCounts.user_preferences || 0), 1);
+      assert.equal(Number(result.tableCounts.suggested_artists || 0), 1);
+      assert.equal(Number(result.tableCounts.lidarr_requests || 0), 1);
+      assert.equal(Number(result.tableCounts.playlist_rule_templates || 0), 1);
     } finally {
-      global.fetch = originalFetch;
+      db.close();
     }
 
-    const nextConfig = await readConfig();
-    assert.equal(nextConfig?.plex?.token, 'plex-user-token');
-    assert.equal(nextConfig?.plex?.machineId, 'wizard-machine');
-    assert.deepEqual(nextConfig?.plex?.libraries, ['12']);
-    assert.equal(nextConfig?.plex?.availableLibraries?.[0]?.key, '12');
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM user_preferences WHERE user_plex_id = 'testadmin'")?.count, 0);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM suggested_artists WHERE user_plex_id = 'testadmin'")?.count, 0);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM lidarr_requests WHERE user_plex_id = 'testadmin'")?.count, 0);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM playlist_rule_templates WHERE user_plex_id = 'testadmin'")?.count, 0);
 
-    const masterRow = readDbRow('SELECT COUNT(*) AS count FROM master_tracks');
-    assert.ok(Number(masterRow?.count || 0) > 0);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM user_preferences WHERE user_plex_id = 'listener1'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM suggested_artists WHERE user_plex_id = 'listener1'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM lidarr_requests WHERE user_plex_id = 'listener1'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM playlist_rule_templates WHERE user_plex_id = 'listener1'")?.count, 1);
   });
 });
