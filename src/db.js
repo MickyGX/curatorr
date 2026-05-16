@@ -2047,6 +2047,34 @@ export function refreshMasterTracks(db, tracks) {
   run(tracks);
 }
 
+export function updateMasterTrackTagMetadata(db, tracks) {
+  const update = db.prepare(`
+    UPDATE master_tracks
+    SET
+      moods = COALESCE(?, moods),
+      album_genres = COALESCE(?, album_genres),
+      album_styles = COALESCE(?, album_styles),
+      album_moods = COALESCE(?, album_moods),
+      updated_at = ?
+    WHERE rating_key = ?
+  `);
+  const run = db.transaction((rows) => {
+    for (const row of rows || []) {
+      const ratingKey = String(row?.ratingKey || '').trim();
+      if (!ratingKey) continue;
+      update.run(
+        Array.isArray(row.moods) ? JSON.stringify(row.moods) : null,
+        Array.isArray(row.albumGenres) ? JSON.stringify(row.albumGenres) : null,
+        Array.isArray(row.albumStyles) ? JSON.stringify(row.albumStyles) : null,
+        Array.isArray(row.albumMoods) ? JSON.stringify(row.albumMoods) : null,
+        Date.now(),
+        ratingKey,
+      );
+    }
+  });
+  run(tracks);
+}
+
 export function getMasterTracks(db) {
   return db.prepare(`
     SELECT
@@ -2104,8 +2132,72 @@ export function getMasterTracks(db) {
   }));
 }
 
-export function getDistinctPathSegments(db) {
-  const rows = db.prepare(`SELECT DISTINCT file_path FROM master_tracks WHERE file_path != ''`).all();
+export function getFeaturePresetAvailabilityFromDb(db) {
+  const totalTracks = Number(db.prepare('SELECT COUNT(*) AS n FROM master_tracks').get()?.n || 0);
+  const count = (where) => Number(db.prepare(`
+    SELECT COUNT(*) AS n
+    FROM master_tracks m
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+    WHERE ${where}
+  `).get()?.n || 0);
+  const presets = {
+    none: {
+      key: 'none',
+      readyTrackCount: totalTracks,
+      enabled: totalTracks > 0,
+      reason: totalTracks > 0 ? '' : 'No library tracks available yet.',
+    },
+    club: {
+      key: 'club',
+      readyTrackCount: count('e.bpm BETWEEN 118 AND 132 AND e.energy >= 0.70 AND e.danceability >= 0.55'),
+      reason: '',
+    },
+    driving: {
+      key: 'driving',
+      readyTrackCount: count('e.bpm BETWEEN 110 AND 145 AND e.energy >= 0.60'),
+      reason: '',
+    },
+    workout: {
+      key: 'workout',
+      readyTrackCount: count('e.bpm BETWEEN 124 AND 150 AND e.energy >= 0.72 AND e.danceability >= 0.55'),
+      reason: '',
+    },
+    harmonic: {
+      key: 'harmonic',
+      readyTrackCount: count("UPPER(TRIM(e.camelot_key)) IN ('8A', '8B', '7A', '9A')"),
+      reason: '',
+    },
+    wakeup: {
+      key: 'wakeup',
+      readyTrackCount: count('e.bpm BETWEEN 88 AND 116 AND e.energy BETWEEN 0.38 AND 0.68 AND e.danceability BETWEEN 0.45 AND 0.78'),
+      reason: '',
+    },
+    chill: {
+      key: 'chill',
+      readyTrackCount: count('e.bpm <= 105 AND e.energy <= 0.45'),
+      reason: '',
+    },
+    downtempo: {
+      key: 'downtempo',
+      readyTrackCount: count('e.bpm BETWEEN 70 AND 100 AND e.energy <= 0.40 AND e.danceability <= 0.65'),
+      reason: '',
+    },
+  };
+  for (const [key, preset] of Object.entries(presets)) {
+    if (key === 'none') continue;
+    preset.enabled = preset.readyTrackCount > 0;
+    preset.reason = preset.readyTrackCount > 0 ? '' : (key === 'harmonic'
+      ? 'Camelot key data is not available yet.'
+      : 'BPM and feature analysis data is not available yet.');
+  }
+  return { totalTracks, presets };
+}
+
+export function getDistinctPathSegments(db, options = {}) {
+  const limit = Math.max(0, Math.min(100000, Number(options.limit || 0) || 0));
+  const rows = limit > 0
+    ? db.prepare(`SELECT DISTINCT file_path FROM master_tracks WHERE file_path != '' ORDER BY file_path LIMIT ?`).all(limit)
+    : db.prepare(`SELECT DISTINCT file_path FROM master_tracks WHERE file_path != '' ORDER BY file_path`).all();
   if (!rows.length) return [];
 
   // Normalise all paths and split into directory parts (strip filename)
@@ -2130,7 +2222,8 @@ export function getDistinctPathSegments(db) {
     }
   }
 
-  return [...subpaths].sort((a, b) => a.localeCompare(b));
+  const result = [...subpaths].sort((a, b) => a.localeCompare(b));
+  return limit > 0 ? result.slice(0, limit) : result;
 }
 
 export function getDistinctLibraryKeys(db) {

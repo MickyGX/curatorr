@@ -6,7 +6,7 @@ import {
   getUserPreferences, saveUserPreferences,
   getUserPlaylist, saveUserPlaylist,
   getPlaylistJob, savePlaylistJob, recordPlaylistSync,
-  refreshMasterTracks, getMasterTracks, getMasterTrackCount,
+  refreshMasterTracks, updateMasterTrackTagMetadata, getMasterTracks, getMasterTrackCount,
   getGenresFromMaster, getArtistsFromMaster, dedupeMasterArtistNames, getResolvedUserArtistFilters,
   listUserGeneratedPlaylists, saveUserGeneratedPlaylist,
   clearPlaylistState,
@@ -335,11 +335,26 @@ export async function refreshMasterTrackCache(ctx) {
   if (!url || !credential || !selectedKeys.length) return 0;
 
   try {
-    const tracks = await adapter.getLibraryTracks(url, credential, selectedKeys);
-    refreshMasterTracks(db, tracks);
-    const moodCount = tracks.filter((t) => t.moods.length > 0).length;
-    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${tracks.length} tracks, ${moodCount} with moods` });
-    return tracks.length;
+    let trackCount = 0;
+    let moodCount = 0;
+    const tracks = await adapter.getLibraryTracks(url, credential, selectedKeys, {
+      onTracks: async (batch) => {
+        refreshMasterTracks(db, batch);
+        trackCount += batch.length;
+        moodCount += batch.filter((t) => Array.isArray(t.moods) && t.moods.length > 0).length;
+      },
+      onTagMetadata: async (batch) => {
+        updateMasterTrackTagMetadata(db, batch);
+        moodCount += batch.filter((t) => Array.isArray(t.moods) && t.moods.length > 0).length;
+      },
+    });
+    if (Array.isArray(tracks) && tracks.length) {
+      refreshMasterTracks(db, tracks);
+      trackCount = tracks.length;
+      moodCount = tracks.filter((t) => Array.isArray(t.moods) && t.moods.length > 0).length;
+    }
+    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${trackCount} tracks, ${moodCount} with moods` });
+    return trackCount;
   } catch (err) {
     pushLog({ level: 'error', app: 'wizard', action: 'master.refresh.error', message: safeMessage(err) });
     return 0;

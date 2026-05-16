@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.84 (2026-05-16)
+
+- Fixed Spotify OAuth callback handling so a successful Spotify authorization can still complete when the browser loses the Curatorr session during the redirect round trip.
+- Improved large-library handling by streaming Plex, Jellyfin, and Emby master track refreshes into the database in batches instead of holding the full library in memory at once.
+- Reduced expensive full-library reads on Settings and Playlists by moving playlist feature coverage checks into SQL and capping path segment discovery for very large libraries.
+
 ## v0.1.83 (2026-04-30)
 
 - Fixed Plex playlist artwork reapplication so Curatorr now uploads stored playlist images directly to Plex instead of relying on Plex to fetch a Curatorr-hosted artwork URL later.

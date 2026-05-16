@@ -1,5 +1,5 @@
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments } from '../db.js';
-import { applyFeaturePresetFilters, applyTrackFiltersWithReport, buildFeaturePresetAvailability } from '../services/playlists.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments, getFeaturePresetAvailabilityFromDb } from '../db.js';
+import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { parsePlaylistArtworkDataUrl, savePlaylistArtworkBuffer } from '../services/playlist-artwork.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
@@ -24,6 +24,7 @@ const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
 const PLAYLIST_LAST_PLAYED_MODES = ['any', 'within', 'notWithin', 'never'];
 const JOB_INTERVAL_MAX_MINUTES = 10080;
+const SPOTIFY_OAUTH_PENDING_MAX_AGE_MS = 10 * 60 * 1000;
 
 function normaliseTriStateInput(value) {
   if (!value) return { include: [], exclude: [], includeMode: 'any' };
@@ -467,6 +468,37 @@ export function registerSettings(app, ctx) {
     spotifyService,
     lidarrService,
   } = ctx;
+  const pendingSpotifyAuth = new Map();
+
+  function prunePendingSpotifyAuth(now = Date.now()) {
+    for (const [state, entry] of pendingSpotifyAuth) {
+      if (now - Number(entry?.createdAt || 0) > SPOTIFY_OAUTH_PENDING_MAX_AGE_MS) pendingSpotifyAuth.delete(state);
+    }
+  }
+
+  function rememberPendingSpotifyAuth(entry) {
+    const state = String(entry?.state || '').trim();
+    if (!state) return;
+    prunePendingSpotifyAuth();
+    pendingSpotifyAuth.set(state, {
+      ...entry,
+      state,
+      createdAt: Number(entry?.createdAt || Date.now()),
+    });
+  }
+
+  function consumePendingSpotifyAuth(state) {
+    const key = String(state || '').trim();
+    if (!key) return null;
+    const entry = pendingSpotifyAuth.get(key) || null;
+    pendingSpotifyAuth.delete(key);
+    if (!entry) return null;
+    if (Date.now() - Number(entry.createdAt || 0) > SPOTIFY_OAUTH_PENDING_MAX_AGE_MS) return null;
+    return entry;
+  }
+
+  const pendingSpotifyAuthCleanup = setInterval(() => prunePendingSpotifyAuth(), 60 * 1000);
+  pendingSpotifyAuthCleanup.unref?.();
 
   function sanitizeRelativeReturnPath(value, fallback = '/user-settings') {
     const raw = String(value || '').trim();
@@ -585,7 +617,7 @@ export function registerSettings(app, ctx) {
       parsePlexUsers,
     );
     const playlistFeatureCoverage = (() => {
-      try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; }
+      try { return getFeaturePresetAvailabilityFromDb(db); } catch { return { totalTracks: 0, presets: {} }; }
     })();
 
     res.render('settings', {
@@ -640,7 +672,7 @@ export function registerSettings(app, ctx) {
           return keys.map((k) => ({ key: k.key, title: nameMap.get(k.key) || k.key }));
         } catch { return []; }
       })(),
-      allPathSegments:  (() => { try { return getDistinctPathSegments(db); } catch { return []; } })(),
+      allPathSegments:  (() => { try { return getDistinctPathSegments(db, { limit: 2000 }); } catch { return []; } })(),
       localAuthMinPassword: LOCAL_AUTH_MIN_PASSWORD,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
@@ -1678,38 +1710,48 @@ export function registerSettings(app, ctx) {
     if (!spotifyService?.isConfigured()) return res.redirect('/user-settings?error=spotify-not-configured');
     const state = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     const returnTo = sanitizeRelativeReturnPath(req.query?.returnTo, '/user-settings');
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     try {
       const requestBase = resolvePublicBaseUrl(req);
       const auth = spotifyService.getAuthorizationUrl({
         baseUrl: requestBase,
         state,
       });
-      req.session.spotifyAuth = {
+      const pending = {
         state,
         returnTo,
         redirectUri: auth.redirectUri,
+        userPlexId,
         createdAt: Date.now(),
       };
+      rememberPendingSpotifyAuth(pending);
+      req.session.spotifyAuth = pending;
       return res.redirect(auth.url);
     } catch (err) {
       return res.redirect(`/user-settings?error=${encodeURIComponent(String(err?.message || 'spotify-connect-failed'))}`);
     }
   });
 
-  app.get('/user-settings/spotify/callback', requireUser, async (req, res) => {
-    const pending = req.session?.spotifyAuth || null;
-    req.session.spotifyAuth = null;
+  app.get('/user-settings/spotify/callback', async (req, res) => {
+    const state = String(req.query?.state || '').trim();
+    const sessionPending = req.session?.spotifyAuth || null;
+    if (req.session) delete req.session.spotifyAuth;
+    const pending = consumePendingSpotifyAuth(state) || sessionPending;
     if (!spotifyService?.isConfigured()) return res.redirect('/user-settings?error=spotify-not-configured');
-    const userPlexId = String(req.session?.user?.username || '').trim();
+    const sessionUserPlexId = String(req.session?.user?.username || '').trim();
+    const userPlexId = String(pending?.userPlexId || sessionUserPlexId || '').trim();
     if (!userPlexId) return res.redirect('/user-settings?error=not-found');
     const error = String(req.query?.error || '').trim();
     if (error) {
       return res.redirect(`${sanitizeRelativeReturnPath(pending?.returnTo, '/user-settings')}?error=${encodeURIComponent(`spotify-${error}`)}`);
     }
     const code = String(req.query?.code || '').trim();
-    const state = String(req.query?.state || '').trim();
     if (!pending || !pending.state || state !== pending.state || !code) {
       return res.redirect('/user-settings?error=spotify-auth-invalid');
+    }
+    if (sessionUserPlexId && sessionUserPlexId !== userPlexId) {
+      return res.redirect('/user-settings?error=spotify-auth-user-mismatch');
     }
     try {
       const token = await spotifyService.exchangeCode({

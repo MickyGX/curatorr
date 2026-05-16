@@ -13,6 +13,8 @@ process.env.SESSION_SECRET = 'test-secret-do-not-use-in-prod';
 process.env.PLEX_CLIENT_ID = 'test-client-id';
 process.env.CURATORR_DISABLE_AUTOSTART = '1';
 process.env.PORT = String(37000 + (process.pid % 1000));
+process.env.SPOTIFY_CLIENT_ID = 'test-spotify-client-id';
+process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-client-secret';
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
@@ -919,6 +921,64 @@ describe('page scoping', () => {
 });
 
 describe('user settings integrations', () => {
+  it('completes Spotify OAuth even if the browser loses the Curatorr session before callback', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const connect = await client.request('/user-settings/spotify/connect');
+    assert.equal(connect.status, 302);
+    const authorizeUrl = new URL(connect.location);
+    assert.equal(authorizeUrl.origin, 'https://accounts.spotify.com');
+    const state = authorizeUrl.searchParams.get('state');
+    assert.ok(state, 'expected Spotify authorize URL to include state');
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      const target = String(url || '');
+      if (target === 'https://accounts.spotify.com/api/token') {
+        const body = new URLSearchParams(String(options?.body || ''));
+        assert.equal(body.get('grant_type'), 'authorization_code');
+        assert.equal(body.get('code'), 'spotify-code');
+        assert.equal(body.get('redirect_uri'), `${baseUrl}/user-settings/spotify/callback`);
+        return new Response(JSON.stringify({
+          access_token: 'spotify-access-token',
+          refresh_token: 'spotify-refresh-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === 'https://api.spotify.com/v1/me') {
+        return new Response(JSON.stringify({
+          id: 'spotify-user-1',
+          display_name: 'Spotify User',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const callbackClient = createClient();
+      const callback = await callbackClient.request(`/user-settings/spotify/callback?code=spotify-code&state=${encodeURIComponent(state)}`);
+      assert.equal(callback.status, 302);
+      assert.equal(callback.location, '/user-settings?success=spotify-connected');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const prefs = getUserPreferences(db, 'testadmin');
+      assert.equal(prefs.spotifyUserId, 'spotify-user-1');
+      assert.equal(prefs.spotifyDisplayName, 'Spotify User');
+      assert.equal(prefs.spotifyAccessToken, 'spotify-access-token');
+      assert.equal(prefs.spotifyRefreshToken, 'spotify-refresh-token');
+      assert.ok(prefs.spotifyTokenExpiresAt > Date.now());
+    } finally {
+      db.close();
+    }
+  });
+
   it('saves ListenBrainz account settings and clears legacy playlist toggles', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);

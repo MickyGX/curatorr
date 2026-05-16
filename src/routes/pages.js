@@ -30,6 +30,7 @@ import {
   getMasterTracks,
   getMasterTrackCount,
   getMasterArtistCount,
+  getFeaturePresetAvailabilityFromDb,
   getAlbumPopularTrackRanks,
   getExcludedTrackKeys,
   getSkipTierArtists,
@@ -40,7 +41,6 @@ import {
   getArtistTagMap,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
-import { buildFeaturePresetAvailability } from '../services/playlists.js';
 import { buildStoredPlaylistArtworkUrl } from '../services/playlist-artwork.js';
 import { resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
@@ -2693,8 +2693,8 @@ export function registerPages(app, ctx) {
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       allTrackDecades: (() => { try { return getAllTrackDecadeTags(db); } catch { return []; } })(),
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
-      allPathSegments: (() => { try { return getDistinctPathSegments(db); } catch { return []; } })(),
-      playlistFeatureCoverage: (() => { try { return buildFeaturePresetAvailability(getMasterTracks(db)); } catch { return { totalTracks: 0, presets: {} }; } })(),
+      allPathSegments: (() => { try { return getDistinctPathSegments(db, { limit: 2000 }); } catch { return []; } })(),
+      playlistFeatureCoverage: (() => { try { return getFeaturePresetAvailabilityFromDb(db); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
       lastfmUsername: String(userPrefs?.lastfmUsername || ''),
       listenbrainzUsername: String(userPrefs?.listenbrainzUsername || ''),

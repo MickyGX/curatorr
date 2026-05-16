@@ -136,8 +136,9 @@ export async function getLibraries(url, apiKey) {
 
 // ── Track cache population ────────────────────────────────────────────────────
 
-export async function getLibraryTracks(url, apiKey, libraryKeys) {
+export async function getLibraryTracks(url, apiKey, libraryKeys, options = {}) {
   const tracks = [];
+  const onTracks = typeof options.onTracks === 'function' ? options.onTracks : null;
 
   for (const key of libraryKeys) {
     let startIndex = 0;
@@ -160,8 +161,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
       const items = json?.Items || [];
       if (!items.length) break;
 
-      for (const item of items) {
-        tracks.push({
+      const batch = items.map((item) => ({
           ratingKey:   String(item.Id || ''),
           artistName:  String(item.AlbumArtist || item.Artists?.[0] || ''),
           trackTitle:  String(item.Name || ''),
@@ -176,8 +176,9 @@ export async function getLibraryTracks(url, apiKey, libraryKeys) {
           durationMs:  Math.round((item.RunTimeTicks || 0) / 10_000),
           ratingCount: 0,
           viewCount:   Number(item.UserData?.PlayCount ?? 0),
-        });
-      }
+        }));
+      if (onTracks) await onTracks(batch);
+      else tracks.push(...batch);
       startIndex += items.length;
     }
   }

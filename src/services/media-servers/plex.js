@@ -106,9 +106,12 @@ export async function getLibraries(url, token) {
 // Returns a flat array of normalised track objects ready for master_tracks upsert.
 // Extracted from refreshMasterTrackCache in wizard.js — no logic changes.
 
-export async function getLibraryTracks(url, token, libraryKeys) {
+export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
   const PAGE_SIZE = 10000;
   const tracks = [];
+  const albumTrackKeys = new Map();
+  const onTracks = typeof options.onTracks === 'function' ? options.onTracks : null;
+  const onTagMetadata = typeof options.onTagMetadata === 'function' ? options.onTagMetadata : null;
 
   for (const key of libraryKeys) {
     let start = 0;
@@ -127,13 +130,15 @@ export async function getLibraryTracks(url, token, libraryKeys) {
       if (totalSize === null) totalSize = Number(json?.MediaContainer?.totalSize ?? json?.MediaContainer?.size ?? 0);
       const metadata = json?.MediaContainer?.Metadata || [];
       if (!metadata.length) break;
+      const batch = [];
       for (const t of metadata) {
-        tracks.push({
+        const albumRatingKey = extractPlexMetadataKey(t.parentRatingKey || t.parentKey || '');
+        const row = {
           ratingKey:   String(t.ratingKey || ''),
           artistName:  String(t.originalTitle || t.grandparentTitle || ''),
           trackTitle:  String(t.title || ''),
           albumName:   String(t.parentTitle || ''),
-          albumRatingKey: extractPlexMetadataKey(t.parentRatingKey || t.parentKey || ''),
+          albumRatingKey,
           recordingMbid: extractPlexRecordingMbid(t),
           trackYear:    extractPlexReleaseYear(t),
           originalReleaseDate: extractPlexReleaseDate(t),
@@ -147,8 +152,15 @@ export async function getLibraryTracks(url, token, libraryKeys) {
           durationMs:  Number(t.duration || 0),
           ratingCount: Number(t.ratingCount || 0),
           viewCount:   Number(t.viewCount || 0),
-        });
+        };
+        if (albumRatingKey && row.ratingKey) {
+          if (!albumTrackKeys.has(albumRatingKey)) albumTrackKeys.set(albumRatingKey, []);
+          albumTrackKeys.get(albumRatingKey).push(row.ratingKey);
+        }
+        batch.push(row);
       }
+      if (onTracks) await onTracks(batch);
+      else tracks.push(...batch);
       start += metadata.length;
     }
   }
@@ -203,8 +215,20 @@ export async function getLibraryTracks(url, token, libraryKeys) {
     const moods = moodMap.get(t.ratingKey);
     if (moods) t.moods = [...moods];
   }
+  if (onTagMetadata && moodMap.size) {
+    const moodRows = [];
+    for (const [ratingKey, moods] of moodMap) {
+      moodRows.push({ ratingKey, moods: [...moods] });
+      if (moodRows.length >= PAGE_SIZE) {
+        await onTagMetadata(moodRows.splice(0, moodRows.length));
+      }
+    }
+    if (moodRows.length) await onTagMetadata(moodRows);
+  }
 
-  const albumIds = [...new Set(tracks.map((track) => String(track.albumRatingKey || '').trim()).filter(Boolean))];
+  const albumIds = onTracks
+    ? [...albumTrackKeys.keys()]
+    : [...new Set(tracks.map((track) => String(track.albumRatingKey || '').trim()).filter(Boolean))];
   const albumMetadataMap = new Map();
   const ALBUM_BATCH_SIZE = 200;
   for (let index = 0; index < albumIds.length; index += ALBUM_BATCH_SIZE) {
@@ -233,6 +257,24 @@ export async function getLibraryTracks(url, token, libraryKeys) {
     track.albumGenres = albumMeta.albumGenres || [];
     track.albumStyles = albumMeta.albumStyles || [];
     track.albumMoods = albumMeta.albumMoods || [];
+  }
+  if (onTagMetadata && albumMetadataMap.size) {
+    const tagRows = [];
+    for (const [albumId, albumMeta] of albumMetadataMap) {
+      const ratingKeys = albumTrackKeys.get(albumId) || [];
+      for (const ratingKey of ratingKeys) {
+        tagRows.push({
+          ratingKey,
+          albumGenres: albumMeta.albumGenres || [],
+          albumStyles: albumMeta.albumStyles || [],
+          albumMoods: albumMeta.albumMoods || [],
+        });
+        if (tagRows.length >= PAGE_SIZE) {
+          await onTagMetadata(tagRows.splice(0, tagRows.length));
+        }
+      }
+    }
+    if (tagRows.length) await onTagMetadata(tagRows);
   }
 
   return tracks;
