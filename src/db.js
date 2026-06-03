@@ -2045,6 +2045,7 @@ export function refreshMasterTracks(db, tracks) {
     }
   });
   run(tracks);
+  masterTracksCache.delete(db);
 }
 
 export function updateMasterTrackTagMetadata(db, tracks) {
@@ -2073,10 +2074,21 @@ export function updateMasterTrackTagMetadata(db, tracks) {
     }
   });
   run(tracks);
+  masterTracksCache.delete(db);
+}
+
+// Per-db in-memory cache for getMasterTracks. Invalidated whenever master_tracks
+// or track_enrichment data changes (refreshMasterTracks, updateMasterTrackTagMetadata).
+const masterTracksCache = new WeakMap();
+
+export function invalidateMasterTracksCache(db) {
+  masterTracksCache.delete(db);
 }
 
 export function getMasterTracks(db) {
-  return db.prepare(`
+  const cached = masterTracksCache.get(db);
+  if (cached !== undefined) return cached;
+  const tracks = db.prepare(`
     SELECT
       m.*,
       e.track_year,
@@ -2130,6 +2142,8 @@ export function getMasterTracks(db) {
     enrichmentSource: String(r.analysis_source || '').trim(),
     enrichmentConfidence: Number(r.analysis_confidence || 0),
   }));
+  masterTracksCache.set(db, tracks);
+  return tracks;
 }
 
 export function getFeaturePresetAvailabilityFromDb(db) {
@@ -2342,6 +2356,7 @@ export function upsertTrackEnrichment(db, entries) {
     }
   });
   run(items);
+  masterTracksCache.delete(db);
 }
 
 export function getTrackEnrichmentByRatingKeys(db, ratingKeys) {
