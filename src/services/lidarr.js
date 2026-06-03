@@ -1850,9 +1850,12 @@ export function createLidarrService(ctx) {
       const lastSearchAt = Number(existingProgress?.lastManualSearchAt || 0);
       const isCommandStale = lastSearchAt > 0 && (now - lastSearchAt) > COMMAND_STALE_MS;
       if (!isCommandStale) {
-        // Command is genuinely in-progress — update nextReviewAt so we don't re-check every 30 min
+        // Command is genuinely in-progress — update nextReviewAt so we don't re-check every 30 min,
+        // and persist the live command status so the stored field reflects reality instead of a
+        // value frozen at trigger time (issue #124).
         const inProgressProgress = {
           ...existingProgress,
+          lastManualSearchStatus: liveCommandStatus,
           nextReviewAt: now + (60 * 60 * 1000), // re-check in 1 hour
         };
         saveLidarrArtistProgress(db, userPlexId, inProgressProgress);
@@ -1880,6 +1883,18 @@ export function createLidarrService(ctx) {
 
     const canRetrySearch = force || searchAttempts < fallbackAttempts;
     const canUseFallback = force || searchAttempts >= fallbackAttempts;
+    // After the manual search retries are exhausted, an album that simply can't be obtained
+    // (no indexer release, or a grab Lidarr never imports under this albumId) would otherwise
+    // re-search every fallback cycle forever, leaving the artist pinned in catalog_expanded with
+    // last_manual_search_status frozen at 'queued'/'started' (issue #124). These guards give the
+    // loop a terminal escape so expansion can skip the album and move on.
+    const MAX_MANUAL_GRAB_ATTEMPTS = 3;
+    const UNOBTAINABLE_STUCK_MS = 14 * DAY_MS;
+    // mediaServerAlbumMatch.inLibrary is handled above (album confirmed present). 'artist_only'
+    // means the artist already has library tracks but not under this exact title — the music is
+    // very likely present under a name we can't match, so there's little point hammering it.
+    const artistHasLibraryPresence = mediaServerAlbumMatch.kind === 'artist_only';
+    let manualGrabAttempts = Math.max(0, Number(acquisition.manualGrabAttempts || 0));
     let searchCommand = null;
     let grabbedRelease = null;
     let nextStatus = repairedMonitoring ? 'monitor_repaired' : 'no_files_found';
@@ -1898,12 +1913,14 @@ export function createLidarrService(ctx) {
         });
       }
     } else if (canUseFallback) {
+      let releaseGrabbed = false;
       try {
         const releases = await searchAlbumReleases(albumId, { timeoutMs: 60000 });
         const bestRelease = pickBestRelease(releases);
         if (bestRelease) {
           await grabRelease(bestRelease, { timeoutMs: 20000 });
           grabbedRelease = bestRelease;
+          releaseGrabbed = true;
           nextStatus = 'manual_grab_queued';
         } else {
           nextStatus = 'manual_search_no_results';
@@ -1916,6 +1933,31 @@ export function createLidarrService(ctx) {
           code: err?.code || '',
         });
       }
+      if (!releaseGrabbed) {
+        // This fallback cycle failed to obtain the album — count it and decide whether to give up.
+        manualGrabAttempts += 1;
+        const albumAddedAt = Number(existingProgress?.lastAlbumAddedAt || 0);
+        const stuckTooLong = albumAddedAt > 0 && (now - albumAddedAt) > UNOBTAINABLE_STUCK_MS;
+        // Stop the daily re-search loop when the album clearly can't be had: enough empty
+        // fallbacks, stuck too long, or the artist already has a library presence (two empty
+        // fallbacks is enough confirmation in that case). The album stays monitored so Lidarr's
+        // own RSS/search can still grab it later if a release ever appears — we just stop pinning
+        // the artist here and let catalog expansion skip ahead (issue #124).
+        const giveUp = manualGrabAttempts >= MAX_MANUAL_GRAB_ATTEMPTS
+          || stuckTooLong
+          || (artistHasLibraryPresence && manualGrabAttempts >= 2);
+        // Don't give up on the same cycle we just re-enabled monitoring — the album wasn't really
+        // unobtainable, Lidarr simply wasn't tracking it. Let the next cycle confirm.
+        if (!force && !repairedMonitoring && giveUp) {
+          nextStatus = 'album_unobtainable';
+        }
+      }
+    }
+
+    if (nextStatus === 'album_unobtainable') {
+      // Defer well past the daily fallback cadence; the caller falls through to catalog
+      // expansion, which picks the next unmonitored album and leaves this one behind.
+      nextReviewAt = now + WEEK_MS;
     }
 
     const nextProgress = {
@@ -1929,7 +1971,11 @@ export function createLidarrService(ctx) {
       lastManualSearchAt: (searchCommand || grabbedRelease) ? now : (existingProgress?.lastManualSearchAt ?? null),
       lastManualSearchStatus: searchCommand
         ? String(searchCommand?.status || 'queued').toLowerCase()
-        : (grabbedRelease ? 'manual_grab_queued' : (existingProgress?.lastManualSearchStatus || '')),
+        : (grabbedRelease
+          ? 'manual_grab_queued'
+          : (nextStatus === 'album_unobtainable'
+            ? 'unobtainable'
+            : (existingProgress?.lastManualSearchStatus || ''))),
       updatedAt: now,
     };
     saveLidarrArtistProgress(db, userPlexId, nextProgress);
@@ -1942,6 +1988,7 @@ export function createLidarrService(ctx) {
             ...acquisition,
             searchAttempts: searchCommand ? (searchAttempts + 1) : searchAttempts,
             monitorRepairCount: repairedMonitoring ? (monitorRepairCount + 1) : monitorRepairCount,
+            manualGrabAttempts,
             lastRecoveryStatus: nextStatus,
             lastCheckedAt: now,
             lastCommandId: Number(searchCommand?.id || 0) || null,
@@ -2036,9 +2083,14 @@ export function createLidarrService(ctx) {
       // When Lidarr confirms the album is downloaded ('downloaded'), fall through to the
       // catalog expansion/completion check. Returning early here would leave artists stuck
       // in intermediate stages (e.g. catalog_expanded) forever, never reaching catalog_complete.
+      // 'album_unobtainable' also falls through so expansion skips the un-gettable album (which
+      // stays monitored) and picks the next one rather than re-searching it daily (issue #124).
       // Media-server-only matches ('downloaded_media_server*') still return early to avoid
       // triggering catalog expansion before Lidarr has actually imported the files.
-      if (recovery?.status && recovery.status !== 'no_tracked_album' && recovery.status !== 'downloaded') {
+      if (recovery?.status
+        && recovery.status !== 'no_tracked_album'
+        && recovery.status !== 'downloaded'
+        && recovery.status !== 'album_unobtainable') {
         return { ...recovery, role, lidarrArtistId };
       }
     }
@@ -2240,6 +2292,16 @@ export function createLidarrService(ctx) {
           manualActionAt: now,
           requestSourceKind: sourceKind,
           albumWarning: null,
+          // Reset acquisition counters for the freshly expanded album so it gets its own search
+          // and fallback budget instead of inheriting the previous album's exhausted attempts
+          // (which would otherwise send every subsequent album straight to fallback — issue #124).
+          acquisition: {
+            searchAttempts: 0,
+            monitorRepairCount: 0,
+            manualGrabAttempts: 0,
+            lastCommandId: Number(searchCommand?.id || 0) || null,
+            lastCheckedAt: now,
+          },
           latestAlbum: {
             albumId,
             albumTitle,

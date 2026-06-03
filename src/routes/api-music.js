@@ -1206,10 +1206,15 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
       const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
       const addUrl = new URL(`${base}/playlists/${playlistId}/items`);
       addUrl.searchParams.set('uri', uri);
-      await fetch(addUrl.toString(), {
+      const addRes = await fetch(addUrl.toString(), {
         method: 'PUT',
         headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
       });
+      if (!addRes.ok) {
+        const body = await addRes.text().catch(() => '');
+        pushLog({ level: 'warn', app: 'playlist', action: 'sync.add_items_failed', message: `Add playlist items failed: HTTP ${addRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}` });
+        break;
+      }
     }
 
     const newCount = ratingKeys.length;
@@ -2018,9 +2023,7 @@ export function registerApiMusic(app, ctx) {
 
     if (rawArtwork.customArtworkData !== undefined) {
       const artworkData = String(rawArtwork.customArtworkData || '').trim();
-      if (!artworkData) {
-        customArtworkAsset = '';
-      } else {
+      if (artworkData) {
         const parsed = parsePlaylistArtworkDataUrl(artworkData);
         if (!parsed.ok) throw new Error(parsed.error || 'Artwork image is invalid.');
         const saved = savePlaylistArtworkBuffer(parsed.buffer, parsed.ext, rawArtwork.nameHint || 'playlist', 'custom');

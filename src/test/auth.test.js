@@ -18,7 +18,7 @@ process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-client-secret';
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
-const { start, stop, canUserAccessLidarrAutomation, completePlexLogin } = await import('../index.js');
+const { start, stop, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin } = await import('../index.js');
 const {
   countTracksMissingEnrichment,
   countTracksMissingPlexLoudness,
@@ -3230,6 +3230,187 @@ describe('security guards', () => {
       assert.equal(suggestion?.reason?.latestAlbum?.albumId, 77);
       assert.equal(suggestion?.reason?.latestAlbum?.albumTitle, 'Chunk of Change');
       assert.equal(suggestion?.reason?.latestAlbum?.commandId ?? null, null);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+    }
+  });
+
+  it('stops re-searching an unobtainable album and expands the next one (issue #124)', async () => {
+    const dbPath = join(process.env.DATA_DIR, `lidarr-unobtainable-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const userId = `lidarr-unobtainable-${Date.now()}`;
+    const artistName = 'James McMurtry';
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO artist_stats (artist_name, user_plex_id, ranking_score, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(artistName, userId, 10, now);
+    upsertSuggestedArtist(db, userId, {
+      artistName,
+      status: 'added_to_lidarr',
+      lidarrArtistId: 358,
+      reason: {
+        // The manual search retries are already exhausted, so reconcile goes straight to the
+        // release-grab fallback. With no obtainable release this would previously loop forever.
+        acquisition: { searchAttempts: 2 },
+        latestAlbum: {
+          albumId: 42,
+          albumTitle: 'Live in Aught-Three',
+          commandId: null,
+          sourceKind: 'manual',
+          addedByCuratorr: true,
+        },
+      },
+    });
+    saveLidarrArtistProgress(db, userId, {
+      artistName,
+      lidarrArtistId: 358,
+      currentStage: 'catalog_expanded',
+      albumsAddedCount: 1,
+      // Added well over the 14-day "stuck too long" guard so the unobtainable album is given up on.
+      lastAlbumAddedAt: now - (20 * 24 * 60 * 60 * 1000),
+      nextReviewAt: now - 1000,
+      highestObservedRank: 10,
+      lastManualSearchAt: now - (8 * 60 * 60 * 1000),
+      lastManualSearchStatus: 'queued',
+      updatedAt: now - 1000,
+    });
+
+    const lidarrService = createLidarrService({
+      db,
+      loadConfig: () => ({
+        lidarr: {
+          url: 'http://lidarr.local',
+          apiKey: 'lidarr-api-key',
+          automationEnabled: true,
+          automationScope: 'global',
+          autoTriggerManualSearch: false,
+          roleQuotas: {
+            user: { weeklyArtists: 10, weeklyAlbums: 10 },
+          },
+        },
+      }),
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: () => 'user',
+      resolveLocalUsers: () => [],
+    });
+
+    let releaseLookups = 0;
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      const method = String(options?.method || 'GET').toUpperCase();
+      if (target === 'http://lidarr.local/api/v1/album/42') {
+        return new Response(JSON.stringify({
+          id: 42,
+          title: 'Live in Aught-Three',
+          artistId: 358,
+          monitored: true,
+          albumType: 'Album',
+          releaseDate: '2004-03-09',
+          statistics: { trackCount: 12, trackFileCount: 0 },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === 'http://lidarr.local/api/v1/artist/358') {
+        return new Response(JSON.stringify({ id: 358, artistName, monitored: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/release?albumId=42') {
+        releaseLookups += 1;
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album?artistId=358&page=1&pageSize=200') {
+        return new Response(JSON.stringify([
+          {
+            id: 42,
+            title: 'Live in Aught-Three',
+            artistId: 358,
+            albumType: 'Album',
+            monitored: true,
+            releaseDate: '2004-03-09',
+            statistics: { trackCount: 12, trackFileCount: 0 },
+            ratings: { value: 7.5, votes: 30 },
+            tags: [],
+          },
+          {
+            id: 77,
+            title: 'Childish Things',
+            artistId: 358,
+            albumType: 'Album',
+            monitored: false,
+            releaseDate: '2005-09-13',
+            statistics: { trackCount: 11, trackFileCount: 0 },
+            ratings: { value: 8.4, votes: 55 },
+            tags: [],
+          },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === 'http://lidarr.local/api/v1/album/monitor' && method === 'PUT') {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album/77') {
+        return new Response(JSON.stringify({
+          id: 77,
+          title: 'Childish Things',
+          artistId: 358,
+          monitored: true,
+          albumType: 'Album',
+          releaseDate: '2005-09-13',
+          statistics: { trackCount: 11, trackFileCount: 0 },
+          ratings: { value: 8.4, votes: 55 },
+          tags: [],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === 'http://lidarr.local/api/v1/tag') {
+        return new Response(JSON.stringify([{ id: 11, label: 'curatorr-auto-album' }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (target === 'http://lidarr.local/api/v1/album/editor' && method === 'PUT') {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected fetch in unobtainable album test: ${method} ${target}`);
+    };
+
+    try {
+      const result = await lidarrService.reviewArtistProgression({
+        userPlexId: userId,
+        artistName,
+        role: 'user',
+      });
+
+      // The un-gettable album was skipped and the next catalog album was expanded instead of
+      // looping on another daily search.
+      assert.equal(releaseLookups, 1);
+      assert.equal(result.status, 'album_added');
+      assert.equal(result.progress?.currentStage, 'catalog_expanded');
+
+      const progress = getLidarrArtistProgress(db, userId, artistName);
+      assert.equal(progress?.currentStage, 'catalog_expanded');
+      assert.equal(progress?.albumsAddedCount, 2);
+      // Fresh album → no stale 'queued'/'started' status carried over.
+      assert.equal(progress?.lastManualSearchStatus, '');
+
+      const suggestion = getSuggestedArtist(db, userId, artistName);
+      assert.equal(suggestion?.reason?.latestAlbum?.albumId, 77);
+      assert.equal(suggestion?.reason?.acquisition?.searchAttempts, 0);
+      assert.equal(suggestion?.reason?.acquisition?.manualGrabAttempts, 0);
     } finally {
       global.fetch = originalFetch;
       db.close();
@@ -7056,11 +7237,58 @@ describe('security guards', () => {
     assert.equal(wizardRes.location, '/overview');
   });
 
-  it('purges stale setup-admin music rows without touching other users', () => {
-    runDbStatement("DELETE FROM user_preferences WHERE user_plex_id IN ('testadmin', 'listener1')");
-    runDbStatement("DELETE FROM suggested_artists WHERE user_plex_id IN ('testadmin', 'listener1')");
-    runDbStatement("DELETE FROM lidarr_requests WHERE user_plex_id IN ('testadmin', 'listener1')");
-    runDbStatement("DELETE FROM playlist_rule_templates WHERE user_plex_id IN ('testadmin', 'listener1')");
+  it('keeps overlapping media-server music rows during default setup-admin startup cleanup', () => {
+    runDbStatement("DELETE FROM user_preferences WHERE user_plex_id IN ('testadmin', 'test@curatorr.test')");
+    runDbStatement("DELETE FROM play_events WHERE user_plex_id IN ('testadmin', 'test@curatorr.test')");
+    runDbStatement("DELETE FROM track_stats WHERE user_plex_id IN ('testadmin', 'test@curatorr.test')");
+    runDbStatement("DELETE FROM artist_stats WHERE user_plex_id IN ('testadmin', 'test@curatorr.test')");
+
+    const now = Date.now();
+    runDbStatement("INSERT INTO user_preferences (user_plex_id, user_wizard_completed) VALUES ('testadmin', 1)");
+    runDbStatement("INSERT INTO user_preferences (user_plex_id, user_wizard_completed) VALUES ('test@curatorr.test', 1)");
+    runDbStatement(`
+      INSERT INTO play_events
+        (user_plex_id, plex_rating_key, track_title, artist_name, album_name, started_at, ended_at, duration_ms, event_source)
+      VALUES
+        ('testadmin', 'overlap-track-1', 'Overlap Track', 'Overlap Artist', 'Overlap Album', ${now}, ${now + 1000}, 1000, 'plex_webhook')
+    `);
+    runDbStatement(`
+      INSERT INTO track_stats
+        (plex_rating_key, user_plex_id, track_title, artist_name, album_name, play_count)
+      VALUES
+        ('overlap-track-1', 'testadmin', 'Overlap Track', 'Overlap Artist', 'Overlap Album', 1)
+    `);
+    runDbStatement("INSERT INTO artist_stats (artist_name, user_plex_id, play_count) VALUES ('Overlap Artist', 'testadmin', 1)");
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    const previousFlag = process.env.CURATORR_ENABLE_SETUP_ADMIN_MUSIC_CLEANUP;
+    try {
+      delete process.env.CURATORR_ENABLE_SETUP_ADMIN_MUSIC_CLEANUP;
+      const result = cleanupSetupAdminMusicState(db);
+      assert.equal(result.skipped, true);
+      assert.equal(Number(result.dbCleanup?.totalChanges || 0), 0);
+    } finally {
+      if (previousFlag === undefined) delete process.env.CURATORR_ENABLE_SETUP_ADMIN_MUSIC_CLEANUP;
+      else process.env.CURATORR_ENABLE_SETUP_ADMIN_MUSIC_CLEANUP = previousFlag;
+      db.close();
+    }
+
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM user_preferences WHERE user_plex_id = 'testadmin'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM user_preferences WHERE user_plex_id = 'test@curatorr.test'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM play_events WHERE user_plex_id = 'testadmin'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM track_stats WHERE user_plex_id = 'testadmin'")?.count, 1);
+    assert.equal(readDbRow("SELECT COUNT(*) AS count FROM artist_stats WHERE user_plex_id = 'testadmin'")?.count, 1);
+  });
+
+  it('explicitly purges setup-admin music rows without touching other users', () => {
+    runDbStatement("DELETE FROM user_preferences WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
+    runDbStatement("DELETE FROM play_events WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
+    runDbStatement("DELETE FROM track_stats WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
+    runDbStatement("DELETE FROM artist_stats WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
+    runDbStatement("DELETE FROM suggested_artists WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
+    runDbStatement("DELETE FROM lidarr_requests WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
+    runDbStatement("DELETE FROM playlist_rule_templates WHERE user_plex_id IN ('testadmin', 'test@curatorr.test', 'listener1')");
 
     runDbStatement("INSERT INTO user_preferences (user_plex_id, user_wizard_completed) VALUES ('testadmin', 1)");
     runDbStatement("INSERT INTO user_preferences (user_plex_id, user_wizard_completed) VALUES ('listener1', 1)");

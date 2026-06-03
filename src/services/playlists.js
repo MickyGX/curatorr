@@ -1336,11 +1336,11 @@ function resolveTrackLibraryKey(track, masterTrackMap = new Map()) {
   return String(masterTrackMap.get(String(track?.ratingKey || '').trim())?.libraryKey || '').trim();
 }
 
-async function resolveMachineId(ctx, config) {
+async function resolveMachineId(ctx, config, fallbackToken = '') {
   const { buildAppApiUrl, saveConfig, loadConfig } = ctx;
   let machineId = String(config?.plex?.machineId || '').trim();
   const url = String(config?.plex?.url || '').trim();
-  const token = String(config?.plex?.token || '').trim();
+  const token = String(config?.plex?.token || fallbackToken || '').trim();
   if (machineId || !url || !token) return machineId;
 
   const idUrl = buildAppApiUrl(url, '');
@@ -1520,25 +1520,59 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
   if (!base || !token) throw new Error('Plex is not configured for playlist sync');
 
   const PLEX_PLAYLIST_TIMEOUT_MS = 30_000;
-  const clearUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
-  const clearRes = await fetch(clearUrl.toString(), {
-    method: 'DELETE',
-    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-    signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
-  });
-  if (!clearRes.ok) throw new Error(`Clear playlist items failed: HTTP ${clearRes.status}`);
 
-  for (let i = 0; i < ratingKeys.length; i += 100) {
-    const batch = ratingKeys.slice(i, i + 100);
-    const uri = `server://${machineId}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
-    const addUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
-    addUrl.searchParams.set('uri', uri);
-    const response = await fetch(addUrl.toString(), {
-      method: 'PUT',
+  async function doReplace(mid) {
+    const clearUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
+    const clearRes = await fetch(clearUrl.toString(), {
+      method: 'DELETE',
       headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
       signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`Add playlist items failed: HTTP ${response.status}`);
+    if (!clearRes.ok) {
+      const body = await clearRes.text().catch(() => '');
+      throw new Error(`Clear playlist items failed: HTTP ${clearRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    }
+
+    for (let i = 0; i < ratingKeys.length; i += 100) {
+      const batch = ratingKeys.slice(i, i + 100);
+      const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
+      const addUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
+      addUrl.searchParams.set('uri', uri);
+      const response = await fetch(addUrl.toString(), {
+        method: 'PUT',
+        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        const err = new Error(`Add playlist items failed: HTTP ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+        err.status = response.status;
+        throw err;
+      }
+    }
+  }
+
+  try {
+    await doReplace(machineId);
+  } catch (err) {
+    // HTTP 400 can indicate a stale machineId — try once with a freshly fetched identifier.
+    if (err.status !== 400) throw err;
+    const adminToken = String(config.plex?.token || '').trim() || token;
+    let freshId = '';
+    try {
+      const r = await fetch(base, {
+        headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (r.ok) {
+        const json = await r.json();
+        freshId = String(json?.MediaContainer?.machineIdentifier || '').trim();
+      }
+    } catch { /* non-fatal */ }
+    if (!freshId || freshId === machineId) throw err;
+    const latest = ctx.loadConfig();
+    ctx.saveConfig({ ...latest, plex: { ...latest.plex, machineId: freshId } });
+    await doReplace(freshId);
   }
 }
 
@@ -2942,7 +2976,8 @@ export function createPlaylistService(ctx) {
     if (!ctx.userHasOwnPlexToken(config, userPlexId)) {
       throw new Error('User has no Plex account — playlist sync is not available for local-only users.');
     }
-    const machineId = await resolveMachineId(ctx, config);
+    const customToken = ctx.resolveUserPlexServerToken(config, userPlexId);
+    const machineId = await resolveMachineId(ctx, config, customToken);
     if (!machineId) throw new Error('Could not determine Plex machine ID');
     const playlistRow = await ensureGeneratedPlaylist(
       ctx,
@@ -3608,7 +3643,7 @@ export function createPlaylistService(ctx) {
     const token = ctx.resolveUserPlexServerToken(config, userPlexId);
     if (!url || !token) throw new Error('Plex is not configured');
 
-    const machineId = await resolveMachineId(ctx, config);
+    const machineId = await resolveMachineId(ctx, config, token);
     if (!machineId) throw new Error('Could not determine Plex machine ID');
 
     const playlistRow = await ensureGeneratedPlaylist(

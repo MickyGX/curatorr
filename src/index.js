@@ -851,6 +851,19 @@ function cleanupSetupAdminMusicState(db) {
     };
   }
 
+  const envFlag = String(process.env.CURATORR_ENABLE_SETUP_ADMIN_MUSIC_CLEANUP || '').trim().toLowerCase();
+  const configFlag = config?.maintenance?.enableSetupAdminMusicCleanup === true;
+  const enabled = configFlag || ['1', 'true', 'yes', 'on'].includes(envFlag);
+  if (!enabled) {
+    return {
+      dbCleanup: { userIds: setupAdminIds, tableCounts: {}, totalChanges: 0 },
+      removedTokenAliases: [],
+      removedPlexLoginAliases: [],
+      skipped: true,
+      skipReason: 'setup-admin cleanup is disabled by default because legacy user ids can collide with real media-server users',
+    };
+  }
+
   const dbCleanup = purgeUserScopedMusicData(db, setupAdminIds);
   const loweredIds = new Set(setupAdminIds.map((entry) => entry.toLowerCase()));
   const sourceTokenMap = config?.plex?.userServerTokens && typeof config.plex.userServerTokens === 'object'
@@ -1272,7 +1285,7 @@ function canUserAccessLidarrAutomation(config, user) {
   return resolveUserIdentifiers(user).some((entry) => enabled.has(entry));
 }
 
-export { canUserAccessLidarrAutomation, completePlexLogin, isSetupAdminUser };
+export { canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, isSetupAdminUser };
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
@@ -1891,6 +1904,7 @@ const _routeCtx = {
   normalizeLidarrQualityProfileId,
   resolveLidarrAutomationSettings,
   isSetupAdminUser,
+  cleanupSetupAdminMusicState,
   canUserAccessLidarrAutomation,
   userHasOwnPlexToken,
   resolveUserPlexServerToken,

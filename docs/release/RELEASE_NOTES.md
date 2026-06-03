@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.85 (2026-06-03)
+
+- Fixed Lidarr automation so albums that can never be obtained (no indexer release, or a grab that never imports) are now marked unobtainable and skipped during catalog expansion instead of triggering a daily re-search indefinitely.
+- Fixed playlist sync failures caused by a stale Plex machineId — Curatorr now re-fetches the identifier on HTTP 400 and retries automatically, saving the refreshed value for future syncs.
+- Tightened the setup-admin music cleanup so the startup data purge is now opt-in rather than always running, preventing accidental data loss when a media-server user ID matches the setup-admin identity.
+- Improved getMasterTracks performance with an in-process WeakMap cache that avoids repeated full table scans during smart playlist builds.
+
 ## v0.1.84 (2026-05-16)
 
 - Fixed Spotify OAuth callback handling so a successful Spotify authorization can still complete when the browser loses the Curatorr session during the redirect round trip.

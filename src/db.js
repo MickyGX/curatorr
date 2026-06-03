@@ -666,6 +666,23 @@ export function initDb(dbPath) {
   if (!syncCols.includes('tracks_removed'))
     db.exec('ALTER TABLE playlist_syncs ADD COLUMN tracks_removed INTEGER NOT NULL DEFAULT 0');
 
+  // ── Clear Lidarr searches stuck at queued/started in catalog_expanded (issue #124) ──
+  // Albums that could never be obtained left the artist re-searching every fallback cycle with
+  // last_manual_search_status frozen at 'queued'/'started'. Mark long-stuck rows unobtainable and
+  // defer the next review by a week so the corrected reconcile logic skips the album and resumes
+  // catalog expansion. The 7-day age guard keeps this off genuinely in-progress recent searches,
+  // so it stays safe to run on every startup.
+  db.exec(`
+    UPDATE lidarr_artist_progress
+    SET last_manual_search_status = 'unobtainable',
+        next_review_at = (unixepoch('now') * 1000) + (7 * 24 * 60 * 60 * 1000),
+        updated_at = unixepoch('now') * 1000
+    WHERE current_stage = 'catalog_expanded'
+      AND last_manual_search_status IN ('queued', 'started')
+      AND last_album_added_at IS NOT NULL
+      AND last_album_added_at < (unixepoch('now') * 1000) - (7 * 24 * 60 * 60 * 1000)
+  `);
+
   // ── Rule template seeds (idempotent) ────────────────────────────────────────
   const BUILTIN_TEMPLATES = [
     { id: 'tmpl_favourites', name: 'Favourites',  description: 'Your highest-rated tracks and artists', rules: { artistTiers: { include: ['belter'], exclude: [] }, trackTiers: { include: ['belter'], exclude: [] } } },
