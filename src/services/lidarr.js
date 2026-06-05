@@ -2482,7 +2482,7 @@ export function createLidarrService(ctx) {
         rootFolderPath: String(rootFolder.path || ''),
         path: buildArtistPath(rootFolder.path, match),
         monitored: true,
-        monitorNewItems: 'none',
+        monitorNewItems: newArtistMonitoringMode,
         addOptions: {
           monitor: newArtistMonitoringMode,
           searchForMissingAlbums: Boolean(options.searchForMissingAlbums),

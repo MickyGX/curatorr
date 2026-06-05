@@ -381,12 +381,29 @@ function inferImportedAllValues(values = []) {
 }
 
 function inferImportedWizardPrefill(db, userPlexId, playlist) {
-  const masterTracks = getMasterTracks(db);
-  const masterTrackMap = new Map(masterTracks.map((track) => [String(track?.ratingKey || '').trim(), track]));
-  const trackRefs = getPlaylistTracks(db, userPlexId, playlist.playlistKey);
-  const matchedTracks = trackRefs
-    .map((trackRef) => masterTrackMap.get(String(trackRef?.ratingKey || '').trim()) || null)
-    .filter(Boolean);
+  const matchedTracks = db.prepare(`
+    SELECT
+      m.rating_key, m.artist_name, m.genres, m.moods,
+      m.album_genres, m.album_styles, m.album_moods,
+      e.bpm, e.energy, e.danceability, e.track_year, e.original_release_date
+    FROM playlist_tracks pt
+    INNER JOIN master_tracks m ON m.rating_key = pt.rating_key
+    LEFT JOIN track_enrichment e ON e.rating_key = m.rating_key
+    WHERE pt.user_plex_id = ? AND pt.playlist_key = ?
+  `).all(userPlexId, playlist.playlistKey).map((r) => ({
+    ratingKey: r.rating_key,
+    artistName: r.artist_name,
+    genres: JSON.parse(r.genres || '[]'),
+    moods: JSON.parse(r.moods || '[]'),
+    albumGenres: JSON.parse(r.album_genres || '[]'),
+    albumStyles: JSON.parse(r.album_styles || '[]'),
+    albumMoods: JSON.parse(r.album_moods || '[]'),
+    bpm: r.bpm,
+    energy: r.energy,
+    danceability: r.danceability,
+    trackYear: r.track_year == null ? null : Number(r.track_year || 0),
+    originalReleaseDate: String(r.original_release_date || '').trim(),
+  }));
   if (!matchedTracks.length) return null;
 
   const featurePreset = inferImportedFeaturePreset(matchedTracks);
@@ -6589,7 +6606,7 @@ export function registerApiMusic(app, ctx) {
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
     const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
-    const allowEmptyDraft = Boolean(req.body?.allowEmptyDraft);
+    const allowEmptyDraft = Boolean(req.body?.allowEmptyDraft) || Boolean(importedSource);
     const removeImportedSourcePlaylistKey = importedSource
       && String(req.body?.removeImportedSourcePlaylistKey || '').trim() === importedSource.playlistKey
       ? importedSource.playlistKey
@@ -6607,7 +6624,7 @@ export function registerApiMusic(app, ctx) {
     pushLog({ level: 'info', app: 'playlist', action: 'personal.create', message: `Personal playlist created: ${name} for ${userPlexId}` });
     const isDraft = Number(preview.counts.trackCount || 0) <= 0;
     let removedSourcePlaylistKey = '';
-    if (!isDraft && removeImportedSourcePlaylistKey) {
+    if ((!isDraft || importedSource) && removeImportedSourcePlaylistKey) {
       const importedPlaylist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
         .find((entry) => entry.playlistKey === removeImportedSourcePlaylistKey);
       if (importedPlaylist && String(importedPlaylist.playlistType || '').trim().toLowerCase() === 'custom') {
