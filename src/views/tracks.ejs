@@ -1,5 +1,13 @@
 <%- include('partials/head', { pageTitle: title || 'Tracks — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
+  <style>
+    .dash-content--tracks { --ov-panel-line: rgba(255,255,255,0.14); --ov-muted: rgba(255,255,255,0.62); }
+    .dash-content--tracks .cur-panel { margin-bottom: 16px; background: transparent; border: 0; border-radius: 0; }
+    .dash-content--tracks .cur-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: transparent; border: 0; border-bottom: 1px solid var(--ov-panel-line); border-radius: 0; padding: 9px 0 8px; min-height: 42px; }
+    .dash-content--tracks .cur-panel-title { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 17px; line-height: 1; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; text-shadow: none; font-family: "Segoe UI", "Helvetica Neue", sans-serif; }
+    .dash-content--tracks .cur-panel-body { background: transparent; border: 0; border-radius: 0; padding: 6px 0 0; }
+    .dash-content--tracks .cur-empty { color: var(--ov-muted); padding: 18px 0; }
+  </style>
   <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
@@ -30,7 +38,7 @@
         </div>
       </div>
 
-      <div class="dash-content">
+      <div class="dash-content dash-content--tracks">
         <%
           const _tracks = Array.isArray(tracks) ? tracks : [];
           const _completedKeys = new Set(Array.isArray(completedKeys) ? completedKeys : []);
@@ -195,7 +203,6 @@
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
   <script>
     const TRACKS_DATA = <%- JSON.stringify(_tracks.map(function(t, index) {
       return {

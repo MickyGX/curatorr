@@ -34,6 +34,19 @@
       border: 1px solid rgba(255,255,255,0.08);
       background: rgba(8, 10, 18, 0.42);
     }
+    .cur-admin-users-page .cur-admin-users-table-wrap::-webkit-scrollbar {
+      height: 6px;
+    }
+    .cur-admin-users-page .cur-admin-users-table-wrap::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .cur-admin-users-page .cur-admin-users-table-wrap::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.18);
+      border-radius: 999px;
+    }
+    .cur-admin-users-page .cur-admin-users-table-wrap::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.32);
+    }
     html[data-square-corners="1"] .cur-admin-users-page .cur-admin-users-table-wrap {
       border-radius: 0 !important;
     }
@@ -179,6 +192,14 @@
       font-size: 14px;
     }
   </style>
+  <style>
+    .dash-content--admin-users { --ov-panel-line: rgba(255,255,255,0.14); --ov-muted: rgba(255,255,255,0.62); }
+    .dash-content--admin-users .cur-panel { margin-bottom: 16px; background: transparent; border: 0; border-radius: 0; }
+    .dash-content--admin-users .cur-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: transparent; border: 0; border-bottom: 1px solid var(--ov-panel-line); border-radius: 0; padding: 9px 0 8px; min-height: 42px; }
+    .dash-content--admin-users .cur-panel-title { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 17px; line-height: 1; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; text-shadow: none; font-family: "Segoe UI", "Helvetica Neue", sans-serif; }
+    .dash-content--admin-users .cur-panel-body { background: transparent; border: 0; border-radius: 0; padding: 6px 0 0; }
+    .dash-content--admin-users .cur-empty { color: var(--ov-muted); padding: 18px 0; }
+  </style>
   <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
@@ -209,7 +230,7 @@
         </div>
       </div>
 
-      <div class="dash-content">
+      <div class="dash-content dash-content--admin-users">
         <%
           const _plexUsers = Array.isArray(plexUsers) ? plexUsers : [];
           const _msType = String(typeof mediaServerType !== 'undefined' ? mediaServerType : 'plex').trim().toLowerCase();
@@ -495,7 +516,6 @@
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
   <script>
   (function() {
     var table = document.querySelector('.cur-admin-users-table');

@@ -4562,6 +4562,7 @@ export function registerApiMusic(app, ctx) {
       }
       return res.status(400).json({ error: 'This playlist does not support rebuilding.' });
     } catch (err) {
+      pushLog({ level: 'error', app: 'playlist', action: 'rebuild.error', message: safeMessage(err) });
       return res.status(500).json({ error: safeMessage(err) });
     }
   });

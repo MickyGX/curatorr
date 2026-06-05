@@ -13,14 +13,22 @@
     }
 
     .dash-content--report .cur-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       background: transparent;
       border: 0;
       border-bottom: 1px solid var(--ov-panel-line);
       border-radius: 0;
-      padding: 10px 0 12px;
+      padding: 9px 0 8px;
+      min-height: 42px;
     }
 
     .dash-content--report .cur-panel-title {
+      margin: 0;
+      flex: 1 1 auto;
+      min-width: 0;
       font-size: 17px;
       line-height: 1;
       font-weight: 700;
@@ -34,7 +42,7 @@
       background: transparent;
       border: 0;
       border-radius: 0;
-      padding: 16px 0 0;
+      padding: 6px 0 0;
     }
 
     .dash-content--report .cur-empty {
@@ -48,11 +56,11 @@
       --ov-hero-avatar-size: 128px;
       --ov-hero-content-left: 170px;
       position: relative;
-      min-height: 228px;
+      min-height: 264px;
       padding: 170px 0 0 !important;
       overflow: visible !important;
       border-bottom: 0;
-      margin-bottom: 6px;
+      margin-bottom: 12px;
     }
 
     .ov-profile-artist-bg {
@@ -150,8 +158,9 @@
       position: relative;
       z-index: 2;
       margin-top: 0;
-      padding: 4px 0 0 var(--ov-hero-content-left);
-      min-height: 44px;
+      padding: 10px 0 0 var(--ov-hero-content-left);
+      min-height: 52px;
+      border-bottom: 0;
     }
 
     .ov-profile-stats-row { display: flex; gap: 0; flex-wrap: nowrap; }
@@ -167,22 +176,22 @@
     .ov-profile-stat:last-child { border-right: 0; }
 
     .ov-profile-stat-value {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
-      color: #fff;
-      line-height: 1.1;
-      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+      line-height: 1.05;
+      color: #f3f7fc;
+      letter-spacing: -0.01em;
     }
 
     .ov-profile-stat-label {
-      font-size: 11px;
-      color: rgba(255,255,255,0.55);
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
+      color: rgba(233,241,250,0.62);
     }
 
-    [data-theme="day"] .ov-profile-stat-value { color: #0b151e; }
-    [data-theme="day"] .ov-profile-stat-label  { color: rgba(11,21,30,0.5); }
+    [data-theme="day"] .ov-profile-stat-value { color: #161a20; }
+    [data-theme="day"] .ov-profile-stat-label  { color: rgba(22,26,32,0.62); }
 
     .ov-featured {
       position: absolute;
@@ -226,9 +235,6 @@
       letter-spacing: 0.08em;
       color: #fff;
       margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
     }
 
     .ov-featured-track {
@@ -1005,9 +1011,17 @@
     @media (max-width: 600px) {
       .ov-profile {
         --ov-hero-avatar-left: 14px;
-        --ov-hero-avatar-size: 100px;
-        --ov-hero-content-left: 128px;
+        --ov-hero-avatar-size: 98px;
+        --ov-hero-content-left: 122px;
+        min-height: 230px;
+        padding-top: 140px !important;
       }
+      .ov-profile-artist-bg,
+      .ov-profile-overlay,
+      .ov-profile-content {
+        height: 140px;
+      }
+      .ov-avatar { bottom: -36px; }
       .ov-profile-meta { transform: translateY(32px); }
       .lr-card-grid { grid-template-columns: repeat(3, 1fr); }
       .lr-facts-grid { grid-template-columns: repeat(2, 1fr); }

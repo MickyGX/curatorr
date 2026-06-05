@@ -1,31 +1,112 @@
 <%- include('partials/head', { pageTitle: title || 'Discover — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
-<body class="dash-body cur-discover-page">
+<body class="dash-body">
   <style>
+    /* ── Discover page ──────────────────────────────────────────────────── */
+    .dash-content--discover {
+      --ov-accent: rgba(255,255,255,0.36);
+      --ov-panel-line: rgba(255,255,255,0.14);
+      --ov-muted: rgba(255,255,255,0.62);
+    }
+
+    .dash-content--discover .cur-panel {
+      margin-bottom: 16px;
+    }
+
+    .dash-content--discover .cur-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--ov-panel-line);
+      border-radius: 0;
+      padding: 9px 0 8px;
+      min-height: 42px;
+    }
+
+    .dash-content--discover .cur-panel-title {
+      margin: 0;
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      text-shadow: none;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .dash-content--discover .cur-panel-body {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 6px 0 0;
+    }
+
+    .dash-content--discover .cur-empty {
+      color: var(--ov-muted);
+      padding: 18px 0;
+    }
+
+    /* Carousel sections — align plex-topbar/plex-title to match cur-panel-header/cur-panel-title */
+    .dash-content--discover .plex-module {
+      margin-bottom: 16px;
+    }
+
+    .dash-content--discover .plex-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--ov-panel-line);
+      border-radius: 0;
+      padding: 9px 0 8px;
+      min-height: 42px;
+    }
+
+    .dash-content--discover .plex-title {
+      margin: 0;
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 17px;
+      line-height: 1;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      text-shadow: none;
+      font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    .dash-content--discover .plex-panel {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      padding: 6px 0 0;
+    }
+
     @media (max-width: 980px) {
-      .cur-discover-page .dash-frame,
-      .cur-discover-page .dash-main,
-      .cur-discover-page .dash-content,
-      .cur-discover-page .plex-module,
-      .cur-discover-page .plex-topbar,
-      .cur-discover-page .plex-panel,
-      .cur-discover-page .cur-panel,
-      .cur-discover-page .cur-panel-header,
-      .cur-discover-page .cur-panel-body,
-      .cur-discover-page .main-window-bar {
+      .dash-content--discover .dash-frame,
+      .dash-content--discover ~ * .dash-frame,
+      .dash-frame:has(.dash-content--discover),
+      .dash-content--discover,
+      .dash-content--discover .plex-module,
+      .dash-content--discover .plex-topbar,
+      .dash-content--discover .plex-panel,
+      .dash-content--discover .cur-panel,
+      .dash-content--discover .cur-panel-header,
+      .dash-content--discover .cur-panel-body {
         width: 100%;
         max-width: 100%;
         min-width: 0;
         box-sizing: border-box;
       }
 
-      .cur-discover-page .main-window-bar {
-        margin: 0;
-        left: 0;
-        right: 0;
-      }
-
-      .cur-discover-page .cur-discover-searchbar,
-      .cur-discover-page .cur-discover-searchbar > * {
+      .dash-content--discover .cur-discover-searchbar,
+      .dash-content--discover .cur-discover-searchbar > * {
         width: 100%;
         max-width: 100%;
         min-width: 0;
@@ -63,7 +144,7 @@
         </div>
       </div>
 
-      <div class="dash-content plex-overview">
+      <div class="dash-content dash-content--discover">
         <%- include('partials/plex-banner') %>
         <%
           const _lidarrAutomationEligible = Boolean(lidarrAutomationEligible);
@@ -372,7 +453,6 @@
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
   <script>
     function closeSuggestMenus() {
       document.querySelectorAll('.cur-suggest-menu').forEach(function(m) {

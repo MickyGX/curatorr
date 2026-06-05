@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div class="dash-content">
+      <div class="dash-content dash-content--settings">
         <% const _tab = tab || 'general'; %>
         <% const canManageServiceConfig = actualRole === 'admin'; %>
         <% const safeJson = (value) => JSON.stringify(value)
@@ -3160,7 +3160,6 @@
   <script src="/user-menu.js?v=<%= assetVersion %>"></script>
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
   <script>
   // ── Tab switching ──────────────────────────────────────────────────────────
   (function() {

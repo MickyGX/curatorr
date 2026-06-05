@@ -155,6 +155,12 @@ Important restrictions:
 - Shared or public Spotify playlist URLs from the `URL` tab rely on Spotify's public web pages, not full authenticated playlist access, so Spotify may expose only part of the playlist to Curatorr.
 - If a shared/public playlist does not show all expected tracks, copy its contents into a new playlist you own in Spotify, then import that owned playlist from the Spotify tab instead of the URL tab.
 
+**Spotify Premium requirements:**
+
+- Importing personal/private Spotify playlists via the connected-account tab requires **Spotify Premium** on the connecting user's account.
+- Public playlist import via the `URL` tab does **not** require Premium.
+- The Spotify account used to create the Developer App (`SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET`) must also have an active Premium subscription — this is a Spotify platform restriction for apps in Development mode. If you see the error `Active premium subscription required for the owner of the app`, the fix is on the Developer App owner's account, not the Curatorr user account.
+
 Spotify requires app-level credentials on the Curatorr container:
 
 - `SPOTIFY_CLIENT_ID`

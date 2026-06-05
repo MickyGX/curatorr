@@ -1,5 +1,13 @@
 <%- include('partials/head', { pageTitle: title || 'Play History — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
 <body class="dash-body">
+  <style>
+    .dash-content--history { --ov-panel-line: rgba(255,255,255,0.14); --ov-muted: rgba(255,255,255,0.62); }
+    .dash-content--history .cur-panel { margin-bottom: 16px; background: transparent; border: 0; border-radius: 0; }
+    .dash-content--history .cur-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: transparent; border: 0; border-bottom: 1px solid var(--ov-panel-line); border-radius: 0; padding: 9px 0 8px; min-height: 42px; }
+    .dash-content--history .cur-panel-title { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 17px; line-height: 1; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; text-shadow: none; font-family: "Segoe UI", "Helvetica Neue", sans-serif; }
+    .dash-content--history .cur-panel-body { background: transparent; border: 0; border-radius: 0; padding: 6px 0 0; }
+    .dash-content--history .cur-empty { color: var(--ov-muted); padding: 18px 0; }
+  </style>
   <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
@@ -30,7 +38,7 @@
         </div>
       </div>
 
-      <div class="dash-content">
+      <div class="dash-content dash-content--history">
         <%- include('partials/plex-banner') %>
         <%
           const _history = Array.isArray(history) ? history : [];
@@ -74,29 +82,29 @@
             <% if (_history.length) { %>
               <div class="cur-hi-shell">
                 <div class="cur-hi-table">
+                  <div class="cur-hi-head">
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="track">
+                      <span>Track</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="artist">
+                      <span>Artist</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="album">
+                      <span>Album</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="listened">
+                      <span>Listened</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                    <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="when">
+                      <span>When</span>
+                      <span class="cur-pl-sort-arrow">↕</span>
+                    </button>
+                  </div>
                   <div class="cur-hi-scroll">
-                    <div class="cur-hi-head">
-                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="track">
-                        <span>Track</span>
-                        <span class="cur-pl-sort-arrow">↕</span>
-                      </button>
-                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="artist">
-                        <span>Artist</span>
-                        <span class="cur-pl-sort-arrow">↕</span>
-                      </button>
-                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn" data-sort="album">
-                        <span>Album</span>
-                        <span class="cur-pl-sort-arrow">↕</span>
-                      </button>
-                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="listened">
-                        <span>Listened</span>
-                        <span class="cur-pl-sort-arrow">↕</span>
-                      </button>
-                      <button type="button" class="cur-pl-head-btn cur-hi-head-btn cur-pl-head-btn--right" data-sort="when">
-                        <span>When</span>
-                        <span class="cur-pl-sort-arrow">↕</span>
-                      </button>
-                    </div>
                     <div class="cur-hi-body" id="historyTableBody"></div>
                     <div id="historyLoadMoreWrap" class="cur-hi-load-more" style="display:none">
                       <button class="btn btn-ghost" id="historyLoadMoreBtn" type="button" onclick="loadMoreHistory()">Load more</button>
@@ -118,7 +126,6 @@
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
   <script>
     const HISTORY_DATA = <%- JSON.stringify(_history.map(function(h, index) {
       return {

@@ -5517,13 +5517,9 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 }
 
 .cur-hi-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   border-bottom: 1px solid rgba(255,255,255,.08);
   padding: 0 12px 10px;
   margin-bottom: 2px;
-  background: linear-gradient(180deg, rgba(47,54,64,.98), rgba(38,44,54,.98));
 }
 
 .cur-hi-body {
@@ -5599,7 +5595,6 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 [data-theme="day"] .cur-hi-head {
   border-bottom-color: rgba(0,0,0,.1);
-  background: linear-gradient(180deg, rgba(242,245,248,.98), rgba(238,242,246,.98));
 }
 
 [data-theme="day"] .cur-hi-row:hover {

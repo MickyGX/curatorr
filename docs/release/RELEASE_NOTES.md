@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.1.86 (2026-06-05)
+
+- Fixed smart playlist wizard Step 5 so the summary name now updates live as you type instead of requiring a back/forward step to refresh.
+- Fixed custom artwork state in the smart playlist wizard — Step 5 now shows a thumbnail of the current stored image (edit mode) or the pending upload (after back-navigation), making it clear the artwork will be applied on save.
+- Improved Spotify integration docs with explicit Spotify Premium requirements for private/owned playlist imports and Developer App ownership restrictions.
+- Added a "Source" link in the imported playlist edit modal so Spotify and YouTube imported playlists now show a direct link back to the original source.
+- Moved `starfield-3d.js` to the shared `<head>` partial so the background effect loads consistently on all pages.
+- Refactored per-page panel and header styles to use scoped `dash-content--<page>` CSS classes across Artists, Blend, Playlists, Tracks, History, Discover, Admin Users, and Settings pages, removing the dependency on body-level page classes.
+- History table column header is no longer sticky — it now scrolls with the table content.
+- Improved Listening Report profile hero layout with better sizing, padding, and mobile responsive behaviour at narrow viewports.
+- Added error logging for playlist rebuild failures and Plex add-items HTTP errors to aid diagnostics.
+
 ## v0.1.85 (2026-06-03)
 
 - Fixed Lidarr automation so albums that can never be obtained (no indexer release, or a grab that never imports) are now marked unobtainable and skipped during catalog expansion instead of triggering a daily re-search indefinitely.

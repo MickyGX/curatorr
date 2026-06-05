@@ -1545,6 +1545,12 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
       });
       if (!response.ok) {
         const body = await response.text().catch(() => '');
+        ctx.pushLog({
+          level: 'error',
+          app: 'playlist',
+          action: 'plex.add_items_failed',
+          message: `HTTP ${response.status} PUT ${addUrl.toString()} — ${body.slice(0, 500) || '(empty body)'}`,
+        });
         const err = new Error(`Add playlist items failed: HTTP ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
         err.status = response.status;
         throw err;

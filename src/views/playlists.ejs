@@ -1,5 +1,13 @@
 <%- include('partials/head', { pageTitle: title || 'Playlists — Curatorr', extraCss: extraCss || ['/styles-layout.css', '/styles-curatorr.css'] }) %>
-<body class="dash-body cur-playlists-page">
+<body class="dash-body">
+  <style>
+    .dash-content--playlists { --ov-panel-line: rgba(255,255,255,0.14); --ov-muted: rgba(255,255,255,0.62); }
+    .dash-content--playlists .cur-panel { margin-bottom: 16px; background: transparent; border: 0; border-radius: 0; }
+    .dash-content--playlists .cur-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: transparent; border: 0; border-bottom: 1px solid var(--ov-panel-line); border-radius: 0; padding: 9px 0 8px; min-height: 42px; }
+    .dash-content--playlists .cur-panel-title { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 17px; line-height: 1; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; text-shadow: none; font-family: "Segoe UI", "Helvetica Neue", sans-serif; }
+    .dash-content--playlists .cur-panel-body { background: transparent; border: 0; border-radius: 0; padding: 6px 0 0; }
+    .dash-content--playlists .cur-empty { color: var(--ov-muted); padding: 18px 0; }
+  </style>
   <div class="dash-frame<%= sidebarCollapsed ? ' sidebar-collapsed' : '' %>">
     <aside class="dash-sidebar">
       <div class="dash-brand">
@@ -94,7 +102,7 @@
         }
       %>
 
-      <div class="dash-content">
+      <div class="dash-content dash-content--playlists">
         <%- include('partials/plex-banner') %>
         <div class="cur-panel cur-panel--playlist-carousel cur-panel--playlists-page-carousel" id="playlistCarouselPanel">
           <div class="cur-panel-header cur-panel-header--playlist-carousel">
@@ -198,6 +206,7 @@
                       data-playlist-track-count="<%= Number(p.trackCount || 0) %>"
                       data-playlist-missing-count="<%= Number(p.missingCount || 0) %>"
                       data-playlist-source-type="<%= p.sourceType || '' %>"
+                      data-playlist-source-ref="<%= p.sourceRef || '' %>"
                       data-playlist-imported-sync-period="<%= p.importedSyncPeriod || 'disabled' %>"
                       data-playlist-updated-at="<%= Number(p.curatorrUpdatedAt || 0) %>"
                       data-playlist-art="<%= p.artPath || '' %>"
@@ -766,6 +775,13 @@
       </div>
       <div class="spm-body imported-playlist-body">
         <div class="playlist-feature-note" id="importedPlaylistModalCopy">Update the saved import settings for this playlist or convert it into a smart playlist wizard draft.</div>
+        <div id="importedPlaylistSourceRow" class="playlist-artwork-field" style="display:none">
+          <span>Source</span>
+          <a id="importedPlaylistSourceLink" href="#" target="_blank" rel="noopener noreferrer" class="playlist-artwork-control" style="display:inline-flex;align-items:center;gap:6px;color:var(--accent,#c89b3c);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            <span id="importedPlaylistSourceLabel"></span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+        </div>
         <label class="playlist-artwork-field">
           <span>Name</span>
           <input id="importedPlaylistTitle" class="playlist-artwork-control" type="text" maxlength="120" placeholder="Imported playlist name" />
@@ -1084,7 +1100,6 @@
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
-  <script src="/starfield-3d.js"></script>
   <script>
     var _offset = 0;
     var _total = 0;
@@ -1844,6 +1859,7 @@
       card.dataset.playlistTrackCount = String(Number(data.trackCount || 0));
       card.dataset.playlistMissingCount = String(Number(data.missingCount || 0));
       card.dataset.playlistSourceType = data.sourceType || '';
+      card.dataset.playlistSourceRef = data.sourceRef || '';
       card.dataset.playlistImportedSyncPeriod = normalizeImportedSyncPeriod(data.importedSyncPeriod || 'disabled');
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
       card.dataset.playlistArt = data.artPath || '';
@@ -3159,7 +3175,7 @@
     }
 
     function bindPlaylistCarouselAutoCollapse() {
-      var dashContent = document.querySelector('.cur-playlists-page .dash-content');
+      var dashContent = document.querySelector('.dash-content--playlists');
       var trackScroller = getPlaylistTrackScrollContainer();
       var ticking = false;
       function onScroll() {
@@ -3428,6 +3444,22 @@
       if (saveBtn) saveBtn.disabled = false;
     }
 
+    function buildImportSourceUrl(sourceType, sourceRef) {
+      var type = String(sourceType || '').trim().toLowerCase();
+      var ref = String(sourceRef || '').trim();
+      if (!ref) return '';
+      if (type === 'spotify-playlist') return 'https://open.spotify.com/playlist/' + encodeURIComponent(ref);
+      if (type === 'youtube-playlist') return 'https://www.youtube.com/playlist?list=' + encodeURIComponent(ref);
+      return '';
+    }
+
+    function buildImportSourceLabel(sourceType) {
+      var type = String(sourceType || '').trim().toLowerCase();
+      if (type === 'spotify-playlist') return 'View on Spotify';
+      if (type === 'youtube-playlist') return 'View on YouTube';
+      return '';
+    }
+
     function openImportedPlaylistSettingsModal(card) {
       if (!card || !isImportedRefreshPlaylist(card)) return;
       var playlistAudience = String(card.dataset.playlistAudience || '').trim().toLowerCase();
@@ -3441,12 +3473,24 @@
       var headerEl = document.getElementById('importedPlaylistModalTitle');
       var statusEl = document.getElementById('importedPlaylistStatus');
       var saveBtn = document.getElementById('importedPlaylistSaveBtn');
+      var sourceRow = document.getElementById('importedPlaylistSourceRow');
+      var sourceLink = document.getElementById('importedPlaylistSourceLink');
+      var sourceLabel = document.getElementById('importedPlaylistSourceLabel');
       if (headerEl) headerEl.textContent = 'Edit Imported Playlist: ' + String(card.dataset.plTitle || 'Playlist');
       if (titleEl) titleEl.value = String(card.dataset.plTitle || '').trim();
       if (syncEl) syncEl.value = normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
       if (globalEl) globalEl.checked = playlistAudience === 'global';
       if (statusEl) statusEl.textContent = '';
       if (saveBtn) saveBtn.disabled = false;
+      var sourceUrl = buildImportSourceUrl(card.dataset.playlistSourceType, card.dataset.playlistSourceRef);
+      var sourceLabelText = buildImportSourceLabel(card.dataset.playlistSourceType);
+      if (sourceRow && sourceLink && sourceLabel && sourceUrl) {
+        sourceLink.href = sourceUrl;
+        sourceLabel.textContent = sourceLabelText;
+        sourceRow.style.display = '';
+      } else if (sourceRow) {
+        sourceRow.style.display = 'none';
+      }
       modal.style.display = '';
     }
 
@@ -5984,11 +6028,16 @@
           '<input type="file" id="wiz-artwork-file" class="cur-input" accept="image/png,image/jpeg,image/webp" />' +
           '<div class="spm-wizard-field-hint" id="wiz-artwork-status">' +
             (ws.customArtworkData
-              ? 'New custom image selected.'
+              ? 'New custom image ready — will be applied on save.'
               : (ws.customArtworkAsset
                 ? 'Current custom image will stay in place unless you upload a replacement.'
                 : 'PNG, JPG, or WEBP up to 5 MB.')) +
           '</div>' +
+          (ws.customArtworkData
+            ? '<img id="wiz-artwork-thumb" src="' + escH(ws.customArtworkData) + '" alt="" style="max-height:56px;max-width:112px;margin-top:6px;border-radius:4px;display:block;opacity:.9" />'
+            : (ws.customArtworkAsset
+              ? '<img id="wiz-artwork-thumb" src="/api/music/playlists/artwork/' + encodeURIComponent(ws.customArtworkAsset) + '" alt="" style="max-height:56px;max-width:112px;margin-top:6px;border-radius:4px;display:block;opacity:.9" />'
+              : '')) +
         '</div>';
       }
       if (ws.importSource && !_wizardEditKind) {
@@ -6019,7 +6068,7 @@
         return parts.length ? parts.join(' &nbsp; ') : '<span style="color:var(--muted,#888)">All</span>';
       }
 
-      html += row('Name', '<strong>' + escH(ws.name) + '</strong>');
+      html += row('Name', '<strong id="wiz-summary-name">' + escH(ws.name) + '</strong>');
       html += row('Target', escH(wizardTargetLabel(ws.playlistTarget || 'personal')));
       html += row('Rebuild', escH(ws.rebuildSchedule || 'daily'));
       if (_msType === 'plex' && ws.artworkMode) {
@@ -6741,12 +6790,21 @@
         }
         if (artworkFileEl) {
           artworkFileEl.addEventListener('change', function() {
+            var thumbEl = document.getElementById('wiz-artwork-thumb');
             var file = artworkFileEl.files && artworkFileEl.files[0];
             if (!file) {
               _wizardState.customArtworkData = '';
               if (artworkStatusEl) artworkStatusEl.textContent = _wizardState.customArtworkAsset
                 ? 'Current custom image will stay in place unless you upload a replacement.'
                 : 'PNG, JPG, or WEBP up to 5 MB.';
+              if (thumbEl) {
+                if (_wizardState.customArtworkAsset) {
+                  thumbEl.src = '/api/music/playlists/artwork/' + encodeURIComponent(_wizardState.customArtworkAsset);
+                  thumbEl.style.display = 'block';
+                } else {
+                  thumbEl.remove();
+                }
+              }
               return;
             }
             var allowed = ['image/png', 'image/jpeg', 'image/webp'];
@@ -6765,7 +6823,18 @@
             var reader = new FileReader();
             reader.onload = function(loadEvent) {
               _wizardState.customArtworkData = String(loadEvent && loadEvent.target && loadEvent.target.result || '');
-              if (artworkStatusEl) artworkStatusEl.textContent = 'Ready to save: ' + file.name;
+              if (artworkStatusEl) artworkStatusEl.textContent = 'New custom image ready — will be applied on save.';
+              var t = document.getElementById('wiz-artwork-thumb');
+              if (t) {
+                t.src = _wizardState.customArtworkData;
+              } else if (artworkWrapEl && _wizardState.customArtworkData) {
+                var img = document.createElement('img');
+                img.id = 'wiz-artwork-thumb';
+                img.src = _wizardState.customArtworkData;
+                img.alt = '';
+                img.style.cssText = 'max-height:56px;max-width:112px;margin-top:6px;border-radius:4px;display:block;opacity:.9';
+                artworkWrapEl.appendChild(img);
+              }
             };
             reader.onerror = function() {
               _wizardState.customArtworkData = '';
@@ -6895,6 +6964,8 @@
           finishNameEl.addEventListener('input', function() {
             _wizardState.name = finishNameEl.value.trim();
             _wizardState.nameManual = true;
+            var summaryNameEl = document.getElementById('wiz-summary-name');
+            if (summaryNameEl) summaryNameEl.textContent = _wizardState.name;
           });
         }
         var scheduleEl = document.getElementById('wiz-schedule');

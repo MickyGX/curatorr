@@ -2606,6 +2606,7 @@ export function registerPages(app, ctx) {
         customArtworkAsset: String(playlist.customArtworkAsset || ''),
         preservedArtworkAsset: String(playlist.preservedArtworkAsset || ''),
         sourceType: String(playlist.sourceType || ''),
+        sourceRef: String(playlist.sourceRef || ''),
         sourceTitle: String(playlist.sourceTitle || ''),
         sourceOwner: String(playlist.sourceOwner || ''),
         importedSyncPeriod: String(playlist.importedSyncPeriod || 'disabled'),
