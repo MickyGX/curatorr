@@ -74,7 +74,7 @@ const TOP_TRACKS_PERIOD_LABELS = {
   '6month': 'Last 6 Months',
   '12month': 'Last Year',
 };
-const PLAYLIST_BASE_SORT_MODES = new Set(['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow']);
+const PLAYLIST_BASE_SORT_MODES = new Set(['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'libraryAddedDesc', 'releaseDateDesc', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow']);
 const PLAYLIST_FINAL_ORDERING_MODES = new Set(['none', 'plexSonic', 'loudness', 'plexSonicLoudness']);
 
 function escapeRegex(value) {
@@ -709,6 +709,81 @@ function matchesLastPlayedRule(stat, rules = {}, now = Date.now()) {
   return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
 }
 
+function parsePositiveDayCount(value) {
+  const days = Number(value || 0);
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+function normalizeDateWindowMode(value) {
+  const raw = String(value || '').trim();
+  return ['any', 'within', 'notWithin'].includes(raw) ? raw : 'any';
+}
+
+function matchesLibraryAddedRule(track, rules = {}, now = Date.now()) {
+  const mode = normalizeDateWindowMode(rules?.libraryAddedMode);
+  if (mode === 'any') return true;
+  const days = parsePositiveDayCount(rules?.libraryAddedDays);
+  if (!days) return true;
+  const addedAt = Number(track?.libraryAddedAt || 0);
+  if (!Number.isFinite(addedAt) || addedAt <= 0) return false;
+  const ageMs = now - addedAt;
+  if (!Number.isFinite(ageMs) || ageMs < 0) return mode === 'within';
+  const thresholdMs = days * 24 * 60 * 60 * 1000;
+  return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
+}
+
+function resolveTrackReleaseYear(track = {}) {
+  const direct = Number(track?.trackYear || 0);
+  if (Number.isInteger(direct) && direct >= 1900 && direct <= 2099) return direct;
+  const match = String(track?.originalReleaseDate || '').trim().match(/^(\d{4})/);
+  return match ? Number(match[1]) : null;
+}
+
+function resolveTrackReleaseDateValue(track = {}) {
+  const parsed = parseComparableDate(track?.originalReleaseDate || '');
+  if (parsed) return parsed.value;
+  const year = resolveTrackReleaseYear(track);
+  return year ? Date.UTC(year, 0, 1) : null;
+}
+
+function matchesReleaseRules(track, rules = {}, now = Date.now()) {
+  const minYear = Number(rules?.releaseYearMin || 0);
+  const maxYear = Number(rules?.releaseYearMax || 0);
+  const hasMinYear = Number.isInteger(minYear) && minYear >= 1900;
+  const hasMaxYear = Number.isInteger(maxYear) && maxYear >= 1900;
+  if (hasMinYear || hasMaxYear) {
+    const year = resolveTrackReleaseYear(track);
+    if (!year) return false;
+    if (hasMinYear && year < minYear) return false;
+    if (hasMaxYear && year > maxYear) return false;
+  }
+
+  const after = parseComparableDate(rules?.releaseDateAfter || '');
+  const before = parseComparableDate(rules?.releaseDateBefore || '');
+  if (after || before) {
+    const actual = resolveTrackReleaseDateValue(track);
+    if (actual == null) return false;
+    if (after && actual < after.value) return false;
+    if (before && actual > before.value) return false;
+  }
+
+  const mode = normalizeDateWindowMode(rules?.releaseDateMode);
+  if (mode !== 'any') {
+    const days = parsePositiveDayCount(rules?.releaseDateDays);
+    if (days) {
+      const actual = resolveTrackReleaseDateValue(track);
+      if (actual == null) return false;
+      const ageMs = now - actual;
+      if (!Number.isFinite(ageMs) || ageMs < 0) return mode === 'within';
+      const thresholdMs = days * 24 * 60 * 60 * 1000;
+      if (mode === 'within' && ageMs > thresholdMs) return false;
+      if (mode === 'notWithin' && ageMs <= thresholdMs) return false;
+    }
+  }
+
+  return true;
+}
+
 function buildRecentPenalty(lastPlayedAt, cooldownDays = 0) {
   const cooldownMs = Math.max(0, Number(cooldownDays || 0)) * 24 * 60 * 60 * 1000;
   if (!cooldownMs || !lastPlayedAt) return 0;
@@ -951,6 +1026,11 @@ function baseRatingComparator(a, b) {
     || String(a.trackTitle || '').localeCompare(String(b.trackTitle || ''));
 }
 
+function releaseDateDescComparator(a, b) {
+  return compareNullableDesc(resolveTrackReleaseDateValue(a), resolveTrackReleaseDateValue(b))
+    || baseRatingComparator(a, b);
+}
+
 function shufflePlaylistTracks(tracks = []) {
   const items = Array.isArray(tracks) ? [...tracks] : [];
   for (let i = items.length - 1; i > 0; i--) {
@@ -983,6 +1063,8 @@ function selectLimitedPlaylistTracks(tracks = [], {
     : (preserveOrder ? [...tracks] : [...tracks].sort((a, b) => {
         if (sortBy === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc) || (b.pc - a.pc);
         if (sortBy === 'playCount')  return (b.pc - a.pc) || (b.rc - a.rc) || (b.tw - a.tw);
+        if (sortBy === 'libraryAddedDesc') return compareNullableDesc(a.libraryAddedAt, b.libraryAddedAt) || baseRatingComparator(a, b);
+        if (sortBy === 'releaseDateDesc') return releaseDateDescComparator(a, b);
         return baseRatingComparator(a, b);
       }));
   const artistCounts = new Map();
@@ -1107,6 +1189,8 @@ function sortPlaylistTracksByMode(db, userPlexId, tracks = [], sortBy = 'default
   return items.sort((a, b) => {
     if (mode === 'tierWeight') return (b.tw - a.tw) || (b.rc - a.rc) || (b.pc - a.pc);
     if (mode === 'playCount') return (b.pc - a.pc) || (b.rc - a.rc) || (b.tw - a.tw);
+    if (mode === 'libraryAddedDesc') return compareNullableDesc(a.libraryAddedAt, b.libraryAddedAt) || (b.rc - a.rc) || (b.tw - a.tw) || (b.pc - a.pc);
+    if (mode === 'releaseDateDesc') return releaseDateDescComparator(a, b);
     return (b.rc - a.rc) || (b.tw - a.tw) || (b.pc - a.pc);
   });
 }
@@ -2396,6 +2480,8 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
     if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
     if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
     if (!matchesLastPlayedRule(stat, rules)) continue;
+    if (!matchesLibraryAddedRule(t, rules)) continue;
+    if (!matchesReleaseRules(t, rules)) continue;
 
     if (!matchesTriStateValues(t.genres || [], gf)) continue;
     if (!matchesTriStateValues(t.moods || [], mf)) continue;
@@ -2422,6 +2508,9 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
       albumName: t.albumName || '',
       ratingCount: Number(t.ratingCount || 0),
       viewCount: Number(t.viewCount || 0),
+      libraryAddedAt: Number(t.libraryAddedAt || 0),
+      trackYear: t.trackYear == null ? null : Number(t.trackYear || 0),
+      originalReleaseDate: String(t.originalReleaseDate || ''),
       rc: t.ratingCount || 0,
       tw: stat?.tier_weight || 0,
       pc: stat?.play_count || 0,

@@ -92,7 +92,7 @@ const THUMB_CACHE_MAX = 600;
 const thumbCache = new Map();
 const PLAYLIST_FEATURE_PRESETS = ['none', 'club', 'driving', 'workout', 'chill', 'harmonic', 'wakeup', 'downtempo'];
 const CAMELOT_MODES = ['exact', 'adjacent', 'relative', 'harmonic'];
-const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
+const PLAYLIST_SORT_VALUES = ['default', 'source', 'ratingCount', 'tierWeight', 'playCount', 'random', 'libraryAddedDesc', 'releaseDateDesc', 'bpmAsc', 'bpmDesc', 'energyAsc', 'energyDesc', 'danceabilityDesc', 'camelot', 'djFlow'];
 const PLAYLIST_FINAL_ORDERING_VALUES = ['none', 'plexSonic', 'loudness', 'plexSonicLoudness'];
 const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
@@ -226,6 +226,12 @@ function normaliseTrackFiltersInput(value) {
 
 function buildPlaylistFeatureRules(payload = {}) {
   const rawPreset = String(payload.featurePreset || '').trim().toLowerCase();
+  const libraryAddedMode = ['any', 'within', 'notWithin'].includes(String(payload.libraryAddedMode || '').trim())
+    ? String(payload.libraryAddedMode).trim()
+    : 'any';
+  const releaseDateMode = ['any', 'within', 'notWithin'].includes(String(payload.releaseDateMode || '').trim())
+    ? String(payload.releaseDateMode).trim()
+    : 'any';
   return {
     albumPopularityMode: PLAYLIST_ALBUM_POPULARITY_VALUES.includes(String(payload.albumPopularityMode || '').trim())
       ? String(payload.albumPopularityMode).trim()
@@ -253,6 +259,14 @@ function buildPlaylistFeatureRules(payload = {}) {
       ? String(payload.lastPlayedMode).trim()
       : 'any',
     lastPlayedDays: parseNullablePlaylistDayCount(payload.lastPlayedDays),
+    libraryAddedMode,
+    libraryAddedDays: parseNullablePlaylistDayCount(payload.libraryAddedDays),
+    releaseYearMin: parseNullablePlaylistNumber(payload.releaseYearMin),
+    releaseYearMax: parseNullablePlaylistNumber(payload.releaseYearMax),
+    releaseDateAfter: String(payload.releaseDateAfter || '').trim(),
+    releaseDateBefore: String(payload.releaseDateBefore || '').trim(),
+    releaseDateMode,
+    releaseDateDays: parseNullablePlaylistDayCount(payload.releaseDateDays),
   };
 }
 

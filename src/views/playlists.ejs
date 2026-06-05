@@ -1035,6 +1035,8 @@
               <option value="ratingCount">Global rating count</option>
               <option value="tierWeight">Tier weight</option>
               <option value="playCount">Play count</option>
+              <option value="libraryAddedDesc">Newest library additions</option>
+              <option value="releaseDateDesc">Newest releases</option>
               <option value="random">Random</option>
               <option value="bpmAsc">BPM low to high</option>
               <option value="bpmDesc">BPM high to low</option>
@@ -4011,6 +4013,14 @@
         seasonalKeywordsMode: rules.seasonalKeywordsMode === 'all' ? 'all' : 'any',
         lastPlayedMode: String(rules.lastPlayedMode || 'any'),
         lastPlayedDays: rules.lastPlayedDays != null ? Number(rules.lastPlayedDays) : null,
+        libraryAddedMode: String(rules.libraryAddedMode || 'any'),
+        libraryAddedDays: rules.libraryAddedDays != null ? Number(rules.libraryAddedDays) : null,
+        releaseYearMin: rules.releaseYearMin != null ? Number(rules.releaseYearMin) : null,
+        releaseYearMax: rules.releaseYearMax != null ? Number(rules.releaseYearMax) : null,
+        releaseDateAfter: String(rules.releaseDateAfter || ''),
+        releaseDateBefore: String(rules.releaseDateBefore || ''),
+        releaseDateMode: String(rules.releaseDateMode || 'any'),
+        releaseDateDays: rules.releaseDateDays != null ? Number(rules.releaseDateDays) : null,
         includeFolders: trackFilters.includeFolders,
         excludeFolders: trackFilters.excludeFolders,
         advancedRules: trackFilters.rules,
@@ -4509,6 +4519,7 @@
       { id: 'blank',            icon: '✦', name: 'Custom',      description: 'Start clean and shape it yourself.', rules: {}, trackFilters: null },
       { id: 'tmpl_favourites',  icon: '★', name: 'Favourites',  description: 'Your highest-rated tracks and artists.', rules: { artistTiers: { include: ['belter'], exclude: [] }, trackTiers: { include: ['belter'], exclude: [] } }, trackFilters: null },
       { id: 'tmpl_discovery',   icon: '⊕', name: 'Discovery',   description: 'Unplayed tracks from unranked artists.', rules: { artistTiers: { include: ['unranked'], exclude: [] }, trackTiers: { include: ['unplayed'], exclude: [] } }, trackFilters: null },
+      { id: 'tmpl_new_music_mix', icon: '♪', name: 'New Music Mix', description: 'Fresh library additions with album variety controls.', meta: 'Added 90 days · 1 per album · daily', rules: { libraryAddedMode: 'within', libraryAddedDays: 90, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'libraryAddedDesc', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
       { id: 'tmpl_random_library', icon: '⇄', name: 'Random Library Mix', description: '50 random library tracks with artist and album variety.', meta: '50 tracks · 1 per artist · 1 per album · daily', rules: { topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'random', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
       { id: 'tmpl_seasonal',    icon: '❄', name: 'Seasonal',    description: 'Holiday genre plus festive title and album keywords.', rules: { seasonalGenres: ['Holiday'], seasonalKeywords: ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday'] }, trackFilters: null },
     ];
@@ -4793,6 +4804,14 @@
         seasonalKeywordsMode: 'any',
         lastPlayedMode: 'any',
         lastPlayedDays: null,
+        libraryAddedMode: 'any',
+        libraryAddedDays: null,
+        releaseYearMin: null,
+        releaseYearMax: null,
+        releaseDateAfter: '',
+        releaseDateBefore: '',
+        releaseDateMode: 'any',
+        releaseDateDays: null,
         deduplicateByMbid: false,
         deduplicateByArtistTitle: false,
         deduplicateByDuration: false,
@@ -4861,6 +4880,18 @@
         lastPlayedMode: ws.lastPlayedMode || 'any',
         lastPlayedDays: (ws.lastPlayedMode === 'within' || ws.lastPlayedMode === 'notWithin')
           ? (ws.lastPlayedDays || null)
+          : null,
+        libraryAddedMode: ws.libraryAddedMode || 'any',
+        libraryAddedDays: (ws.libraryAddedMode === 'within' || ws.libraryAddedMode === 'notWithin')
+          ? (ws.libraryAddedDays || null)
+          : null,
+        releaseYearMin: ws.releaseYearMin || null,
+        releaseYearMax: ws.releaseYearMax || null,
+        releaseDateAfter: ws.releaseDateAfter || '',
+        releaseDateBefore: ws.releaseDateBefore || '',
+        releaseDateMode: ws.releaseDateMode || 'any',
+        releaseDateDays: (ws.releaseDateMode === 'within' || ws.releaseDateMode === 'notWithin')
+          ? (ws.releaseDateDays || null)
           : null,
         rebuildSchedule: ws.rebuildSchedule || 'daily',
         featurePreset: ws.featurePreset || 'none',
@@ -5168,6 +5199,14 @@
       state.trackTiers = { include: [], exclude: [], includeMode: 'any' };
       state.lastPlayedMode = 'any';
       state.lastPlayedDays = null;
+      state.libraryAddedMode = 'any';
+      state.libraryAddedDays = null;
+      state.releaseYearMin = null;
+      state.releaseYearMax = null;
+      state.releaseDateAfter = '';
+      state.releaseDateBefore = '';
+      state.releaseDateMode = 'any';
+      state.releaseDateDays = null;
     }
 
     var WIZARD_TEXT_RULE_OPS = [
@@ -5479,7 +5518,7 @@
 
     // Step 1 — Basics
     function wizardStep1() {
-      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_random_library', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
+      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_new_music_mix', 'tmpl_random_library', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
       var AUDIO_PROFILES = [
         { preset: 'workout',  icon: '⚡' },
         { preset: 'chill',    icon: '◎' },
@@ -5772,6 +5811,48 @@
         'These values are computed or inferred inside Curatorr. Decades come from stored release dates, while artist and track tiers come from your listening history and skip behaviour.',
         renderWizChips(ALLDECADES, _wizardState.decades, 'decade', 'Filter decades…') +
         '<div class="spm-filter-section" style="margin-top:14px">' +
+          '<div class="spm-filter-label">Added to library</div>' +
+          '<div class="spm-wizard-subsection-copy" style="margin-bottom:10px">Filter tracks by when they were added to your media server library.</div>' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">' +
+            '<label style="display:flex;flex-direction:column;gap:6px;min-width:220px">' +
+              '<span class="spm-chip-hint" style="margin:0">Timing rule</span>' +
+              '<select id="wiz-library-added-mode" class="input">' +
+                '<option value="any"' + ((_wizardState.libraryAddedMode || 'any') === 'any' ? ' selected' : '') + '>Any time</option>' +
+                '<option value="within"' + (_wizardState.libraryAddedMode === 'within' ? ' selected' : '') + '>Added within last</option>' +
+                '<option value="notWithin"' + (_wizardState.libraryAddedMode === 'notWithin' ? ' selected' : '') + '>Not added within last</option>' +
+              '</select>' +
+            '</label>' +
+            '<label id="wiz-library-added-days-wrap" style="display:' + (((_wizardState.libraryAddedMode === 'within') || (_wizardState.libraryAddedMode === 'notWithin')) ? 'flex' : 'none') + ';flex-direction:column;gap:6px;min-width:120px">' +
+              '<span class="spm-chip-hint" style="margin:0">Days</span>' +
+              '<input type="number" id="wiz-library-added-days" class="input" min="1" step="1" placeholder="90" value="' + escH(_wizardState.libraryAddedDays != null ? String(_wizardState.libraryAddedDays) : '') + '" />' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="spm-filter-section" style="margin-top:14px">' +
+          '<div class="spm-filter-label">Release date</div>' +
+          '<div class="spm-wizard-subsection-copy" style="margin-bottom:10px">Filter by stored release years and original release dates from media-server or MusicBrainz metadata.</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">' +
+            '<label class="field"><span>Year from</span><input type="number" id="wiz-release-year-min" min="1900" max="2099" placeholder="2024" value="' + escH(_wizardState.releaseYearMin != null ? String(_wizardState.releaseYearMin) : '') + '"/></label>' +
+            '<label class="field"><span>Year to</span><input type="number" id="wiz-release-year-max" min="1900" max="2099" placeholder="2026" value="' + escH(_wizardState.releaseYearMax != null ? String(_wizardState.releaseYearMax) : '') + '"/></label>' +
+            '<label class="field"><span>Date from</span><input type="date" id="wiz-release-date-after" value="' + escH(_wizardState.releaseDateAfter || '') + '"/></label>' +
+            '<label class="field"><span>Date to</span><input type="date" id="wiz-release-date-before" value="' + escH(_wizardState.releaseDateBefore || '') + '"/></label>' +
+          '</div>' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:10px">' +
+            '<label style="display:flex;flex-direction:column;gap:6px;min-width:220px">' +
+              '<span class="spm-chip-hint" style="margin:0">Release window</span>' +
+              '<select id="wiz-release-date-mode" class="input">' +
+                '<option value="any"' + ((_wizardState.releaseDateMode || 'any') === 'any' ? ' selected' : '') + '>Any release age</option>' +
+                '<option value="within"' + (_wizardState.releaseDateMode === 'within' ? ' selected' : '') + '>Released within last</option>' +
+                '<option value="notWithin"' + (_wizardState.releaseDateMode === 'notWithin' ? ' selected' : '') + '>Not released within last</option>' +
+              '</select>' +
+            '</label>' +
+            '<label id="wiz-release-date-days-wrap" style="display:' + (((_wizardState.releaseDateMode === 'within') || (_wizardState.releaseDateMode === 'notWithin')) ? 'flex' : 'none') + ';flex-direction:column;gap:6px;min-width:120px">' +
+              '<span class="spm-chip-hint" style="margin:0">Days</span>' +
+              '<input type="number" id="wiz-release-date-days" class="input" min="1" step="1" placeholder="365" value="' + escH(_wizardState.releaseDateDays != null ? String(_wizardState.releaseDateDays) : '') + '" />' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="spm-filter-section" style="margin-top:14px">' +
           '<div class="spm-filter-label">Last played</div>' +
           '<div class="spm-wizard-subsection-copy" style="margin-bottom:10px">Filter tracks by how recently they were played. "Not played within" also keeps tracks with no play history.</div>' +
           '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">' +
@@ -5846,7 +5927,7 @@
         '<label class="field" style="flex:1"><span>Max tracks per album</span><input type="number" id="wiz-max-album-tracks" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.maxTracksPerAlbum||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Max total tracks</span><input type="number" id="wiz-max-tracks" min="1" placeholder="No limit" value="' + (_wizardState.maxTracks||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Sort tracks by</span><select id="wiz-sort-by">' +
-        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['libraryAddedDesc','Newest library additions'],['releaseDateDesc','Newest releases'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
         '</select></label>' +
         '<label class="field" style="flex:1"><span>Final ordering</span><select id="wiz-final-ordering">' +
         [['none','No final ordering'],['plexSonic','Plex sonic'],['loudness','Loudness smoothing'],['plexSonicLoudness','Plex sonic then loudness']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.finalOrdering===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
@@ -6106,6 +6187,18 @@
             : 'Never played');
         html += row('Last played', lastPlayedLabel);
       }
+      if (ws.libraryAddedMode && ws.libraryAddedMode !== 'any') {
+        html += row('Added to library', (ws.libraryAddedMode === 'within' ? 'Added within last ' : 'Not added within last ') + escH(String(ws.libraryAddedDays || '')) + ' days');
+      }
+      if (ws.releaseYearMin || ws.releaseYearMax) {
+        html += row('Release year', escH((ws.releaseYearMin || 'Any') + ' to ' + (ws.releaseYearMax || 'Any')));
+      }
+      if (ws.releaseDateAfter || ws.releaseDateBefore) {
+        html += row('Release date', escH((ws.releaseDateAfter || 'Any') + ' to ' + (ws.releaseDateBefore || 'Any')));
+      }
+      if (ws.releaseDateMode && ws.releaseDateMode !== 'any') {
+        html += row('Release window', (ws.releaseDateMode === 'within' ? 'Released within last ' : 'Not released within last ') + escH(String(ws.releaseDateDays || '')) + ' days');
+      }
       if (ws.featurePreset && ws.featurePreset !== 'none') html += row('Curatorr audio profile', escH(ws.featurePreset));
       if ((ws.seasonalGenres && ws.seasonalGenres.length) || (ws.seasonalExcludeGenres && ws.seasonalExcludeGenres.length)) {
         html += row('Seasonal genres', chipList({ include: ws.seasonalGenres || [], exclude: ws.seasonalExcludeGenres || [], includeMode: ws.seasonalGenresMode || 'any' }));
@@ -6253,6 +6346,28 @@
           : '', 10) || null;
         if (_wizardState.lastPlayedMode !== 'within' && _wizardState.lastPlayedMode !== 'notWithin') {
           _wizardState.lastPlayedDays = null;
+        }
+        _wizardState.libraryAddedMode = document.getElementById('wiz-library-added-mode')
+          ? (document.getElementById('wiz-library-added-mode').value || 'any')
+          : 'any';
+        _wizardState.libraryAddedDays = parseInt(document.getElementById('wiz-library-added-days')
+          ? document.getElementById('wiz-library-added-days').value
+          : '', 10) || null;
+        if (_wizardState.libraryAddedMode !== 'within' && _wizardState.libraryAddedMode !== 'notWithin') {
+          _wizardState.libraryAddedDays = null;
+        }
+        _wizardState.releaseYearMin = parseInt(document.getElementById('wiz-release-year-min') ? document.getElementById('wiz-release-year-min').value : '', 10) || null;
+        _wizardState.releaseYearMax = parseInt(document.getElementById('wiz-release-year-max') ? document.getElementById('wiz-release-year-max').value : '', 10) || null;
+        _wizardState.releaseDateAfter = document.getElementById('wiz-release-date-after') ? document.getElementById('wiz-release-date-after').value : '';
+        _wizardState.releaseDateBefore = document.getElementById('wiz-release-date-before') ? document.getElementById('wiz-release-date-before').value : '';
+        _wizardState.releaseDateMode = document.getElementById('wiz-release-date-mode')
+          ? (document.getElementById('wiz-release-date-mode').value || 'any')
+          : 'any';
+        _wizardState.releaseDateDays = parseInt(document.getElementById('wiz-release-date-days')
+          ? document.getElementById('wiz-release-date-days').value
+          : '', 10) || null;
+        if (_wizardState.releaseDateMode !== 'within' && _wizardState.releaseDateMode !== 'notWithin') {
+          _wizardState.releaseDateDays = null;
         }
       } else if (step === 3) {
         _wizardState.topNPerArtist = parseInt(document.getElementById('wiz-top-n') ? document.getElementById('wiz-top-n').value : '', 10) || null;
@@ -6758,6 +6873,38 @@
           lastPlayedDaysEl.addEventListener('change', lastPlayedDaysHandler);
           lastPlayedDaysEl.addEventListener('input', lastPlayedDaysHandler);
         }
+        var libraryAddedModeEl = document.getElementById('wiz-library-added-mode');
+        if (libraryAddedModeEl) {
+          libraryAddedModeEl.addEventListener('change', function() {
+            wizardSaveStateFromStep(2);
+            if ((_wizardState.libraryAddedMode === 'within' || _wizardState.libraryAddedMode === 'notWithin') && !_wizardState.libraryAddedDays) {
+              _wizardState.libraryAddedDays = 90;
+            }
+            wizardRenderStep(2);
+            setTimeout(wizardRunPreview, 50);
+          });
+        }
+        var releaseDateModeEl = document.getElementById('wiz-release-date-mode');
+        if (releaseDateModeEl) {
+          releaseDateModeEl.addEventListener('change', function() {
+            wizardSaveStateFromStep(2);
+            if ((_wizardState.releaseDateMode === 'within' || _wizardState.releaseDateMode === 'notWithin') && !_wizardState.releaseDateDays) {
+              _wizardState.releaseDateDays = 365;
+            }
+            wizardRenderStep(2);
+            setTimeout(wizardRunPreview, 50);
+          });
+        }
+        ['wiz-library-added-days','wiz-release-year-min','wiz-release-year-max','wiz-release-date-after','wiz-release-date-before','wiz-release-date-days'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          var handler = function() {
+            wizardSaveStateFromStep(2);
+            setTimeout(wizardRunPreview, 200);
+          };
+          el.addEventListener('change', handler);
+          if (el.tagName === 'INPUT') el.addEventListener('input', handler);
+        });
         document.querySelectorAll('#spm-wizard-body .spm-chip').forEach(function(chip) {
           chip.addEventListener('click', function() {
             var s = chip.dataset.state || 'neutral';

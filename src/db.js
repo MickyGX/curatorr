@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   library_key   TEXT NOT NULL DEFAULT '',
   file_path     TEXT NOT NULL DEFAULT '',
   duration_ms   INTEGER NOT NULL DEFAULT 0,
+  library_added_at INTEGER NOT NULL DEFAULT 0,
   rating_count  INTEGER NOT NULL DEFAULT 0,
   view_count    INTEGER NOT NULL DEFAULT 0,
   updated_at    INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
@@ -590,6 +591,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('duration_ms'))
     db.exec('ALTER TABLE master_tracks ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0');
+  if (!masterCols.includes('library_added_at'))
+    db.exec('ALTER TABLE master_tracks ADD COLUMN library_added_at INTEGER NOT NULL DEFAULT 0');
 
   const personalPlaylistCols = db.prepare('PRAGMA table_info(user_personal_playlists)').all().map((c) => c.name);
   if (!personalPlaylistCols.includes('track_filters'))
@@ -2007,15 +2010,17 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, album_genres, album_styles, album_moods, library_key, file_path, duration_ms, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, album_genres, album_styles, album_moods, library_key, file_path, duration_ms, library_added_at, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
       album_name = excluded.album_name, recording_mbid = excluded.recording_mbid,
       genres = excluded.genres, moods = excluded.moods,
       album_genres = excluded.album_genres, album_styles = excluded.album_styles, album_moods = excluded.album_moods,
       library_key = excluded.library_key, file_path = excluded.file_path,
-      duration_ms = excluded.duration_ms, rating_count = excluded.rating_count,
+      duration_ms = excluded.duration_ms,
+      library_added_at = COALESCE(NULLIF(excluded.library_added_at, 0), master_tracks.library_added_at),
+      rating_count = excluded.rating_count,
       view_count = excluded.view_count, updated_at = excluded.updated_at
   `);
   const upsertYear = db.prepare(`
@@ -2044,6 +2049,7 @@ export function refreshMasterTracks(db, tracks) {
         r.libraryKey,
         String(r.filePath || ''),
         Number(r.durationMs ?? 0),
+        Number(r.libraryAddedAt || 0),
         r.ratingCount ?? 0,
         r.viewCount ?? 0,
         Date.now(),
@@ -2140,6 +2146,7 @@ export function getMasterTracks(db) {
     filePath: String(r.file_path || ''),
     recordingMbid: String(r.recording_mbid || '').trim(),
     durationMs: Number(r.duration_ms || 0),
+    libraryAddedAt: Number(r.library_added_at || 0),
     ratingCount: r.rating_count,
     viewCount: r.view_count,
     trackYear: r.track_year == null ? null : Number(r.track_year || 0),
@@ -2718,6 +2725,86 @@ function resolveTrackYearValue(track = {}) {
   const releaseDate = String(track?.originalReleaseDate || track?.original_release_date || '').trim();
   const match = releaseDate.match(/^(\d{4})/);
   return match ? Number(match[1]) : 0;
+}
+
+function parseComparableTrackDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/);
+  if (!match) return null;
+  const year = Number(match[1] || 0);
+  const month = Number(match[2] || 1);
+  const day = Number(match[3] || 1);
+  const dateValue = Date.UTC(year, Math.max(0, month - 1), day);
+  return Number.isFinite(dateValue) ? dateValue : null;
+}
+
+function resolveTrackReleaseDateValue(track = {}) {
+  const direct = parseComparableTrackDate(track?.originalReleaseDate || track?.original_release_date || '');
+  if (direct != null) return direct;
+  const year = resolveTrackYearValue(track);
+  return year ? Date.UTC(year, 0, 1) : null;
+}
+
+function parsePositiveDayCount(value) {
+  const days = Number(value || 0);
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+function normalizeDateWindowMode(value) {
+  const raw = String(value || '').trim();
+  return ['any', 'within', 'notWithin'].includes(raw) ? raw : 'any';
+}
+
+function matchesLibraryAddedRule(track, rules = {}, now = Date.now()) {
+  const mode = normalizeDateWindowMode(rules?.libraryAddedMode);
+  if (mode === 'any') return true;
+  const days = parsePositiveDayCount(rules?.libraryAddedDays);
+  if (!days) return true;
+  const addedAt = Number(track?.libraryAddedAt ?? track?.library_added_at ?? 0);
+  if (!Number.isFinite(addedAt) || addedAt <= 0) return false;
+  const ageMs = now - addedAt;
+  if (!Number.isFinite(ageMs) || ageMs < 0) return mode === 'within';
+  const thresholdMs = days * 24 * 60 * 60 * 1000;
+  return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
+}
+
+function matchesReleaseRules(track, rules = {}, now = Date.now()) {
+  const minYear = Number(rules?.releaseYearMin || 0);
+  const maxYear = Number(rules?.releaseYearMax || 0);
+  const hasMinYear = Number.isInteger(minYear) && minYear >= 1900;
+  const hasMaxYear = Number.isInteger(maxYear) && maxYear >= 1900;
+  if (hasMinYear || hasMaxYear) {
+    const year = resolveTrackYearValue(track);
+    if (!year) return false;
+    if (hasMinYear && year < minYear) return false;
+    if (hasMaxYear && year > maxYear) return false;
+  }
+
+  const after = parseComparableTrackDate(rules?.releaseDateAfter || '');
+  const before = parseComparableTrackDate(rules?.releaseDateBefore || '');
+  if (after != null || before != null) {
+    const actual = resolveTrackReleaseDateValue(track);
+    if (actual == null) return false;
+    if (after != null && actual < after) return false;
+    if (before != null && actual > before) return false;
+  }
+
+  const mode = normalizeDateWindowMode(rules?.releaseDateMode);
+  if (mode !== 'any') {
+    const days = parsePositiveDayCount(rules?.releaseDateDays);
+    if (days) {
+      const actual = resolveTrackReleaseDateValue(track);
+      if (actual == null) return false;
+      const ageMs = now - actual;
+      if (!Number.isFinite(ageMs) || ageMs < 0) return mode === 'within';
+      const thresholdMs = days * 24 * 60 * 60 * 1000;
+      if (mode === 'within' && ageMs > thresholdMs) return false;
+      if (mode === 'notWithin' && ageMs <= thresholdMs) return false;
+    }
+  }
+
+  return true;
 }
 
 export function getTrackDecadeTag(track = {}) {
@@ -3804,6 +3891,8 @@ function previewTrackComparator(sortBy) {
   return (a, b) => {
     if (sortBy === 'tierWeight') return (Number(b?.tw || 0) - Number(a?.tw || 0)) || (Number(b?.rc || 0) - Number(a?.rc || 0));
     if (sortBy === 'playCount') return (Number(b?.pc || 0) - Number(a?.pc || 0)) || (Number(b?.rc || 0) - Number(a?.rc || 0));
+    if (sortBy === 'libraryAddedDesc') return (Number(b?.libraryAddedAt || 0) - Number(a?.libraryAddedAt || 0)) || (Number(b?.rc || 0) - Number(a?.rc || 0));
+    if (sortBy === 'releaseDateDesc') return (Number(resolveTrackReleaseDateValue(b) || 0) - Number(resolveTrackReleaseDateValue(a) || 0)) || (Number(b?.rc || 0) - Number(a?.rc || 0));
     return (Number(b?.rc || 0) - Number(a?.rc || 0))
       || (Number(b?.tw || 0) - Number(a?.tw || 0))
       || String(a?.artistName || '').localeCompare(String(b?.artistName || ''))
@@ -3949,6 +4038,8 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
       if (!matchesLastPlayedRule(stat)) continue;
+      if (!matchesLibraryAddedRule(t, rules)) continue;
+      if (!matchesReleaseRules(t, rules)) continue;
 
       if (!matchesTriStateValues(t.genres || [], gf)) continue;
       if (!matchesTriStateValues(t.moods || [], mf)) continue;
@@ -3980,6 +4071,9 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         albumName: t.albumName || '',
         ratingCount: Number(t.ratingCount || 0),
         viewCount: Number(t.viewCount || 0),
+        libraryAddedAt: Number(t.libraryAddedAt || 0),
+        trackYear: t.trackYear == null ? null : Number(t.trackYear || 0),
+        originalReleaseDate: String(t.originalReleaseDate || ''),
         rc: t.ratingCount || 0,
         tw: stat?.tier_weight || 0,
         pc: stat?.play_count || 0,
@@ -4026,6 +4120,8 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
       if (!matchesLastPlayedRule(stat)) continue;
+      if (!matchesLibraryAddedRule(t, rules)) continue;
+      if (!matchesReleaseRules(t, rules)) continue;
       if (!matchesTriStateValues(t.genres || [], gf)) continue;
       if (!matchesTriStateValues(t.moods || [], mf)) continue;
       if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
@@ -4056,6 +4152,9 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
         albumName: t.albumName || '',
         ratingCount: Number(t.ratingCount || 0),
         viewCount: Number(t.viewCount || 0),
+        libraryAddedAt: Number(t.libraryAddedAt || 0),
+        trackYear: t.trackYear == null ? null : Number(t.trackYear || 0),
+        originalReleaseDate: String(t.originalReleaseDate || ''),
         rc: t.ratingCount || 0,
         tw: stat?.tier_weight || 0,
         pc: stat?.play_count || 0,

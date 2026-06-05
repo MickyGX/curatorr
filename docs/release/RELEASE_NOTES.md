@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.87 (2026-06-05)
+
+- Added a new **New Music Mix** smart playlist starting point that builds from recent media-server library additions, defaults to one track per album, and sorts by newest additions.
+- Added smart playlist filters for added-to-library windows, release year ranges, release date ranges, and release windows so Curatorr can distinguish recently added music from genuinely recent releases.
+- Added `library_added_at` support to the master track cache, populated from Plex `addedAt` and Jellyfin/Emby `DateCreated` metadata during Master Track Cache Refresh.
+- Added newest-library-addition and newest-release sort modes across smart playlist previews and rebuilds.
+- Added regression coverage for album metadata import, library-added timestamps, and release-aware playlist preview filtering.
+
 ## v0.1.86 (2026-06-05)
 
 - Fixed smart playlist wizard Step 5 so the summary name now updates live as you type instead of requiring a back/forward step to refresh.

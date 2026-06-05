@@ -56,6 +56,13 @@ function extractItemReleaseDate(item = {}) {
   return year ? String(year) : '';
 }
 
+function extractItemLibraryAddedAt(item = {}) {
+  const raw = String(item?.DateCreated || '').trim();
+  if (!raw) return 0;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 // Exchange username + password for an API key. Returns the API key string.
 
@@ -149,7 +156,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys, options = {}) {
       u.searchParams.set('ParentId', key);
       u.searchParams.set('IncludeItemTypes', 'Audio');
       u.searchParams.set('Recursive', 'true');
-      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds,Path,ProductionYear,PremiereDate');
+      u.searchParams.set('Fields', 'Genres,Tags,Artists,AlbumArtist,Album,RunTimeTicks,ProviderIds,Path,ProductionYear,PremiereDate,DateCreated');
       u.searchParams.set('StartIndex', String(startIndex));
       u.searchParams.set('Limit', String(PAGE_SIZE));
 
@@ -169,6 +176,7 @@ export async function getLibraryTracks(url, apiKey, libraryKeys, options = {}) {
           recordingMbid: extractProviderRecordingMbid(item),
           trackYear:   extractItemReleaseYear(item),
           originalReleaseDate: extractItemReleaseDate(item),
+          libraryAddedAt: extractItemLibraryAddedAt(item),
           genres:      (item.Genres || []).map(String),
           moods:       [], // no native mood field in Jellyfin; Tags could map here later
           libraryKey:  String(key),

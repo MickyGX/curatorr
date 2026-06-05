@@ -57,6 +57,14 @@ function extractPlexReleaseDate(metadata = {}) {
   return year ? String(year) : '';
 }
 
+function extractPlexLibraryAddedAt(metadata = {}) {
+  const seconds = Number(metadata?.addedAt || 0);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.round(seconds * 1000);
+  const raw = String(metadata?.addedAt || '').trim();
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function extractPlexMetadataKey(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -142,6 +150,7 @@ export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
           recordingMbid: extractPlexRecordingMbid(t),
           trackYear:    extractPlexReleaseYear(t),
           originalReleaseDate: extractPlexReleaseDate(t),
+          libraryAddedAt: extractPlexLibraryAddedAt(t),
           genres:      (t.Genre || []).map((g) => g.tag),
           moods:       [],
           albumGenres: [],
