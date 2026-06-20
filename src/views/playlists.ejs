@@ -209,6 +209,7 @@
                       data-playlist-source-ref="<%= p.sourceRef || '' %>"
                       data-playlist-imported-sync-period="<%= p.importedSyncPeriod || 'disabled' %>"
                       data-playlist-updated-at="<%= Number(p.curatorrUpdatedAt || 0) %>"
+                      data-playlist-created-at="<%= Number(p.curatorrCreatedAt || 0) %>"
                       data-playlist-art="<%= p.artPath || '' %>"
                       data-playlist-art-url="<%= p.artUrl || '' %>"
                       data-playlist-artwork-mode="<%= p.artworkMode || 'auto' %>"
@@ -449,6 +450,7 @@
           <div class="cur-panel-header">
             <h3 class="cur-panel-title">Tracks</h3>
             <div class="cur-panel-actions" style="gap:8px">
+              <span class="cur-panel-meta" id="playlistDetailDates"></span>
               <span class="cur-panel-meta" id="trackCountLabel"></span>
               <input id="trackSearch" class="cur-input cur-input--sm" type="search" placeholder="Filter tracks…" oninput="applyFilter()" style="width:180px" />
             </div>
@@ -1740,6 +1742,19 @@
       updateSelectionButtons();
     }
 
+    // Show the playlist's created date (distinct from last-updated) in the detail panel only.
+    function updatePlaylistDetailDates(el) {
+      var target = document.getElementById('playlistDetailDates');
+      if (!target) return;
+      var createdAt = Number((el && el.getAttribute('data-playlist-created-at')) || 0);
+      var updatedAt = Number((el && el.getAttribute('data-playlist-updated-at')) || 0);
+      var parts = [];
+      if (createdAt) parts.push('Created ' + fmtShortDate(createdAt));
+      if (updatedAt) parts.push('Updated ' + fmtShortDate(updatedAt));
+      target.textContent = parts.join(' · ');
+      target.title = parts.join(' · ');
+    }
+
     function resolvePlaylistAudience(data) {
       var audience = String((data && data.playlistAudience) || '').trim().toLowerCase();
       if (audience === 'global' || audience === 'external' || audience === 'blend' || audience === 'personal' || audience === 'system' || audience === 'imported') return audience;
@@ -1864,6 +1879,7 @@
       card.dataset.playlistSourceRef = data.sourceRef || '';
       card.dataset.playlistImportedSyncPeriod = normalizeImportedSyncPeriod(data.importedSyncPeriod || 'disabled');
       card.dataset.playlistUpdatedAt = String(Number(data.updatedAt || Date.now()));
+      card.dataset.playlistCreatedAt = String(Number(data.createdAt || data.curatorrCreatedAt || 0));
       card.dataset.playlistArt = data.artPath || '';
       card.dataset.playlistArtUrl = data.artUrl || '';
       card.dataset.playlistArtworkMode = data.artworkMode || 'auto';
@@ -3211,6 +3227,7 @@
       _currentPlexId = plId || null;
       _currentPlexKey = plKey || null;
       updateSelectionSummary(el);
+      updatePlaylistDetailDates(el);
       // Generated playlist not yet synced to Plex — no ID to fetch tracks from
       if (!plId && plKey) {
         _allTracks = []; _offset = 0; _total = 0; _loading = false; _visibleTrackCount = 0;
@@ -4029,6 +4046,7 @@
         deduplicateByDuration: trackFilters.deduplicateByDuration,
         deduplicateIgnoreLikelyVariants: trackFilters.deduplicateIgnoreLikelyVariants,
         deduplicateIgnoreLiveAlbums: trackFilters.deduplicateIgnoreLiveAlbums,
+        preferArtistFolderOverCompilation: trackFilters.preferArtistFolderOverCompilation,
         importSource: rules.importSource || null,
         importSuggestedContent: rules.importSuggestedContent || (rules.importSource ? {
           genres: normaliseUiTriState(rules.genres),
@@ -4434,7 +4452,7 @@
         : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
       var payload = Object.assign({ name: name }, rules);
       if (artwork) payload.artwork = artwork;
-      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, rules: [] };
+      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, preferArtistFolderOverCompilation: false, rules: [] };
       if (allowEmptyDraft) payload.allowEmptyDraft = true;
       if (importSource) payload.importSource = importSource;
       if (removeImportedSourcePlaylistKey) payload.removeImportedSourcePlaylistKey = removeImportedSourcePlaylistKey;
@@ -4591,7 +4609,7 @@
 
     function wizardStarterTrackFilters(trackFilters) {
       var tf = trackFilters && typeof trackFilters === 'object' ? trackFilters : null;
-      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false };
+      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, preferArtistFolderOverCompilation: false };
       return {
         includeFolders: Array.isArray(tf.includeFolders) ? tf.includeFolders.slice() : [],
         excludeFolders: Array.isArray(tf.excludeFolders) ? tf.excludeFolders.slice() : [],
@@ -4603,6 +4621,7 @@
         deduplicateByDuration: Boolean(tf.deduplicateByDuration),
         deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
         deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
+        preferArtistFolderOverCompilation: Boolean(tf.preferArtistFolderOverCompilation),
       };
     }
 
@@ -4817,6 +4836,7 @@
         deduplicateByDuration: false,
         deduplicateIgnoreLikelyVariants: false,
         deduplicateIgnoreLiveAlbums: false,
+        preferArtistFolderOverCompilation: false,
         artworkMode: 'auto',
         customArtworkAsset: '',
         preservedArtworkAsset: '',
@@ -4913,6 +4933,7 @@
       var deduplicateByDuration = Boolean(ws.deduplicateByDuration);
       var deduplicateIgnoreLikelyVariants = Boolean(ws.deduplicateIgnoreLikelyVariants);
       var deduplicateIgnoreLiveAlbums = Boolean(ws.deduplicateIgnoreLiveAlbums);
+      var preferArtistFolderOverCompilation = Boolean(ws.preferArtistFolderOverCompilation);
       var rules = Array.isArray(ws.advancedRules) ? ws.advancedRules.filter(function(rule) {
         return rule && rule.field && rule.operator && rule.value != null && String(rule.value).trim() !== '';
       }).map(function(rule) {
@@ -4923,7 +4944,7 @@
           caseSensitive: Boolean(rule.caseSensitive),
         };
       }) : [];
-      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums) return null;
+      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !preferArtistFolderOverCompilation) return null;
       return {
         includeFolders: includeFolders,
         excludeFolders: excludeFolders,
@@ -4932,6 +4953,7 @@
         deduplicateByDuration: deduplicateByDuration,
         deduplicateIgnoreLikelyVariants: deduplicateIgnoreLikelyVariants,
         deduplicateIgnoreLiveAlbums: deduplicateIgnoreLiveAlbums,
+        preferArtistFolderOverCompilation: preferArtistFolderOverCompilation,
         rules: rules,
       };
     }
@@ -5336,6 +5358,7 @@
         nextState.deduplicateByDuration = templateTrackFilters.deduplicateByDuration;
         nextState.deduplicateIgnoreLikelyVariants = templateTrackFilters.deduplicateIgnoreLikelyVariants;
         nextState.deduplicateIgnoreLiveAlbums = templateTrackFilters.deduplicateIgnoreLiveAlbums;
+        nextState.preferArtistFolderOverCompilation = templateTrackFilters.preferArtistFolderOverCompilation;
       }
       if (nextState.featurePreset) wizardApplyPresetValues(nextState, nextState.featurePreset, false);
       wizardSyncSuggestedName(nextState, false);
@@ -5993,6 +6016,16 @@
             '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
           '</span>' +
         '</label>' +
+        '<label class="spm-wizard-toggle-row" for="wiz-prefer-artist-folder">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Prefer artist-folder copies over compilations</span>' +
+            '<span class="spm-wizard-field-hint">Drops the compilation/various-artists copy whenever the same recording also lives in an artist folder. Applies even when the deduplicate options above are off.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-prefer-artist-folder"' + (_wizardState.preferArtistFolderOverCompilation ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
       '</div>';
       return html;
     }
@@ -6229,6 +6262,7 @@
       if (ws.deduplicateByDuration) html += row('Dedupe duration guard', 'Within 5 seconds');
       if (ws.deduplicateIgnoreLikelyVariants) html += row('Dedupe variant guard', 'Keep live/demo/remix-style versions');
       if (ws.deduplicateIgnoreLiveAlbums) html += row('Dedupe album guard', 'Keep live album/subformat tracks');
+      if (ws.preferArtistFolderOverCompilation) html += row('Prefer artist folders', 'Drop compilation copies when an artist-folder copy exists');
       html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
       if (ws.finalOrdering && ws.finalOrdering !== 'none') html += row('Final ordering', escH(wizardFinalOrderingLabel(ws.finalOrdering)));
       html += '</div>';
@@ -6383,6 +6417,7 @@
         _wizardState.deduplicateByDuration = !!(document.getElementById('wiz-dedupe-duration') && document.getElementById('wiz-dedupe-duration').checked);
         _wizardState.deduplicateIgnoreLikelyVariants = !!(document.getElementById('wiz-dedupe-variant-guard') && document.getElementById('wiz-dedupe-variant-guard').checked);
         _wizardState.deduplicateIgnoreLiveAlbums = !!(document.getElementById('wiz-dedupe-live-album-guard') && document.getElementById('wiz-dedupe-live-album-guard').checked);
+        _wizardState.preferArtistFolderOverCompilation = !!(document.getElementById('wiz-prefer-artist-folder') && document.getElementById('wiz-prefer-artist-folder').checked);
       } else if (step === 4 && IS_ACTUAL_ADMIN) {
         ['include', 'exclude'].forEach(function(kind) {
           var container = document.getElementById('wiz-folder-' + kind + '-chips');
@@ -6994,7 +7029,7 @@
 
       // Step 3: output rules
       if (step === 3) {
-        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title','wiz-dedupe-duration','wiz-dedupe-variant-guard','wiz-dedupe-live-album-guard'].forEach(function(id) {
+        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title','wiz-dedupe-duration','wiz-dedupe-variant-guard','wiz-dedupe-live-album-guard','wiz-prefer-artist-folder'].forEach(function(id) {
           var el = document.getElementById(id);
           if (!el) return;
           var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };

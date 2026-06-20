@@ -1066,7 +1066,8 @@ export function registerSettings(app, ctx) {
       const deduplicateByDuration = req.body?.[`${prefix}_deduplicateByDuration`] === 'on';
       const deduplicateIgnoreLikelyVariants = req.body?.[`${prefix}_deduplicateIgnoreLikelyVariants`] === 'on';
       const deduplicateIgnoreLiveAlbums = req.body?.[`${prefix}_deduplicateIgnoreLiveAlbums`] === 'on';
-      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle, deduplicateByDuration, deduplicateIgnoreLikelyVariants, deduplicateIgnoreLiveAlbums };
+      const preferArtistFolderOverCompilation = req.body?.[`${prefix}_preferArtistFolderOverCompilation`] === 'on';
+      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle, deduplicateByDuration, deduplicateIgnoreLikelyVariants, deduplicateIgnoreLiveAlbums, preferArtistFolderOverCompilation };
     };
     const crescive = {
       capMultiplier:           pct('cr_capMultiplier',        100),
@@ -1914,6 +1915,7 @@ export function registerSettings(app, ctx) {
         deduplicateByDuration: Boolean(tf.deduplicateByDuration),
         deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
         deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
+        preferArtistFolderOverCompilation: Boolean(tf.preferArtistFolderOverCompilation),
       };
     })() : undefined;
     const entry = { id: makeGlobalPlaylistId(), name, rules, trackFilters: gpFilters, enabled: true, createdAt: Date.now() };

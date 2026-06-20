@@ -208,10 +208,11 @@ function normaliseTrackFiltersInput(value) {
   const deduplicateByDuration = Boolean(value.deduplicateByDuration);
   const deduplicateIgnoreLikelyVariants = Boolean(value.deduplicateIgnoreLikelyVariants);
   const deduplicateIgnoreLiveAlbums = Boolean(value.deduplicateIgnoreLiveAlbums);
+  const preferArtistFolderOverCompilation = Boolean(value.preferArtistFolderOverCompilation);
   const rules = (Array.isArray(value.rules) ? value.rules : [])
     .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
     .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
-  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !rules.length) return null;
+  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !preferArtistFolderOverCompilation && !rules.length) return null;
   return {
     includeFolders,
     excludeFolders,
@@ -220,6 +221,7 @@ function normaliseTrackFiltersInput(value) {
     deduplicateByDuration,
     deduplicateIgnoreLikelyVariants,
     deduplicateIgnoreLiveAlbums,
+    preferArtistFolderOverCompilation,
     rules,
   };
 }
@@ -521,6 +523,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     deduplicateByDuration: false,
     deduplicateIgnoreLikelyVariants: false,
     deduplicateIgnoreLiveAlbums: false,
+    preferArtistFolderOverCompilation: false,
     importSource,
     importSuggestedContent: {
       genres: { include: topGenres, exclude: [], includeMode: 'any' },
@@ -1136,7 +1139,7 @@ function isAllowedLidarrImagePath(value) {
   return /^\/(?:api\/v\d+\/)?(?:MediaCover|MediaCoverProxy)\//.test(raw);
 }
 
-export async function rebuildSmartPlaylist(ctx, userPlexId) {
+export async function rebuildSmartPlaylist(ctx, userPlexId, { throwOnError = false } = {}) {
   const {
     db,
     loadConfig,
@@ -1243,8 +1246,15 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
       });
       if (!addRes.ok) {
         const body = await addRes.text().catch(() => '');
-        pushLog({ level: 'warn', app: 'playlist', action: 'sync.add_items_failed', message: `Add playlist items failed: HTTP ${addRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}` });
-        break;
+        pushLog({
+          level: 'error',
+          app: 'playlist',
+          action: 'sync.add_items_failed',
+          message: `HTTP ${addRes.status} PUT ${addUrl.toString()} — ${body.slice(0, 500) || '(empty body)'}`,
+        });
+        const err = new Error(`Add playlist items failed: HTTP ${addRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+        err.status = addRes.status;
+        throw err;
       }
     }
 
@@ -1267,6 +1277,9 @@ export async function rebuildSmartPlaylist(ctx, userPlexId) {
     });
   } catch (err) {
     pushLog({ level: 'error', app: 'playlist', action: 'sync.error', message: safeMessage(err) });
+    // Background callers (webhooks, scheduler, library cleanup) stay fire-and-forget;
+    // user-initiated rebuilds opt in so the route can surface the failure as a 500.
+    if (throwOnError) throw err;
   }
 }
 
@@ -4526,7 +4539,7 @@ export function registerApiMusic(app, ctx) {
   app.post('/api/music/playlist/sync', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     try {
-      await rebuildSmartPlaylist(ctx, userPlexId);
+      await rebuildSmartPlaylist(ctx, userPlexId, { throwOnError: true });
       const lastSync = getLastPlaylistSync(db, userPlexId);
       return res.json({ ok: true, lastSync });
     } catch (err) {
@@ -4541,7 +4554,7 @@ export function registerApiMusic(app, ctx) {
 
     try {
       if (playlistKind === 'legacy' || !playlistKey) {
-        await rebuildSmartPlaylist(ctx, userPlexId);
+        await rebuildSmartPlaylist(ctx, userPlexId, { throwOnError: true });
         return res.json({ ok: true });
       }
 
@@ -4555,7 +4568,7 @@ export function registerApiMusic(app, ctx) {
       ).trim().toLowerCase();
       if (!playlistType) return res.status(404).json({ error: 'Playlist not found.' });
       if (playlistType === 'curatorred') {
-        await rebuildSmartPlaylist(ctx, userPlexId);
+        await rebuildSmartPlaylist(ctx, userPlexId, { throwOnError: true });
         return res.json({ ok: true });
       }
       if (playlistType === 'crescive') {

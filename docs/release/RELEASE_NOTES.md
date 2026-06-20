@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.88 (2026-06-20)
+
+- Fixed scheduled jobs being starved on restart-prone deployments: jobs whose interval elapsed while the container was down/restarting (e.g. the daily Rotating Playlist Sync, Tautulli Gap-Fill, Last.fm Tag Sync) now run on a staggered catch-up shortly after startup instead of waiting a full interval from boot.
+- Fixed the app becoming unresponsive during a Smart Playlist Sync: the job now yields to the event loop between playlist builds, so the UI and container healthchecks keep responding while a rebuild runs.
+- Added the playlist **created** date to the playlist detail panel, shown alongside the last-updated date.
+- Added a **Prefer artist-folder copies over compilations** smart playlist filter that drops the compilation/various-artists copy of a recording whenever the same track also exists in an artist folder — applied even when the deduplicate options are off.
+- User-initiated playlist rebuilds now surface failures as an error instead of silently failing, with added logging for Plex add-items HTTP errors.
+
 ## v0.1.87 (2026-06-05)
 
 - Added a new **New Music Mix** smart playlist starting point that builds from recent media-server library additions, defaults to one track per album, and sorts by newest additions.

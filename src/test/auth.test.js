@@ -5784,6 +5784,42 @@ describe('security guards', () => {
     }
   });
 
+  it('prefers artist-folder copies over compilations independently of the dedupe toggles', () => {
+    const tracks = [
+      // Same recording (shared MBID) in both a compilation folder and an artist folder.
+      { ratingKey: 'comp-mbid', artistName: 'Artist A', trackTitle: 'Song One', albumName: 'Now Thats Music 50', recordingMbid: 'mbid-1', filePath: '/music/Compilations/Now 50/song.mp3', durationMs: 180000, ratingCount: 300, viewCount: 50 },
+      { ratingKey: 'art-mbid', artistName: 'Artist A', trackTitle: 'Song One', albumName: 'Debut', recordingMbid: 'mbid-1', filePath: '/music/Artist A/Debut/song.flac', durationMs: 180500, ratingCount: 10, viewCount: 1 },
+      // Compilation with no artist-folder sibling — must be kept.
+      { ratingKey: 'comp-lonely', artistName: 'Artist Z', trackTitle: 'Solo Track', albumName: 'Various Artists', recordingMbid: 'mbid-2', filePath: '/music/Compilations/VA/solo.mp3', durationMs: 200000, ratingCount: 20, viewCount: 0 },
+      // No MBID — matched by artist/title + close duration. Compilation detected via folder name.
+      { ratingKey: 'comp-path', artistName: 'Artist B', trackTitle: 'Track Two', albumName: 'Mixtape', recordingMbid: '', filePath: '/music/Various Artists/Mix/t.mp3', durationMs: 200000, ratingCount: 100, viewCount: 0 },
+      { ratingKey: 'art-path', artistName: 'Artist B', trackTitle: 'Track Two', albumName: 'Album B', recordingMbid: '', filePath: '/music/Artist B/Album B/t.flac', durationMs: 201000, ratingCount: 5, viewCount: 0 },
+      // Genuinely distinct recording (live) on a compilation — must survive even with an artist-folder studio copy.
+      { ratingKey: 'comp-live', artistName: 'Artist C', trackTitle: 'Track Three (Live)', albumName: 'Live Compilation', recordingMbid: '', filePath: '/music/Compilations/Live/t3.mp3', durationMs: 240000, ratingCount: 80, viewCount: 0 },
+      { ratingKey: 'art-studio', artistName: 'Artist C', trackTitle: 'Track Three', albumName: 'Album C', recordingMbid: '', filePath: '/music/Artist C/Album C/t3.flac', durationMs: 235000, ratingCount: 5, viewCount: 0 },
+    ];
+
+    // Dedupe toggles all off — compilation suppression still applies.
+    const preferOnly = applyTrackFiltersWithReport(tracks, { preferArtistFolderOverCompilation: true }, { duplicateLimit: 10 });
+    assert.deepEqual(preferOnly.tracks.map((t) => t.ratingKey).sort(), ['art-mbid', 'art-path', 'art-studio', 'comp-live', 'comp-lonely']);
+    assert.equal(preferOnly.duplicateCount, 2);
+    assert.ok(preferOnly.duplicateMatches.every((m) => m.method === 'compilation'));
+
+    // Without the flag, nothing is removed when dedupe is off.
+    const off = applyTrackFilters(tracks, { preferArtistFolderOverCompilation: false });
+    assert.equal(off.length, tracks.length);
+
+    // With dedupe by MBID and the flag off, the higher-rated compilation copy wins.
+    const mbidNoPrefer = applyTrackFilters(tracks, { deduplicateByMbid: true });
+    assert.ok(mbidNoPrefer.some((t) => t.ratingKey === 'comp-mbid'));
+    assert.ok(!mbidNoPrefer.some((t) => t.ratingKey === 'art-mbid'));
+
+    // With dedupe by MBID and the flag on, the artist-folder copy is kept instead.
+    const mbidPrefer = applyTrackFilters(tracks, { deduplicateByMbid: true, preferArtistFolderOverCompilation: true });
+    assert.ok(mbidPrefer.some((t) => t.ratingKey === 'art-mbid'));
+    assert.ok(!mbidPrefer.some((t) => t.ratingKey === 'comp-mbid'));
+  });
+
   it('finds duplicate personal playlist names for the same user only', async () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-personal-dupes-${Date.now()}.db`);
     const db = initDb(dbPath);

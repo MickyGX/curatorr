@@ -604,6 +604,11 @@ function pushLog(entry) {
   const pruned = applyLogRetention(LOG_BUFFER, settings);
   if (pruned.length !== LOG_BUFFER.length) LOG_BUFFER.splice(0, LOG_BUFFER.length, ...pruned);
   persistLogsToDisk(settings);
+  // Mirror errors to stdout so they surface in container logs (docker logs / Portainer),
+  // not only the in-app Settings → Logs view that users often overlook.
+  if (safeEntry.level === 'error') {
+    console.error(`[${safeEntry.app}] ${safeEntry.action}: ${safeEntry.message}`);
+  }
 }
 
 // ─── HTTP access log ──────────────────────────────────────────────────────────
@@ -2054,21 +2059,31 @@ export async function start() {
     const _jobFunctions = {
       masterTrackRefresh: () => refreshMasterTrackCache(_routeCtx),
       smartPlaylistSync: async () => {
+        // better-sqlite3 is synchronous, so each playlist build (full-library scans +
+        // per-track filtering) blocks Node's single thread. Without yielding, a server
+        // with several users/playlists keeps the event loop busy long enough that the
+        // HTTP healthcheck times out and the container is marked unhealthy (and may be
+        // restarted by deunhealth / orchestrators mid-run). Yield to the event loop
+        // after every build so healthchecks and the UI stay responsive during a sync.
+        const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
         const currentConfig = loadConfig();
         const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
           if (!prefs.userWizardCompleted) continue;
           await rebuildSmartPlaylist(_routeCtx, userId);
+          await yieldToLoop();
           const _sp = loadConfig().smartPlaylist || {};
-          if (_sp.enableCrescive !== false) await _routeCtx.playlistService.syncCrescive(userId).catch(() => {});
-          if (_sp.enableCurative !== false) await _routeCtx.playlistService.syncCurative(userId).catch(() => {});
+          if (_sp.enableCrescive !== false) { await _routeCtx.playlistService.syncCrescive(userId).catch(() => {}); await yieldToLoop(); }
+          if (_sp.enableCurative !== false) { await _routeCtx.playlistService.syncCurative(userId).catch(() => {}); await yieldToLoop(); }
           await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
           await _routeCtx.playlistService.syncListenbrainzPlaylists(userId).catch(() => {});
           await _routeCtx.refreshScheduledImportedPlaylistsForUser?.(userId).catch(() => {});
+          await yieldToLoop();
           const regularGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && !p.rules?.blendUsers?.length);
           for (const gp of regularGlobal) {
             await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+            await yieldToLoop();
           }
           const personalPlaylists = listUserPersonalPlaylists(db, userId).filter((p) => p.enabled);
           for (const pp of personalPlaylists) {
@@ -2080,6 +2095,7 @@ export async function start() {
               if (age < 7 * 24 * 60 * 60 * 1000) continue;
             }
             await _routeCtx.playlistService.syncPersonalPlaylist(userId, pp).catch(() => {});
+            await yieldToLoop();
           }
         }
         // Blend playlists: sync only for the users they were built from, not the whole server
@@ -2088,6 +2104,7 @@ export async function start() {
           for (const blendUserId of gp.rules.blendUsers) {
             if (isSetupAdminUser(loadConfig(), blendUserId)) continue;
             await _routeCtx.playlistService.syncGlobalPlaylist(blendUserId, gp).catch(() => {});
+            await yieldToLoop();
           }
         }
       },
@@ -2230,11 +2247,14 @@ export async function start() {
 
   // Start background job timers after the server is already accepting connections.
   // Do not run jobs immediately on container start; NAS installs can become sluggish
-  // if playlist/cache work begins while the app is still warming up.
+  // if playlist/cache work begins while the app is still warming up. catchUp:true runs
+  // jobs that are overdue (their interval elapsed while the process was down/restarting)
+  // on a staggered delay, so long-interval jobs aren't starved by frequent restarts.
   const config0 = loadConfig();
   if (config0.wizard?.completed) {
     _routeCtx.jobService.startAll({
       runImmediately: false,
+      catchUp: true,
     });
   }
 

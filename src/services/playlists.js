@@ -1852,12 +1852,93 @@ function compareTrackDateRule(track, operator, value) {
   }
 }
 
-function compareTrackPreferenceForDedupe(a, b) {
+// Compilations have no explicit flag in master_tracks, so detect them from the
+// album/folder naming conventions Plex uses for "Various Artists" releases.
+const COMPILATION_FOLDER_PATTERN = /^(?:compilations?|various[\s._-]*artists)$/i;
+const COMPILATION_ALBUM_PATTERN = /^(?:various[\s._-]*artists|various|v\/a|va)$/i;
+
+function isCompilationTrack(track) {
+  const albumName = String(track?.albumName || '').trim();
+  if (albumName && COMPILATION_ALBUM_PATTERN.test(albumName)) return true;
+  // Some sources carry an album artist even though master_tracks does not store one.
+  const albumArtist = String(track?.albumArtist || '').trim();
+  if (albumArtist && COMPILATION_ALBUM_PATTERN.test(albumArtist)) return true;
+  const filePath = String(track?.filePath || '');
+  if (filePath) {
+    const segments = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (segments.some((segment) => COMPILATION_FOLDER_PATTERN.test(segment))) return true;
+  }
+  return false;
+}
+
+function compareTrackPreferenceForDedupe(a, b, preferArtistFolder = false) {
+  if (preferArtistFolder) {
+    // Non-compilation (artist folder) copies sort first so they win dedup.
+    const compilationDelta = (isCompilationTrack(a) ? 1 : 0) - (isCompilationTrack(b) ? 1 : 0);
+    if (compilationDelta) return compilationDelta;
+  }
   return (Number(b?.ratingCount || 0) - Number(a?.ratingCount || 0))
     || (Number(b?.viewCount || 0) - Number(a?.viewCount || 0))
     || (Number(b?.durationMs || 0) - Number(a?.durationMs || 0))
     || String(a?.albumName || '').localeCompare(String(b?.albumName || ''))
     || String(a?.ratingKey || '').localeCompare(String(b?.ratingKey || ''));
+}
+
+// Drop compilation copies whenever a non-compilation (artist folder) copy of the
+// same recording exists. Runs independently of the dedupe toggles so the
+// preference applies even when duplicate removal is otherwise switched off.
+function suppressCompilationDuplicates(tracks, { duplicateLimit = 0, durationToleranceMs = 5000 } = {}) {
+  const removedKeys = new Set();
+  const matches = [];
+  let removedCount = 0;
+
+  const nonCompByMbid = new Map();
+  const nonCompByTitle = new Map();
+  for (const track of tracks) {
+    if (isCompilationTrack(track)) continue;
+    const mbid = String(track?.recordingMbid || '').trim().toLowerCase();
+    if (mbid && !nonCompByMbid.has(mbid)) nonCompByMbid.set(mbid, track);
+    const titleKey = buildReleaseDedupeTitleKey(track);
+    if (titleKey) {
+      const arr = nonCompByTitle.get(titleKey) || [];
+      arr.push(track);
+      nonCompByTitle.set(titleKey, arr);
+    }
+  }
+
+  for (const track of tracks) {
+    if (!isCompilationTrack(track)) continue;
+    // Leave genuinely distinct recordings (live, demo, remix, …) alone.
+    if (hasLikelyDistinctRecordingMarker(track) || hasLiveAlbumType(track)) continue;
+    const mbid = String(track?.recordingMbid || '').trim().toLowerCase();
+    let keptTrack = null;
+    if (mbid && nonCompByMbid.has(mbid)) {
+      keptTrack = nonCompByMbid.get(mbid);
+    } else {
+      const titleKey = buildReleaseDedupeTitleKey(track);
+      if (titleKey) {
+        keptTrack = (nonCompByTitle.get(titleKey) || []).find((cand) =>
+          !hasLikelyDistinctRecordingMarker(cand)
+          && !hasLiveAlbumType(cand)
+          && canDedupeByTrackDuration(track, cand, durationToleranceMs)
+        ) || null;
+      }
+    }
+    if (keptTrack) {
+      removedKeys.add(String(track?.ratingKey || ''));
+      removedCount += 1;
+      if (matches.length < duplicateLimit) {
+        matches.push({
+          method: 'compilation',
+          key: mbid || buildReleaseDedupeTitleKey(track),
+          reason: 'Artist-folder copy preferred over compilation',
+          kept: summarizeDedupeTrack(keptTrack),
+          duplicate: summarizeDedupeTrack(track),
+        });
+      }
+    }
+  }
+  return { removedKeys, matches, removedCount };
 }
 
 function buildReleaseDedupeTitleKey(track) {
@@ -1925,6 +2006,7 @@ export function applyTrackFiltersWithReport(tracks, filterConfig, options = {}) 
     deduplicateByDuration = false,
     deduplicateIgnoreLikelyVariants = false,
     deduplicateIgnoreLiveAlbums = false,
+    preferArtistFolderOverCompilation = false,
     includeFolders = [],
     excludeFolders = [],
   } = filterConfig;
@@ -1964,6 +2046,20 @@ export function applyTrackFiltersWithReport(tracks, filterConfig, options = {}) 
     });
   }
 
+  // Prefer artist-folder copies over compilations. Runs regardless of the dedupe
+  // toggles so a compilation copy is dropped whenever an artist-folder copy of the
+  // same recording survives the filters above.
+  if (preferArtistFolderOverCompilation) {
+    const supp = suppressCompilationDuplicates(result, { duplicateLimit, durationToleranceMs: 5000 });
+    if (supp.removedKeys.size) {
+      result = result.filter((track) => !supp.removedKeys.has(String(track?.ratingKey || '')));
+    }
+    duplicateCount += supp.removedCount;
+    for (const match of supp.matches) {
+      if (duplicateMatches.length < duplicateLimit) duplicateMatches.push(match);
+    }
+  }
+
   if (deduplicateByMbid || deduplicateByArtistTitle) {
     const keepKeys = new Set();
     const keptByRecordingMbid = new Set();
@@ -1973,7 +2069,7 @@ export function applyTrackFiltersWithReport(tracks, filterConfig, options = {}) 
 
     // Prefer the strongest library copy first, then suppress the duplicate keys the
     // caller has asked for.
-    for (const track of [...result].sort(compareTrackPreferenceForDedupe)) {
+    for (const track of [...result].sort((a, b) => compareTrackPreferenceForDedupe(a, b, preferArtistFolderOverCompilation))) {
       const recordingMbid = String(track?.recordingMbid || '').trim().toLowerCase();
       if (deduplicateByMbid && recordingMbid && keptByRecordingMbid.has(recordingMbid)) {
         duplicateCount += 1;

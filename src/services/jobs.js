@@ -143,16 +143,45 @@ export function createJobService(ctx, jobFunctions) {
     const skipImmediate = new Set(
       Array.isArray(options?.skipImmediate) ? options.skipImmediate : [],
     );
+    // Boot catch-up: timers reset to zero on every restart and there is no
+    // run-on-boot, so a job whose interval is longer than the time between
+    // restarts (e.g. the 24h dailyMixSync on a box that restarts daily) never
+    // fires. When catchUp is on, any job whose last run is older than its
+    // interval is run after startup — staggered so a restart-prone NAS isn't
+    // slammed during warm-up.
+    const catchUp = typeof options === 'object' && options?.catchUp === true;
+    const catchUpDelayMs = Number.isFinite(Number(options?.catchUpInitialDelayMs))
+      ? Number(options.catchUpInitialDelayMs) : 2 * 60 * 1000;
+    const catchUpStaggerMs = Number.isFinite(Number(options?.catchUpStaggerMs))
+      ? Number(options.catchUpStaggerMs) : 90 * 1000;
     const jobsCfg = loadConfig().jobs || {};
+    let catchUpSlot = 0;
     for (const jobId of Object.keys(JOB_DEFS)) {
       if (!jobFunctions[jobId]) continue;
       if (JOB_DEFS[jobId].manualOnly) continue;
       const cfg = jobsCfg[jobId] || {};
       const enabled = cfg.enabled !== false;
+      if (!enabled) continue;
       const intervalMinutes = Number(cfg.intervalMinutes) || JOB_DEFS[jobId].defaultIntervalMinutes;
-      if (enabled) {
-        _scheduleOne(jobId, intervalMinutes);
-        if (runImmediately && !skipImmediate.has(jobId)) runJob(jobId).catch(() => {});
+      _scheduleOne(jobId, intervalMinutes);
+      if (runImmediately && !skipImmediate.has(jobId)) {
+        runJob(jobId).catch(() => {});
+        continue;
+      }
+      if (catchUp) {
+        const lastRunAt = Number(getSystemJobRun(db, jobId)?.last_run_at || 0);
+        if (Date.now() - lastRunAt >= intervalMinutes * 60 * 1000) {
+          const delay = catchUpDelayMs + catchUpSlot * catchUpStaggerMs;
+          catchUpSlot += 1;
+          const handle = setTimeout(() => runJob(jobId).catch(() => {}), delay);
+          if (typeof handle.unref === 'function') handle.unref();
+          pushLog({
+            level: 'info',
+            app: 'jobs',
+            action: 'job.catchup',
+            message: `Scheduled catch-up for overdue job ${jobId} (in ${Math.round(delay / 1000)}s)`,
+          });
+        }
       }
     }
   }
