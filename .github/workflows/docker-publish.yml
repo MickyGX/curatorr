@@ -146,20 +146,34 @@ jobs:
             exit 1
           fi
 
+          # Only reuse an image that is itself multi-arch. The published images use the
+          # v-stripped semver tag (e.g. 0.1.68), so strip the leading "v" from git tag
+          # names before probing. A reuse source that lacks arm64 would silently
+          # propagate a single-arch manifest to every later release (see issue #135).
+          is_multiarch() {
+            local image="$1"
+            local platforms
+            platforms="$(docker buildx imagetools inspect "${image}" 2>/dev/null \
+              | grep -i 'Platform:' || true)"
+            grep -qi 'linux/amd64' <<< "${platforms}" \
+              && grep -qi 'linux/arm64' <<< "${platforms}"
+          }
+
           source_tag=""
-          while IFS= read -r candidate_tag; do
-            [[ -n "${candidate_tag}" ]] || continue
-            if docker buildx imagetools inspect "mickygx/curatorr-analyzer:${candidate_tag}" > /dev/null 2>&1; then
+          while IFS= read -r candidate_ref; do
+            [[ -n "${candidate_ref}" ]] || continue
+            candidate_tag="${candidate_ref#v}"
+            if is_multiarch "mickygx/curatorr-analyzer:${candidate_tag}"; then
               source_tag="${candidate_tag}"
               break
             fi
           done < <(git tag --list 'v*.*.*' --sort=-version:refname | grep -Fxv "${GITHUB_REF_NAME}")
 
           if [[ -z "${source_tag}" ]]; then
-            if docker buildx imagetools inspect "mickygx/curatorr-analyzer:latest" > /dev/null 2>&1; then
+            if is_multiarch "mickygx/curatorr-analyzer:latest"; then
               source_tag="latest"
             else
-              echo "No reusable analyzer image tag was found on Docker Hub."
+              echo "No reusable multi-arch analyzer image was found on Docker Hub."
               exit 1
             fi
           fi
@@ -167,6 +181,31 @@ jobs:
           source_image="mickygx/curatorr-analyzer:${source_tag}"
           docker buildx imagetools create "${tag_args[@]}" "${source_image}"
           echo "source_tag=${source_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify analyzer images are multi-arch
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          failed=false
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] || continue
+            platforms="$(docker buildx imagetools inspect "${tag}" 2>/dev/null \
+              | grep -i 'Platform:' || true)"
+            if grep -qi 'linux/arm64' <<< "${platforms}" \
+              && grep -qi 'linux/amd64' <<< "${platforms}"; then
+              echo "OK: ${tag} is multi-arch (amd64 + arm64)."
+            else
+              echo "ERROR: ${tag} is missing linux/arm64 and/or linux/amd64."
+              failed=true
+            fi
+          done <<< "${{ steps.analyzer-meta.outputs.tags }}"
+
+          if [[ "${failed}" == "true" ]]; then
+            echo "Analyzer publish produced a single-arch manifest (see issue #135)." >&2
+            exit 1
+          fi
 
       - name: Summarize analyzer publish strategy
         shell: bash
