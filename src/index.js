@@ -2068,33 +2068,52 @@ export async function start() {
         const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
         const currentConfig = loadConfig();
         const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
+        const failures = [];
+        let syncedPersonal = 0;
+        const isPersonalPlaylistDue = (schedule, generated) => {
+          const normalized = String(schedule || 'daily').trim().toLowerCase();
+          if (normalized === 'manual') return false;
+          const lastBuiltAt = Number(generated?.lastBuiltAt || 0);
+          if (!lastBuiltAt) return true;
+          const age = Date.now() - lastBuiltAt;
+          if (normalized === 'weekly') return age >= 7 * 24 * 60 * 60 * 1000;
+          return age >= 24 * 60 * 60 * 1000;
+        };
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
-          if (!prefs.userWizardCompleted) continue;
-          await rebuildSmartPlaylist(_routeCtx, userId);
-          await yieldToLoop();
-          const _sp = loadConfig().smartPlaylist || {};
-          if (_sp.enableCrescive !== false) { await _routeCtx.playlistService.syncCrescive(userId).catch(() => {}); await yieldToLoop(); }
-          if (_sp.enableCurative !== false) { await _routeCtx.playlistService.syncCurative(userId).catch(() => {}); await yieldToLoop(); }
-          await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
-          await _routeCtx.playlistService.syncListenbrainzPlaylists(userId).catch(() => {});
-          await _routeCtx.refreshScheduledImportedPlaylistsForUser?.(userId).catch(() => {});
-          await yieldToLoop();
-          const regularGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && !p.rules?.blendUsers?.length);
-          for (const gp of regularGlobal) {
-            await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+          if (prefs.userWizardCompleted) {
+            await rebuildSmartPlaylist(_routeCtx, userId);
             await yieldToLoop();
+            const _sp = loadConfig().smartPlaylist || {};
+            if (_sp.enableCrescive !== false) { await _routeCtx.playlistService.syncCrescive(userId).catch(() => {}); await yieldToLoop(); }
+            if (_sp.enableCurative !== false) { await _routeCtx.playlistService.syncCurative(userId).catch(() => {}); await yieldToLoop(); }
+            await _routeCtx.playlistService.syncLastfmStations(userId).catch(() => {});
+            await _routeCtx.playlistService.syncListenbrainzPlaylists(userId).catch(() => {});
+            await _routeCtx.refreshScheduledImportedPlaylistsForUser?.(userId).catch(() => {});
+            await yieldToLoop();
+            const regularGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && !p.rules?.blendUsers?.length);
+            for (const gp of regularGlobal) {
+              await _routeCtx.playlistService.syncGlobalPlaylist(userId, gp).catch(() => {});
+              await yieldToLoop();
+            }
           }
+          const generated = listUserGeneratedPlaylists(db, userId, { activeOnly: false });
+          const generatedByKey = new Map(generated.map((entry) => [entry.playlistKey, entry]));
           const personalPlaylists = listUserPersonalPlaylists(db, userId).filter((p) => p.enabled);
           for (const pp of personalPlaylists) {
+            const playlistKey = `personal:${pp.id}`;
+            const existing = generatedByKey.get(playlistKey);
+            if (existing?.active === false) continue;
             const schedule = pp.rules?.rebuildSchedule || 'daily';
-            if (schedule === 'manual') continue;
-            if (schedule === 'weekly') {
-              const gen = listUserGeneratedPlaylists(db, userId).find((g) => g.playlistKey === `personal:${pp.id}`);
-              const age = Date.now() - Number(gen?.lastBuiltAt || 0);
-              if (age < 7 * 24 * 60 * 60 * 1000) continue;
+            if (!isPersonalPlaylistDue(schedule, existing)) continue;
+            try {
+              await _routeCtx.playlistService.syncPersonalPlaylist(userId, pp, { trigger: 'auto' });
+              syncedPersonal++;
+            } catch (err) {
+              const message = `Personal playlist "${pp.name || pp.id}" sync failed for ${userId}: ${safeMessage(err)}`;
+              failures.push(message);
+              pushLog({ level: 'warn', app: 'playlist', action: 'personal.sync-error', message });
             }
-            await _routeCtx.playlistService.syncPersonalPlaylist(userId, pp).catch(() => {});
             await yieldToLoop();
           }
         }
@@ -2107,6 +2126,10 @@ export async function start() {
             await yieldToLoop();
           }
         }
+        if (failures.length) {
+          throw new Error(`Smart playlist sync failed for ${failures.length} personal playlist(s): ${failures.slice(0, 3).join('; ')}`);
+        }
+        return { message: `Synced ${syncedPersonal} personal playlist${syncedPersonal === 1 ? '' : 's'}` };
       },
       tautulliDailySync: () => runTautulliDailySync(_routeCtx),
       lidarrReviewArtists: async () => {
@@ -2150,20 +2173,43 @@ export async function start() {
         const currentConfig = loadConfig();
         const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         const smartPlaylistConfig = loadConfig().smartPlaylist || {};
+        const failures = [];
+        let synced = 0;
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
-          if (!prefs.userWizardCompleted) continue;
-          if (smartPlaylistConfig.enableDailyMix !== false) {
-            await _routeCtx.playlistService.syncDailyMix(userId, { trigger: 'auto' }).catch((err) => {
-              pushLog({ level: 'warn', app: 'playlist', action: 'daily-mix.sync-error', message: `Daily Mix sync failed for ${userId}: ${safeMessage(err)}` });
-            });
+          const generated = listUserGeneratedPlaylists(db, userId, { activeOnly: false });
+          const dailyMix = generated.find((entry) => entry.playlistKey === 'daily-mix');
+          const curatorr = generated.find((entry) => entry.playlistKey === 'curatorr');
+          const hasBuiltInPlaylist = Boolean(
+            (dailyMix && dailyMix.active !== false)
+            || (curatorr && curatorr.active !== false),
+          );
+          if (!prefs.userWizardCompleted && !hasBuiltInPlaylist) continue;
+          if (smartPlaylistConfig.enableDailyMix !== false && dailyMix?.active !== false && (prefs.userWizardCompleted || dailyMix)) {
+            try {
+              await _routeCtx.playlistService.syncDailyMix(userId, { trigger: 'auto' });
+              synced++;
+            } catch (err) {
+              const message = `Daily Mix sync failed for ${userId}: ${safeMessage(err)}`;
+              failures.push(message);
+              pushLog({ level: 'warn', app: 'playlist', action: 'daily-mix.sync-error', message });
+            }
           }
-          if (smartPlaylistConfig.enableCuratorr !== false) {
-            await _routeCtx.playlistService.syncCuratorr(userId, { trigger: 'auto' }).catch((err) => {
-              pushLog({ level: 'warn', app: 'playlist', action: 'curatorr.sync-error', message: `Curatorr playlist sync failed for ${userId}: ${safeMessage(err)}` });
-            });
+          if (smartPlaylistConfig.enableCuratorr !== false && curatorr?.active !== false && (prefs.userWizardCompleted || curatorr)) {
+            try {
+              await _routeCtx.playlistService.syncCuratorr(userId, { trigger: 'auto' });
+              synced++;
+            } catch (err) {
+              const message = `Curatorr playlist sync failed for ${userId}: ${safeMessage(err)}`;
+              failures.push(message);
+              pushLog({ level: 'warn', app: 'playlist', action: 'curatorr.sync-error', message });
+            }
           }
         }
+        if (failures.length) {
+          throw new Error(`Rotating playlist sync failed for ${failures.length} playlist(s): ${failures.slice(0, 3).join('; ')}`);
+        }
+        return { message: `Synced ${synced} rotating playlist${synced === 1 ? '' : 's'}` };
       },
       trackEnrichmentSync: () => _routeCtx.trackEnrichmentService?.runSync(),
       trackPlexLoudnessSync: () => _routeCtx.trackEnrichmentService?.runPlexLoudnessSync(),

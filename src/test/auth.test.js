@@ -26,6 +26,7 @@ const {
   findUserPersonalPlaylistByName,
   getAllLastfmTags,
   getAllTrackDecadeTags,
+  getAllUserIds,
   getLidarrArtistProgress,
   getSuggestedArtist,
   getMasterTracks,
@@ -851,6 +852,34 @@ describe('auth flows', () => {
 });
 
 describe('page scoping', () => {
+  it('includes playlist-only owners in scheduled user discovery', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-scheduler-users-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const personalOwner = 'playlist-only-personal';
+    const generatedOwner = 'playlist-only-generated';
+
+    try {
+      createUserPersonalPlaylist(db, personalOwner, {
+        id: 'pp_scheduler',
+        name: 'Scheduler Personal',
+        rules: { rebuildSchedule: 'daily' },
+      });
+      saveUserGeneratedPlaylist(db, generatedOwner, {
+        playlistType: 'daily-mix',
+        playlistKey: 'daily-mix',
+        playlistTitle: 'Daily Mix',
+        plexPlaylistId: 'plex-daily-mix',
+        active: true,
+      });
+
+      const userIds = getAllUserIds(db);
+      assert.ok(userIds.includes(personalOwner));
+      assert.ok(userIds.includes(generatedOwner));
+    } finally {
+      db.close();
+    }
+  });
+
   it('keeps local admin accounts on the global activity view', () => {
     const filter = resolveUserFilter({ username: 'admin', source: 'local' }, 'admin');
     assert.equal(filter, '');

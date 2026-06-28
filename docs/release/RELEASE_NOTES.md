@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.89 (2026-06-28)
+
+- Fixed scheduled playlist rebuilds for installs where playlist owners were only present in stored playlist rows: scheduler user discovery now includes personal playlist owners and generated playlist owners, not just users with play history or completed preference rows.
+- Fixed Smart Playlist Sync so daily and weekly personal playlists use their saved schedule, skip explicitly disabled generated copies, and report per-playlist sync failures instead of marking the whole job as successful.
+- Fixed Rotating Playlist Sync so built-in Daily Mix and Curatorr playlist failures are surfaced in the job status instead of being hidden behind a successful job completion.
+- Added regression coverage for playlist-only scheduler user discovery.
+
 ## v0.1.88 (2026-06-20)
 
 - Fixed scheduled jobs being starved on restart-prone deployments: jobs whose interval elapsed while the container was down/restarting (e.g. the daily Rotating Playlist Sync, Tautulli Gap-Fill, Last.fm Tag Sync) now run on a staggered catch-up shortly after startup instead of waiting a full interval from boot.

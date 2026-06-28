@@ -1607,6 +1607,10 @@ export function getAllUserIds(db) {
     SELECT user_plex_id FROM play_events
     UNION
     SELECT user_plex_id FROM user_preferences WHERE user_wizard_completed = 1
+    UNION
+    SELECT user_plex_id FROM user_personal_playlists
+    UNION
+    SELECT user_plex_id FROM user_generated_playlists
   `).all();
   return [...new Set(rows.map((r) => r.user_plex_id))];
 }
