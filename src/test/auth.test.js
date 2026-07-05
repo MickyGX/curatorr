@@ -18,7 +18,7 @@ process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-client-secret';
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
-const { start, stop, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin } = await import('../index.js');
+const { start, stop, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds } = await import('../index.js');
 const {
   countTracksMissingEnrichment,
   countTracksMissingPlexLoudness,
@@ -875,6 +875,44 @@ describe('page scoping', () => {
       const userIds = getAllUserIds(db);
       assert.ok(userIds.includes(personalOwner));
       assert.ok(userIds.includes(generatedOwner));
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps a same-name Plex owner in scheduled playlist discovery', () => {
+    const dbPath = join(process.env.DATA_DIR, `curatorr-scheduler-setup-collision-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    const ownerId = 'testadmin';
+    const config = {
+      users: [{
+        username: ownerId,
+        email: 'test@curatorr.test',
+        role: 'admin',
+        passwordHash: 'hash',
+        salt: 'salt',
+        createdBy: 'setup',
+        setupAccount: true,
+      }],
+      plex: {
+        userServerTokens: {
+          [ownerId]: 'plex-owner-token',
+        },
+      },
+    };
+
+    try {
+      createUserPersonalPlaylist(db, ownerId, {
+        id: 'pp_owner_collision',
+        name: 'Owner Collision Personal',
+        rules: { rebuildSchedule: 'daily' },
+      });
+
+      assert.ok(getScheduledPlaylistUserIds(db, config).includes(ownerId));
+      assert.ok(!getScheduledPlaylistUserIds(db, {
+        ...config,
+        plex: { userServerTokens: {} },
+      }).includes(ownerId));
     } finally {
       db.close();
     }

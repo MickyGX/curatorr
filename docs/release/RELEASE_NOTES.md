@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.90 (2026-07-05)
+
+- Fixed scheduled playlist rebuilds for installs where the real Plex owner/admin shares an id with the local setup-admin account: Smart Playlist Sync and Rotating Playlist Sync now keep that media-server owner in scheduler discovery when a per-user Plex token exists.
+- Kept setup-only local accounts excluded from playlist scheduler work, preserving the guard that prevents the recovery/admin account from creating personal music state.
+- Added regression coverage for setup-admin/media-server id collisions in scheduled playlist discovery.
+
 ## v0.1.89 (2026-06-28)
 
 - Fixed scheduled playlist rebuilds for installs where playlist owners were only present in stored playlist rows: scheduler user discovery now includes personal playlist owners and generated playlist owners, not just users with play history or completed preference rows.

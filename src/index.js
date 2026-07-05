@@ -1274,6 +1274,15 @@ function resolveUserPlexServerToken(config, userOrId, fallbackToken = '') {
   return String(fallbackToken || source.token || '').trim();
 }
 
+function shouldSkipScheduledPlaylistUser(config, userId) {
+  if (!isSetupAdminUser(config, userId)) return false;
+  return !userHasOwnPlexToken(config, userId);
+}
+
+function getScheduledPlaylistUserIds(db, config) {
+  return getAllUserIds(db).filter((userId) => !shouldSkipScheduledPlaylistUser(config, userId));
+}
+
 function canUserAccessLidarrAutomation(config, user) {
   if (!user || typeof user !== 'object') return false;
   const role = normalizeLocalRole(user.role, 'guest');
@@ -1290,7 +1299,7 @@ function canUserAccessLidarrAutomation(config, user) {
   return resolveUserIdentifiers(user).some((entry) => enabled.has(entry));
 }
 
-export { canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, isSetupAdminUser };
+export { canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds, isSetupAdminUser };
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
@@ -2067,7 +2076,7 @@ export async function start() {
         // after every build so healthchecks and the UI stay responsive during a sync.
         const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
         const currentConfig = loadConfig();
-        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
+        const userIds = getScheduledPlaylistUserIds(db, currentConfig);
         const failures = [];
         let syncedPersonal = 0;
         const isPersonalPlaylistDue = (schedule, generated) => {
@@ -2171,7 +2180,7 @@ export async function start() {
       },
       dailyMixSync: async () => {
         const currentConfig = loadConfig();
-        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
+        const userIds = getScheduledPlaylistUserIds(db, currentConfig);
         const smartPlaylistConfig = loadConfig().smartPlaylist || {};
         const failures = [];
         let synced = 0;
