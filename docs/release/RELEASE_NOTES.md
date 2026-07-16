@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.91 (2026-07-16)
+
+- Fixed the smart playlist wizard Step 4 folder browser (and the global-playlist folder browser in Settings) only listing folders from the first 2000 tracks: in large one-folder-per-artist libraries the list stopped partway through the alphabet, hiding every later artist. Folder segments are now derived from distinct directories in SQL, so the full folder tree is listed regardless of track count.
+- Fixed the **Lidarr: Retry Failed Requests** job permanently wedging when duplicate failed rows accumulated for the same artist/album (e.g. during a long Lidarr outage): re-queueing a second duplicate threw a `UNIQUE constraint` error that aborted the whole job. The retry job is now dedup-aware and constraint-safe — it collapses duplicate failed rows, re-queues one per artist/album under the retry limit, and isolates each item so one failure can no longer stall the job.
+- Fixed duplicate failed Lidarr rows accumulating in the first place: enqueuing a request now revives an existing failed row for the same artist/album instead of inserting another.
+- Added regression coverage for large per-artist folder browsing and for the duplicate-failed Lidarr retry state.
+
 ## v0.1.90 (2026-07-05)
 
 - Fixed scheduled playlist rebuilds for installs where the real Plex owner/admin shares an id with the local setup-admin account: Smart Playlist Sync and Rotating Playlist Sync now keep that media-server owner in scheduler discovery when a per-user Plex token exists.
