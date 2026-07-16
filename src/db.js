@@ -3712,6 +3712,48 @@ export function enqueueLidarrRequest(db, userPlexId, request = {}) {
     db.prepare('SELECT COALESCE(MAX(priority_order), 0) AS max_priority FROM lidarr_requests WHERE user_plex_id = ? AND status = ?')
       .get(userPlexId, 'queued')?.max_priority || 0,
   ) + 1;
+
+  // No active (queued/processing) row. Rather than inserting a fresh row and
+  // leaving the old failed one behind — which is how duplicate `failed` rows
+  // piled up until they wedged the retry job (issue #142) — revive the most
+  // recent failed row for this artist/album and drain any older failed dupes.
+  const failedDupes = db.prepare(`
+    SELECT * FROM lidarr_requests
+    WHERE user_plex_id = ? AND artist_name = ? AND album_title = ? AND status = 'failed'
+    ORDER BY updated_at DESC, id DESC
+  `).all(userPlexId, artistName, albumTitle);
+  if (failedDupes.length) {
+    const survivor = failedDupes[0];
+    const revive = db.transaction(() => {
+      for (const extra of failedDupes.slice(1)) {
+        db.prepare(`UPDATE lidarr_requests SET status = 'removed', processed_at = ?, updated_at = ? WHERE id = ?`)
+          .run(now, now, extra.id);
+      }
+      db.prepare(`
+        UPDATE lidarr_requests
+        SET status = 'queued',
+            source_kind = ?,
+            request_kind = ?,
+            foreign_artist_id = ?,
+            priority_order = ?,
+            detail_json = ?,
+            processed_at = NULL,
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        String(request.sourceKind || survivor.source_kind || 'manual'),
+        String(request.requestKind || survivor.request_kind || 'artist_album'),
+        String(request.foreignArtistId || survivor.foreign_artist_id || ''),
+        Number(request.priorityOrder || nextPriority),
+        JSON.stringify(nextDetail),
+        now,
+        survivor.id,
+      );
+    });
+    revive();
+    return getLidarrRequest(db, survivor.id, userPlexId);
+  }
+
   const result = db.prepare(`
     INSERT INTO lidarr_requests (
       user_plex_id, source_kind, request_kind, artist_name, album_title,
@@ -3774,6 +3816,86 @@ export function updateLidarrRequest(db, requestId, changes = {}, userPlexId = ''
     existing.id,
   );
   return getLidarrRequest(db, existing.id, existing.userPlexId);
+}
+
+// Dedup-aware, constraint-safe re-queue of failed Lidarr requests (issue #142).
+//
+// The partial unique index idx_lidarr_requests_user_active keys on
+// (user, artist, album, status) for status in (queued, processing), so promoting
+// two failed rows for the same artist/album to 'queued' violates it. The old
+// retry job did exactly that with no try/catch, so a single artist with duplicate
+// failed rows threw "UNIQUE constraint failed" and permanently wedged the job.
+//
+// Here we group failed rows per artist/album, keep one survivor, drain the rest
+// to 'removed', and only promote the survivor when no active row already exists
+// and it is still under the retry limit. Each group runs in its own transaction
+// so one bad group can never abort the whole pass.
+export function requeueFailedLidarrRequests(db, userPlexId, { maxRetries = 3, now = Date.now() } = {}) {
+  const uid = String(userPlexId || '').trim();
+  if (!uid) return { requeued: 0, collapsed: 0 };
+
+  const failedRows = db.prepare(`
+    SELECT * FROM lidarr_requests
+    WHERE user_plex_id = ? AND status = 'failed'
+    ORDER BY updated_at ASC, id ASC
+  `).all(uid).map(_normalizeLidarrRequestRow);
+  if (!failedRows.length) return { requeued: 0, collapsed: 0 };
+
+  const keyOf = (artist, album) => `${artist} ${album}`;
+  const activeKeys = new Set(
+    db.prepare(`
+      SELECT DISTINCT artist_name, album_title
+      FROM lidarr_requests
+      WHERE user_plex_id = ? AND status IN ('queued', 'processing')
+    `).all(uid).map((r) => keyOf(r.artist_name || '', r.album_title || '')),
+  );
+
+  const groups = new Map();
+  for (const row of failedRows) {
+    const key = keyOf(row.artistName, row.albumTitle);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const setRemoved = db.prepare(`UPDATE lidarr_requests SET status = 'removed', processed_at = ?, updated_at = ? WHERE id = ?`);
+  const promote = db.prepare(`UPDATE lidarr_requests SET status = 'queued', detail_json = ?, processed_at = NULL, updated_at = ? WHERE id = ?`);
+
+  let requeued = 0;
+  let collapsed = 0;
+
+  const runGroup = db.transaction((key, rows) => {
+    // Survivor = the failed row with the fewest prior retries; drain the rest.
+    const sorted = [...rows].sort(
+      (a, b) => Number(a.detail?.retryCount || 0) - Number(b.detail?.retryCount || 0),
+    );
+    const candidate = sorted[0];
+    for (const dupe of sorted.slice(1)) { setRemoved.run(now, now, dupe.id); collapsed++; }
+    if (activeKeys.has(key)) {
+      // An active queued/processing row already covers this artist/album — the
+      // survivor is redundant, so drain it too instead of colliding.
+      setRemoved.run(now, now, candidate.id);
+      collapsed++;
+      return;
+    }
+    const retryCount = Number(candidate.detail?.retryCount || 0);
+    if (retryCount >= maxRetries) return; // leave the survivor as 'failed'
+    promote.run(
+      JSON.stringify({ ...candidate.detail, retryCount: retryCount + 1, lastRetryAt: now }),
+      now,
+      candidate.id,
+    );
+    activeKeys.add(key);
+    requeued++;
+  });
+
+  for (const [key, rows] of groups) {
+    try {
+      runGroup(key, rows);
+    } catch (err) {
+      try { console.warn(`[requeueFailedLidarrRequests] group failed for ${uid}: ${err?.message || err}`); } catch (_) {}
+    }
+  }
+  return { requeued, collapsed };
 }
 
 export function removeQueuedLidarrRequest(db, requestId, userPlexId = '') {

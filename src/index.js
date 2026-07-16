@@ -17,7 +17,7 @@ import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
-import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists, purgeUserScopedMusicData } from './db.js';
+import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, requeueFailedLidarrRequests, removeQueuedLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists, purgeUserScopedMusicData } from './db.js';
 import { createRecommendationService } from './services/recommendations.js';
 import {
   createLidarrService,
@@ -2155,28 +2155,35 @@ export async function start() {
         const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
         let requeued = 0;
         let unstuck = 0;
+        let collapsed = 0;
         for (const userId of userIds) {
           // Reset requests stuck in processing for over an hour
           const processing = listLidarrRequests(db, userId, { statuses: ['processing'], limit: 100 });
           for (const req of processing) {
             if (now - Number(req.updatedAt || req.createdAt || 0) > STUCK_PROCESSING_MS) {
-              updateLidarrRequest(db, req.id, { status: 'queued' }, userId);
-              unstuck++;
+              try {
+                updateLidarrRequest(db, req.id, { status: 'queued' }, userId);
+                unstuck++;
+              } catch (err) {
+                // A queued row already covers this artist/album — draining the
+                // stuck processing dupe keeps the unique index (and the job) intact.
+                try { removeQueuedLidarrRequest(db, req.id, userId); collapsed++; } catch (_) {}
+                pushLog({ level: 'warn', app: 'lidarr', action: 'retry.unstick-conflict', message: `Dropped duplicate stuck processing request ${req.id}: ${safeMessage(err)}` });
+              }
             }
           }
-          // Re-queue failed requests under the retry limit
-          const failed = listLidarrRequests(db, userId, { statuses: ['failed'], limit: 100 });
-          for (const req of failed) {
-            const retryCount = Number(req.detail?.retryCount || 0);
-            if (retryCount >= MAX_RETRIES) continue;
-            updateLidarrRequest(db, req.id, {
-              status: 'queued',
-              detail: { ...req.detail, retryCount: retryCount + 1, lastRetryAt: now },
-            }, userId);
-            requeued++;
+          // Re-queue failed requests (dedup-aware, constraint-safe) under the retry limit.
+          // Duplicate failed rows for the same artist/album used to throw a UNIQUE
+          // constraint error here and permanently wedge the job (issue #142).
+          try {
+            const res = requeueFailedLidarrRequests(db, userId, { maxRetries: MAX_RETRIES, now });
+            requeued += res.requeued;
+            collapsed += res.collapsed;
+          } catch (err) {
+            pushLog({ level: 'warn', app: 'lidarr', action: 'retry.requeue-error', message: `Retry re-queue failed for ${userId}: ${safeMessage(err)}` });
           }
         }
-        return { requeued, unstuck };
+        return { requeued, unstuck, collapsed };
       },
       dailyMixSync: async () => {
         const currentConfig = loadConfig();
