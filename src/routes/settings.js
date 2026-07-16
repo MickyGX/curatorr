@@ -672,7 +672,7 @@ export function registerSettings(app, ctx) {
           return keys.map((k) => ({ key: k.key, title: nameMap.get(k.key) || k.key }));
         } catch { return []; }
       })(),
-      allPathSegments:  (() => { try { return getDistinctPathSegments(db, { limit: 2000 }); } catch { return []; } })(),
+      allPathSegments:  (() => { try { return getDistinctPathSegments(db, { limit: 50000 }); } catch { return []; } })(),
       localAuthMinPassword: LOCAL_AUTH_MIN_PASSWORD,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,

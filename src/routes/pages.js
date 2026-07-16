@@ -2696,7 +2696,7 @@ export function registerPages(app, ctx) {
       allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
       allTrackDecades: (() => { try { return getAllTrackDecadeTags(db); } catch { return []; } })(),
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
-      allPathSegments: (() => { try { return getDistinctPathSegments(db, { limit: 2000 }); } catch { return []; } })(),
+      allPathSegments: (() => { try { return getDistinctPathSegments(db, { limit: 50000 }); } catch { return []; } })(),
       playlistFeatureCoverage: (() => { try { return getFeaturePresetAvailabilityFromDb(db); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
       lastfmUsername: String(userPrefs?.lastfmUsername || ''),

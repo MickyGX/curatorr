@@ -2236,15 +2236,30 @@ export function getFeaturePresetAvailabilityFromDb(db) {
 }
 
 export function getDistinctPathSegments(db, options = {}) {
+  // `limit` bounds the number of distinct *directories* read from SQL — a safety
+  // valve, NOT a cap on tracks. Deriving folders from a truncated set of file
+  // paths (the previous behaviour) silently dropped every folder past the cutoff
+  // in large per-artist libraries (issue #141). We DISTINCT on the directory in
+  // SQL so the row count scales with folder count, not track count, and never
+  // read every track path into JS.
   const limit = Math.max(0, Math.min(100000, Number(options.limit || 0) || 0));
-  const rows = limit > 0
-    ? db.prepare(`SELECT DISTINCT file_path FROM master_tracks WHERE file_path != '' ORDER BY file_path LIMIT ?`).all(limit)
-    : db.prepare(`SELECT DISTINCT file_path FROM master_tracks WHERE file_path != '' ORDER BY file_path`).all();
-  if (!rows.length) return [];
 
-  // Normalise all paths and split into directory parts (strip filename)
-  const allDirParts = rows.map(({ file_path }) =>
-    file_path.replace(/\\/g, '/').split('/').filter(Boolean).slice(0, -1),
+  // Strip the trailing `/<filename>` in SQL to get the directory of each track.
+  // `replace(file_path, '\', '/')` normalises Windows separators first; then
+  // `rtrim(p, replace(p, '/', ''))` removes every trailing non-slash character,
+  // leaving the path up to and including its last '/'.
+  const dirExpr = `rtrim(replace(file_path, '\\', '/'), replace(replace(file_path, '\\', '/'), '/', ''))`;
+  const rows = limit > 0
+    ? db.prepare(`SELECT DISTINCT ${dirExpr} AS dir FROM master_tracks WHERE file_path != '' ORDER BY dir LIMIT ?`).all(limit)
+    : db.prepare(`SELECT DISTINCT ${dirExpr} AS dir FROM master_tracks WHERE file_path != '' ORDER BY dir`).all();
+  if (!rows.length) return [];
+  if (limit > 0 && rows.length >= limit) {
+    console.warn(`[getDistinctPathSegments] hit directory limit (${limit}); folder browser may be incomplete`);
+  }
+
+  // Each row is already a directory (filename stripped); split into parts.
+  const allDirParts = rows.map(({ dir }) =>
+    String(dir || '').replace(/\\/g, '/').split('/').filter(Boolean),
   );
 
   // Find the common root prefix depth shared by all paths
@@ -2264,8 +2279,7 @@ export function getDistinctPathSegments(db, options = {}) {
     }
   }
 
-  const result = [...subpaths].sort((a, b) => a.localeCompare(b));
-  return limit > 0 ? result.slice(0, limit) : result;
+  return [...subpaths].sort((a, b) => a.localeCompare(b));
 }
 
 export function getDistinctLibraryKeys(db) {
