@@ -4532,6 +4532,7 @@
     var _wizardEditKind = null;
     var _wizardEditId = '';
     var _wizardFolderBrowse = { include: '', exclude: '' };
+    var _wizardFolderSearch = { include: '', exclude: '' };
 
     var WIZARD_BUILTIN_TEMPLATES = [
       { id: 'blank',            icon: '✦', name: 'Custom',      description: 'Start clean and shape it yourself.', rules: {}, trackFilters: null },
@@ -5305,6 +5306,32 @@
       }, []).sort(function(a, b) { return a.name.localeCompare(b.name); });
     }
 
+    // Flat search across every folder in the library so users with thousands of
+    // artists can jump straight to one instead of drilling the tree by hand.
+    function wizardFolderSearchResults(query) {
+      var q = String(query || '').trim().toLowerCase();
+      if (!q) return [];
+      var seen = new Set();
+      var out = [];
+      ALL_PATH_SEGMENTS.forEach(function(path) {
+        var parts = path.split('/');
+        for (var i = 0; i < parts.length; i++) {
+          var name = parts[i];
+          if (!name || name.toLowerCase().indexOf(q) === -1) continue;
+          var fullPath = parts.slice(0, i + 1).join('/');
+          if (seen.has(fullPath)) continue;
+          seen.add(fullPath);
+          out.push({ name: name, path: fullPath });
+        }
+      });
+      out.sort(function(a, b) {
+        var ap = a.name.toLowerCase().indexOf(q) === 0, bp = b.name.toLowerCase().indexOf(q) === 0;
+        if (ap !== bp) return ap ? -1 : 1;
+        return a.path.localeCompare(b.path);
+      });
+      return out;
+    }
+
     function wizardApplyTemplate(templateId) {
       var currentName = _wizardState.name || '';
       var currentTarget = _wizardState.playlistTarget || 'personal';
@@ -5369,6 +5396,7 @@
       _wizardState = wizardDefaultState();
       wizardSyncSuggestedName(_wizardState, true);
       _wizardFolderBrowse = { include: '', exclude: '' };
+      _wizardFolderSearch = { include: '', exclude: '' };
       if (_wizardPendingPrefill) {
         Object.assign(_wizardState, _wizardPendingPrefill);
         wizardSyncSuggestedName(_wizardState, false);
@@ -6041,6 +6069,38 @@
         var chips = (selected || []).map(function(folder) {
           return '<span class="spm-folder-chip" data-folder="' + escH(folder) + '">' + escH(folder) + '<button type="button" class="spm-folder-chip-remove" aria-label="Remove">×</button></span>';
         }).join('');
+        var searchVal = _wizardFolderSearch[kind] || '';
+        var searching = searchVal.trim().length > 0;
+        var searchInput = '<input type="text" class="spm-wizard-folder-search" data-folder-search="' + kind + '" value="' + escH(searchVal) + '" placeholder="Search artists / folders… e.g. stef" autocomplete="off" />';
+        var FOLDER_SEARCH_LIMIT = 200;
+        var listInner;
+        if (searching) {
+          var results = wizardFolderSearchResults(searchVal);
+          if (!results.length) {
+            listInner = '<div class="spm-wizard-folder-empty">No folders match "' + escH(searchVal.trim()) + '".</div>';
+          } else {
+            listInner = results.slice(0, FOLDER_SEARCH_LIMIT).map(function(r) {
+              return '<div class="spm-wizard-folder-item">' +
+                '<button type="button" class="spm-wizard-folder-open" disabled>' +
+                  '<span>' + escH(r.name) + '</span>' +
+                  (r.path !== r.name ? '<span class="spm-wizard-folder-open-meta">' + escH(r.path) + '</span>' : '') +
+                '</button>' +
+                '<button type="button" class="btn btn-ghost spm-wizard-folder-add" data-folder-add="' + kind + '" data-folder-path="' + escH(r.path) + '">Add</button>' +
+              '</div>';
+            }).join('') +
+            (results.length > FOLDER_SEARCH_LIMIT ? '<div class="spm-wizard-folder-empty">Showing first ' + FOLDER_SEARCH_LIMIT + ' of ' + results.length + ' matches — keep typing to narrow it down.</div>' : '');
+          }
+        } else {
+          listInner = children.length ? children.map(function(child) {
+            return '<div class="spm-wizard-folder-item">' +
+              '<button type="button" class="spm-wizard-folder-open" data-folder-open="' + kind + '" data-folder-path="' + escH(child.path) + '">' +
+                '<span>' + escH(child.name) + '</span>' +
+                '<span class="spm-wizard-folder-open-meta">' + (child.hasChildren ? 'Open' : 'Leaf') + '</span>' +
+              '</button>' +
+              '<button type="button" class="btn btn-ghost spm-wizard-folder-add" data-folder-add="' + kind + '" data-folder-path="' + escH(child.path) + '">Add</button>' +
+            '</div>';
+          }).join('') : '<div class="spm-wizard-folder-empty">No deeper folders here.</div>';
+        }
         return '<div class="spm-filter-section spm-wizard-accordion' + (sectionOpen ? ' is-open' : '') + '" data-advanced-kind="' + kind + '">' +
           '<button type="button" class="spm-wizard-accordion-toggle" data-advanced-toggle="' + kind + '">' +
             '<span class="spm-filter-label">' + label + '</span>' +
@@ -6048,6 +6108,8 @@
           '</button>' +
           '<div class="spm-wizard-accordion-panel"' + (sectionOpen ? '' : ' hidden') + ' data-advanced-panel="' + kind + '">' +
           '<div class="spm-wizard-folder-browser">' +
+            searchInput +
+            (searching ? '' :
             '<div class="spm-wizard-folder-row">' +
               '<button type="button" class="btn btn-ghost spm-folder-nav-btn" data-folder-root="' + kind + '"' + (currentPath ? '' : ' disabled') + '>Top level</button>' +
               '<button type="button" class="btn btn-ghost spm-folder-nav-btn" data-folder-up="' + kind + '"' + (currentPath ? '' : ' disabled') + '>Up</button>' +
@@ -6058,18 +6120,8 @@
                   return '<span class="spm-wizard-folder-sep">/</span><button type="button" class="spm-wizard-folder-crumb' + (crumbPath === currentPath ? ' is-current' : '') + '" data-folder-browse="' + kind + '" data-folder-path="' + escH(crumbPath) + '">' + escH(part) + '</button>';
                 }).join('') +
               '</div>' +
-            '</div>' +
-            '<div class="spm-wizard-folder-list">' +
-              (children.length ? children.map(function(child) {
-                return '<div class="spm-wizard-folder-item">' +
-                  '<button type="button" class="spm-wizard-folder-open" data-folder-open="' + kind + '" data-folder-path="' + escH(child.path) + '">' +
-                    '<span>' + escH(child.name) + '</span>' +
-                    '<span class="spm-wizard-folder-open-meta">' + (child.hasChildren ? 'Open' : 'Leaf') + '</span>' +
-                  '</button>' +
-                  '<button type="button" class="btn btn-ghost spm-wizard-folder-add" data-folder-add="' + kind + '" data-folder-path="' + escH(child.path) + '">Add</button>' +
-                '</div>';
-              }).join('') : '<div class="spm-wizard-folder-empty">No deeper folders here.</div>') +
-            '</div>' +
+            '</div>') +
+            '<div class="spm-wizard-folder-list">' + listInner + '</div>' +
           '</div>' +
           '<div class="spm-wizard-field-hint">' + (kind === 'include' ? 'If any folders are included, only tracks from those folders are eligible.' : 'Excluded folders are removed before rules are evaluated.') + '</div>' +
           '<div class="spm-folder-chip-row" id="wiz-folder-' + kind + '-chips">' + chips + '</div>' +
@@ -7050,6 +7102,21 @@
           btn.addEventListener('click', function() {
             _wizardState.activeAdvancedSection = btn.dataset.advancedToggle || 'include';
             wizardRenderStep(4);
+          });
+        });
+        document.querySelectorAll('#spm-wizard-body [data-folder-search]').forEach(function(input) {
+          input.addEventListener('input', function() {
+            var kind = input.dataset.folderSearch;
+            var caret = input.selectionStart;
+            _wizardFolderSearch[kind] = input.value;
+            wizardSaveStateFromStep(4);
+            wizardRenderStep(4);
+            // Re-render replaces the input, so restore focus and caret to keep typing.
+            var next = document.querySelector('#spm-wizard-body [data-folder-search="' + kind + '"]');
+            if (next) {
+              next.focus();
+              try { next.setSelectionRange(caret, caret); } catch (e) {}
+            }
           });
         });
         ['include', 'exclude'].forEach(function(kind) {

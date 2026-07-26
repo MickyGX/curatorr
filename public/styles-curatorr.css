@@ -9037,6 +9037,29 @@ html[data-square-corners="1"] .blend-compat-score-wrap {
   color: var(--muted, #888);
   font-size: 12px;
 }
+.spm-wizard-folder-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  background: var(--surface-1, #1a1a1a);
+  color: var(--text, #e0e0e0);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.spm-wizard-folder-search::placeholder {
+  color: var(--muted, rgba(255,255,255,0.55));
+}
+.spm-wizard-folder-search:focus {
+  outline: none;
+  border-color: rgba(var(--brand-rgb), 0.55);
+}
+.spm-wizard-folder-open[disabled] {
+  cursor: default;
+  opacity: 0.85;
+}
 .spm-wizard-folder-list {
   display: flex;
   flex-direction: column;

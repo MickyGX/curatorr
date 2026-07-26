@@ -6514,9 +6514,41 @@ html[data-square-corners="1"] .widget-card-customize-panel {
   font-size: 11px;
 }
 
+.gp-browser-search {
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  border: none;
+  border-bottom: 1px solid var(--border, #333);
+  background: var(--bg-subtle, rgba(255,255,255,0.04));
+  color: var(--text, #e6edf7);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.gp-browser-search::placeholder {
+  color: var(--text-muted, #999);
+  opacity: 0.72;
+}
+
+.gp-browser-search:focus {
+  outline: none;
+  border-bottom-color: rgba(var(--brand-rgb), 0.55);
+}
+
 .gp-browser-list {
   overflow-y: auto;
   flex: 1;
+}
+
+.gp-browser-row-path {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text-muted, #999);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
 }
 
 .gp-browser-row {

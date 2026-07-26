@@ -1689,6 +1689,7 @@
                       <span class="gp-browser-path" id="gp-include-path">/</span>
                       <button type="button" class="btn btn-sm btn-ghost gp-browser-add-current" id="gp-include-add-current" style="display:none">+ Add this folder</button>
                     </div>
+                    <input type="text" class="gp-browser-search" id="gp-include-search" placeholder="Search artists / folders… e.g. stef" autocomplete="off" />
                     <div class="gp-browser-list" id="gp-include-list"></div>
                   </div>
                   <div class="gp-folder-chips" id="gp-include-chips"></div>
@@ -1700,6 +1701,7 @@
                       <span class="gp-browser-path" id="gp-exclude-path">/</span>
                       <button type="button" class="btn btn-sm btn-ghost gp-browser-add-current" id="gp-exclude-add-current" style="display:none">+ Add this folder</button>
                     </div>
+                    <input type="text" class="gp-browser-search" id="gp-exclude-search" placeholder="Search artists / folders… e.g. stef" autocomplete="off" />
                     <div class="gp-browser-list" id="gp-exclude-list"></div>
                   </div>
                   <div class="gp-folder-chips" id="gp-exclude-chips"></div>
@@ -1980,6 +1982,9 @@
                 var _ic = document.getElementById('gp-include-chips'); if (_ic) _ic.innerHTML = '';
                 var _ec = document.getElementById('gp-exclude-chips'); if (_ec) _ec.innerHTML = '';
                 _gpFolderNav = { include: [], exclude: [] };
+                _gpFolderSearch = { include: '', exclude: '' };
+                var _is = document.getElementById('gp-include-search'); if (_is) _is.value = '';
+                var _es = document.getElementById('gp-exclude-search'); if (_es) _es.value = '';
                 gpRenderFolderBrowser('include');
                 gpRenderFolderBrowser('exclude');
                 document.getElementById('gp-dedup-mbid').checked = false;
@@ -2084,8 +2089,88 @@
               })();
 
               var _gpFolderNav = { include: [], exclude: [] };
+              var _gpFolderSearch = { include: '', exclude: '' };
+
+              // Flattened list of every distinct folder in the tree, used by the
+              // search box so users can jump straight to an artist without drilling.
+              var _GP_ALL_FOLDERS = (function() {
+                var out = [];
+                (function walk(node, prefix) {
+                  Object.keys(node).forEach(function(name) {
+                    var path = prefix ? prefix + '/' + name : name;
+                    out.push({ name: name, path: path, lower: name.toLowerCase() });
+                    walk(node[name], path);
+                  });
+                })(_GP_FOLDER_TREE, '');
+                return out;
+              })();
+
+              function gpRenderFolderSearchResults(type, query) {
+                var listEl = document.getElementById('gp-' + type + '-list');
+                if (!listEl) return;
+                var pathEl = document.getElementById('gp-' + type + '-path');
+                if (pathEl) pathEl.textContent = 'Search: ' + query;
+                var addCurBtn = document.getElementById('gp-' + type + '-add-current');
+                if (addCurBtn) addCurBtn.style.display = 'none';
+                listEl.innerHTML = '';
+
+                var matches = _GP_ALL_FOLDERS.filter(function(f) { return f.lower.indexOf(query) !== -1; });
+                // Prefix matches first (typing "stef" surfaces "Stef Bos" before "..."), then A→Z.
+                matches.sort(function(a, b) {
+                  var ap = a.lower.indexOf(query) === 0, bp = b.lower.indexOf(query) === 0;
+                  if (ap !== bp) return ap ? -1 : 1;
+                  return a.path.localeCompare(b.path);
+                });
+
+                if (!matches.length) {
+                  var none = document.createElement('div');
+                  none.className = 'tf-empty-hint'; none.style.padding = '6px 10px';
+                  none.textContent = 'No folders match "' + query + '".';
+                  listEl.appendChild(none);
+                  return;
+                }
+
+                var LIMIT = 200;
+                matches.slice(0, LIMIT).forEach(function(f) {
+                  var row = document.createElement('div');
+                  row.className = 'gp-browser-row';
+
+                  var nameSpan = document.createElement('span');
+                  nameSpan.className = 'gp-browser-row-name';
+                  nameSpan.textContent = f.name;
+                  row.appendChild(nameSpan);
+
+                  // Show the parent path so same-named folders can be told apart.
+                  if (f.path !== f.name) {
+                    var pathHint = document.createElement('span');
+                    pathHint.className = 'gp-browser-row-path';
+                    pathHint.textContent = f.path;
+                    row.appendChild(pathHint);
+                  }
+
+                  var addBtn = document.createElement('button');
+                  addBtn.type = 'button';
+                  addBtn.className = 'btn btn-sm btn-ghost gp-browser-add-btn';
+                  addBtn.textContent = '+ Add';
+                  (function(p) {
+                    addBtn.addEventListener('click', function() { gpAddFolderChip(type, p, true); });
+                  })(f.path);
+                  row.appendChild(addBtn);
+
+                  listEl.appendChild(row);
+                });
+
+                if (matches.length > LIMIT) {
+                  var more = document.createElement('div');
+                  more.className = 'tf-empty-hint'; more.style.padding = '6px 10px';
+                  more.textContent = 'Showing first ' + LIMIT + ' of ' + matches.length + ' matches — keep typing to narrow it down.';
+                  listEl.appendChild(more);
+                }
+              }
 
               function gpRenderFolderBrowser(type) {
+                var query = (_gpFolderSearch[type] || '').trim().toLowerCase();
+                if (query) { gpRenderFolderSearchResults(type, query); return; }
                 var path = _gpFolderNav[type];
                 var node = _GP_FOLDER_TREE;
                 for (var i = 0; i < path.length; i++) node = node[path[i]] || {};
@@ -2175,6 +2260,15 @@
               document.getElementById('gp-exclude-add-current').addEventListener('click', function() {
                 var p = _gpFolderNav['exclude'];
                 if (p.length) gpAddFolderChip('exclude', p.join('/'), true);
+              });
+
+              ['include', 'exclude'].forEach(function(type) {
+                var searchEl = document.getElementById('gp-' + type + '-search');
+                if (!searchEl) return;
+                searchEl.addEventListener('input', function() {
+                  _gpFolderSearch[type] = searchEl.value;
+                  gpRenderFolderBrowser(type);
+                });
               });
 
               gpRenderFolderBrowser('include');
