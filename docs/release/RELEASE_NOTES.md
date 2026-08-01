@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.93 (2026-08-01)
+
+- Cleared the remaining production `npm audit` findings by refreshing the Express 4 dependency stack in the lockfile, including patched `express`, `body-parser`, `path-to-regexp`, and `qs` versions.
+- Kept the update scoped to dependency metadata only; no application behavior or configuration changes are included.
+- Verified the release with a clean production audit and the full Node test suite.
+
 ## v0.1.92 (2026-08-01)
 
 - Improved Smart Playlist folder picking with live search across the full Include/Exclude folder tree in both the wizard and Settings global-playlist builder. Matches are ranked with prefix hits first and show parent paths for same-named folders.
