@@ -1941,6 +1941,50 @@ function suppressCompilationDuplicates(tracks, { duplicateLimit = 0, durationTol
   return { removedKeys, matches, removedCount };
 }
 
+function suppressNonStudioVariants(tracks, { duplicateLimit = 0, preferArtistFolder = false } = {}) {
+  const removedKeys = new Set();
+  const matches = [];
+  let removedCount = 0;
+
+  const studioByMbid = new Map();
+  const studioByTitle = new Map();
+  for (const track of [...tracks].sort((a, b) => compareTrackPreferenceForDedupe(a, b, preferArtistFolder))) {
+    if (isLikelyNonStudioVariant(track)) continue;
+    const mbid = String(track?.recordingMbid || '').trim().toLowerCase();
+    if (mbid && !studioByMbid.has(mbid)) studioByMbid.set(mbid, track);
+    const titleKey = buildReleaseDedupeTitleKey(track);
+    if (titleKey && !studioByTitle.has(titleKey)) studioByTitle.set(titleKey, track);
+  }
+
+  for (const track of tracks) {
+    if (!isLikelyNonStudioVariant(track)) continue;
+    const ratingKey = String(track?.ratingKey || '');
+    if (!ratingKey) continue;
+    const mbid = String(track?.recordingMbid || '').trim().toLowerCase();
+    let key = mbid;
+    let keptTrack = mbid ? studioByMbid.get(mbid) : null;
+    if (!keptTrack) {
+      key = buildReleaseDedupeTitleKey(track);
+      keptTrack = key ? studioByTitle.get(key) : null;
+    }
+    if (keptTrack) {
+      removedKeys.add(ratingKey);
+      removedCount += 1;
+      if (matches.length < duplicateLimit) {
+        matches.push({
+          method: 'studio_preference',
+          key,
+          reason: 'Studio recording preferred over live/demo/acoustic/remix/instrumental variant',
+          kept: summarizeDedupeTrack(keptTrack),
+          duplicate: summarizeDedupeTrack(track),
+        });
+      }
+    }
+  }
+
+  return { removedKeys, matches, removedCount };
+}
+
 function buildReleaseDedupeTitleKey(track) {
   const artistKey = primaryArtistKey(track?.artistName || '');
   let titleKey = normalizeMatchTitleExact(track?.trackTitle || '');
@@ -1971,6 +2015,10 @@ function hasLikelyDistinctRecordingMarker(track) {
 function hasLiveAlbumType(track) {
   const albumType = String(track?.albumType || track?.albumSubformat || track?.albumSubformats || '').trim();
   return /\blive\b/i.test(albumType);
+}
+
+function isLikelyNonStudioVariant(track) {
+  return hasLikelyDistinctRecordingMarker(track) || hasLiveAlbumType(track);
 }
 
 function canDedupeByTrackDuration(left, right, toleranceMs) {
@@ -2007,6 +2055,7 @@ export function applyTrackFiltersWithReport(tracks, filterConfig, options = {}) 
     deduplicateIgnoreLikelyVariants = false,
     deduplicateIgnoreLiveAlbums = false,
     preferArtistFolderOverCompilation = false,
+    preferStudioRecordings = false,
     includeFolders = [],
     excludeFolders = [],
   } = filterConfig;
@@ -2051,6 +2100,22 @@ export function applyTrackFiltersWithReport(tracks, filterConfig, options = {}) 
   // same recording survives the filters above.
   if (preferArtistFolderOverCompilation) {
     const supp = suppressCompilationDuplicates(result, { duplicateLimit, durationToleranceMs: 5000 });
+    if (supp.removedKeys.size) {
+      result = result.filter((track) => !supp.removedKeys.has(String(track?.ratingKey || '')));
+    }
+    duplicateCount += supp.removedCount;
+    for (const match of supp.matches) {
+      if (duplicateMatches.length < duplicateLimit) duplicateMatches.push(match);
+    }
+  }
+
+  // Prefer regular studio recordings over likely live/demo/acoustic/remix variants.
+  // Variants are kept when no studio recording of the same song survives.
+  if (preferStudioRecordings) {
+    const supp = suppressNonStudioVariants(result, {
+      duplicateLimit,
+      preferArtistFolder: preferArtistFolderOverCompilation,
+    });
     if (supp.removedKeys.size) {
       result = result.filter((track) => !supp.removedKeys.has(String(track?.ratingKey || '')));
     }
@@ -2541,6 +2606,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   const trackTierFilter  = parseTriStateFilter(rules.trackTiers);
   const gf = parseTriStateFilter(rules.genres);
   const mf = parseTriStateFilter(rules.moods);
+  const acf = parseTriStateFilter(rules.artistCountries);
   const agf = parseTriStateFilter(rules.albumGenres);
   const asf = parseTriStateFilter(rules.albumStyles);
   const amf = parseTriStateFilter(rules.albumMoods);
@@ -2581,6 +2647,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
 
     if (!matchesTriStateValues(t.genres || [], gf)) continue;
     if (!matchesTriStateValues(t.moods || [], mf)) continue;
+    if (!matchesTriStateValues(t.artistCountries || [], acf)) continue;
     if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
     if (!matchesTriStateValues(t.albumStyles || [], asf)) continue;
     if (!matchesTriStateValues(t.albumMoods || [], amf)) continue;

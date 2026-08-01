@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS master_tracks (
   album_name    TEXT NOT NULL DEFAULT '',
   recording_mbid TEXT NOT NULL DEFAULT '',
   genres        TEXT NOT NULL DEFAULT '[]',
+  artist_countries TEXT NOT NULL DEFAULT '[]',
   album_genres  TEXT NOT NULL DEFAULT '[]',
   album_styles  TEXT NOT NULL DEFAULT '[]',
   album_moods   TEXT NOT NULL DEFAULT '[]',
@@ -576,6 +577,8 @@ export function initDb(dbPath) {
     db.exec('ALTER TABLE master_tracks ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
   if (!masterCols.includes('moods'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN moods TEXT NOT NULL DEFAULT '[]'");
+  if (!masterCols.includes('artist_countries'))
+    db.exec("ALTER TABLE master_tracks ADD COLUMN artist_countries TEXT NOT NULL DEFAULT '[]'");
   if (!masterCols.includes('recording_mbid'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('album_genres'))
@@ -2014,12 +2017,12 @@ export function clearPlaylistJob(db, userPlexId) {
 
 export function refreshMasterTracks(db, tracks) {
   const upsert = db.prepare(`
-    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, album_genres, album_styles, album_moods, library_key, file_path, duration_ms, library_added_at, rating_count, view_count, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO master_tracks (rating_key, artist_name, track_title, album_name, recording_mbid, genres, moods, artist_countries, album_genres, album_styles, album_moods, library_key, file_path, duration_ms, library_added_at, rating_count, view_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(rating_key) DO UPDATE SET
       artist_name = excluded.artist_name, track_title = excluded.track_title,
       album_name = excluded.album_name, recording_mbid = excluded.recording_mbid,
-      genres = excluded.genres, moods = excluded.moods,
+      genres = excluded.genres, moods = excluded.moods, artist_countries = excluded.artist_countries,
       album_genres = excluded.album_genres, album_styles = excluded.album_styles, album_moods = excluded.album_moods,
       library_key = excluded.library_key, file_path = excluded.file_path,
       duration_ms = excluded.duration_ms,
@@ -2047,6 +2050,7 @@ export function refreshMasterTracks(db, tracks) {
         String(r.recordingMbid || '').trim(),
         JSON.stringify(r.genres || []),
         JSON.stringify(r.moods || []),
+        JSON.stringify(r.artistCountries || []),
         JSON.stringify(r.albumGenres || []),
         JSON.stringify(r.albumStyles || []),
         JSON.stringify(r.albumMoods || []),
@@ -2080,6 +2084,7 @@ export function updateMasterTrackTagMetadata(db, tracks) {
     UPDATE master_tracks
     SET
       moods = COALESCE(?, moods),
+      artist_countries = COALESCE(?, artist_countries),
       album_genres = COALESCE(?, album_genres),
       album_styles = COALESCE(?, album_styles),
       album_moods = COALESCE(?, album_moods),
@@ -2092,6 +2097,7 @@ export function updateMasterTrackTagMetadata(db, tracks) {
       if (!ratingKey) continue;
       update.run(
         Array.isArray(row.moods) ? JSON.stringify(row.moods) : null,
+        Array.isArray(row.artistCountries) ? JSON.stringify(row.artistCountries) : null,
         Array.isArray(row.albumGenres) ? JSON.stringify(row.albumGenres) : null,
         Array.isArray(row.albumStyles) ? JSON.stringify(row.albumStyles) : null,
         Array.isArray(row.albumMoods) ? JSON.stringify(row.albumMoods) : null,
@@ -2143,6 +2149,7 @@ export function getMasterTracks(db) {
     albumName: r.album_name,
     genres: JSON.parse(r.genres || '[]'),
     moods: JSON.parse(r.moods || '[]'),
+    artistCountries: JSON.parse(r.artist_countries || '[]'),
     albumGenres: JSON.parse(r.album_genres || '[]'),
     albumStyles: JSON.parse(r.album_styles || '[]'),
     albumMoods: JSON.parse(r.album_moods || '[]'),
@@ -2702,6 +2709,10 @@ function collectDistinctMasterJsonValues(db, columnName, { splitSemicolons = fal
 
 export function getMoodsFromMaster(db) {
   return collectDistinctMasterJsonValues(db, 'moods');
+}
+
+export function getArtistCountriesFromMaster(db) {
+  return collectDistinctMasterJsonValues(db, 'artist_countries');
 }
 
 export function getAlbumGenresFromMaster(db) {
@@ -4087,6 +4098,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
   const trackTierFilter  = parseTriStateFilter(rules?.trackTiers);
   const gf = parseTriStateFilter(rules?.genres);
   const mf = parseTriStateFilter(rules?.moods);
+  const acf = parseTriStateFilter(rules?.artistCountries);
   const agf = parseTriStateFilter(rules?.albumGenres);
   const asf = parseTriStateFilter(rules?.albumStyles);
   const amf = parseTriStateFilter(rules?.albumMoods);
@@ -4183,6 +4195,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
 
       if (!matchesTriStateValues(t.genres || [], gf)) continue;
       if (!matchesTriStateValues(t.moods || [], mf)) continue;
+      if (!matchesTriStateValues(t.artistCountries || [], acf)) continue;
       if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
       if (!matchesTriStateValues(t.albumStyles || [], asf)) continue;
       if (!matchesTriStateValues(t.albumMoods || [], amf)) continue;
@@ -4264,6 +4277,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       if (!matchesReleaseRules(t, rules)) continue;
       if (!matchesTriStateValues(t.genres || [], gf)) continue;
       if (!matchesTriStateValues(t.moods || [], mf)) continue;
+      if (!matchesTriStateValues(t.artistCountries || [], acf)) continue;
       if (!matchesTriStateValues(t.albumGenres || [], agf)) continue;
       if (!matchesTriStateValues(t.albumStyles || [], asf)) continue;
       if (!matchesTriStateValues(t.albumMoods || [], amf)) continue;

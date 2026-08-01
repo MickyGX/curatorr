@@ -209,10 +209,11 @@ function normaliseTrackFiltersInput(value) {
   const deduplicateIgnoreLikelyVariants = Boolean(value.deduplicateIgnoreLikelyVariants);
   const deduplicateIgnoreLiveAlbums = Boolean(value.deduplicateIgnoreLiveAlbums);
   const preferArtistFolderOverCompilation = Boolean(value.preferArtistFolderOverCompilation);
+  const preferStudioRecordings = Boolean(value.preferStudioRecordings);
   const rules = (Array.isArray(value.rules) ? value.rules : [])
     .filter((r) => r && r.field && r.operator && r.value != null && r.value !== '')
     .map((r) => ({ field: String(r.field), operator: String(r.operator), value: String(r.value), caseSensitive: Boolean(r.caseSensitive) }));
-  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !preferArtistFolderOverCompilation && !rules.length) return null;
+  if (!includeFolders.length && !excludeFolders.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !preferArtistFolderOverCompilation && !preferStudioRecordings && !rules.length) return null;
   return {
     includeFolders,
     excludeFolders,
@@ -222,6 +223,7 @@ function normaliseTrackFiltersInput(value) {
     deduplicateIgnoreLikelyVariants,
     deduplicateIgnoreLiveAlbums,
     preferArtistFolderOverCompilation,
+    preferStudioRecordings,
     rules,
   };
 }
@@ -311,7 +313,7 @@ function sanitizeImportedSourceInput(value) {
 
 function sanitizeImportedContentSetInput(value) {
   if (!value || typeof value !== 'object') return null;
-  const kinds = ['genres', 'moods', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'];
+  const kinds = ['genres', 'moods', 'artistCountries', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'];
   const next = {};
   let hasAny = false;
   for (const kind of kinds) {
@@ -400,6 +402,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
   const matchedTracks = db.prepare(`
     SELECT
       m.rating_key, m.artist_name, m.genres, m.moods,
+      m.artist_countries,
       m.album_genres, m.album_styles, m.album_moods,
       e.bpm, e.energy, e.danceability, e.track_year, e.original_release_date
     FROM playlist_tracks pt
@@ -411,6 +414,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     artistName: r.artist_name,
     genres: JSON.parse(r.genres || '[]'),
     moods: JSON.parse(r.moods || '[]'),
+    artistCountries: JSON.parse(r.artist_countries || '[]'),
     albumGenres: JSON.parse(r.album_genres || '[]'),
     albumStyles: JSON.parse(r.album_styles || '[]'),
     albumMoods: JSON.parse(r.album_moods || '[]'),
@@ -428,6 +432,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
   const danceabilityRange = inferImportedValueRange(matchedTracks.map((track) => track?.danceability), { round: (value) => Number(value.toFixed(2)) });
   const topGenres = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.genres) ? track.genres : []), { minShare: 0.18, maxValues: 4 });
   const topMoods = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []), { minShare: 0.18, maxValues: 4 });
+  const topArtistCountries = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.artistCountries) ? track.artistCountries : []), { minShare: 0.18, maxValues: 4 });
   const topAlbumGenres = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.albumGenres) ? track.albumGenres : []), { minShare: 0.18, maxValues: 4 });
   const topAlbumStyles = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.albumStyles) ? track.albumStyles : []), { minShare: 0.18, maxValues: 4 });
   const topAlbumMoods = inferImportedTopValues(matchedTracks.flatMap((track) => Array.isArray(track?.albumMoods) ? track.albumMoods : []), { minShare: 0.18, maxValues: 4 });
@@ -446,6 +451,9 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
   );
   const allDetectedMoods = inferImportedAllValues(
     matchedTracks.flatMap((track) => Array.isArray(track?.moods) ? track.moods : []),
+  );
+  const allDetectedArtistCountries = inferImportedAllValues(
+    matchedTracks.flatMap((track) => Array.isArray(track?.artistCountries) ? track.artistCountries : []),
   );
   const allDetectedAlbumGenres = inferImportedAllValues(
     matchedTracks.flatMap((track) => Array.isArray(track?.albumGenres) ? track.albumGenres : []),
@@ -481,6 +489,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     rebuildSchedule: 'daily',
     genres: { include: topGenres, exclude: [], includeMode: 'any' },
     moods: { include: topMoods, exclude: [], includeMode: 'any' },
+    artistCountries: { include: topArtistCountries, exclude: [], includeMode: 'any' },
     albumGenres: { include: topAlbumGenres, exclude: [], includeMode: 'any' },
     albumStyles: { include: topAlbumStyles, exclude: [], includeMode: 'any' },
     albumMoods: { include: topAlbumMoods, exclude: [], includeMode: 'any' },
@@ -524,10 +533,12 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     deduplicateIgnoreLikelyVariants: false,
     deduplicateIgnoreLiveAlbums: false,
     preferArtistFolderOverCompilation: false,
+    preferStudioRecordings: false,
     importSource,
     importSuggestedContent: {
       genres: { include: topGenres, exclude: [], includeMode: 'any' },
       moods: { include: topMoods, exclude: [], includeMode: 'any' },
+      artistCountries: { include: topArtistCountries, exclude: [], includeMode: 'any' },
       albumGenres: { include: topAlbumGenres, exclude: [], includeMode: 'any' },
       albumStyles: { include: topAlbumStyles, exclude: [], includeMode: 'any' },
       albumMoods: { include: topAlbumMoods, exclude: [], includeMode: 'any' },
@@ -537,6 +548,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     importDetectedContent: {
       genres: { include: allDetectedGenres, exclude: [], includeMode: 'any' },
       moods: { include: allDetectedMoods, exclude: [], includeMode: 'any' },
+      artistCountries: { include: allDetectedArtistCountries, exclude: [], includeMode: 'any' },
       albumGenres: { include: allDetectedAlbumGenres, exclude: [], includeMode: 'any' },
       albumStyles: { include: allDetectedAlbumStyles, exclude: [], includeMode: 'any' },
       albumMoods: { include: allDetectedAlbumMoods, exclude: [], includeMode: 'any' },
@@ -553,6 +565,7 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
       featurePreset,
       detectedGenreCount: allDetectedGenres.length,
       detectedMoodCount: allDetectedMoods.length,
+      detectedArtistCountryCount: allDetectedArtistCountries.length,
       detectedTagCount: allDetectedTags.length,
       detectedDecadeCount: allDetectedDecades.length,
     },
@@ -6611,6 +6624,7 @@ export function registerApiMusic(app, ctx) {
       trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
       genres:          normaliseTriStateInput(req.body?.genres),
       moods:           normaliseTriStateInput(req.body?.moods),
+      artistCountries: normaliseTriStateInput(req.body?.artistCountries),
       albumGenres:     normaliseTriStateInput(req.body?.albumGenres),
       albumStyles:     normaliseTriStateInput(req.body?.albumStyles),
       albumMoods:      normaliseTriStateInput(req.body?.albumMoods),
@@ -6718,6 +6732,7 @@ export function registerApiMusic(app, ctx) {
       trackTiers:      normaliseTriStateInput(req.body?.trackTiers),
       genres:          normaliseTriStateInput(req.body?.genres),
       moods:           normaliseTriStateInput(req.body?.moods),
+      artistCountries: normaliseTriStateInput(req.body?.artistCountries),
       albumGenres:     normaliseTriStateInput(req.body?.albumGenres),
       albumStyles:     normaliseTriStateInput(req.body?.albumStyles),
       albumMoods:      normaliseTriStateInput(req.body?.albumMoods),

@@ -77,6 +77,15 @@ function extractPlexTagList(metadata = {}, fieldName = '') {
   return [...new Set(items.map((item) => String(item?.tag || item || '').trim()).filter(Boolean))];
 }
 
+function extractPlexCountryList(metadata = {}) {
+  const countryTags = extractPlexTagList(metadata, 'Country');
+  const rawCountries = [metadata?.country, metadata?.countries]
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => String(value?.tag || value || '').trim())
+    .filter(Boolean);
+  return [...new Set([...countryTags, ...rawCountries])];
+}
+
 // ── Connection verification ───────────────────────────────────────────────────
 
 export async function verifyConnection(url, token) {
@@ -118,6 +127,7 @@ export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
   const PAGE_SIZE = 10000;
   const tracks = [];
   const albumTrackKeys = new Map();
+  const artistTrackKeys = new Map();
   const onTracks = typeof options.onTracks === 'function' ? options.onTracks : null;
   const onTagMetadata = typeof options.onTagMetadata === 'function' ? options.onTagMetadata : null;
 
@@ -141,18 +151,21 @@ export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
       const batch = [];
       for (const t of metadata) {
         const albumRatingKey = extractPlexMetadataKey(t.parentRatingKey || t.parentKey || '');
+        const artistRatingKey = extractPlexMetadataKey(t.grandparentRatingKey || t.grandparentKey || '');
         const row = {
           ratingKey:   String(t.ratingKey || ''),
           artistName:  String(t.originalTitle || t.grandparentTitle || ''),
           trackTitle:  String(t.title || ''),
           albumName:   String(t.parentTitle || ''),
           albumRatingKey,
+          artistRatingKey,
           recordingMbid: extractPlexRecordingMbid(t),
           trackYear:    extractPlexReleaseYear(t),
           originalReleaseDate: extractPlexReleaseDate(t),
           libraryAddedAt: extractPlexLibraryAddedAt(t),
           genres:      (t.Genre || []).map((g) => g.tag),
           moods:       [],
+          artistCountries: [],
           albumGenres: [],
           albumStyles: [],
           albumMoods:  [],
@@ -165,6 +178,10 @@ export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
         if (albumRatingKey && row.ratingKey) {
           if (!albumTrackKeys.has(albumRatingKey)) albumTrackKeys.set(albumRatingKey, []);
           albumTrackKeys.get(albumRatingKey).push(row.ratingKey);
+        }
+        if (artistRatingKey && row.ratingKey) {
+          if (!artistTrackKeys.has(artistRatingKey)) artistTrackKeys.set(artistRatingKey, []);
+          artistTrackKeys.get(artistRatingKey).push(row.ratingKey);
         }
         batch.push(row);
       }
@@ -277,6 +294,51 @@ export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
           albumGenres: albumMeta.albumGenres || [],
           albumStyles: albumMeta.albumStyles || [],
           albumMoods: albumMeta.albumMoods || [],
+        });
+        if (tagRows.length >= PAGE_SIZE) {
+          await onTagMetadata(tagRows.splice(0, tagRows.length));
+        }
+      }
+    }
+    if (tagRows.length) await onTagMetadata(tagRows);
+  }
+
+  const artistIds = onTracks
+    ? [...artistTrackKeys.keys()]
+    : [...new Set(tracks.map((track) => String(track.artistRatingKey || '').trim()).filter(Boolean))];
+  const artistMetadataMap = new Map();
+  const ARTIST_BATCH_SIZE = 200;
+  for (let index = 0; index < artistIds.length; index += ARTIST_BATCH_SIZE) {
+    const batch = artistIds.slice(index, index + ARTIST_BATCH_SIZE);
+    const metadataUrl = buildUrl(url, `library/metadata/${batch.map((id) => encodeURIComponent(id)).join(',')}`);
+    const response = await fetch(metadataUrl.toString(), {
+      headers: plexHeaders(token, { Accept: 'application/json' }),
+    });
+    if (!response.ok) continue;
+    const json = await response.json();
+    const metadataItems = Array.isArray(json?.MediaContainer?.Metadata) ? json.MediaContainer.Metadata : [];
+    for (const item of metadataItems) {
+      const artistKey = extractPlexMetadataKey(item?.ratingKey);
+      if (!artistKey) continue;
+      artistMetadataMap.set(artistKey, {
+        artistCountries: extractPlexCountryList(item),
+      });
+    }
+  }
+
+  for (const track of tracks) {
+    const artistMeta = artistMetadataMap.get(String(track.artistRatingKey || '').trim());
+    if (!artistMeta) continue;
+    track.artistCountries = artistMeta.artistCountries || [];
+  }
+  if (onTagMetadata && artistMetadataMap.size) {
+    const tagRows = [];
+    for (const [artistId, artistMeta] of artistMetadataMap) {
+      const ratingKeys = artistTrackKeys.get(artistId) || [];
+      for (const ratingKey of ratingKeys) {
+        tagRows.push({
+          ratingKey,
+          artistCountries: artistMeta.artistCountries || [],
         });
         if (tagRows.length >= PAGE_SIZE) {
           await onTagMetadata(tagRows.splice(0, tagRows.length));

@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.92 (2026-08-01)
+
+- Improved Smart Playlist folder picking with live search across the full Include/Exclude folder tree in both the wizard and Settings global-playlist builder. Matches are ranked with prefix hits first and show parent paths for same-named folders.
+- Added Plex artist country metadata as a Smart Playlist content filter. After a Master Track Cache Refresh, Plex artist countries such as Netherlands, United Kingdom, France, and Canada can be included or excluded like other tri-state playlist chips.
+- Added a **Prefer studio recordings over live/demo/acoustic/remix variants** cleanup option for smart playlists. When a regular studio copy exists with the same recording ID or normalized artist/title, likely non-studio variants are dropped; live-only or demo-only tracks are still kept.
+- Preserved smart playlist cleanup settings consistently across global playlist edits and imported playlist conversion state.
+
 ## v0.1.91 (2026-07-16)
 
 - Fixed the smart playlist wizard Step 4 folder browser (and the global-playlist folder browser in Settings) only listing folders from the first 2000 tracks: in large one-folder-per-artist libraries the list stopped partway through the alphabet, hiding every later artist. Folder segments are now derived from distinct directories in SQL, so the full folder tree is listed regardless of track count.

@@ -5887,6 +5887,29 @@ describe('security guards', () => {
     assert.ok(!mbidPrefer.some((t) => t.ratingKey === 'comp-mbid'));
   });
 
+  it('prefers studio recordings over likely live demo acoustic remix variants when a studio copy exists', () => {
+    const tracks = [
+      { ratingKey: 'studio-mbid', artistName: 'Artist A', trackTitle: 'Song One', albumName: 'Album A', recordingMbid: 'mbid-1', durationMs: 180000, ratingCount: 10, viewCount: 0 },
+      { ratingKey: 'live-mbid', artistName: 'Artist A', trackTitle: 'Song One (Live)', albumName: 'Live Album', recordingMbid: 'mbid-1', durationMs: 240000, ratingCount: 500, viewCount: 0 },
+      { ratingKey: 'demo-title', artistName: 'Artist B', trackTitle: 'Track Two - Demo', albumName: 'Rarities', recordingMbid: '', durationMs: 200000, ratingCount: 100, viewCount: 0 },
+      { ratingKey: 'studio-title', artistName: 'Artist B', trackTitle: 'Track Two', albumName: 'Album B', recordingMbid: '', durationMs: 180000, ratingCount: 5, viewCount: 0 },
+      { ratingKey: 'live-only', artistName: 'Artist C', trackTitle: 'Track Three (Live)', albumName: 'Live Album', recordingMbid: '', durationMs: 240000, ratingCount: 80, viewCount: 0 },
+      { ratingKey: 'studio-only', artistName: 'Artist D', trackTitle: 'Track Four', albumName: 'Album D', recordingMbid: '', durationMs: 210000, ratingCount: 20, viewCount: 0 },
+    ];
+
+    const report = applyTrackFiltersWithReport(tracks, {
+      preferStudioRecordings: true,
+    }, { duplicateLimit: 10 });
+
+    assert.deepEqual(report.tracks.map((track) => track.ratingKey).sort(), ['live-only', 'studio-mbid', 'studio-only', 'studio-title']);
+    assert.equal(report.duplicateCount, 2);
+    assert.ok(report.duplicateMatches.every((match) => match.method === 'studio_preference'));
+    assert.deepEqual(report.duplicateMatches.map((match) => match.duplicate.ratingKey).sort(), ['demo-title', 'live-mbid']);
+
+    const off = applyTrackFilters(tracks, { preferStudioRecordings: false });
+    assert.equal(off.length, tracks.length);
+  });
+
   it('finds duplicate personal playlist names for the same user only', async () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-personal-dupes-${Date.now()}.db`);
     const db = initDb(dbPath);

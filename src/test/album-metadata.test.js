@@ -7,6 +7,7 @@ import {
   getAlbumGenresFromMaster,
   getAlbumMoodsFromMaster,
   getAlbumStylesFromMaster,
+  getArtistCountriesFromMaster,
   getMasterTracks,
   initDb,
   previewGlobalPlaylist,
@@ -28,6 +29,7 @@ describe('Plex album metadata import', () => {
               {
                 ratingKey: 'track-1',
                 grandparentTitle: 'Artist 1',
+                grandparentRatingKey: 'artist-1',
                 title: 'Track 1',
                 parentTitle: 'Album 1',
                 parentRatingKey: '100',
@@ -37,6 +39,7 @@ describe('Plex album metadata import', () => {
               {
                 ratingKey: 'track-2',
                 grandparentTitle: 'Artist 2',
+                grandparentRatingKey: 'artist-2',
                 title: 'Track 2',
                 parentTitle: 'Album 2',
                 parentRatingKey: '200',
@@ -73,6 +76,23 @@ describe('Plex album metadata import', () => {
         });
       }
 
+      if (url.pathname === '/library/metadata/artist-1,artist-2') {
+        return Response.json({
+          MediaContainer: {
+            Metadata: [
+              {
+                ratingKey: 'artist-1',
+                Country: [{ tag: 'Netherlands' }],
+              },
+              {
+                ratingKey: 'artist-2',
+                Country: [{ tag: 'United Kingdom' }],
+              },
+            ],
+          },
+        });
+      }
+
       throw new Error(`Unexpected Plex fetch: ${url.toString()}`);
     };
 
@@ -83,6 +103,7 @@ describe('Plex album metadata import', () => {
         tracks.map((track) => ({
           ratingKey: track.ratingKey,
           libraryAddedAt: track.libraryAddedAt,
+          artistCountries: track.artistCountries,
           albumGenres: track.albumGenres,
           albumStyles: track.albumStyles,
           albumMoods: track.albumMoods,
@@ -91,6 +112,7 @@ describe('Plex album metadata import', () => {
           {
             ratingKey: 'track-1',
             libraryAddedAt: 1760000000000,
+            artistCountries: ['Netherlands'],
             albumGenres: ['Rock'],
             albumStyles: ['Shoegaze'],
             albumMoods: ['Dreamy'],
@@ -98,6 +120,7 @@ describe('Plex album metadata import', () => {
           {
             ratingKey: 'track-2',
             libraryAddedAt: 1760000100000,
+            artistCountries: ['United Kingdom'],
             albumGenres: ['Pop'],
             albumStyles: ['Synthpop'],
             albumMoods: ['Bright'],
@@ -124,6 +147,7 @@ describe('Album metadata persistence and filtering', () => {
           albumName: 'Album A',
           genres: ['Indie Rock'],
           moods: ['Melancholy'],
+          artistCountries: ['Netherlands'],
           albumGenres: ['Rock'],
           albumStyles: ['Shoegaze'],
           albumMoods: ['Dreamy'],
@@ -140,6 +164,7 @@ describe('Album metadata persistence and filtering', () => {
           albumName: 'Album B',
           genres: ['Britpop'],
           moods: ['Bright'],
+          artistCountries: ['United Kingdom'],
           albumGenres: ['Rock', 'Pop'],
           albumStyles: ['Britpop'],
           albumMoods: ['Uplifting'],
@@ -157,12 +182,17 @@ describe('Album metadata persistence and filtering', () => {
         ['Rock'],
       );
       assert.deepEqual(
+        masterTracks.find((track) => track.ratingKey === 'album-meta-1')?.artistCountries,
+        ['Netherlands'],
+      );
+      assert.deepEqual(
         masterTracks.find((track) => track.ratingKey === 'album-meta-2')?.albumStyles,
         ['Britpop'],
       );
       assert.deepEqual(getAlbumGenresFromMaster(db), ['Pop', 'Rock']);
       assert.deepEqual(getAlbumStylesFromMaster(db), ['Britpop', 'Shoegaze']);
       assert.deepEqual(getAlbumMoodsFromMaster(db), ['Dreamy', 'Uplifting']);
+      assert.deepEqual(getArtistCountriesFromMaster(db), ['Netherlands', 'United Kingdom']);
     } finally {
       db.close();
     }
@@ -181,6 +211,7 @@ describe('Album metadata persistence and filtering', () => {
           albumName: 'Album A',
           genres: ['Indie Rock'],
           moods: ['Melancholy'],
+          artistCountries: ['Netherlands'],
           albumGenres: ['Rock'],
           albumStyles: ['Shoegaze'],
           albumMoods: ['Dreamy'],
@@ -197,6 +228,7 @@ describe('Album metadata persistence and filtering', () => {
           albumName: 'Album B',
           genres: ['Britpop'],
           moods: ['Bright'],
+          artistCountries: ['United Kingdom'],
           albumGenres: ['Rock'],
           albumStyles: ['Britpop'],
           albumMoods: ['Uplifting'],
@@ -213,6 +245,7 @@ describe('Album metadata persistence and filtering', () => {
           albumName: 'Album C',
           genres: ['Jazz'],
           moods: ['Calm'],
+          artistCountries: ['France'],
           albumGenres: ['Jazz'],
           albumStyles: ['Modal Jazz'],
           albumMoods: ['Reflective'],
@@ -228,6 +261,7 @@ describe('Album metadata persistence and filtering', () => {
         db,
         {
           albumGenres: { include: ['Rock'], exclude: [], includeMode: 'any' },
+          artistCountries: { include: ['United Kingdom', 'Netherlands'], exclude: ['Netherlands'], includeMode: 'any' },
           albumStyles: { include: ['Britpop'], exclude: [], includeMode: 'any' },
           albumMoods: { include: [], exclude: ['Reflective'], includeMode: 'any' },
         },

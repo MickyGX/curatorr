@@ -1,4 +1,4 @@
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments, getFeaturePresetAvailabilityFromDb } from '../db.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getArtistCountriesFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments, getFeaturePresetAvailabilityFromDb } from '../db.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
 import { parsePlaylistArtworkDataUrl, savePlaylistArtworkBuffer } from '../services/playlist-artwork.js';
@@ -662,6 +662,7 @@ export function registerSettings(app, ctx) {
       playlistFeatureCoverage,
       allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
       allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
+      allArtistCountries: (() => { try { return getArtistCountriesFromMaster(db); } catch { return []; } })(),
       allLastfmTags:    (() => { try { return getAllLastfmTags(db);         } catch { return []; } })(),
       allTrackDecades:  (() => { try { return getAllTrackDecadeTags(db);    } catch { return []; } })(),
       allLibraryKeys:   (() => {
@@ -1067,7 +1068,8 @@ export function registerSettings(app, ctx) {
       const deduplicateIgnoreLikelyVariants = req.body?.[`${prefix}_deduplicateIgnoreLikelyVariants`] === 'on';
       const deduplicateIgnoreLiveAlbums = req.body?.[`${prefix}_deduplicateIgnoreLiveAlbums`] === 'on';
       const preferArtistFolderOverCompilation = req.body?.[`${prefix}_preferArtistFolderOverCompilation`] === 'on';
-      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle, deduplicateByDuration, deduplicateIgnoreLikelyVariants, deduplicateIgnoreLiveAlbums, preferArtistFolderOverCompilation };
+      const preferStudioRecordings = req.body?.[`${prefix}_preferStudioRecordings`] === 'on';
+      return { rules, excludeLibraryKeys, deduplicateByMbid, deduplicateByArtistTitle, deduplicateByDuration, deduplicateIgnoreLikelyVariants, deduplicateIgnoreLiveAlbums, preferArtistFolderOverCompilation, preferStudioRecordings };
     };
     const crescive = {
       capMultiplier:           pct('cr_capMultiplier',        100),
@@ -1887,6 +1889,7 @@ export function registerSettings(app, ctx) {
       trackTiers:  normaliseTriStateInput(req.body?.trackTiers),
       genres:      normaliseTriStateInput(req.body?.genres),
       moods:       normaliseTriStateInput(req.body?.moods),
+      artistCountries: normaliseTriStateInput(req.body?.artistCountries),
       tags:        normaliseTriStateInput(req.body?.tags),
       decades:     normaliseTriStateInput(req.body?.decades),
       topNPerArtist: req.body?.topNPerArtist ? Number(req.body.topNPerArtist) : null,
@@ -1916,6 +1919,7 @@ export function registerSettings(app, ctx) {
         deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
         deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
         preferArtistFolderOverCompilation: Boolean(tf.preferArtistFolderOverCompilation),
+        preferStudioRecordings: Boolean(tf.preferStudioRecordings),
       };
     })() : undefined;
     const entry = { id: makeGlobalPlaylistId(), name, rules, trackFilters: gpFilters, enabled: true, createdAt: Date.now() };
@@ -1975,6 +1979,7 @@ export function registerSettings(app, ctx) {
         trackTiers:  req.body?.trackTiers  !== undefined ? normaliseTriStateInput(req.body?.trackTiers)  : existing.rules?.trackTiers  || [],
         genres:      req.body?.genres      !== undefined ? normaliseTriStateInput(req.body?.genres)      : existing.rules?.genres      || [],
         moods:       req.body?.moods       !== undefined ? normaliseTriStateInput(req.body?.moods)       : existing.rules?.moods       || [],
+        artistCountries: req.body?.artistCountries !== undefined ? normaliseTriStateInput(req.body?.artistCountries) : existing.rules?.artistCountries || [],
         tags:        req.body?.tags        !== undefined ? normaliseTriStateInput(req.body?.tags)        : existing.rules?.tags        || [],
         decades:     req.body?.decades     !== undefined ? normaliseTriStateInput(req.body?.decades)     : existing.rules?.decades     || [],
         topNPerArtist: req.body?.topNPerArtist !== undefined ? (req.body.topNPerArtist ? Number(req.body.topNPerArtist) : null) : existing.rules?.topNPerArtist,
@@ -2017,6 +2022,12 @@ export function registerSettings(app, ctx) {
           deduplicateByDuration: Boolean(tf.deduplicateByDuration),
           deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
           deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
+          preferArtistFolderOverCompilation: tf.preferArtistFolderOverCompilation !== undefined
+            ? Boolean(tf.preferArtistFolderOverCompilation)
+            : Boolean(existing.trackFilters?.preferArtistFolderOverCompilation),
+          preferStudioRecordings: tf.preferStudioRecordings !== undefined
+            ? Boolean(tf.preferStudioRecordings)
+            : Boolean(existing.trackFilters?.preferStudioRecordings),
         };
       })() : existing.trackFilters,
       updatedAt: Date.now(),

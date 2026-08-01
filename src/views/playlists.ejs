@@ -3996,6 +3996,7 @@
         rebuildSchedule: String(rules.rebuildSchedule || 'daily'),
         genres: normaliseUiTriState(rules.genres),
         moods: normaliseUiTriState(rules.moods),
+        artistCountries: normaliseUiTriState(rules.artistCountries),
         albumGenres: normaliseUiTriState(rules.albumGenres),
         albumStyles: normaliseUiTriState(rules.albumStyles),
         albumMoods: normaliseUiTriState(rules.albumMoods),
@@ -4047,10 +4048,12 @@
         deduplicateIgnoreLikelyVariants: trackFilters.deduplicateIgnoreLikelyVariants,
         deduplicateIgnoreLiveAlbums: trackFilters.deduplicateIgnoreLiveAlbums,
         preferArtistFolderOverCompilation: trackFilters.preferArtistFolderOverCompilation,
+        preferStudioRecordings: trackFilters.preferStudioRecordings,
         importSource: rules.importSource || null,
         importSuggestedContent: rules.importSuggestedContent || (rules.importSource ? {
           genres: normaliseUiTriState(rules.genres),
           moods: normaliseUiTriState(rules.moods),
+          artistCountries: normaliseUiTriState(rules.artistCountries),
           albumGenres: normaliseUiTriState(rules.albumGenres),
           albumStyles: normaliseUiTriState(rules.albumStyles),
           albumMoods: normaliseUiTriState(rules.albumMoods),
@@ -4452,7 +4455,7 @@
         : (playlistTarget === 'global' ? '/api/playlists/global' : '/api/music/playlists/personal');
       var payload = Object.assign({ name: name }, rules);
       if (artwork) payload.artwork = artwork;
-      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, preferArtistFolderOverCompilation: false, rules: [] };
+      if (trackFilters || isEdit) payload.trackFilters = trackFilters || { includeFolders: [], excludeFolders: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, preferArtistFolderOverCompilation: false, preferStudioRecordings: false, rules: [] };
       if (allowEmptyDraft) payload.allowEmptyDraft = true;
       if (importSource) payload.importSource = importSource;
       if (removeImportedSourcePlaylistKey) payload.removeImportedSourcePlaylistKey = removeImportedSourcePlaylistKey;
@@ -4610,7 +4613,7 @@
 
     function wizardStarterTrackFilters(trackFilters) {
       var tf = trackFilters && typeof trackFilters === 'object' ? trackFilters : null;
-      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, preferArtistFolderOverCompilation: false };
+      if (!tf) return { includeFolders: [], excludeFolders: [], rules: [], deduplicateByMbid: false, deduplicateByArtistTitle: false, deduplicateByDuration: false, deduplicateIgnoreLikelyVariants: false, deduplicateIgnoreLiveAlbums: false, preferArtistFolderOverCompilation: false, preferStudioRecordings: false };
       return {
         includeFolders: Array.isArray(tf.includeFolders) ? tf.includeFolders.slice() : [],
         excludeFolders: Array.isArray(tf.excludeFolders) ? tf.excludeFolders.slice() : [],
@@ -4623,6 +4626,7 @@
         deduplicateIgnoreLikelyVariants: Boolean(tf.deduplicateIgnoreLikelyVariants),
         deduplicateIgnoreLiveAlbums: Boolean(tf.deduplicateIgnoreLiveAlbums),
         preferArtistFolderOverCompilation: Boolean(tf.preferArtistFolderOverCompilation),
+        preferStudioRecordings: Boolean(tf.preferStudioRecordings),
       };
     }
 
@@ -4784,6 +4788,7 @@
         rebuildSchedule: 'daily',
         genres: { include: [], exclude: [], includeMode: 'any' },
         moods:  { include: [], exclude: [], includeMode: 'any' },
+        artistCountries: { include: [], exclude: [], includeMode: 'any' },
         albumGenres: { include: [], exclude: [], includeMode: 'any' },
         albumStyles: { include: [], exclude: [], includeMode: 'any' },
         albumMoods: { include: [], exclude: [], includeMode: 'any' },
@@ -4838,6 +4843,7 @@
         deduplicateIgnoreLikelyVariants: false,
         deduplicateIgnoreLiveAlbums: false,
         preferArtistFolderOverCompilation: false,
+        preferStudioRecordings: false,
         artworkMode: 'auto',
         customArtworkAsset: '',
         preservedArtworkAsset: '',
@@ -4862,6 +4868,7 @@
         trackTiers:  normaliseUiTriState(ws.trackTiers),
         genres:      normaliseUiTriState(ws.genres),
         moods:       normaliseUiTriState(ws.moods),
+        artistCountries: normaliseUiTriState(ws.artistCountries),
         albumGenres: normaliseUiTriState(ws.albumGenres),
         albumStyles: normaliseUiTriState(ws.albumStyles),
         albumMoods:  normaliseUiTriState(ws.albumMoods),
@@ -4870,6 +4877,7 @@
         importSuggestedContent: wizardHasImportedContentSet(ws && ws.importSuggestedContent) ? {
           genres: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.genres),
           moods: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.moods),
+          artistCountries: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.artistCountries),
           albumGenres: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.albumGenres),
           albumStyles: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.albumStyles),
           albumMoods: normaliseUiTriState(ws.importSuggestedContent && ws.importSuggestedContent.albumMoods),
@@ -4879,6 +4887,7 @@
         importDetectedContent: wizardHasImportedDetectedContent(ws) ? {
           genres: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.genres),
           moods: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.moods),
+          artistCountries: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.artistCountries),
           albumGenres: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.albumGenres),
           albumStyles: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.albumStyles),
           albumMoods: normaliseUiTriState(ws.importDetectedContent && ws.importDetectedContent.albumMoods),
@@ -4935,6 +4944,7 @@
       var deduplicateIgnoreLikelyVariants = Boolean(ws.deduplicateIgnoreLikelyVariants);
       var deduplicateIgnoreLiveAlbums = Boolean(ws.deduplicateIgnoreLiveAlbums);
       var preferArtistFolderOverCompilation = Boolean(ws.preferArtistFolderOverCompilation);
+      var preferStudioRecordings = Boolean(ws.preferStudioRecordings);
       var rules = Array.isArray(ws.advancedRules) ? ws.advancedRules.filter(function(rule) {
         return rule && rule.field && rule.operator && rule.value != null && String(rule.value).trim() !== '';
       }).map(function(rule) {
@@ -4945,7 +4955,7 @@
           caseSensitive: Boolean(rule.caseSensitive),
         };
       }) : [];
-      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !preferArtistFolderOverCompilation) return null;
+      if (!includeFolders.length && !excludeFolders.length && !rules.length && !deduplicateByMbid && !deduplicateByArtistTitle && !deduplicateByDuration && !deduplicateIgnoreLikelyVariants && !deduplicateIgnoreLiveAlbums && !preferArtistFolderOverCompilation && !preferStudioRecordings) return null;
       return {
         includeFolders: includeFolders,
         excludeFolders: excludeFolders,
@@ -4955,6 +4965,7 @@
         deduplicateIgnoreLikelyVariants: deduplicateIgnoreLikelyVariants,
         deduplicateIgnoreLiveAlbums: deduplicateIgnoreLiveAlbums,
         preferArtistFolderOverCompilation: preferArtistFolderOverCompilation,
+        preferStudioRecordings: preferStudioRecordings,
         rules: rules,
       };
     }
@@ -5120,7 +5131,7 @@
     function wizardHasImportedContentSet(contentSet) {
       var detected = contentSet;
       if (!detected || typeof detected !== 'object') return false;
-      return ['genres', 'moods', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'].some(function(kind) {
+      return ['genres', 'moods', 'artistCountries', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'].some(function(kind) {
         return normaliseUiTriState(detected[kind]).include.length > 0;
       });
     }
@@ -5138,6 +5149,7 @@
       return {
         genres: normaliseUiTriState(detected && detected.genres).include.length,
         moods: normaliseUiTriState(detected && detected.moods).include.length,
+        artistCountries: normaliseUiTriState(detected && detected.artistCountries).include.length,
         albumGenres: normaliseUiTriState(detected && detected.albumGenres).include.length,
         albumStyles: normaliseUiTriState(detected && detected.albumStyles).include.length,
         albumMoods: normaliseUiTriState(detected && detected.albumMoods).include.length,
@@ -5147,7 +5159,7 @@
     }
 
     function wizardImportedContentSetEquals(a, b) {
-      var kinds = ['genres', 'moods', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'];
+      var kinds = ['genres', 'moods', 'artistCountries', 'albumGenres', 'albumStyles', 'albumMoods', 'tags', 'decades'];
       return kinds.every(function(kind) {
         var aTri = normaliseUiTriState(a && a[kind]);
         var bTri = normaliseUiTriState(b && b[kind]);
@@ -5163,6 +5175,7 @@
       return {
         genres: normaliseUiTriState(state && state.genres),
         moods: normaliseUiTriState(state && state.moods),
+        artistCountries: normaliseUiTriState(state && state.artistCountries),
         albumGenres: normaliseUiTriState(state && state.albumGenres),
         albumStyles: normaliseUiTriState(state && state.albumStyles),
         albumMoods: normaliseUiTriState(state && state.albumMoods),
@@ -5182,6 +5195,7 @@
       if (!wizardHasImportedContentSet(contentSet)) return;
       state.genres = normaliseUiTriState(contentSet && contentSet.genres);
       state.moods = normaliseUiTriState(contentSet && contentSet.moods);
+      state.artistCountries = normaliseUiTriState(contentSet && contentSet.artistCountries);
       state.albumGenres = normaliseUiTriState(contentSet && contentSet.albumGenres);
       state.albumStyles = normaliseUiTriState(contentSet && contentSet.albumStyles);
       state.albumMoods = normaliseUiTriState(contentSet && contentSet.albumMoods);
@@ -5207,6 +5221,7 @@
     function wizardClearContentState(state) {
       state.genres = { include: [], exclude: [], includeMode: 'any' };
       state.moods = { include: [], exclude: [], includeMode: 'any' };
+      state.artistCountries = { include: [], exclude: [], includeMode: 'any' };
       state.albumGenres = { include: [], exclude: [], includeMode: 'any' };
       state.albumStyles = { include: [], exclude: [], includeMode: 'any' };
       state.albumMoods = { include: [], exclude: [], includeMode: 'any' };
@@ -5386,6 +5401,7 @@
         nextState.deduplicateIgnoreLikelyVariants = templateTrackFilters.deduplicateIgnoreLikelyVariants;
         nextState.deduplicateIgnoreLiveAlbums = templateTrackFilters.deduplicateIgnoreLiveAlbums;
         nextState.preferArtistFolderOverCompilation = templateTrackFilters.preferArtistFolderOverCompilation;
+        nextState.preferStudioRecordings = templateTrackFilters.preferStudioRecordings;
       }
       if (nextState.featurePreset) wizardApplyPresetValues(nextState, nextState.featurePreset, false);
       wizardSyncSuggestedName(nextState, false);
@@ -5690,6 +5706,7 @@
     function wizardStep2() {
       var ALLGENRES = <%- JSON.stringify(allGenres || []) %>;
       var ALLMOODS  = <%- JSON.stringify(allMoods  || []) %>;
+      var ALLARTISTCOUNTRIES = <%- JSON.stringify(allArtistCountries || []) %>;
       var ALLALBUMGENRES = <%- JSON.stringify(allAlbumGenres || []) %>;
       var ALLALBUMSTYLES = <%- JSON.stringify(allAlbumStyles || []) %>;
       var ALLALBUMMOODS = <%- JSON.stringify(allAlbumMoods || []) %>;
@@ -5722,6 +5739,7 @@
         var importDetectedBits = [];
         if (importedDetectedCounts.genres) importDetectedBits.push(String(importedDetectedCounts.genres) + ' genres');
         if (importedDetectedCounts.moods) importDetectedBits.push(String(importedDetectedCounts.moods) + ' moods');
+        if (importedDetectedCounts.artistCountries) importDetectedBits.push(String(importedDetectedCounts.artistCountries) + ' artist countries');
         if (importedDetectedCounts.albumGenres) importDetectedBits.push(String(importedDetectedCounts.albumGenres) + ' album genres');
         if (importedDetectedCounts.albumStyles) importDetectedBits.push(String(importedDetectedCounts.albumStyles) + ' album styles');
         if (importedDetectedCounts.albumMoods) importDetectedBits.push(String(importedDetectedCounts.albumMoods) + ' album moods');
@@ -5746,6 +5764,7 @@
         var adminPrefix = IS_ACTUAL_ADMIN ? 'Run' : 'Ask an admin to run';
         if (kind === 'genre') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' track genres, then reopen this step.';
         if (kind === 'mood') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' track moods, then reopen this step.';
+        if (kind === 'artist-countries') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' artist countries, then reopen this step.';
         if (kind === 'album-genres') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' album genres, then reopen this step.';
         if (kind === 'album-styles') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' album styles, then reopen this step.';
         if (kind === 'album-moods') return adminPrefix + ' Jobs > Master Track Cache Refresh to load ' + mediaServerLabel + ' album moods, then reopen this step.';
@@ -5826,6 +5845,11 @@
         '<div class="spm-wizard-subsection-title" style="font-size:12px;letter-spacing:.16em;text-transform:uppercase">' + escH(mediaServerLabel + ' track metadata') + '</div>' +
         renderWizChips(ALLGENRES, _wizardState.genres, 'genre', 'Filter genres…') +
         renderWizChips(ALLMOODS,  _wizardState.moods,  'mood',  'Filter moods…') +
+        '</div>';
+      mediaServerBody += '<div class="spm-wizard-subsection" style="margin-top:14px">' +
+        '<div class="spm-wizard-subsection-title" style="font-size:12px;letter-spacing:.16em;text-transform:uppercase">' + escH(mediaServerLabel + ' artist metadata') + '</div>' +
+        renderWizChips(ALLARTISTCOUNTRIES, _wizardState.artistCountries, 'artist-countries', 'Filter artist countries…') +
+        '<div class="spm-wizard-subsection-copy" style="margin-top:10px">These come from artist-level library metadata and are applied to every track by that artist.</div>' +
         '</div>';
       mediaServerBody += '<div class="spm-wizard-subsection" style="margin-top:14px">' +
         '<div class="spm-wizard-subsection-title" style="font-size:12px;letter-spacing:.16em;text-transform:uppercase">' + escH(mediaServerLabel + ' album metadata') + '</div>' +
@@ -6044,6 +6068,16 @@
             '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
           '</span>' +
         '</label>' +
+        '<label class="spm-wizard-toggle-row" for="wiz-prefer-studio">' +
+          '<span class="spm-wizard-toggle-copy">' +
+            '<span class="spm-wizard-toggle-title">Prefer studio recordings over live/demo/acoustic/remix variants</span>' +
+            '<span class="spm-wizard-field-hint">Keeps the regular version when a likely variant and studio recording share the same recording ID or normalized artist/title. Variants still remain when no studio copy exists.</span>' +
+          '</span>' +
+          '<span class="spm-wizard-toggle-switch">' +
+            '<input type="checkbox" class="spm-wizard-toggle-input" id="wiz-prefer-studio"' + (_wizardState.preferStudioRecordings ? ' checked' : '') + ' />' +
+            '<span class="spm-wizard-toggle-slider" aria-hidden="true"></span>' +
+          '</span>' +
+        '</label>' +
         '<label class="spm-wizard-toggle-row" for="wiz-prefer-artist-folder">' +
           '<span class="spm-wizard-toggle-copy">' +
             '<span class="spm-wizard-toggle-title">Prefer artist-folder copies over compilations</span>' +
@@ -6252,6 +6286,7 @@
       if (trackTierState.include.length || trackTierState.exclude.length) html += row('Curatorr track tiers', chipList(trackTierState));
       var hasGenre = (ws.genres && (ws.genres.include.length || ws.genres.exclude.length));
       var hasMood  = (ws.moods  && (ws.moods.include.length  || ws.moods.exclude.length));
+      var hasArtistCountry = (ws.artistCountries && (ws.artistCountries.include.length || ws.artistCountries.exclude.length));
       var hasAlbumGenre = (ws.albumGenres && (ws.albumGenres.include.length || ws.albumGenres.exclude.length));
       var hasAlbumStyle = (ws.albumStyles && (ws.albumStyles.include.length || ws.albumStyles.exclude.length));
       var hasAlbumMood = (ws.albumMoods && (ws.albumMoods.include.length || ws.albumMoods.exclude.length));
@@ -6259,6 +6294,7 @@
       var hasDecade = (ws.decades && (ws.decades.include.length || ws.decades.exclude.length));
       if (hasGenre) html += row(wizardMediaServerLabel() + ' genres', chipList(ws.genres));
       if (hasMood)  html += row(wizardMediaServerLabel() + ' moods',  chipList(ws.moods));
+      if (hasArtistCountry) html += row(wizardMediaServerLabel() + ' artist countries', chipList(ws.artistCountries));
       if (hasAlbumGenre) html += row(wizardMediaServerLabel() + ' album genres', chipList(ws.albumGenres));
       if (hasAlbumStyle) html += row(wizardMediaServerLabel() + ' album styles', chipList(ws.albumStyles));
       if (hasAlbumMood) html += row(wizardMediaServerLabel() + ' album moods', chipList(ws.albumMoods));
@@ -6314,6 +6350,7 @@
       if (ws.deduplicateByDuration) html += row('Dedupe duration guard', 'Within 5 seconds');
       if (ws.deduplicateIgnoreLikelyVariants) html += row('Dedupe variant guard', 'Keep live/demo/remix-style versions');
       if (ws.deduplicateIgnoreLiveAlbums) html += row('Dedupe album guard', 'Keep live album/subformat tracks');
+      if (ws.preferStudioRecordings) html += row('Prefer studio recordings', 'Drop live/demo/acoustic/remix variants when a studio copy exists');
       if (ws.preferArtistFolderOverCompilation) html += row('Prefer artist folders', 'Drop compilation copies when an artist-folder copy exists');
       html += row('Sort by', escH(ws.sortBy || 'ratingCount'));
       if (ws.finalOrdering && ws.finalOrdering !== 'none') html += row('Final ordering', escH(wizardFinalOrderingLabel(ws.finalOrdering)));
@@ -6406,15 +6443,17 @@
             ? 'genres'
             : kind === 'mood'
               ? 'moods'
-              : kind === 'album-genres'
-                ? 'albumGenres'
-                : kind === 'album-styles'
-                  ? 'albumStyles'
-                  : kind === 'album-moods'
-                    ? 'albumMoods'
-                    : kind === 'decade'
-                      ? 'decades'
-                      : 'tags';
+              : kind === 'artist-countries'
+                ? 'artistCountries'
+                : kind === 'album-genres'
+                  ? 'albumGenres'
+                  : kind === 'album-styles'
+                    ? 'albumStyles'
+                    : kind === 'album-moods'
+                      ? 'albumMoods'
+                      : kind === 'decade'
+                        ? 'decades'
+                        : 'tags';
           var prev = normaliseUiTriState(_wizardState[key]);
           (prev.include || []).forEach(function(value) {
             if (!seen.has(value) && inc.indexOf(value) === -1) inc.push(value);
@@ -6469,6 +6508,7 @@
         _wizardState.deduplicateByDuration = !!(document.getElementById('wiz-dedupe-duration') && document.getElementById('wiz-dedupe-duration').checked);
         _wizardState.deduplicateIgnoreLikelyVariants = !!(document.getElementById('wiz-dedupe-variant-guard') && document.getElementById('wiz-dedupe-variant-guard').checked);
         _wizardState.deduplicateIgnoreLiveAlbums = !!(document.getElementById('wiz-dedupe-live-album-guard') && document.getElementById('wiz-dedupe-live-album-guard').checked);
+        _wizardState.preferStudioRecordings = !!(document.getElementById('wiz-prefer-studio') && document.getElementById('wiz-prefer-studio').checked);
         _wizardState.preferArtistFolderOverCompilation = !!(document.getElementById('wiz-prefer-artist-folder') && document.getElementById('wiz-prefer-artist-folder').checked);
       } else if (step === 4 && IS_ACTUAL_ADMIN) {
         ['include', 'exclude'].forEach(function(kind) {
@@ -7081,7 +7121,7 @@
 
       // Step 3: output rules
       if (step === 3) {
-        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title','wiz-dedupe-duration','wiz-dedupe-variant-guard','wiz-dedupe-live-album-guard','wiz-prefer-artist-folder'].forEach(function(id) {
+        ['wiz-top-n','wiz-max-album-tracks','wiz-max-tracks','wiz-album-popularity','wiz-popularity-mode','wiz-popularity-percent','wiz-sort-by','wiz-final-ordering','wiz-dedupe-mbid','wiz-dedupe-artist-title','wiz-dedupe-duration','wiz-dedupe-variant-guard','wiz-dedupe-live-album-guard','wiz-prefer-studio','wiz-prefer-artist-folder'].forEach(function(id) {
           var el = document.getElementById(id);
           if (!el) return;
           var handler = function() { wizardSaveStateFromStep(3); setTimeout(wizardRunPreview, 300); };

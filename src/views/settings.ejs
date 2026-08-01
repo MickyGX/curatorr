@@ -1044,7 +1044,8 @@
                   const dedupeByDuration = Boolean(filterCfg?.deduplicateByDuration);
                   const dedupeIgnoreLikelyVariants = Boolean(filterCfg?.deduplicateIgnoreLikelyVariants);
                   const dedupeIgnoreLiveAlbums = Boolean(filterCfg?.deduplicateIgnoreLiveAlbums);
-                  const hasRules = rules.length > 0 || exclude.some(k => k) || dedupe || dedupeByArtistTitle || dedupeByDuration || dedupeIgnoreLikelyVariants || dedupeIgnoreLiveAlbums;
+                  const preferStudioRecordings = Boolean(filterCfg?.preferStudioRecordings);
+                  const hasRules = rules.length > 0 || exclude.some(k => k) || dedupe || dedupeByArtistTitle || dedupeByDuration || dedupeIgnoreLikelyVariants || dedupeIgnoreLiveAlbums || preferStudioRecordings;
                   let html = `<details class="tf-details"${hasRules ? ' open' : ''}><summary class="tf-summary">Exclusion Filters<span class="tf-rule-count">${rules.length ? ` (${rules.length} rule${rules.length > 1 ? 's' : ''})` : ''}</span></summary><div class="tf-body">`;
                   // Rule rows
                   html += `<div class="tf-rules-list" id="tf-list-${prefix}">`;
@@ -1074,6 +1075,7 @@
                   html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateByDuration" value="on"${dedupeByDuration ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Require duplicate durations within 5 seconds</span></label></div>`;
                   html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateIgnoreLikelyVariants" value="on"${dedupeIgnoreLikelyVariants ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Keep live, demo, acoustic, remix, and instrumental versions separate</span></label></div>`;
                   html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_deduplicateIgnoreLiveAlbums" value="on"${dedupeIgnoreLiveAlbums ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Keep live album/subformat tracks separate when tagged</span></label></div>`;
+                  html += `<div style="margin-top:10px"><label class="settings-toggle"><input type="checkbox" name="${prefix}_preferStudioRecordings" value="on"${preferStudioRecordings ? ' checked' : ''} /><span class="settings-toggle-slider" aria-hidden="true"></span><span class="settings-toggle-text">Prefer studio recordings over live/demo/acoustic/remix variants</span></label></div>`;
                   html += `</div></details>`;
                   return html;
                 }
@@ -1574,6 +1576,23 @@
                 </div>
                 <% } %>
 
+                <% if ((allArtistCountries || []).length) { %>
+                <div class="gp-filter-section">
+                  <div class="gp-filter-label">Artist countries <span class="gp-filter-hint">(none = all)</span></div>
+                  <div class="gp-checklist-wrap">
+                    <input type="text" class="gp-checklist-search" placeholder="Filter artist countries…" data-target="gp-artist-countries-list" />
+                    <div class="gp-checklist" id="gp-artist-countries-list">
+                      <% (allArtistCountries || []).forEach(function(country) { %>
+                      <label class="gp-checklist-item">
+                        <input type="checkbox" class="gp-artist-country-cb" value="<%= country %>" />
+                        <span><%= country %></span>
+                      </label>
+                      <% }); %>
+                    </div>
+                  </div>
+                </div>
+                <% } %>
+
                 <% if ((allLastfmTags || []).length) { %>
                 <div class="gp-filter-section">
                   <div class="gp-filter-label">Last.fm Tags <span class="gp-filter-hint">(none = all)</span></div>
@@ -1741,6 +1760,13 @@
                       <input type="checkbox" id="gp-dedup-live-album-guard" />
                       <span class="settings-toggle-slider" aria-hidden="true"></span>
                       <span class="settings-toggle-text">Keep live album/subformat tracks separate when tagged</span>
+                    </label>
+                  </div>
+                  <div style="margin-top:12px">
+                    <label class="settings-toggle">
+                      <input type="checkbox" id="gp-prefer-studio" />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Prefer studio recordings over live/demo/acoustic/remix variants</span>
                     </label>
                   </div>
                 </div>
@@ -1921,6 +1947,8 @@
                 document.querySelectorAll('.gp-genre-cb').forEach(function(c) { c.checked = genres.indexOf(c.value) !== -1; });
                 var moods = gpRuleIncludeList(rules.moods);
                 document.querySelectorAll('.gp-mood-cb').forEach(function(c) { c.checked = moods.indexOf(c.value) !== -1; });
+                var artistCountries = gpRuleIncludeList(rules.artistCountries);
+                document.querySelectorAll('.gp-artist-country-cb').forEach(function(c) { c.checked = artistCountries.indexOf(c.value) !== -1; });
                 var tags = gpRuleIncludeList(rules.tags);
                 document.querySelectorAll('.gp-tag-cb').forEach(function(c) { c.checked = tags.indexOf(c.value) !== -1; });
                 var decades = gpRuleIncludeList(rules.decades);
@@ -1952,6 +1980,7 @@
                 document.getElementById('gp-dedup-duration').checked = !!(tf.deduplicateByDuration);
                 document.getElementById('gp-dedup-variant-guard').checked = !!(tf.deduplicateIgnoreLikelyVariants);
                 document.getElementById('gp-dedup-live-album-guard').checked = !!(tf.deduplicateIgnoreLiveAlbums);
+                document.getElementById('gp-prefer-studio').checked = !!(tf.preferStudioRecordings);
                 // Populate folder filters
                 var incChips = document.getElementById('gp-include-chips');
                 var excChips = document.getElementById('gp-exclude-chips');
@@ -1970,7 +1999,7 @@
                 document.querySelectorAll('.gp-artist-tier').forEach(function(c) { c.checked = false; });
                 document.querySelector('.gp-track-tier-all').checked = true;
                 document.querySelectorAll('.gp-track-tier').forEach(function(c) { c.checked = false; });
-                document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb, .gp-decade-cb').forEach(function(c) { c.checked = false; });
+                document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-artist-country-cb, .gp-tag-cb, .gp-decade-cb').forEach(function(c) { c.checked = false; });
                 document.getElementById('gp-top-n').value = '';
                 document.getElementById('gp-max-album-tracks').value = '';
                 document.getElementById('gp-max-tracks').value = '';
@@ -1992,18 +2021,20 @@
                 document.getElementById('gp-dedup-duration').checked = false;
                 document.getElementById('gp-dedup-variant-guard').checked = false;
                 document.getElementById('gp-dedup-live-album-guard').checked = false;
+                document.getElementById('gp-prefer-studio').checked = false;
                 updateBlendModeVisibility();
                 schedulePreview();
               }
 
               function gpCardRulesHtml(r) {
                 var at = gpRuleIncludeList(r.artistTiers), tt = gpRuleIncludeList(r.trackTiers);
-                var gr = gpRuleIncludeList(r.genres), mo = gpRuleIncludeList(r.moods), tg = gpRuleIncludeList(r.tags), dc = gpRuleIncludeList(r.decades);
+                var gr = gpRuleIncludeList(r.genres), mo = gpRuleIncludeList(r.moods), ac = gpRuleIncludeList(r.artistCountries), tg = gpRuleIncludeList(r.tags), dc = gpRuleIncludeList(r.decades);
                 var bu = r.blendUsers || [], bm = r.blendMode || 'average';
                 return '<span class="gp-rule-chip">Artists: ' + (at.length ? at.join(', ') : 'all') + '</span>'
                   + '<span class="gp-rule-chip">Tracks: ' + (tt.length ? tt.join(', ') : 'all') + '</span>'
                   + (gr.length ? '<span class="gp-rule-chip">Genres: ' + gr.join(', ') + '</span>' : '')
                   + (mo.length ? '<span class="gp-rule-chip">Moods: ' + mo.join(', ') + '</span>' : '')
+                  + (ac.length ? '<span class="gp-rule-chip">Countries: ' + ac.join(', ') + '</span>' : '')
                   + (tg.length ? '<span class="gp-rule-chip">Tags: ' + tg.join(', ') + '</span>' : '')
                   + (dc.length ? '<span class="gp-rule-chip">Decades: ' + dc.join(', ') + '</span>' : '')
                   + gpFeatureSummaryHtml(r)
@@ -2027,6 +2058,8 @@
                 document.querySelectorAll('.gp-genre-cb:checked').forEach(function(c) { genres.push(c.value); });
                 var moods = [];
                 document.querySelectorAll('.gp-mood-cb:checked').forEach(function(c) { moods.push(c.value); });
+                var artistCountries = [];
+                document.querySelectorAll('.gp-artist-country-cb:checked').forEach(function(c) { artistCountries.push(c.value); });
                 var tags = [];
                 document.querySelectorAll('.gp-tag-cb:checked').forEach(function(c) { tags.push(c.value); });
                 var decades = [];
@@ -2037,6 +2070,7 @@
                   trackTiers: trackTiers,
                   genres: genres,
                   moods: moods,
+                  artistCountries: artistCountries,
                   tags: tags,
                   decades: decades,
                   topNPerArtist: document.getElementById('gp-top-n').value ? parseInt(document.getElementById('gp-top-n').value) : null,
@@ -2292,6 +2326,7 @@
                 var dedupeByDuration = !!(document.getElementById('gp-dedup-duration') || {}).checked;
                 var dedupeIgnoreLikelyVariants = !!(document.getElementById('gp-dedup-variant-guard') || {}).checked;
                 var dedupeIgnoreLiveAlbums = !!(document.getElementById('gp-dedup-live-album-guard') || {}).checked;
+                var preferStudioRecordings = !!(document.getElementById('gp-prefer-studio') || {}).checked;
                 return {
                   rules: rules,
                   includeFolders: includeFolders,
@@ -2301,6 +2336,7 @@
                   deduplicateByDuration: dedupeByDuration,
                   deduplicateIgnoreLikelyVariants: dedupeIgnoreLikelyVariants,
                   deduplicateIgnoreLiveAlbums: dedupeIgnoreLiveAlbums,
+                  preferStudioRecordings: preferStudioRecordings,
                 };
               }
 
@@ -2461,14 +2497,14 @@
                   gpApplyPresetDefaults(card.dataset.preset || 'none');
                 });
               });
-              document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-tag-cb, .gp-decade-cb').forEach(function(c) {
+              document.querySelectorAll('.gp-genre-cb, .gp-mood-cb, .gp-artist-country-cb, .gp-tag-cb, .gp-decade-cb').forEach(function(c) {
                 c.addEventListener('change', schedulePreview);
               });
               var _dedupEl = document.getElementById('gp-dedup-mbid');
               if (_dedupEl) _dedupEl.addEventListener('change', schedulePreview);
               var _dedupTitleEl = document.getElementById('gp-dedup-artist-title');
               if (_dedupTitleEl) _dedupTitleEl.addEventListener('change', schedulePreview);
-              ['gp-dedup-duration','gp-dedup-variant-guard','gp-dedup-live-album-guard'].forEach(function(id) {
+              ['gp-dedup-duration','gp-dedup-variant-guard','gp-dedup-live-album-guard','gp-prefer-studio'].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('change', schedulePreview);
               });
@@ -2515,7 +2551,7 @@
                   fetch('/api/playlists/global/' + editId, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, decades: rules.decades, topNPerArtist: rules.topNPerArtist, maxTracksPerAlbum: rules.maxTracksPerAlbum, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
+                    body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, artistCountries: rules.artistCountries, tags: rules.tags, decades: rules.decades, topNPerArtist: rules.topNPerArtist, maxTracksPerAlbum: rules.maxTracksPerAlbum, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                   }).then(function(r) { return r.json(); }).then(function(d) {
                     if (!d.ok) { msg.textContent = d.error || 'Error updating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                     var card = document.querySelector('.gp-card[data-gp-id="' + editId + '"]');
@@ -2534,7 +2570,7 @@
                 fetch('/api/playlists/global', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
-                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, tags: rules.tags, decades: rules.decades, topNPerArtist: rules.topNPerArtist, maxTracksPerAlbum: rules.maxTracksPerAlbum, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
+                  body: JSON.stringify({ name: name, artistTiers: rules.artistTiers, trackTiers: rules.trackTiers, genres: rules.genres, moods: rules.moods, artistCountries: rules.artistCountries, tags: rules.tags, decades: rules.decades, topNPerArtist: rules.topNPerArtist, maxTracksPerAlbum: rules.maxTracksPerAlbum, maxTracks: rules.maxTracks, sortBy: rules.sortBy, finalOrdering: rules.finalOrdering, blendUsers: rules.blendUsers, blendMode: rules.blendMode, featurePreset: rules.featurePreset, bpmMin: rules.bpmMin, bpmMax: rules.bpmMax, energyMin: rules.energyMin, energyMax: rules.energyMax, danceabilityMin: rules.danceabilityMin, danceabilityMax: rules.danceabilityMax, camelotFocus: rules.camelotFocus, camelotMode: rules.camelotMode, trackFilters: getGpFilters() }),
                 }).then(function(r) { return r.json(); }).then(function(d) {
                   if (!d.ok) { msg.textContent = d.error || 'Error creating playlist.'; msg.className = 'gp-create-msg gp-msg--error'; return; }
                   msg.textContent = 'Created! It will sync on the next job run.';
