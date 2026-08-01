@@ -23,6 +23,7 @@
     "supertest": "^7.2.2"
   },
   "overrides": {
-    "brace-expansion": "2.1.2"
+    "brace-expansion": "2.1.4",
+    "minimatch": "5.1.9"
   }
 }
