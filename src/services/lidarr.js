@@ -2482,7 +2482,12 @@ export function createLidarrService(ctx) {
         rootFolderPath: String(rootFolder.path || ''),
         path: buildArtistPath(rootFolder.path, match),
         monitored: true,
-        monitorNewItems: newArtistMonitoringMode,
+        // Lidarr types monitorNewItems as NewItemMonitorTypes (all|none), a narrower
+        // enum than the MonitorTypes set addOptions.monitor accepts. Sending any of
+        // new/existing/latest/first here fails deserialization and rejects the whole
+        // request, so only 'all' can carry over; every other mode narrows to 'none'
+        // and drives addOptions.monitor alone.
+        monitorNewItems: newArtistMonitoringMode === 'all' ? 'all' : 'none',
         addOptions: {
           monitor: newArtistMonitoringMode,
           searchForMissingAlbums: Boolean(options.searchForMissingAlbums),

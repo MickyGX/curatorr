@@ -2687,7 +2687,8 @@ describe('security guards', () => {
     assert.equal(config?.lidarr?.newArtistMonitoringMode, 'latest');
   });
 
-  it('uses the configured new-artist monitoring mode in the Lidarr add payload', async () => {
+  // Builds the POST /artist body Curatorr sends for a given configured monitoring mode.
+  async function captureLidarrAddPayload(newArtistMonitoringMode) {
     const lidarrService = createLidarrService({
       db: null,
       loadConfig: () => ({
@@ -2696,7 +2697,7 @@ describe('security guards', () => {
           apiKey: 'lidarr-api-key',
           defaultMetadataProfileId: 4,
           defaultQualityProfileId: 7,
-          newArtistMonitoringMode: 'latest',
+          newArtistMonitoringMode,
         },
       }),
       safeMessage: (err) => String(err?.message || err || ''),
@@ -2749,7 +2750,7 @@ describe('security guards', () => {
           id: 42,
           artistName: 'The National',
           monitored: true,
-          monitorNewItems: 'latest',
+          monitorNewItems: createdArtistPayload?.monitorNewItems || 'none',
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -2766,15 +2767,28 @@ describe('security guards', () => {
           folder: 'the-national',
         },
       });
-      assert.equal(result.created, true);
-      assert.equal(createdArtistPayload?.metadataProfileId, 4);
-      assert.equal(createdArtistPayload?.qualityProfileId, 7);
-      assert.equal(createdArtistPayload?.monitorNewItems, 'latest');
-      assert.equal(createdArtistPayload?.addOptions?.monitor, 'latest');
-      assert.equal(createdArtistPayload?.monitored, true);
+      return { result, payload: createdArtistPayload };
     } finally {
       global.fetch = originalFetch;
     }
+  }
+
+  it('narrows a non-all new-artist monitoring mode to none for monitorNewItems', async () => {
+    const { result, payload } = await captureLidarrAddPayload('latest');
+    assert.equal(result.created, true);
+    assert.equal(payload?.metadataProfileId, 4);
+    assert.equal(payload?.qualityProfileId, 7);
+    assert.equal(payload?.monitored, true);
+    // monitorNewItems is NewItemMonitorTypes (all|none); only addOptions.monitor
+    // accepts the wider set the settings dropdown offers.
+    assert.equal(payload?.monitorNewItems, 'none');
+    assert.equal(payload?.addOptions?.monitor, 'latest');
+  });
+
+  it('passes an all new-artist monitoring mode through to monitorNewItems', async () => {
+    const { payload } = await captureLidarrAddPayload('all');
+    assert.equal(payload?.monitorNewItems, 'all');
+    assert.equal(payload?.addOptions?.monitor, 'all');
   });
 
   it('allows the default weekly Last.fm tag sync interval on the jobs page', async () => {
