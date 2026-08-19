@@ -16,7 +16,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          # Pinned to 22.x: better-sqlite3 11.x aborts on Node 24 during process
+          # teardown (RemoveEnvironmentCleanupHook assertion in Statement::~Statement),
+          # which fails the test step even when every assertion passes.
+          node-version: "22.x"
           cache: npm
 
       - name: Install dependencies
