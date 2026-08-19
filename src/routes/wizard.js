@@ -6,7 +6,7 @@ import {
   getUserPreferences, saveUserPreferences,
   getUserPlaylist, saveUserPlaylist,
   getPlaylistJob, savePlaylistJob, recordPlaylistSync,
-  refreshMasterTracks, updateMasterTrackTagMetadata, getMasterTracks, getMasterTrackCount,
+  refreshMasterTracks, pruneStaleMasterTracks, updateMasterTrackTagMetadata, getMasterTracks, getMasterTrackCount,
   getGenresFromMaster, getArtistsFromMaster, dedupeMasterArtistNames, getResolvedUserArtistFilters,
   listUserGeneratedPlaylists, saveUserGeneratedPlaylist,
   clearPlaylistState,
@@ -335,6 +335,7 @@ export async function refreshMasterTrackCache(ctx) {
   if (!url || !credential || !selectedKeys.length) return 0;
 
   try {
+    const refreshStartedAt = Date.now();
     let trackCount = 0;
     let moodCount = 0;
     const tracks = await adapter.getLibraryTracks(url, credential, selectedKeys, {
@@ -353,7 +354,8 @@ export async function refreshMasterTrackCache(ctx) {
       trackCount = tracks.length;
       moodCount = tracks.filter((t) => Array.isArray(t.moods) && t.moods.length > 0).length;
     }
-    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${trackCount} tracks, ${moodCount} with moods` });
+    const staleCount = pruneStaleMasterTracks(db, selectedKeys, refreshStartedAt);
+    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${trackCount} tracks, ${moodCount} with moods${staleCount ? `, ${staleCount} stale removed` : ''}` });
     return trackCount;
   } catch (err) {
     pushLog({ level: 'error', app: 'wizard', action: 'master.refresh.error', message: safeMessage(err) });
