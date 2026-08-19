@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.95 (2026-08-19)
+
+- Added M3U/M3U8 playlist import: local playlist files are matched against the master track cache by normalized file path first, then by `#EXTINF` `Artist - Title` metadata, with a preview of matched, unmatched, and duplicate entries before import.
+- Treated `m3u-file` as a first-class import source across conversion, imported-playlist settings, global playlists, and deletion, with sync fixed to disabled since there is no remote playlist to poll.
+- Preserved imported playlist ordering by storing a `source_position` for each playlist track and reading tracks back in that order.
+- Moved the Docker runtime to `node:24-alpine` with `better-sqlite3` 12.11.1.
+- Fixed CI failing on every push: `lts/*` now resolves to Node 24, where `better-sqlite3` 11.x aborts at process teardown and failed five test files despite every assertion passing.
+
 ## v0.1.94 (2026-08-19)
 
 - Verified Plex generated-playlist writes after sync so stale Plex rating keys can no longer be reported as successfully landed when Plex silently drops them.
