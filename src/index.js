@@ -2293,7 +2293,7 @@ export async function start() {
   await new Promise((resolve, reject) => {
     const listener = app.listen(PORT, () => {
       const config = loadConfig();
-      console.log(`[curatorr] v${APP_VERSION} listening on port ${PORT}`);
+      console.log(`[curatorr] ${normalizeVersionTag(APP_VERSION) || APP_VERSION} listening on port ${PORT}`);
       console.log(`[curatorr] Base URL: ${BASE_URL}`);
       if (!config?.wizard?.completed) {
         console.log('[curatorr] Setup wizard not complete — visit /wizard to get started.');

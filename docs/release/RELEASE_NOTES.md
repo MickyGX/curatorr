@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.94 (2026-08-19)
+
+- Verified Plex generated-playlist writes after sync so stale Plex rating keys can no longer be reported as successfully landed when Plex silently drops them.
+- Stored confirmed playlist counts and missing-track counts after Plex sync, with warning logs when requested tracks do not appear in the final playlist.
+- Pruned stale master-track cache rows for refreshed libraries after successful master refreshes, keeping dead Plex keys out of future smart playlist builds.
+- Fixed artist-country selections being preserved when moving through the smart playlist wizard.
+- Fixed Lidarr artist-add payloads so `existing`, `latest`, and `first` monitoring modes no longer get sent to Lidarr's narrower `monitorNewItems` field, while preserving valid `all` and `new` modes.
+- Added regression coverage for Plex partial playlist writes, stale master-track pruning, and Lidarr monitoring payloads.
+
 ## v0.1.93 (2026-08-01)
 
 - Cleared the remaining production `npm audit` findings by refreshing the Express 4 dependency stack in the lockfile, including patched `express`, `body-parser`, `path-to-regexp`, and `qs` versions.

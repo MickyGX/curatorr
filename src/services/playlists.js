@@ -131,6 +131,25 @@ function isSyntheticPlaylistSeed(track) {
   return libraryKey === 'listenbrainz-seed' || ratingKey.startsWith('lb-seed-');
 }
 
+function filterTracksByRatingKeyCounts(tracks = [], ratingKeys = []) {
+  const counts = new Map();
+  for (const key of ratingKeys || []) {
+    const normalized = String(key || '').trim();
+    if (!normalized) continue;
+    counts.set(normalized, (counts.get(normalized) || 0) + 1);
+  }
+  const filtered = [];
+  for (const track of tracks || []) {
+    const key = String(track?.ratingKey || '').trim();
+    const remaining = counts.get(key) || 0;
+    if (!remaining) continue;
+    filtered.push(track);
+    if (remaining === 1) counts.delete(key);
+    else counts.set(key, remaining - 1);
+  }
+  return filtered;
+}
+
 // Build two lookup Maps from master tracks:
 //   exact — feat-stripped only; preserves (acoustic), (Fade Out), etc.
 //   fuzzy — also strips trailing parens/brackets; catches remaster/version mismatches.
@@ -1605,6 +1624,86 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
 
   const PLEX_PLAYLIST_TIMEOUT_MS = 30_000;
 
+  function countKeys(keys = []) {
+    const counts = new Map();
+    for (const key of keys || []) {
+      const normalized = String(key || '').trim();
+      if (!normalized) continue;
+      counts.set(normalized, (counts.get(normalized) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function subtractKeyCounts(expectedCounts, actualCounts) {
+    const missing = [];
+    for (const [key, count] of expectedCounts) {
+      const actual = actualCounts.get(key) || 0;
+      for (let i = actual; i < count; i += 1) missing.push(key);
+    }
+    return missing;
+  }
+
+  async function fetchPlaylistRatingKeys() {
+    const keys = [];
+    const pageSize = 1000;
+    let offset = 0;
+    while (true) {
+      const itemsUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
+      itemsUrl.searchParams.set('X-Plex-Container-Start', String(offset));
+      itemsUrl.searchParams.set('X-Plex-Container-Size', String(pageSize));
+      const response = await fetch(itemsUrl.toString(), {
+        headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+        signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Verify playlist items failed: HTTP ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+      }
+      const json = await response.json();
+      const batch = (json?.MediaContainer?.Metadata || [])
+        .map((track) => String(track?.ratingKey || '').trim())
+        .filter(Boolean);
+      keys.push(...batch);
+      if (batch.length < pageSize) break;
+      offset += batch.length;
+    }
+    return keys;
+  }
+
+  async function verifyReplace() {
+    const requestedCount = ratingKeys.length;
+    let actualKeys;
+    try {
+      actualKeys = await fetchPlaylistRatingKeys();
+    } catch (err) {
+      ctx.pushLog({
+        level: 'warn',
+        app: 'playlist',
+        action: 'plex.playlist.verify_failed',
+        message: `Could not verify Plex playlist "${plexPlaylistId}" after sync for ${userPlexId}: ${err.message}`,
+        meta: {
+          plexPlaylistId,
+          requestedCount,
+        },
+      });
+      return {
+        requestedCount,
+        confirmedCount: requestedCount,
+        confirmedKeys: ratingKeys,
+        missingKeys: [],
+        verified: false,
+      };
+    }
+    const confirmedCount = actualKeys.length;
+    return {
+      requestedCount,
+      confirmedCount,
+      confirmedKeys: actualKeys,
+      missingKeys: subtractKeyCounts(countKeys(ratingKeys), countKeys(actualKeys)),
+      verified: true,
+    };
+  }
+
   async function doReplace(mid) {
     const clearUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
     const clearRes = await fetch(clearUrl.toString(), {
@@ -1640,10 +1739,12 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
         throw err;
       }
     }
+
+    return verifyReplace();
   }
 
   try {
-    await doReplace(machineId);
+    return await doReplace(machineId);
   } catch (err) {
     // HTTP 400 can indicate a stale machineId — try once with a freshly fetched identifier.
     if (err.status !== 400) throw err;
@@ -1662,7 +1763,7 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
     if (!freshId || freshId === machineId) throw err;
     const latest = ctx.loadConfig();
     ctx.saveConfig({ ...latest, plex: { ...latest.plex, machineId: freshId } });
-    await doReplace(freshId);
+    return doReplace(freshId);
   }
 }
 
@@ -3912,13 +4013,35 @@ export function createPlaylistService(ctx) {
       playlistToSync.playlistTitle,
       machineId,
     );
-    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, playlistToSync.trackKeys);
+    const plexSync = await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, playlistToSync.trackKeys);
+    const syncedTrackCount = Number(plexSync?.confirmedCount ?? playlistToSync.trackCount);
+    const missingKeys = Array.isArray(plexSync?.missingKeys) ? plexSync.missingKeys : [];
+    const missingCount = missingKeys.length;
+    if (missingCount) {
+      ctx.pushLog({
+        level: 'warn',
+        app: 'playlist',
+        action: 'plex.playlist.verify_missing',
+        message: `Plex playlist "${playlistToSync.playlistTitle}" accepted ${syncedTrackCount}/${plexSync.requestedCount} tracks for ${userPlexId}; ${missingCount} requested ratingKey(s) did not land.`,
+        meta: {
+          playlistKey: playlistToSync.playlistKey,
+          plexPlaylistId: playlistRow.plexPlaylistId,
+          requestedCount: plexSync.requestedCount,
+          confirmedCount: syncedTrackCount,
+          missingCount,
+          missingKeys: missingKeys.slice(0, 50),
+        },
+      });
+    }
     const syncedArtwork = await syncGeneratedPlaylistArtwork(userPlexId, {
       ...playlistRow,
       playlistKey: playlistToSync.playlistKey,
       plexPlaylistId: playlistRow.plexPlaylistId,
     }, artworkState, { snapshotIfNeeded: artworkState.artworkMode === 'preserve' });
-    setPlaylistTracks(db, userPlexId, playlistToSync.playlistKey, playlistToSync.tracks);
+    const syncedTracks = missingCount
+      ? filterTracksByRatingKeyCounts(playlistToSync.tracks, plexSync.confirmedKeys)
+      : playlistToSync.tracks;
+    setPlaylistTracks(db, userPlexId, playlistToSync.playlistKey, syncedTracks);
 
     const syncedAt = Date.now();
     saveUserGeneratedPlaylist(db, userPlexId, {
@@ -3932,7 +4055,8 @@ export function createPlaylistService(ctx) {
       algorithmVersion: playlistToSync.algorithmVersion,
       lastBuiltAt: playlistToSync.builtAt,
       lastSyncedAt: syncedAt,
-      trackCount: playlistToSync.trackCount,
+      trackCount: syncedTrackCount,
+      missingCount,
       active: true,
       updatedAt: syncedAt,
     });
@@ -3940,12 +4064,12 @@ export function createPlaylistService(ctx) {
       userPlexId,
       plexPlaylistId: playlistRow.plexPlaylistId,
       playlistTitle: playlistToSync.playlistTitle,
-      trackCount: playlistToSync.trackCount,
-      excludedTracks: 0,
+      trackCount: syncedTrackCount,
+      excludedTracks: missingCount,
       excludedArtists: 0,
       trigger,
     });
-    return { ...playlistToSync, syncedAt, plexPlaylistId: playlistRow.plexPlaylistId };
+    return { ...playlistToSync, trackCount: syncedTrackCount, missingCount, syncedAt, plexPlaylistId: playlistRow.plexPlaylistId };
   }
 
   async function syncDailyMix(userPlexId, options = {}) {
@@ -3989,8 +4113,10 @@ export function createPlaylistService(ctx) {
       },
       builtAt: Date.now(),
     };
-    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
-    ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
+    const synced = await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
+    const missingSuffix = synced?.missingCount ? ` (${synced.missingCount} missing in Plex)` : '';
+    ctx.pushLog({ level: synced?.missingCount ? 'warn' : 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced: ${Number(synced?.trackCount ?? ratingKeys.length)} tracks for ${userId}${missingSuffix}` });
+    return synced;
   }
 
   async function syncGlobalPlaylistJellyfin(userId, playlistDef, config, msType, options = {}) {
@@ -4020,8 +4146,9 @@ export function createPlaylistService(ctx) {
       },
       builtAt: Date.now(),
     };
-    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
-    ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced (${msType}): ${ratingKeys.length} tracks for ${userId}` });
+    const synced = await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
+    ctx.pushLog({ level: 'info', app: 'playlist', action: 'global.sync', message: `Global playlist "${playlistDef.name}" synced (${msType}): ${Number(synced?.trackCount ?? ratingKeys.length)} tracks for ${userId}` });
+    return synced;
   }
 
   async function syncPersonalPlaylist(userId, playlistDef, options = {}) {
@@ -4047,8 +4174,10 @@ export function createPlaylistService(ctx) {
       },
       builtAt: Date.now(),
     };
-    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
-    ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${ratingKeys.length} tracks for ${userId}` });
+    const synced = await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
+    const missingSuffix = synced?.missingCount ? ` (${synced.missingCount} missing in Plex)` : '';
+    ctx.pushLog({ level: synced?.missingCount ? 'warn' : 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced: ${Number(synced?.trackCount ?? ratingKeys.length)} tracks for ${userId}${missingSuffix}` });
+    return synced;
   }
 
   async function syncPersonalPlaylistJellyfin(userId, playlistDef, config, msType, options = {}) {
@@ -4075,8 +4204,9 @@ export function createPlaylistService(ctx) {
       },
       builtAt: Date.now(),
     };
-    await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
-    ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced (${msType}): ${ratingKeys.length} tracks for ${userId}` });
+    const synced = await syncBuiltSelectionPlaylist(userId, builtPlaylist, options);
+    ctx.pushLog({ level: 'info', app: 'playlist', action: 'personal.sync', message: `Personal playlist "${playlistDef.name}" synced (${msType}): ${Number(synced?.trackCount ?? ratingKeys.length)} tracks for ${userId}` });
+    return synced;
   }
 
   async function syncLastfmStations(userId, options = {}) {

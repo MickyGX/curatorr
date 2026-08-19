@@ -6402,7 +6402,7 @@
         if (window._wizGetBlendUsers) _wizardState.blendUsers = window._wizGetBlendUsers();
         wizardSyncSuggestedName(_wizardState, false);
       } else if (step === 2) {
-        ['genre','mood','album-genres','album-styles','album-moods','tag','decade','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
+        ['genre','mood','artist-countries','album-genres','album-styles','album-moods','tag','decade','seasonal-genre','seasonal-keyword','artist-tier','track-tier'].forEach(function(kind) {
           var inc = [], exc = [];
           var seen = new Set();
           var selectedModeBtn = document.querySelector('[data-match-mode-kind="' + kind + '"].is-selected');

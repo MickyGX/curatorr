@@ -2079,6 +2079,36 @@ export function refreshMasterTracks(db, tracks) {
   masterTracksCache.delete(db);
 }
 
+export function pruneStaleMasterTracks(db, libraryKeys = [], refreshedSince = 0) {
+  const keys = [...new Set(
+    (Array.isArray(libraryKeys) ? libraryKeys : [libraryKeys])
+      .map((key) => String(key || '').trim())
+      .filter(Boolean),
+  )];
+  const cutoff = Number(refreshedSince || 0);
+  if (!keys.length || !Number.isFinite(cutoff) || cutoff <= 0) return 0;
+
+  const placeholders = keys.map(() => '?').join(', ');
+  const staleRows = db.prepare(`
+    SELECT rating_key
+    FROM master_tracks
+    WHERE library_key IN (${placeholders})
+      AND updated_at < ?
+  `).all(...keys, cutoff);
+  const staleKeys = staleRows.map((row) => String(row.rating_key || '').trim()).filter(Boolean);
+  if (!staleKeys.length) return 0;
+
+  const stalePlaceholders = staleKeys.map(() => '?').join(', ');
+  const run = db.transaction(() => {
+    db.prepare(`DELETE FROM track_enrichment WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
+    db.prepare(`DELETE FROM playlist_tracks WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
+    db.prepare(`DELETE FROM master_tracks WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
+  });
+  run();
+  masterTracksCache.delete(db);
+  return staleKeys.length;
+}
+
 export function updateMasterTrackTagMetadata(db, tracks) {
   const update = db.prepare(`
     UPDATE master_tracks
