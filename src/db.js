@@ -322,6 +322,7 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
   user_plex_id   TEXT NOT NULL,
   rating_key     TEXT NOT NULL,
   artist_name    TEXT NOT NULL DEFAULT '',
+  source_position INTEGER NOT NULL DEFAULT 0,
   added_at       INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000),
   PRIMARY KEY (playlist_key, user_plex_id, rating_key)
 );
@@ -565,6 +566,10 @@ export function initDb(dbPath) {
     db.exec('ALTER TABLE user_generated_playlists ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0');
   if (!generatedCols.includes('audience'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN audience TEXT NOT NULL DEFAULT 'personal'");
+
+  const playlistTrackCols = db.prepare('PRAGMA table_info(playlist_tracks)').all().map((c) => c.name);
+  if (!playlistTrackCols.includes('source_position'))
+    db.exec('ALTER TABLE playlist_tracks ADD COLUMN source_position INTEGER NOT NULL DEFAULT 0');
 
   const importedUnmatchedCols = db.prepare('PRAGMA table_info(imported_playlist_unmatched)').all().map((c) => c.name);
   if (!importedUnmatchedCols.includes('album_image_url'))
@@ -2584,26 +2589,32 @@ export function getAllSystemJobRuns(db) {
 // ─── Playlist tracks (crescive / curative local state) ────────────────────────
 
 export function getPlaylistTracks(db, userId, playlistKey) {
-  return db.prepare('SELECT rating_key, artist_name FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?')
+  return db.prepare('SELECT rating_key, artist_name FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ? ORDER BY source_position ASC, added_at ASC, rowid ASC')
     .all(userId, playlistKey)
     .map((r) => ({ ratingKey: r.rating_key, artistName: r.artist_name }));
 }
 
 export function setPlaylistTracks(db, userId, playlistKey, tracks) {
   const del = db.prepare('DELETE FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?');
-  const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, added_at) VALUES (?, ?, ?, ?, ?)');
+  const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, source_position, added_at) VALUES (?, ?, ?, ?, ?, ?)');
   const now = Date.now();
   db.transaction(() => {
     del.run(userId, playlistKey);
-    for (const t of tracks) ins.run(playlistKey, userId, t.ratingKey, t.artistName || '', now);
+    (Array.isArray(tracks) ? tracks : []).forEach((t, index) => {
+      ins.run(playlistKey, userId, t.ratingKey, t.artistName || '', Number(t.sourcePosition || t.position || index + 1), now);
+    });
   })();
 }
 
 export function addPlaylistTracks(db, userId, playlistKey, tracks) {
-  const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, added_at) VALUES (?, ?, ?, ?, ?)');
+  const maxRow = db.prepare('SELECT COALESCE(MAX(source_position), 0) AS max_pos FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?').get(userId, playlistKey);
+  const startPosition = Number(maxRow?.max_pos || 0);
+  const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, source_position, added_at) VALUES (?, ?, ?, ?, ?, ?)');
   const now = Date.now();
   db.transaction(() => {
-    for (const t of tracks) ins.run(playlistKey, userId, t.ratingKey, t.artistName || '', now);
+    (Array.isArray(tracks) ? tracks : []).forEach((t, index) => {
+      ins.run(playlistKey, userId, t.ratingKey, t.artistName || '', Number(t.sourcePosition || t.position || startPosition + index + 1), now);
+    });
   })();
 }
 
