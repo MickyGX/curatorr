@@ -1,6 +1,7 @@
 // Music stats, smart playlist management, and Lidarr integration
 
 import path from 'path';
+import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import {
   getTopArtists,
@@ -76,6 +77,11 @@ import { paginateRolledHistory } from '../history-rollup.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import {
+  buildM3uPathLookups,
+  parseM3uPlaylist,
+  pickM3uPathMatch,
+} from '../services/m3u-import.js';
+import {
   getStoredPlaylistArtworkInfo,
   parsePlaylistArtworkDataUrl,
   savePlaylistArtworkBuffer,
@@ -132,6 +138,8 @@ const IMPORTED_SYNC_PERIOD_MS = {
 const LASTFM_IMPORT_SOURCE_KEYS = ['recommended', 'mix', 'library', 'neighbours', 'loved'];
 const LASTFM_TOP_TRACKS_PERIODS = ['overall', '7day', '1month', '3month', '6month', '12month'];
 const LISTENBRAINZ_IMPORT_SOURCE_KEYS = ['daily-jams', 'weekly-jams', 'weekly-exploration'];
+const M3U_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const M3U_IMPORT_MAX_ENTRIES = 5000;
 // Cache Jellyfin/Emby userId lookups — keyed by "username@serverUrl", TTL 1 hour
 const msUserIdCache = new Map();
 const MS_USERID_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -300,7 +308,7 @@ function sanitizeImportedSourceInput(value) {
   if (!value || typeof value !== 'object') return null;
   const sourceType = String(value.sourceType || '').trim().toLowerCase();
   const playlistKey = String(value.playlistKey || '').trim();
-  if (!playlistKey || !['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(sourceType)) return null;
+  if (!playlistKey || !['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(sourceType)) return null;
   return {
     playlistKey,
     sourceType,
@@ -1540,6 +1548,82 @@ export function registerApiMusic(app, ctx) {
     };
   }
 
+  function normalizeM3uImportContent(value) {
+    const content = String(value || '');
+    if (!content.trim()) throw Object.assign(new Error('Choose an M3U or M3U8 file first.'), { status: 400 });
+    if (Buffer.byteLength(content, 'utf8') > M3U_IMPORT_MAX_BYTES) {
+      throw Object.assign(new Error('M3U file is too large. The current import limit is 2 MB.'), { status: 413 });
+    }
+    return content;
+  }
+
+  function resolveM3uPlaylistTitle(filename, fallback = 'Imported M3U Playlist') {
+    const base = path.basename(String(filename || '').trim()).replace(/\.(?:m3u8?|txt)$/i, '').trim();
+    return normaliseImportedPlaylistTitle(base || fallback, fallback);
+  }
+
+  function buildM3uImportMatchResult(content) {
+    const items = parseM3uPlaylist(content, { maxEntries: M3U_IMPORT_MAX_ENTRIES });
+    const masterTracks = getMasterTracks(db);
+    const pathLookups = buildM3uPathLookups(masterTracks);
+    const textLookups = buildSpotifyTrackLookups(masterTracks);
+    const trackRefs = [];
+    const unmatched = [];
+    const matched = [];
+    const duplicateMatches = [];
+    const seenRatingKeys = new Set();
+
+    for (const item of items) {
+      let result = pickM3uPathMatch(pathLookups, item);
+      if (!result.match?.ratingKey) result = pickSpotifyTrackMatch(textLookups, item);
+      const ratingKey = String(result?.match?.ratingKey || '').trim();
+      const summary = {
+        position: Number(item.position || 0),
+        ratingKey,
+        artistName: String(result?.match?.artistName || '').trim(),
+        trackTitle: String(result?.match?.trackTitle || item.title || '').trim(),
+        albumName: String(result?.match?.albumName || '').trim(),
+        spotifyTitle: String(item.title || item.filePath || '').trim(),
+        spotifyArtists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || artist || '').trim()).filter(Boolean),
+        durationMs: Number(item.durationMs || 0),
+        matchMethod: String(result?.method || '').trim(),
+      };
+      if (ratingKey) {
+        if (seenRatingKeys.has(ratingKey)) duplicateMatches.push(summary);
+        else {
+          seenRatingKeys.add(ratingKey);
+          matched.push(summary);
+          trackRefs.push({
+            ratingKey,
+            artistName: String(result.match.artistName || '').trim(),
+            sourcePosition: Number(item.position || trackRefs.length + 1),
+          });
+        }
+        continue;
+      }
+      unmatched.push({
+        sourceTrackId: String(item.filePath || item.id || '').trim(),
+        position: Number(item.position || 0),
+        title: String(item.title || path.basename(String(item.filePath || '')) || '').trim(),
+        artistName: String(item.artistName || '').trim(),
+        artists: (Array.isArray(item.artists) ? item.artists : []).map((artist) => String(artist?.name || artist || '').trim()).filter(Boolean),
+        albumTitle: '',
+        albumType: '',
+        albumImageUrl: '',
+        durationMs: Number(item.durationMs || 0),
+      });
+    }
+
+    return {
+      items,
+      trackRefs,
+      matched,
+      unmatched,
+      duplicateMatches,
+      unmatchedArtists: buildSpotifyUnmatchedArtistGroups(unmatched, { groupLimit: 100, sampleLimit: 3 }),
+    };
+  }
+
   function normalizeLastfmImportSourceKey(value) {
     const raw = String(value || '').trim();
     if (LASTFM_IMPORT_SOURCE_KEYS.includes(raw)) return raw;
@@ -2143,7 +2227,7 @@ export function registerApiMusic(app, ctx) {
   }
 
   function isImportedCustomSourceType(sourceType) {
-    return ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist']
+    return ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file']
       .includes(String(sourceType || '').trim().toLowerCase());
   }
 
@@ -4672,7 +4756,7 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Only imported custom playlists can be converted.' });
     }
     const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(sourceType)) {
+    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(sourceType)) {
       return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
     }
 
@@ -4700,7 +4784,10 @@ export function registerApiMusic(app, ctx) {
       req.body?.title,
       playlist.playlistTitle || playlist.sourceTitle || 'Imported Playlist',
     );
-    const nextImportedSyncPeriod = normalizeImportedSyncPeriod(req.body?.importedSyncPeriod || playlist.importedSyncPeriod);
+    const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
+    const nextImportedSyncPeriod = sourceType === 'm3u-file'
+      ? 'disabled'
+      : normalizeImportedSyncPeriod(req.body?.importedSyncPeriod || playlist.importedSyncPeriod);
     const requestedAudience = String(req.body?.audience || playlist.audience || 'personal').trim().toLowerCase();
     const nextAudience = ['personal', 'global'].includes(requestedAudience) ? requestedAudience : 'personal';
     if (nextAudience === 'global' && !isAdminRole(req)) {
@@ -5159,6 +5246,36 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
+  app.post('/api/music/import/m3u/preview', requireUser, async (req, res) => {
+    try {
+      const content = normalizeM3uImportContent(req.body?.content || '');
+      const filename = String(req.body?.filename || '').trim();
+      const matchResult = buildM3uImportMatchResult(content);
+      return res.json({
+        ok: true,
+        playlist: {
+          name: resolveM3uPlaylistTitle(filename),
+          ownerName: 'M3U',
+        },
+        totalSourceTracks: matchResult.items.length,
+        playlistTrackCount: matchResult.items.length,
+        matchedCount: matchResult.matched.length,
+        unmatchedCount: matchResult.unmatched.length,
+        unmatchedArtistCount: matchResult.unmatchedArtists.length,
+        duplicateCount: matchResult.duplicateMatches.length,
+        warning: matchResult.items.length >= M3U_IMPORT_MAX_ENTRIES ? `Preview limited to ${M3U_IMPORT_MAX_ENTRIES} entries.` : '',
+        partial: false,
+        source: 'file',
+        matched: matchResult.matched.slice(0, 100),
+        unmatchedArtists: matchResult.unmatchedArtists,
+        unmatched: matchResult.unmatched.slice(0, 100),
+        duplicateMatches: matchResult.duplicateMatches.slice(0, 100),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
   app.get('/api/music/import/spotify/playlists', requireUser, async (req, res) => {
     const userPlexId = resolveCanonicalUserId(req);
     try {
@@ -5468,6 +5585,39 @@ export function registerApiMusic(app, ctx) {
         audience: makeGlobal ? 'global' : 'personal',
         warning: String(playlistSource.warning || '').trim(),
         partial: playlistSource.partial === true,
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/m3u', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
+    try {
+      const content = normalizeM3uImportContent(req.body?.content || '');
+      const filename = String(req.body?.filename || '').trim();
+      const matchResult = buildM3uImportMatchResult(content);
+      if (!matchResult.trackRefs.length) return res.status(404).json({ error: 'No M3U tracks matched your local library.' });
+      const fallbackTitle = resolveM3uPlaylistTitle(filename);
+      const title = normaliseImportedPlaylistTitle(req.body?.title, fallbackTitle);
+      const sourceHash = crypto.createHash('sha1').update(content).digest('hex').slice(0, 16);
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, matchResult.trackRefs, {
+        sourceType: 'm3u-file',
+        sourceRef: `m3u:${sourceHash}`,
+        sourceTitle: filename || fallbackTitle,
+        sourceOwner: 'M3U',
+        unmatchedTracks: matchResult.unmatched,
+      });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: matchResult.trackRefs.length,
+        unmatchedCount: matchResult.unmatched.length,
+        importedMissingCount: matchResult.unmatched.length,
+        duplicateCount: matchResult.duplicateMatches.length,
+        audience: makeGlobal ? 'global' : 'personal',
       });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
@@ -6670,7 +6820,7 @@ export function registerApiMusic(app, ctx) {
         .find((entry) => entry.playlistKey === removeImportedSourcePlaylistKey);
       if (importedPlaylist && String(importedPlaylist.playlistType || '').trim().toLowerCase() === 'custom') {
         const importedSourceType = String(importedPlaylist.sourceType || '').trim().toLowerCase();
-        if (['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(importedSourceType)) {
+        if (['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(importedSourceType)) {
           await deleteGeneratedPlaylistWithRemote({
             db,
             loadConfig,

@@ -55,6 +55,7 @@
           if (source === 'youtube-playlist') return 'imported-youtube';
           if (source === 'lastfm-station') return 'imported-lastfm';
           if (source === 'listenbrainz-playlist') return 'imported-listenbrainz';
+          if (source === 'm3u-file') return 'imported-m3u';
           if (source.startsWith('plex-')) return 'imported-plex';
           const type = String(playlistType || '').trim().toLowerCase();
           if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
@@ -62,10 +63,10 @@
         }
         function playlistAudienceIconMarkup(audience, playlistType, sourceType) {
           const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
-          if (audience === 'global' && (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-plex')) {
+          if (audience === 'global' && (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex')) {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
           }
-          if (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-plex') {
+          if (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex') {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
           }
           if (kind === 'global') {
@@ -88,11 +89,13 @@
           if (audience === 'global' && kind === 'imported-youtube') return 'Global YouTube playlist (all users)';
           if (audience === 'global' && kind === 'imported-lastfm') return 'Global Last.fm playlist (all users)';
           if (audience === 'global' && kind === 'imported-listenbrainz') return 'Global ListenBrainz playlist (all users)';
+          if (audience === 'global' && kind === 'imported-m3u') return 'Global M3U playlist (all users)';
           if (audience === 'global' && kind === 'imported-plex') return 'Global Plex playlist (all users)';
           if (kind === 'imported-spotify') return 'Imported Spotify playlist';
           if (kind === 'imported-youtube') return 'Imported YouTube playlist';
           if (kind === 'imported-lastfm') return 'Imported Last.fm playlist';
           if (kind === 'imported-listenbrainz') return 'Imported ListenBrainz playlist';
+          if (kind === 'imported-m3u') return 'Imported M3U playlist';
           if (kind === 'imported-plex') return 'Imported Plex playlist';
           if (kind === 'global') return 'Global playlist';
           if (kind === 'blend') return 'Blend playlist';
@@ -240,7 +243,7 @@
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
-                          <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
+                          <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit imported playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openImportedPlaylistSettingsModal(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
@@ -253,7 +256,7 @@
                             <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                             <% } else if (p.playlistType === 'global') { %>
                             <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
-                            <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
+                            <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
                             <button type="button" onclick="event.stopPropagation(); openImportedPlaylistSettingsModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                             <% } %>
                             <% if (_msType === 'plex' && p.playlistKind !== 'draft' && p.playlistKey && (p.playlistType !== 'global' || _isAdmin)) { %>
@@ -308,7 +311,7 @@
                   <button class="spm-close" type="button" onclick="closeImportPlaylistModal()" aria-label="Close">✕</button>
                 </div>
                 <div class="spm-body">
-                  <div class="playlist-feature-note">Import an existing Plex, Spotify, URL, Last.fm, or ListenBrainz playlist as a managed custom playlist in Curatorr.</div>
+                  <div class="playlist-feature-note">Import an existing Plex, Spotify, URL, M3U, Last.fm, or ListenBrainz playlist as a managed custom playlist in Curatorr.</div>
                   <div class="import-pl-tabs" role="tablist" aria-label="Import source">
                     <% if (_msType === 'plex') { %>
                     <button type="button" class="import-pl-tab is-active" id="importPlexTabBtn" onclick="setImportSourceTab('plex')" role="tab" aria-selected="true">Plex</button>
@@ -319,6 +322,7 @@
                     <% if (spotifyConfigured || youtubeConfigured) { %>
                     <button type="button" class="import-pl-tab<%= _msType === 'plex' || spotifyConfigured ? '' : ' is-active' %>" id="importUrlTabBtn" onclick="setImportSourceTab('url')" role="tab" aria-selected="<%= _msType === 'plex' || spotifyConfigured ? 'false' : 'true' %>">URL</button>
                     <% } %>
+                    <button type="button" class="import-pl-tab" id="importM3uTabBtn" onclick="setImportSourceTab('m3u')" role="tab" aria-selected="false">M3U</button>
                     <% if (lastfmUsername) { %>
                     <button type="button" class="import-pl-tab" id="importLastfmTabBtn" onclick="setImportSourceTab('lastfm')" role="tab" aria-selected="false">Last.fm</button>
                     <% } %>
@@ -362,7 +366,14 @@
                       <input id="importUrlInput" class="cur-input" type="text" placeholder="https://open.spotify.com/playlist/..." autocomplete="off" oninput="onImportUrlInput()" />
                     </label>
                   </div>
-                  <% if (spotifyConfigured || youtubeConfigured || lastfmUsername || listenbrainzUsername) { %>
+                  <% } %>
+                  <div id="importM3uPanel" class="import-pl-panel" style="display:none">
+                    <div class="cur-panel-meta import-url-note">Import .m3u or .m3u8 files by matching paths first, then Artist - Title metadata when present.</div>
+                    <label class="field import-pl-field">
+                      <span>Select an M3U/M3U8 file</span>
+                      <input id="importM3uFile" class="cur-input" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,audio/mpegurl,application/vnd.apple.mpegurl" onchange="onImportM3uFileChange()" />
+                    </label>
+                  </div>
                   <div id="importPreviewWrap">
                     <div id="importSpotifyStatus" class="cur-panel-meta import-pl-status">Paste a supported playlist URL or id.</div>
                     <div id="importSpotifyPreview" class="import-spotify-preview" style="display:none">
@@ -388,8 +399,6 @@
                       </div>
                     </div>
                   </div>
-                  <% } %>
-                  <% } %>
                   <% if (lastfmUsername) { %>
                   <div id="importLastfmPanel" class="import-pl-panel" style="display:none">
                     <div class="cur-panel-meta import-pl-status">Import from Last.fm for <strong><%= lastfmUsername %></strong>. Matching and ordering uses your saved Last.fm settings.</div>
@@ -1157,6 +1166,8 @@
     var _importLastfmPreview = null;
     var _importListenbrainzSelection = null;
     var _importListenbrainzPreview = null;
+    var _importM3uSelection = null;
+    var _importM3uPreview = null;
     var _importUrlDebounce = null;
     var _importSourceTab = IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : 'url');
     var _playlistCardFilterState = {
@@ -1704,6 +1715,17 @@
         || sourceType === 'plex-collection';
     }
 
+    function isImportedCustomSource(sourceType) {
+      var source = String(sourceType || '').trim().toLowerCase();
+      return source === 'spotify-playlist'
+        || source === 'youtube-playlist'
+        || source === 'lastfm-station'
+        || source === 'listenbrainz-playlist'
+        || source === 'm3u-file'
+        || source === 'plex-playlist'
+        || source === 'plex-collection';
+    }
+
     function normalizeImportedSyncPeriod(value) {
       var normalized = String(value || '').trim().toLowerCase();
       return ['disabled', 'daily', 'weekly', 'monthly'].indexOf(normalized) !== -1 ? normalized : 'disabled';
@@ -1759,7 +1781,7 @@
       var audience = String((data && data.playlistAudience) || '').trim().toLowerCase();
       if (audience === 'global' || audience === 'external' || audience === 'blend' || audience === 'personal' || audience === 'system' || audience === 'imported') return audience;
       var source = String(data && data.sourceType || data && data.playlistSourceType || '').trim().toLowerCase();
-      if (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0) return 'imported';
+      if (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source === 'm3u-file' || source.indexOf('plex-') === 0) return 'imported';
       var type = String(data && data.playlistType || '').trim().toLowerCase();
       if (type === 'global') return 'global';
       if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
@@ -1891,8 +1913,9 @@
       var isActive = data.active !== false;
       var playlistAudience = resolvePlaylistAudience(data);
       var isDeletable = ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(data.playlistType || '') !== -1;
-      var isImportedRefresh = data.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].indexOf(String(data.sourceType || '').toLowerCase()) !== -1;
-      var canEditImportedSettings = isImportedRefresh && (playlistAudience !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
+      var isImportedSource = data.playlistType === 'custom' && isImportedCustomSource(data.sourceType);
+      var isImportedRefresh = isImportedSource && String(data.sourceType || '').toLowerCase() !== 'm3u-file';
+      var canEditImportedSettings = isImportedSource && (playlistAudience !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
       var canEditArtwork = _msType === 'plex' && data.playlistKey && !isDraft && (data.playlistType !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
       var editBtnHtml = isPersonal
         ? '<button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist"><img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" /></button>'
@@ -2012,6 +2035,7 @@
       if (tab === 'url') return _importUrlSelection;
       if (tab === 'lastfm') return _importLastfmSelection;
       if (tab === 'listenbrainz') return _importListenbrainzSelection;
+      if (tab === 'm3u') return _importM3uSelection;
       return _importSpotifySelection;
     }
 
@@ -2019,6 +2043,7 @@
       if (tab === 'url') return _importUrlPreview;
       if (tab === 'lastfm') return _importLastfmPreview;
       if (tab === 'listenbrainz') return _importListenbrainzPreview;
+      if (tab === 'm3u') return _importM3uPreview;
       return _importSpotifyPreview;
     }
 
@@ -2026,6 +2051,7 @@
       if (tab === 'url') _importUrlPreview = value;
       else if (tab === 'lastfm') _importLastfmPreview = value;
       else if (tab === 'listenbrainz') _importListenbrainzPreview = value;
+      else if (tab === 'm3u') _importM3uPreview = value;
       else _importSpotifyPreview = value;
     }
 
@@ -2033,6 +2059,7 @@
       if (tab === 'url') _importUrlSelection = value;
       else if (tab === 'lastfm') _importLastfmSelection = value;
       else if (tab === 'listenbrainz') _importListenbrainzSelection = value;
+      else if (tab === 'm3u') _importM3uSelection = value;
       else _importSpotifySelection = value;
     }
 
@@ -2045,6 +2072,8 @@
       _importLastfmPreview = null;
       _importListenbrainzSelection = null;
       _importListenbrainzPreview = null;
+      _importM3uSelection = null;
+      _importM3uPreview = null;
     }
 
     function renderImportLastfmSources() {
@@ -2077,6 +2106,7 @@
       if (tab === 'url') return 'Paste a supported playlist URL or id.';
       if (tab === 'lastfm') return 'Select a Last.fm source.';
       if (tab === 'listenbrainz') return 'Select a ListenBrainz source.';
+      if (tab === 'm3u') return 'Choose an M3U or M3U8 file.';
       if (_importSpotifySources.length) return _importSpotifySources.length + ' Spotify playlists available.';
       return SPOTIFY_CONNECTED ? 'Loading Spotify playlists…' : 'Connect Spotify in User Settings first.';
     }
@@ -2132,7 +2162,7 @@
     }
 
     function renderActiveImportSpotifyPreview() {
-      var activeTab = (_importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz')
+      var activeTab = (_importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz' || _importSourceTab === 'm3u')
         ? _importSourceTab
         : 'spotify';
       var selection = getImportSpotifySelectionForTab(activeTab);
@@ -2145,7 +2175,7 @@
       var provider = String(selection && selection.provider || (activeTab === 'url' ? '' : activeTab)).trim().toLowerCase();
       var providerLabel = provider === 'youtube'
         ? 'YouTube'
-        : (provider === 'lastfm' ? 'Last.fm' : (provider === 'listenbrainz' ? 'ListenBrainz' : 'Spotify'));
+        : (provider === 'lastfm' ? 'Last.fm' : (provider === 'listenbrainz' ? 'ListenBrainz' : (provider === 'm3u' ? 'M3U' : 'Spotify')));
       if (!statusEl || !previewEl) return;
       if (!selection) {
         if (previewEl) previewEl.style.display = 'none';
@@ -2182,18 +2212,20 @@
     }
 
     function setImportSourceTab(tab) {
-      if (tab === 'spotify' || tab === 'url' || tab === 'lastfm' || tab === 'listenbrainz') _importSourceTab = tab;
+      if (tab === 'spotify' || tab === 'url' || tab === 'lastfm' || tab === 'listenbrainz' || tab === 'm3u') _importSourceTab = tab;
       else _importSourceTab = 'plex';
       var plexBtn = document.getElementById('importPlexTabBtn');
       var spotifyBtn = document.getElementById('importSpotifyTabBtn');
       var urlBtn = document.getElementById('importUrlTabBtn');
       var lastfmBtn = document.getElementById('importLastfmTabBtn');
       var listenbrainzBtn = document.getElementById('importListenbrainzTabBtn');
+      var m3uBtn = document.getElementById('importM3uTabBtn');
       var plexPanel = document.getElementById('importPlexPanel');
       var spotifyPanel = document.getElementById('importSpotifyPanel');
       var urlPanel = document.getElementById('importUrlPanel');
       var lastfmPanel = document.getElementById('importLastfmPanel');
       var listenbrainzPanel = document.getElementById('importListenbrainzPanel');
+      var m3uPanel = document.getElementById('importM3uPanel');
       var previewWrap = document.getElementById('importPreviewWrap');
       if (plexBtn) {
         plexBtn.classList.toggle('is-active', _importSourceTab === 'plex');
@@ -2215,11 +2247,16 @@
         listenbrainzBtn.classList.toggle('is-active', _importSourceTab === 'listenbrainz');
         listenbrainzBtn.setAttribute('aria-selected', _importSourceTab === 'listenbrainz' ? 'true' : 'false');
       }
+      if (m3uBtn) {
+        m3uBtn.classList.toggle('is-active', _importSourceTab === 'm3u');
+        m3uBtn.setAttribute('aria-selected', _importSourceTab === 'm3u' ? 'true' : 'false');
+      }
       if (plexPanel) plexPanel.style.display = _importSourceTab === 'plex' ? 'block' : 'none';
       if (spotifyPanel) spotifyPanel.style.display = _importSourceTab === 'spotify' ? 'block' : 'none';
       if (urlPanel) urlPanel.style.display = _importSourceTab === 'url' ? 'block' : 'none';
       if (lastfmPanel) lastfmPanel.style.display = _importSourceTab === 'lastfm' ? 'block' : 'none';
       if (listenbrainzPanel) listenbrainzPanel.style.display = _importSourceTab === 'listenbrainz' ? 'block' : 'none';
+      if (m3uPanel) m3uPanel.style.display = _importSourceTab === 'm3u' ? 'block' : 'none';
       if (previewWrap) {
         var targetPanel = _importSourceTab === 'spotify'
           ? spotifyPanel
@@ -2227,13 +2264,13 @@
             ? urlPanel
             : (_importSourceTab === 'lastfm'
               ? lastfmPanel
-              : (_importSourceTab === 'listenbrainz' ? listenbrainzPanel : plexPanel)));
+              : (_importSourceTab === 'listenbrainz' ? listenbrainzPanel : (_importSourceTab === 'm3u' ? m3uPanel : plexPanel))));
         if (targetPanel && targetPanel.parentNode) {
           targetPanel.insertAdjacentElement('afterend', previewWrap);
         }
       }
       resetImportedTitleField();
-      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz') {
+      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz' || _importSourceTab === 'm3u') {
         renderActiveImportSpotifyPreview();
       } else {
         var previewEl = document.getElementById('importSpotifyPreview');
@@ -2251,11 +2288,13 @@
         if (provider === 'youtube') return '/api/music/import/youtube';
         if (provider === 'lastfm') return '/api/music/import/lastfm';
         if (provider === 'listenbrainz') return '/api/music/import/listenbrainz';
+        if (provider === 'm3u') return '/api/music/import/m3u';
         return '/api/music/import/spotify';
       }
       if (provider === 'youtube') return '/api/music/import/youtube/preview';
       if (provider === 'lastfm') return '/api/music/import/lastfm/preview';
       if (provider === 'listenbrainz') return '/api/music/import/listenbrainz/preview';
+      if (provider === 'm3u') return '/api/music/import/m3u/preview';
       return '/api/music/import/spotify/preview';
     }
 
@@ -2264,6 +2303,8 @@
       var params = new URLSearchParams();
       if (provider === 'lastfm' || provider === 'listenbrainz') {
         params.set('sourceKey', String(item && item.sourceKey || item && item.id || '').trim());
+      } else if (provider === 'm3u') {
+        return endpoint;
       } else {
         params.set('playlistId', String(item && item.id || '').trim());
         if (provider === 'spotify' && sourceTab === 'url') params.set('source', 'url');
@@ -2274,11 +2315,11 @@
     function updateImportSubmitButton() {
       var submitBtn = document.getElementById('importPlexSubmitBtn');
       if (!submitBtn) return;
-      if (_importSourceTab === 'spotify' || _importSourceTab === 'url') {
+      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u') {
         var selection = getImportSpotifySelectionForTab(_importSourceTab);
         var preview = getImportSpotifyPreviewForTab(_importSourceTab);
         var canImportSpotify = Boolean(selection && preview && Number(preview.matchedCount || 0) > 0);
-        if (!selection) submitBtn.textContent = _importSourceTab === 'url' ? 'Paste a URL' : 'Select a playlist';
+        if (!selection) submitBtn.textContent = _importSourceTab === 'm3u' ? 'Choose a file' : (_importSourceTab === 'url' ? 'Paste a URL' : 'Select a playlist');
         else if (!preview) submitBtn.textContent = 'Checking matches…';
         else if (preview.partial === true) submitBtn.textContent = 'Import available matches';
         else if (!Number(preview.totalSourceTracks || 0) && Number(selection.trackCount || 0) > 0) submitBtn.textContent = 'Preview unavailable';
@@ -2365,9 +2406,53 @@
         titleInput.value = _importLastfmSelection.title || '';
       } else if (_importSourceTab === 'listenbrainz' && _importListenbrainzSelection && !_importPlexTitleTouched) {
         titleInput.value = _importListenbrainzSelection.title || '';
+      } else if (_importSourceTab === 'm3u' && _importM3uSelection && !_importPlexTitleTouched) {
+        titleInput.value = _importM3uSelection.name || '';
       } else if (_importSourceTab === 'plex' && _importPlexSelection && !_importPlexTitleTouched) {
         titleInput.value = _importPlexSelection.title || '';
       }
+    }
+
+    function onImportM3uFileChange() {
+      var fileInput = document.getElementById('importM3uFile');
+      var statusEl = document.getElementById('importSpotifyStatus');
+      var previewEl = document.getElementById('importSpotifyPreview');
+      var file = fileInput && fileInput.files && fileInput.files[0];
+      _importM3uSelection = null;
+      _importM3uPreview = null;
+      if (previewEl) previewEl.style.display = 'none';
+      if (!file) {
+        if (statusEl) statusEl.textContent = getImportSpotifyIdleStatus('m3u');
+        updateImportSubmitButton();
+        return;
+      }
+      var name = String(file.name || 'Imported M3U Playlist').replace(/\.(m3u8?|txt)$/i, '').trim() || 'Imported M3U Playlist';
+      if (Number(file.size || 0) > 2 * 1024 * 1024) {
+        if (statusEl) statusEl.textContent = 'M3U file is too large. The current import limit is 2 MB.';
+        updateImportSubmitButton();
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function() {
+        _importM3uSelection = {
+          id: file.name || 'm3u-file',
+          name: name,
+          ownerName: 'M3U',
+          provider: 'm3u',
+          filename: file.name || '',
+          content: String(reader.result || ''),
+          trackCount: 0,
+        };
+        resetImportedTitleField();
+        renderActiveImportSpotifyPreview();
+        loadImportSpotifyPreview(_importM3uSelection, 'm3u');
+      };
+      reader.onerror = function() {
+        if (statusEl) statusEl.textContent = 'Could not read that M3U file.';
+        updateImportSubmitButton();
+      };
+      if (statusEl) statusEl.textContent = 'Reading M3U file…';
+      reader.readAsText(file);
     }
 
     function onImportUrlInput() {
@@ -2459,12 +2544,15 @@
       _importUrlPreview = null;
       _importLastfmSelection = null;
       _importListenbrainzSelection = null;
+      _importM3uSelection = null;
+      _importM3uPreview = null;
       clearTimeout(_importUrlDebounce);
       _importPlexTitleTouched = false;
       var titleInput = document.getElementById('importPlexTitle');
       var searchInput = document.getElementById('importPlexSearch');
       var spotifySearchInput = document.getElementById('importSpotifySearch');
       var urlInput = document.getElementById('importUrlInput');
+      var m3uFileInput = document.getElementById('importM3uFile');
       var statusEl = document.getElementById('importPlexStatus');
       var spotifyStatusEl = document.getElementById('importSpotifyStatus');
       var submitBtn = document.getElementById('importPlexSubmitBtn');
@@ -2472,19 +2560,20 @@
       if (searchInput) searchInput.value = '';
       if (spotifySearchInput) spotifySearchInput.value = '';
       if (urlInput) urlInput.value = '';
+      if (m3uFileInput) m3uFileInput.value = '';
       var globalCheckbox = document.getElementById('importGlobalCheckbox');
       if (globalCheckbox) globalCheckbox.checked = false;
       updateImportUrlProviderUI('');
       if (submitBtn) submitBtn.disabled = true;
       if (statusEl) statusEl.textContent = 'Loading sources…';
-      if (spotifyStatusEl) spotifyStatusEl.textContent = getImportSpotifyIdleStatus(IMPORT_HAS_PLEX ? 'spotify' : (SPOTIFY_CONFIGURED ? 'spotify' : 'url'));
+      if (spotifyStatusEl) spotifyStatusEl.textContent = getImportSpotifyIdleStatus(IMPORT_HAS_PLEX ? 'spotify' : (SPOTIFY_CONFIGURED ? 'spotify' : (LASTFM_USERNAME ? 'lastfm' : (LISTENBRAINZ_USERNAME ? 'listenbrainz' : 'm3u'))));
       if (document.getElementById('importPlexList')) document.getElementById('importPlexList').innerHTML = '';
       if (document.getElementById('importSpotifyList')) document.getElementById('importSpotifyList').innerHTML = '';
       if (document.getElementById('importPlexEmpty')) document.getElementById('importPlexEmpty').style.display = 'none';
       if (document.getElementById('importSpotifyEmpty')) document.getElementById('importSpotifyEmpty').style.display = 'none';
       if (document.getElementById('importSpotifyPreview')) document.getElementById('importSpotifyPreview').style.display = 'none';
       bindStaticImportSourceButtons();
-      setImportSourceTab(IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : (LASTFM_USERNAME ? 'lastfm' : (LISTENBRAINZ_USERNAME ? 'listenbrainz' : 'url'))));
+      setImportSourceTab(IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : (LASTFM_USERNAME ? 'lastfm' : (LISTENBRAINZ_USERNAME ? 'listenbrainz' : 'm3u'))));
       if (IMPORT_HAS_PLEX) loadImportPlexSources();
       if (SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED) loadImportSpotifySources();
       renderImportLastfmSources();
@@ -2771,7 +2860,7 @@
     }
 
     function loadImportSpotifyPreview(item, sourceTab) {
-      var activeTab = (sourceTab === 'url' || sourceTab === 'lastfm' || sourceTab === 'listenbrainz') ? sourceTab : 'spotify';
+      var activeTab = (sourceTab === 'url' || sourceTab === 'lastfm' || sourceTab === 'listenbrainz' || sourceTab === 'm3u') ? sourceTab : 'spotify';
       var statusEl = document.getElementById('importSpotifyStatus');
       var previewEl = document.getElementById('importSpotifyPreview');
       if (!item || !item.id) return;
@@ -2782,7 +2871,18 @@
         if (document.getElementById('importSpotifyPreviewSections')) document.getElementById('importSpotifyPreviewSections').style.display = 'none';
         if (statusEl) statusEl.textContent = 'Checking local matches…';
       }
-      fetch(buildImportPreviewUrl(provider, item, activeTab))
+      var fetchOptions = {};
+      if (provider === 'm3u') {
+        fetchOptions = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+          body: JSON.stringify({
+            filename: item.filename || item.name || '',
+            content: item.content || '',
+          }),
+        };
+      }
+      fetch(buildImportPreviewUrl(provider, item, activeTab), fetchOptions)
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (!data.ok) throw new Error(data.error || 'Failed to preview playlist.');
@@ -2811,7 +2911,7 @@
       var globalCheckbox = document.getElementById('importGlobalCheckbox');
       var makeGlobal = globalCheckbox && globalCheckbox.checked;
       var title = String(titleInput && titleInput.value || '').trim()
-        || ((_importSourceTab === 'spotify' || _importSourceTab === 'url')
+        || ((_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u')
           ? (getImportSpotifySelectionForTab(_importSourceTab) && getImportSpotifySelectionForTab(_importSourceTab).name)
           : (_importSourceTab === 'lastfm'
             ? (_importLastfmSelection && _importLastfmSelection.title)
@@ -2819,23 +2919,31 @@
               ? (_importListenbrainzSelection && _importListenbrainzSelection.title)
               : (_importPlexSelection && _importPlexSelection.title))))
         || 'Imported Playlist';
-      if (_importSourceTab === 'spotify' || _importSourceTab === 'url') {
+      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u') {
         var spotifySelection = getImportSpotifySelectionForTab(_importSourceTab);
         if (!spotifySelection) return;
         var spotifyStatusEl = document.getElementById('importSpotifyStatus');
         var provider = String(spotifySelection.provider || (_importSourceTab === 'url' ? '' : 'spotify')).trim().toLowerCase() || 'spotify';
-        var providerLabel = provider === 'youtube' ? 'YouTube' : 'Spotify';
+        var providerLabel = provider === 'youtube' ? 'YouTube' : (provider === 'm3u' ? 'M3U' : 'Spotify');
         submitBtn.disabled = true;
         if (spotifyStatusEl) spotifyStatusEl.textContent = 'Importing matched ' + providerLabel + ' tracks…';
-        fetch(getUrlImportEndpoint(provider, 'import'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
-          body: JSON.stringify({
+        var importPayload = provider === 'm3u'
+          ? {
+            filename: spotifySelection.filename || spotifySelection.name || '',
+            content: spotifySelection.content || '',
+            title: title,
+            audience: makeGlobal ? 'global' : 'personal',
+          }
+          : {
             playlistId: spotifySelection.id,
             title: title,
             audience: makeGlobal ? 'global' : 'personal',
             source: (_importSourceTab === 'url' && provider === 'spotify') ? 'url' : undefined,
-          }),
+          };
+        fetch(getUrlImportEndpoint(provider, 'import'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+          body: JSON.stringify(importPayload),
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -2848,7 +2956,7 @@
               playlistKind: 'generated',
               playlistType: 'custom',
               playlistAudience: data.audience === 'global' ? 'global' : 'imported',
-              sourceType: playlist.sourceType || (provider === 'youtube' ? 'youtube-playlist' : 'spotify-playlist'),
+              sourceType: playlist.sourceType || (provider === 'youtube' ? 'youtube-playlist' : (provider === 'm3u' ? 'm3u-file' : 'spotify-playlist')),
               importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
               active: true,
               trackCount: Number(data.importedTrackCount || playlist.trackCount || 0),
@@ -2864,7 +2972,7 @@
             if (spotifyStatusEl) spotifyStatusEl.textContent = 'Error: ' + (err.message || 'Unknown');
           })
           .finally(function() {
-            if ((_importSourceTab === 'spotify' || _importSourceTab === 'url') && getImportSpotifyPreviewForTab(_importSourceTab)) renderActiveImportSpotifyPreview();
+            if ((_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u') && getImportSpotifyPreviewForTab(_importSourceTab)) renderActiveImportSpotifyPreview();
             updateImportSubmitButton();
           });
         return;
@@ -3459,8 +3567,13 @@
       _importedPlaylistSettingsState = { card: null };
       var statusEl = document.getElementById('importedPlaylistStatus');
       var saveBtn = document.getElementById('importedPlaylistSaveBtn');
+      var syncEl = document.getElementById('importedPlaylistSyncPeriod');
       if (statusEl) statusEl.textContent = '';
       if (saveBtn) saveBtn.disabled = false;
+      if (syncEl) {
+        syncEl.disabled = false;
+        syncEl.title = '';
+      }
     }
 
     function buildImportSourceUrl(sourceType, sourceRef) {
@@ -3480,7 +3593,7 @@
     }
 
     function openImportedPlaylistSettingsModal(card) {
-      if (!card || !isImportedRefreshPlaylist(card)) return;
+      if (!card || String(card.dataset.playlistType || '').trim().toLowerCase() !== 'custom' || !isImportedCustomSource(card.dataset.playlistSourceType)) return;
       var playlistAudience = String(card.dataset.playlistAudience || '').trim().toLowerCase();
       if (playlistAudience === 'global' && !CAN_EDIT_GLOBAL_PLAYLISTS) return;
       _importedPlaylistSettingsState = { card: card };
@@ -3497,7 +3610,12 @@
       var sourceLabel = document.getElementById('importedPlaylistSourceLabel');
       if (headerEl) headerEl.textContent = 'Edit Imported Playlist: ' + String(card.dataset.plTitle || 'Playlist');
       if (titleEl) titleEl.value = String(card.dataset.plTitle || '').trim();
-      if (syncEl) syncEl.value = normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
+      var isM3uSource = String(card.dataset.playlistSourceType || '').trim().toLowerCase() === 'm3u-file';
+      if (syncEl) {
+        syncEl.value = isM3uSource ? 'disabled' : normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
+        syncEl.disabled = isM3uSource;
+        syncEl.title = isM3uSource ? 'Re-upload the M3U file to refresh this import.' : '';
+      }
       if (globalEl) globalEl.checked = playlistAudience === 'global';
       if (statusEl) statusEl.textContent = '';
       if (saveBtn) saveBtn.disabled = false;
