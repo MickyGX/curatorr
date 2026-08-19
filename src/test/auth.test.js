@@ -2737,6 +2737,30 @@ describe('security guards', () => {
       }
       if (target === 'http://lidarr.local/api/v1/artist' && String(init.method || 'GET').toUpperCase() === 'POST') {
         createdArtistPayload = JSON.parse(String(init.body || '{}'));
+        // Mirror Lidarr's enum deserialization: monitorNewItems is
+        // NewItemMonitorTypes (all|none|new) and addOptions.monitor is
+        // MonitorTypes; an out-of-enum value rejects the whole request with
+        // 400 before validation runs. Without this guard the mock accepts
+        // payloads the real API refuses, which is how this bug shipped twice.
+        const newItemMonitorTypes = ['all', 'none', 'new'];
+        const monitorTypes = ['all', 'future', 'missing', 'existing', 'latest', 'first', 'none', 'unknown'];
+        const enumErrors = {};
+        if (createdArtistPayload.monitorNewItems !== undefined && !newItemMonitorTypes.includes(createdArtistPayload.monitorNewItems)) {
+          enumErrors['$.monitorNewItems'] = ['The JSON value could not be converted to NzbDrone.Core.Music.NewItemMonitorTypes.'];
+        }
+        if (createdArtistPayload.addOptions?.monitor !== undefined && !monitorTypes.includes(createdArtistPayload.addOptions.monitor)) {
+          enumErrors['$.addOptions.monitor'] = ['The JSON value could not be converted to NzbDrone.Core.Music.MonitorTypes.'];
+        }
+        if (Object.keys(enumErrors).length) {
+          return new Response(JSON.stringify({
+            title: 'One or more validation errors occurred.',
+            status: 400,
+            errors: enumErrors,
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
         return new Response(JSON.stringify({
           id: 42,
           artistName: 'The National',
@@ -2789,8 +2813,9 @@ describe('security guards', () => {
     assert.equal(all.payload?.addOptions?.monitor, 'all');
 
     const newer = await captureLidarrAddPayload('new');
+    assert.equal(newer.result?.created, true);
     assert.equal(newer.payload?.monitorNewItems, 'new');
-    assert.equal(newer.payload?.addOptions?.monitor, 'new');
+    assert.equal(newer.payload?.addOptions?.monitor, 'none');
   });
 
   it('allows the default weekly Last.fm tag sync interval on the jobs page', async () => {

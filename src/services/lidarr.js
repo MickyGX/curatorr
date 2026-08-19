@@ -2482,12 +2482,15 @@ export function createLidarrService(ctx) {
         rootFolderPath: String(rootFolder.path || ''),
         path: buildArtistPath(rootFolder.path, match),
         monitored: true,
-        // Lidarr types monitorNewItems as NewItemMonitorTypes, a narrower enum
-        // than addOptions.monitor. Preserve supported new-item modes and let
-        // addOptions.monitor drive the wider existing/latest/first choices.
+        // monitorNewItems is Lidarr's NewItemMonitorTypes (all|none|new) while
+        // addOptions.monitor is the disjoint MonitorTypes enum, which has every
+        // other mode but no 'new'. Each field only accepts its own enum, and an
+        // out-of-enum value in either fails deserialization and rejects the
+        // whole request, so route 'new' to monitorNewItems alone and the
+        // existing/latest/first modes to addOptions.monitor alone.
         monitorNewItems: ['all', 'new'].includes(newArtistMonitoringMode) ? newArtistMonitoringMode : 'none',
         addOptions: {
-          monitor: newArtistMonitoringMode,
+          monitor: newArtistMonitoringMode === 'new' ? 'none' : newArtistMonitoringMode,
           searchForMissingAlbums: Boolean(options.searchForMissingAlbums),
         },
       };
