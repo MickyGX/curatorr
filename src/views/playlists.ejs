@@ -374,31 +374,6 @@
                       <input id="importM3uFile" class="cur-input" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,audio/mpegurl,application/vnd.apple.mpegurl" onchange="onImportM3uFileChange()" />
                     </label>
                   </div>
-                  <div id="importPreviewWrap">
-                    <div id="importSpotifyStatus" class="cur-panel-meta import-pl-status">Paste a supported playlist URL or id.</div>
-                    <div id="importSpotifyPreview" class="import-spotify-preview" style="display:none">
-                      <div class="import-spotify-preview__summary" id="importSpotifyPreviewSummary"></div>
-                      <div class="import-spotify-preview__stats" id="importSpotifyPreviewStats"></div>
-                      <div id="importSpotifyPreviewSections" class="import-spotify-preview__sections" style="display:none">
-                        <div class="import-spotify-preview__section" id="importSpotifyMatchedSection" style="display:none">
-                          <div class="import-spotify-preview__section-title">Matched locally</div>
-                          <div class="import-spotify-preview__list" id="importSpotifyMatchedList"></div>
-                        </div>
-                        <div class="import-spotify-preview__section" id="importSpotifyUnmatchedArtistsSection" style="display:none">
-                          <div class="import-spotify-preview__section-title">Unmatched artists</div>
-                          <div class="import-spotify-preview__list" id="importSpotifyUnmatchedArtistsList"></div>
-                        </div>
-                        <div class="import-spotify-preview__section" id="importSpotifyUnmatchedSection" style="display:none">
-                          <div class="import-spotify-preview__section-title">Unmatched track examples</div>
-                          <div class="import-spotify-preview__list" id="importSpotifyUnmatchedList"></div>
-                        </div>
-                        <div class="import-spotify-preview__section" id="importSpotifyDuplicateSection" style="display:none">
-                          <div class="import-spotify-preview__section-title">Duplicates skipped</div>
-                          <div class="import-spotify-preview__list" id="importSpotifyDuplicateList"></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                   <% if (lastfmUsername) { %>
                   <div id="importLastfmPanel" class="import-pl-panel" style="display:none">
                     <div class="cur-panel-meta import-pl-status">Import from Last.fm for <strong><%= lastfmUsername %></strong>. Matching and ordering uses your saved Last.fm settings.</div>
@@ -437,6 +412,31 @@
                     <span>New playlist name</span>
                     <input id="importPlexTitle" class="cur-input" type="text" maxlength="120" placeholder="Imported playlist name" oninput="onImportPlexTitleInput()" />
                   </label>
+                  <div id="importPreviewWrap">
+                    <div id="importSpotifyStatus" class="cur-panel-meta import-pl-status">Paste a supported playlist URL or id.</div>
+                    <div id="importSpotifyPreview" class="import-spotify-preview" style="display:none">
+                      <div class="import-spotify-preview__summary" id="importSpotifyPreviewSummary"></div>
+                      <div class="import-spotify-preview__stats" id="importSpotifyPreviewStats"></div>
+                      <div id="importSpotifyPreviewSections" class="import-spotify-preview__sections" style="display:none">
+                        <div class="import-spotify-preview__section" id="importSpotifyMatchedSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Matched locally</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyMatchedList"></div>
+                        </div>
+                        <div class="import-spotify-preview__section" id="importSpotifyUnmatchedArtistsSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Unmatched artists</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyUnmatchedArtistsList"></div>
+                        </div>
+                        <div class="import-spotify-preview__section" id="importSpotifyUnmatchedSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Unmatched track examples</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyUnmatchedList"></div>
+                        </div>
+                        <div class="import-spotify-preview__section" id="importSpotifyDuplicateSection" style="display:none">
+                          <div class="import-spotify-preview__section-title">Duplicates skipped</div>
+                          <div class="import-spotify-preview__list" id="importSpotifyDuplicateList"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div class="spm-footer">
                   <% if (_isAdmin) { %>

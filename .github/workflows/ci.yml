@@ -16,7 +16,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          # Pinned to the same major as the runtime image (node:24-alpine).
+          node-version: "24.x"
           cache: npm
 
       - name: Install dependencies
