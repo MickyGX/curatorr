@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.96 (2026-08-21)
+
+- Fixed Lidarr artist adds when the monitoring mode is set to `new`: Curatorr now keeps `monitorNewItems: "new"` for Lidarr's new-item enum while mapping `addOptions.monitor` to `none`, avoiding the invalid `MonitorTypes` payload that made Lidarr reject every artist add.
+- Tightened the Lidarr add-payload regression test mock so future enum mismatches fail locally with Lidarr's real 400-style response instead of being accepted by a permissive fake.
+- Kept the M3U import playlist-name field in place after previewing tracks by moving the import preview below the editable name field.
+- Restored CI on Node 24 by pinning the workflow to the runtime Node major and using the Node 24-compatible `better-sqlite3` 12.x native addon.
+
 ## v0.1.95 (2026-08-19)
 
 - Added M3U/M3U8 playlist import: local playlist files are matched against the master track cache by normalized file path first, then by `#EXTINF` `Artist - Title` metadata, with a preview of matched, unmatched, and duplicate entries before import.
