@@ -11,6 +11,7 @@ import time
 # DSD formats (DSF, DFF) are not reliably supported by librosa/audioread and can exhaust
 # memory during ffmpeg conversion on low-spec hardware, crashing the entire analysis chunk.
 UNSUPPORTED_EXTENSIONS = {'.dsf', '.dff'}
+ANALYSIS_AUDIO_DURATION_SECONDS = 180
 
 KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
@@ -139,7 +140,7 @@ def analyze_track(track):
         print(f'[curatorr-analyzer] skipping unsupported format: {file_path} ({ext})', file=sys.stderr, flush=True)
         return None
     try:
-        y, sr = librosa.load(file_path, sr=22050, mono=True)
+        y, sr = librosa.load(file_path, sr=22050, mono=True, duration=ANALYSIS_AUDIO_DURATION_SECONDS)
         if y.size == 0:
             return None
 
@@ -196,6 +197,12 @@ def main():
     tracks = manifest.get('tracks') or []
     results = []
     not_found = []
+
+    def write_results():
+        with open(args.output, 'w', encoding='utf-8') as handle:
+            json.dump({'tracks': results}, handle, indent=2)
+            handle.write('\n')
+
     for index, track in enumerate(tracks):
         file_path = str(track.get('filePath') or '').strip()
         if file_path and not os.path.isfile(file_path):
@@ -203,6 +210,7 @@ def main():
         analyzed = analyze_track(track)
         if analyzed:
             results.append(analyzed)
+            write_results()
         if track_delay_s > 0 and index < len(tracks) - 1:
             time.sleep(track_delay_s)
 
@@ -232,14 +240,10 @@ def main():
                 f'  - /host/path/to/music:{common}:ro',
                 file=sys.stderr, flush=True,
             )
-            with open(args.output, 'w', encoding='utf-8') as handle:
-                json.dump({'tracks': []}, handle, indent=2)
-                handle.write('\n')
+            write_results()
             return 1
 
-    with open(args.output, 'w', encoding='utf-8') as handle:
-        json.dump({'tracks': results}, handle, indent=2)
-        handle.write('\n')
+    write_results()
     return 0
 
 
