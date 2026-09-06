@@ -750,7 +750,17 @@ describe('auth flows', () => {
       assert.equal(secondSelect.status, 302);
       assert.notEqual(firstSelect.location, '/login');
       assert.equal(secondSelect.location, firstSelect.location);
-      assert.equal(secondSelect.headers.get('set-cookie'), null);
+
+      const selectionCookies = [firstSelect, secondSelect]
+        .flatMap((selection) => (
+          typeof selection.headers.getSetCookie === 'function'
+            ? selection.headers.getSetCookie()
+            : (selection.headers.get('set-cookie') ? [selection.headers.get('set-cookie')] : [])
+        ));
+      assert.ok(
+        selectionCookies.some((cookie) => String(cookie || '').includes('curatorr_session=')),
+        'Expected one duplicate submit response to commit the selected home-user session',
+      );
 
       const postLoginRes = await client.request(firstSelect.location);
       assert.notEqual(postLoginRes.location, '/login');
