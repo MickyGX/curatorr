@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.97 (2026-09-06)
+
+- Fixed M3U/M3U8 imported playlists so Curatorr stores the uploaded playlist source and can refresh the import later from the Playlists page.
+- Added database migration support for stored M3U source content and filenames, preserving existing imported playlist metadata while enabling refresh for new M3U imports.
+- Restored M3U imported playlists to the same **Refresh import** action path used by other imported sources, with regression coverage proving import, refresh, track order, and Plex playlist replacement work together.
+- Fixed Tautulli Gap-Fill history requests to send the `after` filter as a `YYYY-MM-DD` date, matching Tautulli's expected API format.
+
 ## v0.1.96 (2026-08-21)
 
 - Fixed Lidarr artist adds when the monitoring mode is set to `new`: Curatorr now keeps `monitorNewItems: "new"` for Lidarr's new-item enum while mapping `addOptions.monitor` to `none`, avoiding the invalid `MonitorTypes` payload that made Lidarr reject every artist add.

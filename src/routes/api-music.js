@@ -2400,6 +2400,8 @@ export function registerApiMusic(app, ctx) {
         sourceRef,
         sourceTitle: String(sourceMeta?.sourceTitle || playlistTitle).trim(),
         sourceOwner: String(sourceMeta?.sourceOwner || '').trim(),
+        sourceContent: String(sourceMeta?.sourceContent || '').trim(),
+        sourceFilename: String(sourceMeta?.sourceFilename || '').trim(),
         importedSyncPeriod: existing.importedSyncPeriod || 'disabled',
         trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
         missingCount: unmatchedTracks.length,
@@ -2432,6 +2434,8 @@ export function registerApiMusic(app, ctx) {
       sourceRef,
       sourceTitle: String(sourceMeta?.sourceTitle || playlistTitle).trim(),
       sourceOwner: String(sourceMeta?.sourceOwner || '').trim(),
+      sourceContent: String(sourceMeta?.sourceContent || '').trim(),
+      sourceFilename: String(sourceMeta?.sourceFilename || '').trim(),
       importedSyncPeriod: 'disabled',
       active: false,
       trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
@@ -2569,6 +2573,13 @@ export function registerApiMusic(app, ctx) {
       sourceOwner = String(source?.sourceOwner || sourceOwner || '').trim();
       trackRefs = source?.matchResult?.trackRefs || [];
       unmatched = source?.matchResult?.unmatched || [];
+    } else if (sourceType === 'm3u-file') {
+      const content = normalizeM3uImportContent(playlist?.sourceContent || '');
+      const matchResult = buildM3uImportMatchResult(content);
+      trackRefs = matchResult.trackRefs;
+      unmatched = matchResult.unmatched;
+      sourceTitle = String(playlist?.sourceFilename || sourceTitle || playlist.playlistTitle || 'M3U Playlist').trim();
+      sourceOwner = String(sourceOwner || 'M3U').trim();
     } else {
       throw new Error('This imported playlist source cannot be refreshed.');
     }
@@ -4720,7 +4731,7 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Only imported custom playlists can be refreshed.' });
     }
     const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(sourceType)) {
+    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(sourceType)) {
       return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
     }
 
@@ -5607,6 +5618,8 @@ export function registerApiMusic(app, ctx) {
         sourceRef: `m3u:${sourceHash}`,
         sourceTitle: filename || fallbackTitle,
         sourceOwner: 'M3U',
+        sourceContent: content,
+        sourceFilename: filename,
         unmatchedTracks: matchResult.unmatched,
       });
       if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);

@@ -1412,6 +1412,8 @@ describe('security guards', () => {
       assert.equal(String(url), 'http://tautulli.local/api/v2');
       const bodyText = options.body instanceof URLSearchParams ? options.body.toString() : String(options.body || '');
       assert.match(bodyText, /cmd=get_history/);
+      const body = new URLSearchParams(bodyText);
+      assert.match(body.get('after') || '', /^\d{4}-\d{2}-\d{2}$/);
       const rows = fetchCalls === 1 ? [{
         media_type: 'track',
         user,

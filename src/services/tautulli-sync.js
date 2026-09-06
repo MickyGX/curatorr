@@ -166,7 +166,7 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
   }
 
   const api = `${tautulliUrl.replace(/\/$/, '')}/api/v2`;
-  const afterTs = Math.floor((Date.now() - lookbackHours * 60 * 60 * 1000) / 1000);
+  const afterDate = new Date(Date.now() - lookbackHours * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   let inserted = 0;
   let skipped = 0;
@@ -183,7 +183,7 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         start: String(start),
         order_column: 'date',
         order_dir: 'desc',
-        after: String(afterTs),
+        after: afterDate,
       });
       const res = await fetch(api, {
         method: 'POST',

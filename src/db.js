@@ -301,6 +301,8 @@ CREATE TABLE IF NOT EXISTS user_generated_playlists (
   source_ref          TEXT NOT NULL DEFAULT '',
   source_title        TEXT NOT NULL DEFAULT '',
   source_owner        TEXT NOT NULL DEFAULT '',
+  source_content      TEXT NOT NULL DEFAULT '',
+  source_filename     TEXT NOT NULL DEFAULT '',
   imported_sync_period TEXT NOT NULL DEFAULT 'disabled',
   audience            TEXT NOT NULL DEFAULT 'personal',
   algorithm_version   TEXT NOT NULL DEFAULT 'phase2a',
@@ -560,6 +562,10 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_title TEXT NOT NULL DEFAULT ''");
   if (!generatedCols.includes('source_owner'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_owner TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('source_content'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_content TEXT NOT NULL DEFAULT ''");
+  if (!generatedCols.includes('source_filename'))
+    db.exec("ALTER TABLE user_generated_playlists ADD COLUMN source_filename TEXT NOT NULL DEFAULT ''");
   if (!generatedCols.includes('imported_sync_period'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN imported_sync_period TEXT NOT NULL DEFAULT 'disabled'");
   if (!generatedCols.includes('missing_count'))
@@ -3374,6 +3380,8 @@ export function listUserGeneratedPlaylists(db, userPlexId, { activeOnly = true }
     sourceRef: row.source_ref,
     sourceTitle: row.source_title,
     sourceOwner: row.source_owner,
+    sourceContent: row.source_content,
+    sourceFilename: row.source_filename,
     importedSyncPeriod: String(row.imported_sync_period || 'disabled').trim() || 'disabled',
     audience: String(row.audience || 'personal').trim() || 'personal',
     algorithmVersion: row.algorithm_version,
@@ -3402,7 +3410,7 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
   const playlistKey = String(playlist?.playlistKey || '').trim();
   if (!playlistKey) throw new Error('playlistKey is required');
   const existing = db.prepare(`
-    SELECT imported_sync_period, artwork_mode, custom_artwork_asset, preserved_artwork_asset
+    SELECT imported_sync_period, artwork_mode, custom_artwork_asset, preserved_artwork_asset, source_content, source_filename
     FROM user_generated_playlists
     WHERE user_plex_id = ? AND playlist_key = ?
   `).get(userPlexId, playlistKey);
@@ -3424,10 +3432,10 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     INSERT INTO user_generated_playlists (
       user_plex_id, playlist_type, playlist_key, plex_playlist_id,
       playlist_title, title_override, artwork_mode, custom_artwork_asset, preserved_artwork_asset,
-      source_type, source_ref, source_title, source_owner, imported_sync_period,
+      source_type, source_ref, source_title, source_owner, source_content, source_filename, imported_sync_period,
       audience, algorithm_version, last_built_at, last_synced_at,
       track_count, missing_count, active, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id, playlist_key) DO UPDATE SET
       playlist_type = excluded.playlist_type,
       plex_playlist_id = excluded.plex_playlist_id,
@@ -3440,6 +3448,8 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
       source_ref = excluded.source_ref,
       source_title = excluded.source_title,
       source_owner = excluded.source_owner,
+      source_content = excluded.source_content,
+      source_filename = excluded.source_filename,
       imported_sync_period = excluded.imported_sync_period,
       audience = excluded.audience,
       algorithm_version = excluded.algorithm_version,
@@ -3471,6 +3481,16 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     String(playlist?.sourceRef || ''),
     String(playlist?.sourceTitle || ''),
     String(playlist?.sourceOwner || ''),
+    String(
+      Object.prototype.hasOwnProperty.call(playlist || {}, 'sourceContent')
+        ? (playlist?.sourceContent || '')
+        : (existing?.source_content || ''),
+    ),
+    String(
+      Object.prototype.hasOwnProperty.call(playlist || {}, 'sourceFilename')
+        ? (playlist?.sourceFilename || '')
+        : (existing?.source_filename || ''),
+    ),
     importedSyncPeriod,
     audience,
     String(playlist?.algorithmVersion || 'phase2a'),

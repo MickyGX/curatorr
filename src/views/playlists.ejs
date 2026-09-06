@@ -268,7 +268,7 @@
                             <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
                             <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
                             <% } %>
-                            <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
+                            <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
                             <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
                             <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
                             <% } %>
@@ -1711,6 +1711,7 @@
         || sourceType === 'youtube-playlist'
         || sourceType === 'lastfm-station'
         || sourceType === 'listenbrainz-playlist'
+        || sourceType === 'm3u-file'
         || sourceType === 'plex-playlist'
         || sourceType === 'plex-collection';
     }
@@ -1914,7 +1915,7 @@
       var playlistAudience = resolvePlaylistAudience(data);
       var isDeletable = ['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].indexOf(data.playlistType || '') !== -1;
       var isImportedSource = data.playlistType === 'custom' && isImportedCustomSource(data.sourceType);
-      var isImportedRefresh = isImportedSource && String(data.sourceType || '').toLowerCase() !== 'm3u-file';
+      var isImportedRefresh = isImportedSource;
       var canEditImportedSettings = isImportedSource && (playlistAudience !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
       var canEditArtwork = _msType === 'plex' && data.playlistKey && !isDraft && (data.playlistType !== 'global' || CAN_EDIT_GLOBAL_PLAYLISTS);
       var editBtnHtml = isPersonal
