@@ -6,6 +6,8 @@
 - Added database migration support for stored M3U source content and filenames, preserving existing imported playlist metadata while enabling refresh for new M3U imports.
 - Restored M3U imported playlists to the same **Refresh import** action path used by other imported sources, with regression coverage proving import, refresh, track order, and Plex playlist replacement work together.
 - Fixed Tautulli Gap-Fill history requests to send the `after` filter as a `YYYY-MM-DD` date, matching Tautulli's expected API format.
+- Capped built-in analyzer audio decoding to 180 seconds by default, with sidecar/API overrides and regression coverage, so very long DJ mixes or audiobook-length files no longer force the analyzer to load hours of audio into memory.
+- Documented the Music Assistant/Plex Connect playback-tracking investigation and a proposed Curatorr-side integration path for future work.
 
 ## v0.1.96 (2026-08-21)
 
