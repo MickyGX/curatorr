@@ -58,7 +58,12 @@ local-modules/
 # Local AI assistant settings
 .claude/
 .Claude/
+.codex
 curatorr.code-workspace
+curatorr_windows.code-workspace
+
+# Local release scratch files
+/v0.1.89
 
 config/config.quickstart-backup.json
 launcharr-test-build.tar
