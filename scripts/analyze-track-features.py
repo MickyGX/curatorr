@@ -8,6 +8,8 @@ import sys
 import time
 
 
+DEFAULT_ANALYSIS_DURATION_SECONDS = 180
+
 # DSD formats (DSF, DFF) are not reliably supported by librosa/audioread and can exhaust
 # memory during ffmpeg conversion on low-spec hardware, crashing the entire analysis chunk.
 UNSUPPORTED_EXTENSIONS = {'.dsf', '.dff'}
@@ -127,7 +129,17 @@ def coerce_float(value):
     return 0.0
 
 
-def analyze_track(track):
+def coerce_duration_seconds(value, fallback=DEFAULT_ANALYSIS_DURATION_SECONDS):
+    try:
+        duration = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if not math.isfinite(duration) or duration <= 0:
+        return None
+    return duration
+
+
+def analyze_track(track, max_duration_seconds=DEFAULT_ANALYSIS_DURATION_SECONDS):
     import librosa
     import numpy as np
 
@@ -139,7 +151,10 @@ def analyze_track(track):
         print(f'[curatorr-analyzer] skipping unsupported format: {file_path} ({ext})', file=sys.stderr, flush=True)
         return None
     try:
-        y, sr = librosa.load(file_path, sr=22050, mono=True)
+        load_options = {'sr': 22050, 'mono': True}
+        if max_duration_seconds:
+            load_options['duration'] = max_duration_seconds
+        y, sr = librosa.load(file_path, **load_options)
         if y.size == 0:
             return None
 
@@ -182,6 +197,12 @@ def main():
     parser.add_argument('--input', required=True, help='Path to the Curatorr feature template JSON file.')
     parser.add_argument('--output', required=True, help='Where to write the analyzer output JSON file.')
     parser.add_argument('--track-delay-ms', type=int, default=0, help='Milliseconds to sleep between tracks (default: 0).')
+    parser.add_argument(
+        '--max-duration-seconds',
+        type=float,
+        default=coerce_duration_seconds(os.environ.get('CURATORR_ANALYZER_MAX_DURATION_SECONDS')),
+        help='Maximum seconds to decode per track before feature extraction (default: 180; <=0 disables the cap).',
+    )
     args = parser.parse_args()
 
     try:
@@ -190,6 +211,7 @@ def main():
         pass
 
     track_delay_s = max(0, args.track_delay_ms) / 1000.0
+    max_duration_seconds = coerce_duration_seconds(args.max_duration_seconds, fallback=None)
 
     ensure_dependencies()
     manifest = load_manifest(args.input)
@@ -200,7 +222,7 @@ def main():
         file_path = str(track.get('filePath') or '').strip()
         if file_path and not os.path.isfile(file_path):
             not_found.append(file_path)
-        analyzed = analyze_track(track)
+        analyzed = analyze_track(track, max_duration_seconds=max_duration_seconds)
         if analyzed:
             results.append(analyzed)
         if track_delay_s > 0 and index < len(tracks) - 1:

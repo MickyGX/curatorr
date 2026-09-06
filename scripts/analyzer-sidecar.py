@@ -14,6 +14,7 @@ SCRIPT_PATH = os.environ.get(
     'CURATORR_ANALYZER_SCRIPT',
     os.path.join(os.path.dirname(__file__), 'analyze-track-features.py'),
 )
+DEFAULT_MAX_DURATION_SECONDS = os.environ.get('CURATORR_ANALYZER_MAX_DURATION_SECONDS', '180')
 
 
 def write_json(handler, status, payload):
@@ -61,6 +62,10 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
             track_delay_ms = max(0, int(payload.get('trackDelayMs') or 0))
         except (TypeError, ValueError):
             track_delay_ms = 0
+        raw_max_duration_seconds = payload.get('maxDurationSeconds')
+        if raw_max_duration_seconds is None or str(raw_max_duration_seconds).strip() == '':
+            raw_max_duration_seconds = DEFAULT_MAX_DURATION_SECONDS
+        max_duration_seconds = str(raw_max_duration_seconds).strip()
 
         command = [
             PYTHON_BIN,
@@ -72,6 +77,8 @@ class AnalyzerHandler(BaseHTTPRequestHandler):
         ]
         if track_delay_ms > 0:
             command += ['--track-delay-ms', str(track_delay_ms)]
+        if max_duration_seconds:
+            command += ['--max-duration-seconds', max_duration_seconds]
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=False)
         except Exception as exc:
