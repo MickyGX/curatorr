@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.1.98 (2026-09-13)
+
+- Fixed M3U/M3U8 auto-refresh being locked to Disabled in both the imported playlist editor and settings API. Daily, weekly, and monthly schedules now re-match the stored upload against the current master track cache.
+- Fixed M3U playlists being classified as personal playlists instead of appearing under the Imported filter, while preserving global playlist visibility.
+- Added regression coverage for manual and scheduled M3U refresh, newly available tracks returning in source order, and preservation of playlist identity, name, stored source, and artwork settings.
+
 ## v0.1.97 (2026-09-06)
 
 - Fixed M3U/M3U8 imported playlists so Curatorr stores the uploaded playlist source and can refresh the import later from the Playlists page.

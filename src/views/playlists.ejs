@@ -146,7 +146,7 @@
                     </button>
                     <button class="cur-filter-option" type="button" data-playlist-type-filter="imported" data-cur-filter-close>
                       <span>Imported</span>
-                      <span class="cur-filter-option-note">Imported Plex, Spotify, and YouTube playlists</span>
+                      <span class="cur-filter-option-note">Imported Plex, Spotify, YouTube, and M3U playlists</span>
                     </button>
                     <button class="cur-filter-option" type="button" data-playlist-type-filter="external" data-cur-filter-close>
                       <span>External</span>
@@ -3613,9 +3613,9 @@
       if (titleEl) titleEl.value = String(card.dataset.plTitle || '').trim();
       var isM3uSource = String(card.dataset.playlistSourceType || '').trim().toLowerCase() === 'm3u-file';
       if (syncEl) {
-        syncEl.value = isM3uSource ? 'disabled' : normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
-        syncEl.disabled = isM3uSource;
-        syncEl.title = isM3uSource ? 'Re-upload the M3U file to refresh this import.' : '';
+        syncEl.value = normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
+        syncEl.disabled = false;
+        syncEl.title = isM3uSource ? 'Re-match the stored M3U tracks against the current library.' : '';
       }
       if (globalEl) globalEl.checked = playlistAudience === 'global';
       if (statusEl) statusEl.textContent = '';

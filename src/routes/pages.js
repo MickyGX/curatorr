@@ -119,8 +119,8 @@ function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylis
   const type = String(playlistType || '').trim().toLowerCase();
   const source = String(sourceType || '').trim().toLowerCase();
   const aud = String(audience || 'personal').trim().toLowerCase();
-  if ((['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist'].includes(source) || source.startsWith('plex-')) && aud === 'global') return 'global';
-  if (['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist'].includes(source) || source.startsWith('plex-')) return 'imported';
+  if ((['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(source) || source.startsWith('plex-')) && aud === 'global') return 'global';
+  if (['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(source) || source.startsWith('plex-')) return 'imported';
   if (type === 'global') return 'global';
   if (['lastfm-station', 'listenbrainz-playlist'].includes(type)) return 'external';
   if (['legacy', 'curatorred', 'curatorr', 'curative', 'crescive', 'daily-mix'].includes(type)) return 'system';

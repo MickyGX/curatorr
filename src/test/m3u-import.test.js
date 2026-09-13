@@ -2,7 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { unlinkSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
+import vm from 'node:vm';
 import express from 'express';
 import request from 'supertest';
 
@@ -12,6 +13,8 @@ import {
   initDb,
   listUserGeneratedPlaylists,
   refreshMasterTracks,
+  saveUserGeneratedPlaylist,
+  listImportedPlaylistUnmatched,
   setPlaylistTracks,
 } from '../db.js';
 import { registerApiMusic } from '../routes/api-music.js';
@@ -91,170 +94,236 @@ describe('M3U import parsing and matching', () => {
     }
   });
 
-  it('imports and refreshes stored M3U playlists through the HTTP API', async () => {
-    const db = makeTestDb();
-    const userId = 'm3u-route-user';
-    const now = Date.now();
-    const firstKey = `m3u-route-1-${now}`;
-    const secondKey = `m3u-route-2-${now}`;
-    const thirdKey = `m3u-route-3-${now}`;
-    const m3uContent = [
-      '#EXTM3U',
-      '#EXTINF:180,Route Artist - First Song',
-      `/music/route-${now}/first.flac`,
-      '#EXTINF:181,Route Artist - Second Song',
-      `/music/route-${now}/second.flac`,
-      '#EXTINF:182,Route Artist - Third Song',
-      `/music/route-${now}/third.flac`,
-    ].join('\n');
-    const config = {
-      mediaServer: { type: 'plex' },
-      plex: {
-        url: 'http://plex.local',
-        token: 'plex-admin-token',
-        machineId: 'machine-route-test',
-        userServerTokens: { [userId]: 'plex-user-token' },
-      },
-      smartPlaylist: {},
-    };
-    const logs = [];
-    const ctx = {
-      db,
-      requireUser(req, _res, next) {
-        req.session = { user: { username: userId, role: 'user', source: 'plex' } };
-        next();
-      },
-      requireAdmin(_req, res) {
-        res.status(403).json({ error: 'Admin access required.' });
-      },
-      loadConfig: () => config,
-      saveConfig() {},
-      pushLog: (entry) => logs.push(entry),
-      safeMessage: (err) => String(err?.message || err || ''),
-      getPreviewUserId: () => '',
-      resolveUserPlexServerToken: () => 'plex-user-token',
-      buildAppApiUrl(base, relativePath) {
-        return new URL(String(relativePath || '').replace(/^\/+/, '/'), `${String(base || '').replace(/\/+$/, '')}/`);
-      },
-      buildPlexAuthHeaders(token, extraHeaders = {}) {
-        return { ...extraHeaders, 'X-Plex-Token': String(token || '') };
-      },
-      userHasOwnPlexToken: () => true,
-      resolveLocalUsers: () => [],
-      normalizeStoredAvatarPath: (value) => String(value || ''),
-    };
-    ctx.playlistService = createPlaylistService(ctx);
+  it('classifies M3U playlists for the Imported filter while retaining global visibility', () => {
+    const source = readFileSync(new URL('../routes/pages.js', import.meta.url), 'utf8');
+    const start = source.indexOf('function resolvePlaylistAudience(');
+    const end = source.indexOf('function getPlaylistAudienceSortRank(', start);
+    const resolve = vm.runInNewContext(`(${source.slice(start, end).trim()})`);
+    assert.equal(resolve('custom', 'm3u:test', new Map(), 'm3u-file', 'personal'), 'imported');
+    assert.equal(resolve('custom', 'm3u:test', new Map(), 'm3u-file', 'global'), 'global');
+  });
 
-    const app = express();
-    app.use(express.json());
-    registerApiMusic(app, ctx);
-
-    refreshMasterTracks(db, [
-      {
-        ratingKey: firstKey,
-        artistName: 'Route Artist',
-        trackTitle: 'First Song',
-        albumName: 'Route Album',
-        libraryKey: '1',
-        filePath: `/music/route-${now}/first.flac`,
-        durationMs: 180000,
-      },
-      {
-        ratingKey: secondKey,
-        artistName: 'Route Artist',
-        trackTitle: 'Second Song',
-        albumName: 'Route Album',
-        libraryKey: '1',
-        filePath: `/music/route-${now}/second.flac`,
-        durationMs: 181000,
-      },
-    ]);
-
-    const originalFetch = global.fetch;
-    const addBatches = [];
-    let remoteKeys = [];
-    global.fetch = async (url, options = {}) => {
-      const target = String(url || '');
-      const method = String(options.method || 'GET').toUpperCase();
-      if (target.startsWith('http://plex.local/playlists?playlistType=audio') && method === 'GET') {
-        return Response.json({ MediaContainer: { Metadata: [] } });
-      }
-      if (target.startsWith('http://plex.local/playlists?type=audio&') && method === 'POST') {
-        return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'plex-m3u-route' }] } });
-      }
-      if (target.startsWith('http://plex.local/playlists/plex-m3u-route?title=') && method === 'PUT') {
-        return new Response('', { status: 200 });
-      }
-      if (target === 'http://plex.local/playlists/plex-m3u-route/items' && method === 'DELETE') {
-        remoteKeys = [];
-        return new Response('', { status: 200 });
-      }
-      if (target.startsWith('http://plex.local/playlists/plex-m3u-route/items?uri=') && method === 'PUT') {
-        const decoded = decodeURIComponent(target);
-        const match = decoded.match(/library\/metadata\/([^&]+)/);
-        remoteKeys = match ? match[1].split(',').filter(Boolean) : [];
-        addBatches.push([...remoteKeys]);
-        return new Response('', { status: 200 });
-      }
-      if (target.startsWith('http://plex.local/playlists/plex-m3u-route/items?X-Plex-Container-Start=') && method === 'GET') {
-        return Response.json({
-          MediaContainer: {
-            Metadata: remoteKeys.map((ratingKey) => ({ ratingKey })),
-          },
-        });
-      }
-      throw new Error(`Unexpected fetch in M3U route test: ${method} ${target}`);
-    };
-
-    try {
-      const imported = await request(app)
-        .post('/api/music/import/m3u')
-        .send({
-          filename: `route-${now}.m3u8`,
-          title: `Route M3U ${now}`,
-          content: m3uContent,
-        })
-        .expect(200);
-      assert.equal(imported.body.ok, true);
-      assert.equal(imported.body.importedTrackCount, 2);
-      assert.equal(imported.body.unmatchedCount, 1);
-      const playlistKey = String(imported.body.playlist?.playlistKey || '');
-      assert.ok(playlistKey);
-
-      const stored = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
-        .find((playlist) => playlist.playlistKey === playlistKey);
-      assert.equal(stored?.sourceType, 'm3u-file');
-      assert.equal(stored?.sourceContent, m3uContent);
-      assert.equal(stored?.sourceFilename, `route-${now}.m3u8`);
-      assert.equal(stored?.trackCount, 2);
-      assert.equal(stored?.missingCount, 1);
-      assert.deepEqual(addBatches[0], [firstKey, secondKey]);
-
-      refreshMasterTracks(db, [{
-        ratingKey: thirdKey,
-        artistName: 'Route Artist',
-        trackTitle: 'Third Song',
-        albumName: 'Route Album',
-        libraryKey: '1',
-        filePath: `/music/route-${now}/third.flac`,
-        durationMs: 182000,
-      }]);
-
-      const refreshed = await request(app)
-        .post('/api/music/playlists/imported-refresh')
-        .send({ playlistKey })
-        .expect(200);
-      assert.equal(refreshed.body.ok, true);
-      assert.equal(refreshed.body.trackCount, 3);
-      assert.equal(refreshed.body.missingCount, 0);
-      assert.deepEqual(addBatches[1], [firstKey, secondKey, thirdKey]);
-      assert.deepEqual(
-        getPlaylistTracks(db, userId, playlistKey).map((track) => track.ratingKey),
-        [firstKey, secondKey, thirdKey],
-      );
-    } finally {
-      global.fetch = originalFetch;
-      closeTestDb(db);
+  it('allows changing the M3U refresh interval in the playlist editor', () => {
+    const source = readFileSync(new URL('../views/playlists.ejs', import.meta.url), 'utf8');
+    const names = ['openImportedPlaylistSettingsModal', 'isImportedCustomSource',
+      'normalizeImportedSyncPeriod', 'buildImportSourceUrl', 'buildImportSourceLabel'];
+    const elements = { importedPlaylistSyncPeriod: {}, importedPlaylistTitle: {} };
+    const context = vm.createContext({
+      document: { getElementById: (id) => elements[id] || null },
+      ensureModalAtRoot: () => ({ style: {} }),
+      CAN_EDIT_GLOBAL_PLAYLISTS: false,
+    });
+    for (const name of names) {
+      const start = source.indexOf('    function ' + name + '(');
+      const end = source.indexOf('\n    }', start) + '\n    }'.length;
+      vm.runInContext(source.slice(start, end), context);
+    }
+    for (const period of ['disabled', 'daily', 'weekly', 'monthly']) {
+      context.openImportedPlaylistSettingsModal({ dataset: {
+        playlistType: 'custom', playlistSourceType: 'm3u-file',
+        playlistAudience: 'personal', playlistImportedSyncPeriod: period,
+        plTitle: 'My M3U',
+      } });
+      assert.equal(elements.importedPlaylistSyncPeriod.disabled, false);
+      assert.equal(elements.importedPlaylistSyncPeriod.value, period);
     }
   });
+
+  for (const refreshMode of ['manual', 'daily', 'weekly', 'monthly']) {
+    it(`imports and refreshes stored M3U playlists (${refreshMode})`, async () => {
+      const db = makeTestDb();
+      const userId = 'm3u-route-user';
+      const now = Date.now();
+      const firstKey = `m3u-route-1-${now}`;
+      const secondKey = `m3u-route-2-${now}`;
+      const thirdKey = `m3u-route-3-${now}`;
+      const m3uContent = [
+        '#EXTM3U',
+        '#EXTINF:180,Route Artist - First Song',
+        `/music/route-${now}/first.flac`,
+        '#EXTINF:182,Route Artist - Third Song',
+        `/music/route-${now}/third.flac`,
+        '#EXTINF:181,Route Artist - Second Song',
+        `/music/route-${now}/second.flac`,
+      ].join('\n');
+      const config = {
+        mediaServer: { type: 'plex' },
+        plex: {
+          url: 'http://plex.local',
+          token: 'plex-admin-token',
+          machineId: 'machine-route-test',
+          userServerTokens: { [userId]: 'plex-user-token' },
+        },
+        smartPlaylist: {},
+      };
+      const logs = [];
+      const ctx = {
+        db,
+        requireUser(req, _res, next) {
+          req.session = { user: { username: userId, role: 'user', source: 'plex' } };
+          next();
+        },
+        requireAdmin(_req, res) {
+          res.status(403).json({ error: 'Admin access required.' });
+        },
+        loadConfig: () => config,
+        saveConfig() {},
+        pushLog: (entry) => logs.push(entry),
+        safeMessage: (err) => String(err?.message || err || ''),
+        getPreviewUserId: () => '',
+        resolveUserPlexServerToken: () => 'plex-user-token',
+        buildAppApiUrl(base, relativePath) {
+          return new URL(String(relativePath || '').replace(/^\/+/, '/'), `${String(base || '').replace(/\/+$/, '')}/`);
+        },
+        buildPlexAuthHeaders(token, extraHeaders = {}) {
+          return { ...extraHeaders, 'X-Plex-Token': String(token || '') };
+        },
+        userHasOwnPlexToken: () => true,
+        resolveLocalUsers: () => [],
+        normalizeStoredAvatarPath: (value) => String(value || ''),
+      };
+      ctx.playlistService = createPlaylistService(ctx);
+
+      const app = express();
+      app.use(express.json());
+      registerApiMusic(app, ctx);
+
+      refreshMasterTracks(db, [
+        {
+          ratingKey: firstKey,
+          artistName: 'Route Artist',
+          trackTitle: 'First Song',
+          albumName: 'Route Album',
+          libraryKey: '1',
+          filePath: `/music/route-${now}/first.flac`,
+          durationMs: 180000,
+        },
+        {
+          ratingKey: secondKey,
+          artistName: 'Route Artist',
+          trackTitle: 'Second Song',
+          albumName: 'Route Album',
+          libraryKey: '1',
+          filePath: `/music/route-${now}/second.flac`,
+          durationMs: 181000,
+        },
+      ]);
+
+      const originalFetch = global.fetch;
+      const addBatches = [];
+      let remoteKeys = [];
+      global.fetch = async (url, options = {}) => {
+        const target = String(url || '');
+        const method = String(options.method || 'GET').toUpperCase();
+        if (target.startsWith('http://plex.local/playlists?playlistType=audio') && method === 'GET') {
+          return Response.json({ MediaContainer: { Metadata: [] } });
+        }
+        if (target.startsWith('http://plex.local/playlists?type=audio&') && method === 'POST') {
+          return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'plex-m3u-route' }] } });
+        }
+        if (target.startsWith('http://plex.local/playlists/plex-m3u-route?title=') && method === 'PUT') {
+          return new Response('', { status: 200 });
+        }
+        if (target === 'http://plex.local/playlists/plex-m3u-route/items' && method === 'DELETE') {
+          remoteKeys = [];
+          return new Response('', { status: 200 });
+        }
+        if (target.startsWith('http://plex.local/playlists/plex-m3u-route/items?uri=') && method === 'PUT') {
+          const decoded = decodeURIComponent(target);
+          const match = decoded.match(/library\/metadata\/([^&]+)/);
+          remoteKeys = match ? match[1].split(',').filter(Boolean) : [];
+          addBatches.push([...remoteKeys]);
+          return new Response('', { status: 200 });
+        }
+        if (target.startsWith('http://plex.local/playlists/plex-m3u-route/items?X-Plex-Container-Start=') && method === 'GET') {
+          return Response.json({
+            MediaContainer: {
+              Metadata: remoteKeys.map((ratingKey) => ({ ratingKey })),
+            },
+          });
+        }
+        throw new Error(`Unexpected fetch in M3U route test: ${method} ${target}`);
+      };
+
+      try {
+        const imported = await request(app)
+          .post('/api/music/import/m3u')
+          .send({
+            filename: `route-${now}.m3u8`,
+            title: `Route M3U ${now}`,
+            content: m3uContent,
+          })
+          .expect(200);
+        assert.equal(imported.body.ok, true);
+        assert.equal(imported.body.importedTrackCount, 2);
+        assert.equal(imported.body.unmatchedCount, 1);
+        const playlistKey = String(imported.body.playlist?.playlistKey || '');
+        assert.ok(playlistKey);
+
+        const stored = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
+          .find((playlist) => playlist.playlistKey === playlistKey);
+        assert.equal(stored?.sourceType, 'm3u-file');
+        assert.equal(stored?.sourceContent, m3uContent);
+        assert.equal(stored?.sourceFilename, `route-${now}.m3u8`);
+        assert.equal(stored?.trackCount, 2);
+        assert.equal(stored?.missingCount, 1);
+        assert.deepEqual(addBatches[0], [firstKey, secondKey]);
+
+        saveUserGeneratedPlaylist(db, userId, { ...stored, artworkMode: 'custom', customArtworkAsset: 'retained-artwork.png' });
+        const edited = await request(app)
+          .post('/api/music/playlists/imported-settings')
+          .send({ playlistKey, title: 'My renamed M3U', importedSyncPeriod: refreshMode === 'manual' ? 'disabled' : refreshMode })
+          .expect(200);
+        assert.equal(edited.body.importedSyncPeriod, refreshMode === 'manual' ? 'disabled' : refreshMode);
+        assert.deepEqual(await ctx.refreshScheduledImportedPlaylistsForUser(userId), {
+          refreshed: 0, skipped: refreshMode === 'manual' ? 0 : 1,
+        });
+
+        refreshMasterTracks(db, [{
+          ratingKey: thirdKey,
+          artistName: 'Route Artist',
+          trackTitle: 'Third Song',
+          albumName: 'Route Album',
+          libraryKey: '1',
+          filePath: `/music/route-${now}/third.flac`,
+          durationMs: 182000,
+        }]);
+
+        if (refreshMode === 'manual') {
+          const refreshed = await request(app)
+            .post('/api/music/playlists/imported-refresh')
+            .send({ playlistKey })
+            .expect(200);
+          assert.equal(refreshed.body.ok, true);
+          assert.equal(refreshed.body.trackCount, 3);
+          assert.equal(refreshed.body.missingCount, 0);
+        } else {
+          const intervalDays = { daily: 1, weekly: 7, monthly: 30 }[refreshMode];
+          assert.deepEqual(await ctx.refreshScheduledImportedPlaylistsForUser(userId, {
+            now: Date.now() + intervalDays * 86400000 + 1000,
+          }), { refreshed: 1, skipped: 0 });
+        }
+        assert.deepEqual(addBatches.at(-1), [firstKey, thirdKey, secondKey]);
+        assert.deepEqual(
+          getPlaylistTracks(db, userId, playlistKey).map((track) => track.ratingKey),
+          [firstKey, thirdKey, secondKey],
+        );
+        const playlists = listUserGeneratedPlaylists(db, userId, { activeOnly: false });
+        assert.equal(playlists.length, 1);
+        const updated = playlists[0];
+        assert.equal(updated.playlistKey, playlistKey);
+        assert.equal(updated.playlistTitle, 'My renamed M3U');
+        assert.equal(updated.sourceContent, m3uContent);
+        assert.equal(updated.sourceFilename, stored.sourceFilename);
+        assert.equal(updated.artworkMode, 'custom');
+        assert.equal(updated.customArtworkAsset, 'retained-artwork.png');
+        assert.equal(updated.trackCount, 3);
+        assert.equal(updated.missingCount, 0);
+        assert.equal(listImportedPlaylistUnmatched(db, userId, playlistKey).length, 0);
+      } finally {
+        global.fetch = originalFetch;
+        closeTestDb(db);
+      }
+    });
+  }
 });

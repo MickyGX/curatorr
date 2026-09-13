@@ -4795,10 +4795,7 @@ export function registerApiMusic(app, ctx) {
       req.body?.title,
       playlist.playlistTitle || playlist.sourceTitle || 'Imported Playlist',
     );
-    const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    const nextImportedSyncPeriod = sourceType === 'm3u-file'
-      ? 'disabled'
-      : normalizeImportedSyncPeriod(req.body?.importedSyncPeriod || playlist.importedSyncPeriod);
+    const nextImportedSyncPeriod = normalizeImportedSyncPeriod(req.body?.importedSyncPeriod || playlist.importedSyncPeriod);
     const requestedAudience = String(req.body?.audience || playlist.audience || 'personal').trim().toLowerCase();
     const nextAudience = ['personal', 'global'].includes(requestedAudience) ? requestedAudience : 'personal';
     if (nextAudience === 'global' && !isAdminRole(req)) {
