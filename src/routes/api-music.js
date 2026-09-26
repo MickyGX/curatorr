@@ -3656,6 +3656,19 @@ export function registerApiMusic(app, ctx) {
       const session = sessions.find((s) => s.userName === currentUsername);
       if (!session) return res.json({ nowPlaying: null });
 
+      // Same grouping as the overview top-tracks query (non-skip plays, normalised title + artist)
+      const userPlexId = resolveOverviewUserId(req);
+      const playCount = userPlexId && session.title && session.artist
+        ? Number(db.prepare(`
+          SELECT COUNT(*) AS n
+          FROM play_events
+          WHERE user_plex_id = ?
+            AND is_skip = 0
+            AND LOWER(TRIM(REPLACE(REPLACE(track_title, '’', ''''), '‘', ''''))) = LOWER(TRIM(REPLACE(REPLACE(?, '’', ''''), '‘', '''')))
+            AND LOWER(TRIM(REPLACE(REPLACE(artist_name, '’', ''''), '‘', ''''))) = LOWER(TRIM(REPLACE(REPLACE(?, '’', ''''), '‘', '''')))
+        `).get(userPlexId, session.title, session.artist)?.n || 0)
+        : 0;
+
       return res.json({
         nowPlaying: {
           trackTitle:     session.title,
@@ -3663,6 +3676,7 @@ export function registerApiMusic(app, ctx) {
           albumName:      session.album,
           albumThumbPath: session.albumThumb,
           isPaused:       session.state === 'paused',
+          playCount,
         },
       });
     } catch {

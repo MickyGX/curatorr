@@ -1515,6 +1515,7 @@
     var labelEl       = featuredEl && featuredEl.querySelector('.ov-featured-label');
     var trackEl       = featuredEl && featuredEl.querySelector('.ov-featured-track');
     var artistEl      = featuredEl && featuredEl.querySelector('.ov-featured-artist');
+    var playsEl       = featuredEl && featuredEl.querySelector('.ov-featured-plays');
     var artImg        = featuredEl && featuredEl.querySelector('.ov-featured-art img');
     var bgImg         = document.querySelector('.ov-profile-artist-bg');
 
@@ -1523,10 +1524,12 @@
     var defaultLabel  = labelEl  ? labelEl.textContent.trim()  : 'Top Track';
     var defaultTrack  = trackEl  ? trackEl.textContent.trim()  : '';
     var defaultArtist = artistEl ? artistEl.textContent.trim() : '';
+    var defaultPlays  = playsEl  ? playsEl.textContent.trim()  : '';
     var defaultArtSrc = artImg   ? artImg.src : '';
     var defaultBgSrc  = bgImg    ? bgImg.src  : '';
 
     var currentlyPlaying = false;
+    var lastArtSrc = '';
 
     function setNowPlaying(np) {
       if (!np) {
@@ -1536,7 +1539,9 @@
           if (labelEl)  labelEl.innerHTML = defaultLabel;
           if (trackEl)  { trackEl.textContent = defaultTrack;  trackEl.title = defaultTrack; }
           if (artistEl) { artistEl.textContent = defaultArtist; artistEl.title = defaultArtist; }
-          if (artImg && defaultArtSrc)  artImg.src = defaultArtSrc;
+          if (playsEl)  playsEl.textContent = defaultPlays;
+          lastArtSrc = '';
+          if (artImg && defaultArtSrc)  { artImg.onerror = function () { this.onerror = null; this.src = '/icons/music.svg'; }; artImg.src = defaultArtSrc; }
           if (bgImg  && defaultBgSrc)   bgImg.src  = defaultBgSrc;
         }
         return;
@@ -1555,13 +1560,25 @@
       if (trackEl)  { trackEl.textContent = np.trackTitle;  trackEl.title = np.trackTitle; }
       if (artistEl) { artistEl.textContent = np.artistName; artistEl.title = np.artistName; }
 
-      // Album artwork — use Plex art proxy if a thumb path was returned
+      // Play count for the playing track (not the all-time top track)
+      if (playsEl) {
+        var plays = Number(np.playCount || 0);
+        playsEl.textContent = plays > 0
+          ? plays.toLocaleString() + (plays === 1 ? ' play' : ' plays')
+          : 'First play';
+      }
+
+      // Album artwork — Jellyfin/Emby return a ready-made /api/ URL; raw Plex paths go via the Plex art proxy
       if (artImg) {
-        if (np.albumThumbPath) {
-          artImg.src = '/api/plex/art?path=' + encodeURIComponent(np.albumThumbPath);
-        } else {
-          artImg.src = '/api/music/thumb/album?artist=' + encodeURIComponent(np.artistName) +
-                       '&album=' + encodeURIComponent(np.albumName) + '&noArtistFallback=1';
+        var thumb = String(np.albumThumbPath || '');
+        var artSrc = thumb
+          ? (thumb.indexOf('/api/') === 0 ? thumb : '/api/plex/art?path=' + encodeURIComponent(thumb))
+          : '/api/music/thumb/album?artist=' + encodeURIComponent(np.artistName) +
+            '&album=' + encodeURIComponent(np.albumName) + '&noArtistFallback=1';
+        if (artSrc !== lastArtSrc) {
+          lastArtSrc = artSrc;
+          artImg.onerror = function () { this.onerror = null; this.src = '/icons/music.svg'; };
+          artImg.src = artSrc;
         }
       }
 

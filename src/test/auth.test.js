@@ -7502,3 +7502,66 @@ describe('security guards', () => {
     assert.equal(readDbRow("SELECT COUNT(*) AS count FROM playlist_rule_templates WHERE user_plex_id = 'listener1'")?.count, 1);
   });
 });
+
+describe('overview now playing', () => {
+  it('returns the play count for the playing track rather than the top track', async () => {
+    const user = 'testadmin';
+    const now = Date.now();
+    const insertPlay = (ratingKey, title, artist, startedAt, isSkip = 0) => runDbStatement(
+      `INSERT INTO play_events (
+        user_plex_id, plex_rating_key, track_title, artist_name, album_name,
+        started_at, ended_at, duration_ms, track_duration_ms, is_skip, event_source, session_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      user, ratingKey, title, artist, 'NP Album', startedAt, startedAt + 200000,
+      200000, 200000, isSkip, 'plex_webhook', `np-${ratingKey}-${startedAt}`,
+    );
+    for (let i = 0; i < 5; i += 1) insertPlay('np-top', 'NP Top Song', 'NP Artist', now - 900000 - i * 1000);
+    insertPlay('np-current', 'NP Current Song', 'NP Artist', now - 800000);
+    insertPlay('np-current', 'np current song ', 'NP Artist', now - 700000);
+    insertPlay('np-current', 'NP Current Song', 'NP Artist', now - 600000, 1);
+
+    const config = await readConfig();
+    const originalPlex = config.plex;
+    config.plex = { ...config.plex, url: 'http://plex.local:32400', token: 'plex-secret-token' };
+    await writeConfig(config);
+
+    let sessionTitle = 'NP Current Song';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      if (String(url || '').startsWith('http://plex.local:32400/status/sessions')) {
+        return new Response(JSON.stringify({
+          MediaContainer: {
+            Metadata: [{
+              type: 'track',
+              title: sessionTitle,
+              grandparentTitle: 'NP Artist',
+              parentTitle: 'NP Album',
+              parentThumb: '/library/metadata/1/thumb/1',
+              Player: { state: 'playing' },
+              User: { title: 'testadmin' },
+            }],
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const { client } = await login('testadmin', 'TestPassword1!');
+      const playing = await client.request('/api/music/overview/now-playing');
+      assert.equal(playing.status, 200);
+      assert.equal(playing.json?.nowPlaying?.trackTitle, 'NP Current Song');
+      assert.equal(playing.json?.nowPlaying?.playCount, 2);
+
+      sessionTitle = 'Never Played Before';
+      const firstPlay = await client.request('/api/music/overview/now-playing');
+      assert.equal(firstPlay.json?.nowPlaying?.playCount, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      const restored = await readConfig();
+      restored.plex = originalPlex;
+      await writeConfig(restored);
+      runDbStatement("DELETE FROM play_events WHERE session_key LIKE 'np-%'");
+    }
+  });
+});
