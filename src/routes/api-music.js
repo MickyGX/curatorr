@@ -74,6 +74,7 @@ import {
   classifyTier,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
+import { buildSpotifyTrackLookups, normalizeImportMatchText, pickSpotifyTrackMatch } from '../services/import-matching.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import {
@@ -1335,82 +1336,6 @@ export function registerApiMusic(app, ctx) {
     const role = String(user.role || '').trim().toLowerCase();
     if (role === 'admin') return String(req.query?.user || user.username || '').trim();
     return String(user.username || '').trim();
-  }
-
-  function normalizeImportMatchText(value) {
-    return String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\([^)]*\)/g, ' ')
-      .replace(/\[[^\]]*\]/g, ' ')
-      .replace(/\b(feat|featuring|ft)\.? .+$/i, ' ')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function buildSpotifyTrackLookups(masterTracks) {
-    const byArtistTitle = new Map();
-    const byTitle = new Map();
-    for (const track of Array.isArray(masterTracks) ? masterTracks : []) {
-      const ratingKey = String(track?.ratingKey || '').trim();
-      if (!ratingKey) continue;
-      const artistKey = normalizeImportMatchText(track?.artistName);
-      const titleKey = normalizeImportMatchText(track?.trackTitle);
-      if (!titleKey) continue;
-      const artistTitleKey = `${artistKey}::${titleKey}`;
-      const entry = {
-        ratingKey,
-        artistName: String(track?.artistName || '').trim(),
-        trackTitle: String(track?.trackTitle || '').trim(),
-        albumName: String(track?.albumName || '').trim(),
-        durationMs: Number(track?.durationMs || 0),
-      };
-      if (!byArtistTitle.has(artistTitleKey)) byArtistTitle.set(artistTitleKey, []);
-      byArtistTitle.get(artistTitleKey).push(entry);
-      if (!byTitle.has(titleKey)) byTitle.set(titleKey, []);
-      byTitle.get(titleKey).push(entry);
-    }
-    return { byArtistTitle, byTitle };
-  }
-
-  function pickSpotifyTrackMatch(trackLookups, spotifyItem) {
-    const artists = Array.isArray(spotifyItem?.artists) ? spotifyItem.artists : [];
-    const primaryArtist = artists.length ? artists[0].name : '';
-    const titleKey = normalizeImportMatchText(spotifyItem?.title);
-    const artistKey = normalizeImportMatchText(primaryArtist);
-    const durationMs = Number(spotifyItem?.durationMs || 0);
-    if (!titleKey) return { method: 'unmatched', match: null, candidates: [] };
-
-    const artistTitleCandidates = trackLookups.byArtistTitle.get(`${artistKey}::${titleKey}`) || [];
-    const titleCandidates = trackLookups.byTitle.get(titleKey) || [];
-    const candidates = artistTitleCandidates.length ? artistTitleCandidates : titleCandidates;
-    if (!candidates.length) return { method: 'unmatched', match: null, candidates: [] };
-
-    let best = null;
-    let bestScore = -Infinity;
-    candidates.forEach((candidate) => {
-      let score = 0;
-      if (normalizeImportMatchText(candidate.artistName) === artistKey) score += 100;
-      if (normalizeImportMatchText(candidate.trackTitle) === titleKey) score += 100;
-      if (durationMs > 0 && Number(candidate.durationMs || 0) > 0) {
-        const durationDelta = Math.abs(Number(candidate.durationMs || 0) - durationMs);
-        if (durationDelta <= 1500) score += 40;
-        else if (durationDelta <= 4000) score += 24;
-        else if (durationDelta <= 8000) score += 8;
-        else score -= Math.min(30, Math.floor(durationDelta / 1000));
-      }
-      if (score > bestScore) {
-        best = candidate;
-        bestScore = score;
-      }
-    });
-    if (!best) return { method: 'unmatched', match: null, candidates };
-    return {
-      method: artistTitleCandidates.length ? 'artistTitle' : 'title',
-      match: best,
-      candidates,
-    };
   }
 
   function buildSpotifyUnmatchedArtistGroups(unmatchedTracks, options = {}) {
