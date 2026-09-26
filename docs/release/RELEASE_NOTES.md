@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.99 (2026-09-26)
+
+- Fixed the Overview Now Playing card showing the all-time top track's play count instead of the playing track's. The now-playing API now returns the user's non-skip play count for the current track, and the card shows "First play" when there is none.
+- Fixed Now Playing album artwork on Jellyfin and Emby, which was being routed through the Plex art proxy and always failed to load.
+- Now Playing artwork falls back to the music icon when it cannot load, instead of a broken image or the top track's cover.
+- Fixed Spotify, Last.fm, ListenBrainz, and M3U imports matching a same-titled song by a different artist (usually a cover) when the original artist was not in the library. Tracks that name an artist now stay unmatched unless a library track shares one of their artists.
+- Import matching now tries every listed artist, ignores a leading "The", treats `&` and `+` as "and", and recognises joint credits such as "Jacob Collier, Shawn Mendes".
+- Added regression coverage for the Now Playing play count and for import artist matching.
+
 ## v0.1.98 (2026-09-13)
 
 - Fixed M3U/M3U8 auto-refresh being locked to Disabled in both the imported playlist editor and settings API. Daily, weekly, and monthly schedules now re-match the stored upload against the current master track cache.
