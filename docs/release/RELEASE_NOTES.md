@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.101 (2026-09-27)
+
+- Refreshed Curatorr branding with a new app icon across navigation, favicons, setup screens, avatar fallbacks, and the installed web app.
+- Added the full Curatorr logo to Plex, Jellyfin, and Emby sign-in pages, with a subtle glow and responsive sizing.
+- Fixed sign-in pages clipping content on shorter screens by allowing vertical scrolling.
+- Updated the service worker cache for the new icon and removed obsolete asset entries.
+- Refreshed the README, wiki, and screenshots, including guides for Music Assistant, Overview, Listening Report, and playlist imports. Added a local demo environment for documentation screenshots.
+
 ## v0.1.100 (2026-09-27)
 
 - Added Music Assistant (2.7+) as an additional play source. Curatorr connects over Music Assistant's WebSocket API and records plays from any Music Assistant player alongside Plex, Jellyfin or Emby, with the usual skip threshold. Pause/resume stays one play, and repeats count separately.
