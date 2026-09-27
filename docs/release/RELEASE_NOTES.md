@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.100 (2026-09-27)
+
+- Added Music Assistant (2.7+) as an additional play source. Curatorr connects over Music Assistant's WebSocket API and records plays from any Music Assistant player alongside Plex, Jellyfin or Emby, with the usual skip threshold. Pause/resume stays one play, and repeats count separately.
+- Music Assistant tracks are matched to the library through the Music Assistant provider mapping, then MusicBrainz recording ID, then artist and title. Unmatched tracks still credit the artist.
+- New Settings → Music Assistant tab (admins only): server URL, token (never shown after saving), connection test, Music Assistant user → Curatorr listener mapping, a default listener for plays without a user, and live status.
+- The Overview Now Playing card falls back to the listener's Music Assistant queue when no media server session is playing.
+- Play recording for all sources now goes through a shared recorder. Plex, Tautulli, Jellyfin and Emby behaviour is unchanged.
+- Added tests for the Music Assistant client, play detection (replaying captured Music Assistant 2.10 events), library matching, recording, settings and the Now Playing fallback.
+
 ## v0.1.99 (2026-09-26)
 
 - Fixed the Overview Now Playing card showing the all-time top track's play count instead of the playing track's. The now-playing API now returns the user's non-skip play count for the current track, and the card shows "First play" when there is none.
