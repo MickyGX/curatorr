@@ -1,6 +1,7 @@
 // Music stats, smart playlist management, and Lidarr integration
 
 import path from 'path';
+import { replacePlexPlaylistItems } from '../services/playlists.js';
 import { getMusicAssistantNowPlaying } from '../services/music-assistant/index.js';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
@@ -1249,39 +1250,9 @@ export async function rebuildSmartPlaylist(ctx, userPlexId, { throwOnError = fal
     }
     if (!mid) throw new Error('Could not determine Plex machine ID');
 
-    const base = url.replace(/\/$/, '');
-
-    // Clear all existing items with a single DELETE
-    await fetch(`${base}/playlists/${playlistId}/items`, {
-      method: 'DELETE',
-      headers: buildPlexAuthHeaders(token),
-    });
-
-    // Add in batches of 100
-    for (let i = 0; i < ratingKeys.length; i += 100) {
-      const batch = ratingKeys.slice(i, i + 100);
-      const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
-      const addUrl = new URL(`${base}/playlists/${playlistId}/items`);
-      addUrl.searchParams.set('uri', uri);
-      const addRes = await fetch(addUrl.toString(), {
-        method: 'PUT',
-        headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-      });
-      if (!addRes.ok) {
-        const body = await addRes.text().catch(() => '');
-        pushLog({
-          level: 'error',
-          app: 'playlist',
-          action: 'sync.add_items_failed',
-          message: `HTTP ${addRes.status} PUT ${addUrl.toString()} — ${body.slice(0, 500) || '(empty body)'}`,
-        });
-        const err = new Error(`Add playlist items failed: HTTP ${addRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
-        err.status = addRes.status;
-        throw err;
-      }
-    }
-
-    const newCount = ratingKeys.length;
+    const synced = await replacePlexPlaylistItems(ctx, userPlexId, playlistId, mid, ratingKeys);
+    const newCount = synced.confirmedCount;
+    excludedTrackCount += synced.missingKeys.length;
     recordPlaylistSync(db, {
       userPlexId,
       plexPlaylistId: playlistId,
@@ -1295,8 +1266,8 @@ export async function rebuildSmartPlaylist(ctx, userPlexId, { throwOnError = fal
     });
 
     pushLog({
-      level: 'info', app: 'playlist', action: 'sync',
-      message: `Playlist synced: ${ratingKeys.length} tracks (${excludedTrackCount} tracks + ${excludedArtistNames.size} artists excluded)`,
+      level: synced.missingKeys.length ? 'warn' : 'info', app: 'playlist', action: 'sync',
+      message: `Playlist synced: ${newCount} tracks (${excludedTrackCount} tracks + ${excludedArtistNames.size} artists excluded)`,
     });
   } catch (err) {
     pushLog({ level: 'error', app: 'playlist', action: 'sync.error', message: safeMessage(err) });

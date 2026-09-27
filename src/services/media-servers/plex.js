@@ -142,11 +142,20 @@ export async function getLibraryTracks(url, token, libraryKeys, options = {}) {
       u.searchParams.set('X-Plex-Container-Size', String(PAGE_SIZE));
       const res = await fetch(u.toString(), {
         headers: plexHeaders(token, { Accept: 'application/json' }),
+        signal: AbortSignal.timeout(60_000),
       });
-      if (!res.ok) break;
+      if (!res.ok) throw new Error(`Plex track cache refresh failed for library ${key} at offset ${start}: HTTP ${res.status}`);
       const json = await res.json();
-      if (totalSize === null) totalSize = Number(json?.MediaContainer?.totalSize ?? json?.MediaContainer?.size ?? 0);
-      const metadata = json?.MediaContainer?.Metadata || [];
+      const container = json?.MediaContainer;
+      const reportedTotal = Number(container?.totalSize ?? container?.size);
+      if (!container || !Number.isInteger(reportedTotal) || reportedTotal < 0) {
+        throw new Error(`Plex track cache refresh returned an invalid track count for library ${key} at offset ${start}`);
+      }
+      if (totalSize === null) totalSize = reportedTotal;
+      const metadata = container.Metadata ?? [];
+      if (!Array.isArray(metadata) || (!metadata.length && start < totalSize)) {
+        throw new Error(`Plex track cache refresh returned an incomplete page for library ${key} at offset ${start} (expected ${totalSize} tracks)`);
+      }
       if (!metadata.length) break;
       const batch = [];
       for (const t of metadata) {

@@ -332,7 +332,9 @@ export async function refreshMasterTrackCache(ctx) {
   const credential = getConfiguredCredential(config);
   const selectedKeys = getConfiguredLibraryKeys(config);
 
-  if (!url || !credential || !selectedKeys.length) return 0;
+  if (!url || !credential || !selectedKeys.length) {
+    throw new Error('Master track cache refresh requires a configured media server and selected music libraries.');
+  }
 
   try {
     const refreshStartedAt = Date.now();
@@ -359,7 +361,7 @@ export async function refreshMasterTrackCache(ctx) {
     return trackCount;
   } catch (err) {
     pushLog({ level: 'error', app: 'wizard', action: 'master.refresh.error', message: safeMessage(err) });
-    return 0;
+    throw err;
   }
 }
 

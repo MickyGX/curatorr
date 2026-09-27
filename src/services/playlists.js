@@ -1615,7 +1615,7 @@ async function ensurePlexPlaylist(ctx, userPlexId, playlistKey, playlistTitle, m
   });
 }
 
-async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machineId, ratingKeys) {
+export async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machineId, ratingKeys) {
   const config = ctx.loadConfig();
   const { url } = config.plex || {};
   const token = ctx.resolveUserPlexServerToken(config, userPlexId);
@@ -1623,6 +1623,7 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
   if (!base || !token) throw new Error('Plex is not configured for playlist sync');
 
   const PLEX_PLAYLIST_TIMEOUT_MS = 30_000;
+  const unavailableKeys = new Set();
 
   function countKeys(keys = []) {
     const counts = new Map();
@@ -1688,9 +1689,9 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
       });
       return {
         requestedCount,
-        confirmedCount: requestedCount,
-        confirmedKeys: ratingKeys,
-        missingKeys: [],
+        confirmedCount: ratingKeys.filter((key) => !unavailableKeys.has(key)).length,
+        confirmedKeys: ratingKeys.filter((key) => !unavailableKeys.has(key)),
+        missingKeys: ratingKeys.filter((key) => unavailableKeys.has(key)),
         verified: false,
       };
     }
@@ -1704,67 +1705,90 @@ async function replacePlexPlaylistItems(ctx, userPlexId, plexPlaylistId, machine
     };
   }
 
-  async function doReplace(mid) {
-    const clearUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
-    const clearRes = await fetch(clearUrl.toString(), {
-      method: 'DELETE',
+  let mid = machineId;
+  let refreshedMachineId = false;
+
+  async function addBatch(batch) {
+    const addUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
+    addUrl.searchParams.set('uri', `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`);
+    const response = await fetch(addUrl.toString(), {
+      method: 'PUT',
       headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
       signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
     });
-    if (!clearRes.ok) {
-      const body = await clearRes.text().catch(() => '');
-      throw new Error(`Clear playlist items failed: HTTP ${clearRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
-    }
-
-    for (let i = 0; i < ratingKeys.length; i += 100) {
-      const batch = ratingKeys.slice(i, i + 100);
-      const uri = `server://${mid}/com.plexapp.plugins.library/library/metadata/${batch.join(',')}`;
-      const addUrl = new URL(`${base}/playlists/${plexPlaylistId}/items`);
-      addUrl.searchParams.set('uri', uri);
-      const response = await fetch(addUrl.toString(), {
-        method: 'PUT',
+    if (response.ok) return;
+    const body = await response.text().catch(() => '');
+    if (response.status === 400) {
+      // Refresh once before isolating rejected tracks; never clear successful batches again.
+      if (!refreshedMachineId) {
+        refreshedMachineId = true;
+        const adminToken = String(config.plex?.token || '').trim() || token;
+        let freshId = '';
+        try {
+          const r = await fetch(base, {
+            headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (r.ok) freshId = String((await r.json())?.MediaContainer?.machineIdentifier || '').trim();
+        } catch { /* The original add error remains actionable if discovery fails. */ }
+        if (freshId && freshId !== mid) {
+          mid = freshId;
+          const latest = ctx.loadConfig();
+          ctx.saveConfig({ ...latest, plex: { ...latest.plex, machineId: freshId } });
+          return addBatch(batch);
+        }
+      }
+      if (batch.length > 1) {
+        const middle = Math.ceil(batch.length / 2);
+        await addBatch(batch.slice(0, middle));
+        await addBatch(batch.slice(middle));
+        return;
+      }
+      // Only skip a rejected item when Plex confirms it is missing or is not a track.
+      // Authentication, server and playlist errors must still fail the rebuild.
+      const key = batch[0];
+      const metadata = await fetch(`${base}/library/metadata/${encodeURIComponent(key)}`, {
         headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
         signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
       });
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
+      let unavailable = metadata.status === 404;
+      if (metadata.ok) {
+        const json = await metadata.json();
+        const entries = json?.MediaContainer?.Metadata;
+        unavailable = Array.isArray(entries) && !entries.some((entry) =>
+          String(entry.ratingKey) === String(key) && entry.type === 'track');
+      }
+      if (unavailable) {
+        unavailableKeys.add(key);
         ctx.pushLog({
-          level: 'error',
-          app: 'playlist',
-          action: 'plex.add_items_failed',
-          message: `HTTP ${response.status} PUT ${addUrl.toString()} — ${body.slice(0, 500) || '(empty body)'}`,
+          level: 'warn', app: 'playlist', action: 'plex.playlist.unavailable_track',
+          message: `Skipping unavailable Plex track ${key} while rebuilding playlist ${plexPlaylistId}.`,
         });
-        const err = new Error(`Add playlist items failed: HTTP ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
-        err.status = response.status;
-        throw err;
+        return;
       }
     }
-
-    return verifyReplace();
+    ctx.pushLog({
+      level: 'error', app: 'playlist', action: 'plex.add_items_failed',
+      message: `HTTP ${response.status} PUT ${addUrl.toString()} — ${body.slice(0, 500) || '(empty body)'}`,
+    });
+    const err = new Error(`Add playlist items failed: HTTP ${response.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    err.status = response.status;
+    throw err;
   }
 
-  try {
-    return await doReplace(machineId);
-  } catch (err) {
-    // HTTP 400 can indicate a stale machineId — try once with a freshly fetched identifier.
-    if (err.status !== 400) throw err;
-    const adminToken = String(config.plex?.token || '').trim() || token;
-    let freshId = '';
-    try {
-      const r = await fetch(base, {
-        headers: ctx.buildPlexAuthHeaders(adminToken, { Accept: 'application/json' }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (r.ok) {
-        const json = await r.json();
-        freshId = String(json?.MediaContainer?.machineIdentifier || '').trim();
-      }
-    } catch { /* non-fatal */ }
-    if (!freshId || freshId === machineId) throw err;
-    const latest = ctx.loadConfig();
-    ctx.saveConfig({ ...latest, plex: { ...latest.plex, machineId: freshId } });
-    return doReplace(freshId);
+  const clearRes = await fetch(`${base}/playlists/${plexPlaylistId}/items`, {
+    method: 'DELETE',
+    headers: ctx.buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    signal: AbortSignal.timeout(PLEX_PLAYLIST_TIMEOUT_MS),
+  });
+  if (!clearRes.ok) {
+    const body = await clearRes.text().catch(() => '');
+    throw new Error(`Clear playlist items failed: HTTP ${clearRes.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
   }
+  for (let i = 0; i < ratingKeys.length; i += 100) {
+    await addBatch(ratingKeys.slice(i, i + 100));
+  }
+  return verifyReplace();
 }
 
 function collectListenbrainzUnmatchedSamples(trackLookups, tracks, limit = 5) {

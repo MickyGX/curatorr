@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.102 (2026-09-27)
+
+- Fixed Plex playlist rebuilds failing on rejected batches containing missing tracks or music IDs reassigned to non-music items after a Plex database repair. Curatorr isolates the rejected items, confirms they are unavailable, and continues with valid tracks.
+- Shared playlist recovery and count verification with legacy smart playlist rebuilds. Refreshing a stale Plex server identifier no longer clears successfully added batches again.
+- Fixed Master Track Cache Refresh failures being reported as successful in Jobs and the manual refresh API.
+- Failed HTTP requests, invalid track counts, and incomplete Plex library pages now stop cache refresh before stale-entry cleanup. Track-page requests also have a 60-second timeout.
+- Added regression coverage for reassigned Plex IDs, playlist recovery, refresh failure reporting, and safe cache cleanup.
+
 ## v0.1.101 (2026-09-27)
 
 - Refreshed Curatorr branding with a new app icon across navigation, favicons, setup screens, avatar fallbacks, and the installed web app.

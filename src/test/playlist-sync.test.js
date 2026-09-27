@@ -15,7 +15,7 @@ const {
   refreshMasterTracks,
   saveUserGeneratedPlaylist,
 } = await import('../db.js');
-const { createPlaylistService } = await import('../services/playlists.js');
+const { createPlaylistService, replacePlexPlaylistItems } = await import('../services/playlists.js');
 
 function buildAppApiUrl(base, relativePath) {
   return new URL(String(relativePath || '').replace(/^\/+/, '/'), `${String(base || '').replace(/\/+$/, '')}/`);
@@ -171,5 +171,112 @@ describe('Plex generated playlist sync verification', () => {
     assert.match(finalLog?.message || '', /2 missing in Plex/);
 
     assert.ok(requests.some((request) => request.method === 'GET' && request.target.includes('/items?X-Plex-Container-Start=')));
+  });
+});
+
+
+describe('Plex rejected playlist batch recovery', () => {
+  const originalFetch = global.fetch;
+  after(() => { global.fetch = originalFetch; });
+
+  function mockPlex({ rejected = 'stale', status = 400, metadataStatus = 404, metadataType = 'track', freshId = 'machine-1', verifyStatus = 200, clearStatus = 200 } = {}) {
+    const added = [];
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+      const target = new URL(url);
+      const method = options.method || 'GET';
+      calls.push({ target, method });
+      if (target.pathname === '/') return Response.json({ MediaContainer: { machineIdentifier: freshId } });
+      if (target.pathname.startsWith('/library/metadata/')) {
+        if (metadataStatus !== 200) return new Response('', { status: metadataStatus });
+        return Response.json({ MediaContainer: { Metadata: [{ ratingKey: rejected, type: metadataType }] } });
+      }
+      if (method === 'DELETE') return new Response('', { status: clearStatus });
+      if (method === 'PUT') {
+        const uri = target.searchParams.get('uri');
+        const keys = uri.split('/').at(-1).split(',');
+        if (keys.includes(rejected) || !uri.startsWith(`server://${freshId}/`)) {
+          return new Response('Bad Request', { status });
+        }
+        added.push(...keys);
+        return new Response('', { status: 200 });
+      }
+      if (verifyStatus !== 200) return new Response('', { status: verifyStatus });
+      return Response.json({ MediaContainer: { Metadata: added.map((ratingKey) => ({ ratingKey })) } });
+    };
+    return { added, calls };
+  }
+
+  it('isolates missing tracks in a rejected batch and preserves valid track order and duplicates', async () => {
+    const { added, calls } = mockPlex();
+    const logs = [];
+    const result = await replacePlexPlaylistItems(createTestContext(null, logs), 'alice', 'playlist', 'machine-1', ['live-1', 'stale', 'live-2', 'live-1']);
+    assert.deepEqual(added, ['live-1', 'live-2', 'live-1']);
+    assert.deepEqual(result.confirmedKeys, added);
+    assert.deepEqual(result.missingKeys, ['stale']);
+    assert.equal(result.confirmedCount, 3);
+    assert.equal(result.verified, true);
+    assert.equal(calls.filter((call) => call.method === 'DELETE').length, 1);
+    assert.equal(calls.filter((call) => call.target.pathname === '/').length, 1);
+    assert.ok(logs.some((entry) => entry.action === 'plex.playlist.unavailable_track'));
+  });
+
+  it('skips an old music ID reassigned to a TV episode after a Plex database repair', async () => {
+    const { added } = mockPlex({ metadataStatus: 200, metadataType: 'episode' });
+    const result = await replacePlexPlaylistItems(createTestContext(null, []), 'alice', 'playlist', 'machine-1', ['live', 'stale']);
+    assert.deepEqual(added, ['live']);
+    assert.deepEqual(result.missingKeys, ['stale']);
+    assert.equal(result.confirmedCount, 1);
+  });
+
+  it('keeps known missing tracks out of counts when verification is unavailable', async () => {
+    mockPlex({ verifyStatus: 503 });
+    const result = await replacePlexPlaylistItems(createTestContext(null, []), 'alice', 'playlist', 'machine-1', ['live', 'stale']);
+    assert.equal(result.verified, false);
+    assert.equal(result.confirmedCount, 1);
+    assert.deepEqual(result.confirmedKeys, ['live']);
+    assert.deepEqual(result.missingKeys, ['stale']);
+  });
+
+  it('refreshes a stale machine identifier without clearing the playlist again', async () => {
+    const { added, calls } = mockPlex({ freshId: 'machine-2' });
+    const ctx = createTestContext(null, []);
+    let saved;
+    ctx.saveConfig = (config) => { saved = config; };
+    const result = await replacePlexPlaylistItems(ctx, 'alice', 'playlist', 'machine-1', ['live']);
+    assert.deepEqual(added, ['live']);
+    assert.equal(result.confirmedCount, 1);
+    assert.equal(saved.plex.machineId, 'machine-2');
+    assert.equal(calls.filter((call) => call.method === 'DELETE').length, 1);
+  });
+
+  for (const metadataStatus of [200, 401, 403, 500]) {
+    it(`does not hide a rejected track when metadata returns ${metadataStatus}`, async () => {
+      mockPlex({ metadataStatus });
+      await assert.rejects(
+        replacePlexPlaylistItems(createTestContext(null, []), 'alice', 'playlist', 'machine-1', ['stale']),
+        /Add playlist items failed: HTTP 400/,
+      );
+    });
+  }
+
+  for (const status of [401, 403, 404, 500]) {
+    it(`does not split batches on HTTP ${status}`, async () => {
+      const { calls } = mockPlex({ status });
+      await assert.rejects(
+        replacePlexPlaylistItems(createTestContext(null, []), 'alice', 'playlist', 'machine-1', ['live', 'stale']),
+        new RegExp(`Add playlist items failed: HTTP ${status}`),
+      );
+      assert.equal(calls.filter((call) => call.method === 'PUT').length, 1);
+    });
+  }
+
+  it('does not append tracks when clearing the playlist fails', async () => {
+    const { calls } = mockPlex({ clearStatus: 500 });
+    await assert.rejects(
+      replacePlexPlaylistItems(createTestContext(null, []), 'alice', 'playlist', 'machine-1', ['live']),
+      /Clear playlist items failed: HTTP 500/,
+    );
+    assert.equal(calls.length, 1);
   });
 });
