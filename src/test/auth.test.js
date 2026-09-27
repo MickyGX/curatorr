@@ -7564,4 +7564,43 @@ describe('overview now playing', () => {
       runDbStatement("DELETE FROM play_events WHERE session_key LIKE 'np-%'");
     }
   });
+  it('saves Music Assistant settings without ever rendering the token', async () => {
+    const { client } = await login('testadmin', 'TestPassword1!');
+    const userMap = JSON.stringify({ 'ma-user-1': 'MickyGX', 'ma-user-2': '' });
+    const saveRes = await client.postForm('/settings/music-assistant', {
+      maUrl: 'http://ma.local:8095/ws',
+      maToken: 'ma-secret-token-123',
+      maProviderInstance: 'plex--AbCdEfGh',
+      maDefaultUser: 'MickyGX',
+      maUserMap: userMap,
+    }, '/settings?tab=music-assistant');
+    assert.equal(saveRes.status, 302);
+
+    let config = await readConfig();
+    assert.equal(config.musicAssistant.enabled, false);
+    assert.equal(config.musicAssistant.url, 'http://ma.local:8095');
+    assert.equal(config.musicAssistant.token, 'ma-secret-token-123');
+    assert.equal(config.musicAssistant.providerInstance, 'plex--AbCdEfGh');
+    assert.deepEqual(config.musicAssistant.userMap, { 'ma-user-1': 'MickyGX', 'ma-user-2': '' });
+
+    // A blank token field keeps the saved token.
+    await client.postForm('/settings/music-assistant', {
+      maUrl: 'http://ma.local:8095', maToken: '', maUserMap: userMap,
+    }, '/settings?tab=music-assistant');
+    config = await readConfig();
+    assert.equal(config.musicAssistant.token, 'ma-secret-token-123');
+
+    const page = await client.request('/settings?tab=music-assistant');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /Save Music Assistant settings/);
+    assert.ok(!page.text.includes('ma-secret-token-123'), 'token must not be rendered');
+
+    const status = await client.request('/api/music-assistant/status');
+    assert.equal(status.status, 200);
+    assert.equal(status.json?.state, 'disabled');
+
+    const restored = await readConfig();
+    delete restored.musicAssistant;
+    await writeConfig(restored);
+  });
 });

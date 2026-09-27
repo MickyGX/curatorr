@@ -1,6 +1,7 @@
 // Music stats, smart playlist management, and Lidarr integration
 
 import path from 'path';
+import { getMusicAssistantNowPlaying } from '../services/music-assistant/index.js';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import {
@@ -3538,36 +3539,35 @@ export function registerApiMusic(app, ctx) {
       const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
       const currentUsername = String(req.session?.user?.username || '').trim().toLowerCase();
 
-      let sessions = [];
-
-      if (msType === 'plex') {
-        const { url, token } = config.plex || {};
-        if (!url || !token) return res.json({ nowPlaying: null });
-        const sessionsUrl = buildAppApiUrl(url, 'status/sessions');
-        const r = await fetch(sessionsUrl.toString(), {
-          headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!r.ok) return res.json({ nowPlaying: null });
-        const json = await r.json();
-        const all = json?.MediaContainer?.Metadata || [];
-        sessions = all
-          .filter((s) => s.type === 'track')
-          .map((s) => ({
-            title:      String(s.title || ''),
-            artist:     String(s.grandparentTitle || ''),
-            album:      String(s.parentTitle || ''),
-            albumThumb: String(s.parentThumb || s.thumb || ''),
-            state:      String(s.Player?.state || 'playing'),
-            userName:   String(s.User?.title || '').toLowerCase(),
-          }));
-      } else {
+      const loadServerSessions = async () => {
+        if (msType === 'plex') {
+          const { url, token } = config.plex || {};
+          if (!url || !token) return [];
+          const sessionsUrl = buildAppApiUrl(url, 'status/sessions');
+          const r = await fetch(sessionsUrl.toString(), {
+            headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!r.ok) return [];
+          const json = await r.json();
+          const all = json?.MediaContainer?.Metadata || [];
+          return all
+            .filter((s) => s.type === 'track')
+            .map((s) => ({
+              title:      String(s.title || ''),
+              artist:     String(s.grandparentTitle || ''),
+              album:      String(s.parentTitle || ''),
+              albumThumb: String(s.parentThumb || s.thumb || ''),
+              state:      String(s.Player?.state || 'playing'),
+              userName:   String(s.User?.title || '').toLowerCase(),
+            }));
+        }
         const { getAdapter } = await import('../services/media-servers/index.js');
         const adapter = getAdapter(msType);
         const { url, apiKey } = config[msType] || {};
-        if (!url || !apiKey) return res.json({ nowPlaying: null });
+        if (!url || !apiKey) return [];
         const raw = await adapter.getActiveSessions(url, apiKey);
-        sessions = raw.map((s) => ({
+        return raw.map((s) => ({
           title:      s.trackTitle,
           artist:     s.artist,
           album:      s.album,
@@ -3575,10 +3575,25 @@ export function registerApiMusic(app, ctx) {
           state:      s.isPaused ? 'paused' : 'playing',
           userName:   String(s.username || '').toLowerCase(),
         }));
-      }
+      };
+      const sessions = await loadServerSessions().catch(() => []);
 
-      // Match the current logged-in user — include paused sessions too
-      const session = sessions.find((s) => s.userName === currentUsername);
+      // Match the current logged-in user — include paused sessions too.
+      // Fall back to Music Assistant playback mapped to this listener.
+      let session = sessions.find((s) => s.userName === currentUsername);
+      if (!session) {
+        const maQueue = getMusicAssistantNowPlaying(ctx, [resolveOverviewUserId(req), currentUsername]);
+        if (maQueue) {
+          session = {
+            title: maQueue.title,
+            artist: maQueue.artist,
+            album: maQueue.album,
+            albumThumb: maQueue.imagePath,
+            state: maQueue.state,
+            source: 'music_assistant',
+          };
+        }
+      }
       if (!session) return res.json({ nowPlaying: null });
 
       // Same grouping as the overview top-tracks query (non-skip plays, normalised title + artist)
@@ -3602,6 +3617,7 @@ export function registerApiMusic(app, ctx) {
           albumThumbPath: session.albumThumb,
           isPaused:       session.state === 'paused',
           playCount,
+          ...(session.source ? { source: session.source } : {}),
         },
       });
     } catch {

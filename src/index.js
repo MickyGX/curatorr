@@ -32,6 +32,7 @@ import { rebuildSmartPlaylist } from './routes/api-music.js';
 import { runTautulliDailySync } from './services/tautulli-sync.js';
 import { runLastfmHistorySync } from './services/lastfm-sync.js';
 import { runLastfmHistoryBackfill } from './services/lastfm-backfill.js';
+import { startMusicAssistant, stopMusicAssistant } from './services/music-assistant/index.js';
 import { createTrackEnrichmentService } from './services/track-enrichment.js';
 import { createSpotifyService } from './services/spotify.js';
 import { createYouTubeService } from './services/youtube.js';
@@ -2318,12 +2319,15 @@ export async function start() {
       runImmediately: false,
       catchUp: true,
     });
+    // Music Assistant is an additive play source (no-op unless enabled in settings).
+    startMusicAssistant(_routeCtx);
   }
 
   return server;
 }
 
 export async function stop() {
+  stopMusicAssistant();
   if (!server) return;
   server.closeAllConnections();
   await new Promise((resolve, reject) => {

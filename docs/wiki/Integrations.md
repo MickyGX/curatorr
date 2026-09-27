@@ -110,6 +110,35 @@ Tautulli imports now respect the selected Plex music libraries:
 
 Tautulli is Plex-only. It is not used on Jellyfin or Emby installs.
 
+## Music Assistant
+
+Curatorr can count listening on [Music Assistant](https://www.music-assistant.io/) players towards stats, skips and smart playlists. Music Assistant is an additional play source: plays are recorded alongside your primary Plex, Jellyfin or Emby source, not instead of it.
+
+Requirements:
+
+- Music Assistant 2.7 or newer (2.7 added the authentication Curatorr uses)
+- Music Assistant must include the same Plex, Jellyfin or Emby server that Curatorr uses as its primary source
+
+### Music Assistant setup
+
+1. In Music Assistant, open `Settings -> Profile -> Long-lived access tokens` and create a token. Sign in as an admin, so Curatorr can list Music Assistant users.
+2. In Curatorr, open `Settings -> Music Assistant`.
+3. Enter the server URL, for example `http://192.168.1.10:8095`. If Music Assistant runs as a Home Assistant app, use the host address with port `8095`, not the Home Assistant sidebar link.
+4. Paste the token and select `Test connection`.
+5. Pick the Music Assistant provider that serves your Curatorr library.
+6. Map each Music Assistant user to a Curatorr listener. Unmapped users are ignored.
+7. Optionally choose a listener for plays with no Music Assistant user, such as playback started by a Home Assistant automation.
+8. Turn on `Track plays from Music Assistant` and save.
+
+### How Music Assistant plays are counted
+
+- A play is recorded when a track finishes, is skipped, or is stopped. The usual skip threshold applies.
+- Pausing and resuming a track keeps it as one play. A skip is confirmed about a minute after playback stops, so a short pause isn't counted as a skip.
+- Tracks are matched to your library through the Music Assistant provider, then by MusicBrainz recording ID, then by artist and title.
+- Tracks Music Assistant plays from providers outside your library (for example a streaming service) still count towards the artist, but don't add tracks to Curatorr.
+- Music Assistant streams aren't reported by Plex or Tautulli, so plays aren't counted twice.
+- Long-lived Music Assistant tokens expire after a year. The settings page shows the expiry date.
+
 ## Last.fm
 
 Last.fm is optional and is used in two separate ways.

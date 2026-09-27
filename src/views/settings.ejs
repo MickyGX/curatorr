@@ -144,6 +144,10 @@
           </button>
           <% } %>
           <% if (actualRole === 'admin') { %>
+            <button class="settings-tab-btn<%= _tab === 'music-assistant' ? ' is-active' : '' %>" type="button" data-tab="music-assistant">
+              <img class="settings-tab-icon" src="/icons/media-play.svg" alt="" />
+              <span class="settings-tab-text">Music Assistant</span>
+            </button>
             <button class="settings-tab-btn<%= _tab === 'lidarr' ? ' is-active' : '' %>" type="button" data-tab="lidarr">
               <img class="settings-tab-icon settings-tab-icon--app" src="/icons/lidarr.png" alt="" />
               <span class="settings-tab-text">Lidarr</span>
@@ -556,6 +560,83 @@
               </div>
               </fieldset>
             </form>
+          </div>
+        </div>
+        <% } %>
+
+        <%# ── Music Assistant ──────────────────────────────────────────────── %>
+        <% if (actualRole === 'admin') { %>
+        <% const _ma = config.musicAssistant || {}; %>
+        <div class="settings-tab-panel<%= _tab === 'music-assistant' ? ' is-active' : '' %>" data-tab="music-assistant">
+          <div class="dash-panel">
+            <form id="ma-settings-form" method="post" action="/settings/music-assistant" class="settings-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="maUserMap" id="ma-user-map-input" value="" />
+              <div class="settings-card">
+                <div class="settings-card-title">Music Assistant</div>
+                <div class="settings-card-sub">Count listening on Music Assistant players towards Curatorr stats and smart playlists. Plays are added alongside your primary <%= (mediaServerType || 'plex') %> source.</div>
+                <label class="settings-toggle">
+                  <input type="checkbox" name="maEnabled" <%= _ma.enabled ? 'checked' : '' %> />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text">Track plays from Music Assistant</span>
+                </label>
+                <div class="plex-settings-fields">
+                  <label class="field">
+                    <span>Server URL</span>
+                    <input id="ma-url-input" type="text" name="maUrl" value="<%= _ma.url || '' %>" placeholder="http://homeassistant.local:8095" />
+                  </label>
+                  <label class="field field-with-action">
+                    <span>Long-lived access token</span>
+                    <div class="field-action-row">
+                      <input id="ma-token-input" type="password" name="maToken" value="" autocomplete="off" placeholder="<%= _ma.tokenSet ? '(saved — leave blank to keep)' : 'Paste token' %>" />
+                      <button class="icon-button" type="button" aria-label="Show token" data-visibility-toggle="ma-token-input" data-visibility-state="hidden">
+                        <img src="/icons/view-off.svg" alt="" />
+                      </button>
+                    </div>
+                  </label>
+                </div>
+                <div class="plex-settings-note" style="margin-top:8px">
+                  Create the token in Music Assistant under <strong>Settings → Profile → Long-lived access tokens</strong>, signed in as an admin so Curatorr can list MA users. Use the direct server address (port 8095), not the Home Assistant sidebar link. Requires Music Assistant 2.7 or newer.
+                </div>
+                <div class="plex-settings-actions" style="margin-top:12px">
+                  <button id="ma-test-btn" class="ghost-button" type="button">Test connection</button>
+                  <span id="ma-test-status" style="font-size:12px;opacity:0.8"></span>
+                </div>
+                <div id="ma-live-status" class="plex-settings-note" style="margin-top:8px"></div>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-card-title">Library match</div>
+                <div class="settings-card-sub">The Music Assistant provider that serves the same <%= (mediaServerType || 'plex') %> library Curatorr uses. MA tracks are matched to your library through this provider, then by MusicBrainz ID, then by artist and title.</div>
+                <label class="field">
+                  <span>Provider</span>
+                  <select id="ma-provider-select" name="maProviderInstance">
+                    <option value="">Auto (first <%= (mediaServerType || 'plex') %> provider)</option>
+                    <% if (_ma.providerInstance) { %><option value="<%= _ma.providerInstance %>" selected><%= _ma.providerInstance %></option><% } %>
+                  </select>
+                </label>
+              </div>
+
+              <div class="settings-card">
+                <div class="settings-card-title">Listeners</div>
+                <div class="settings-card-sub">Map each Music Assistant user to the Curatorr listener whose stats their plays should count towards. Unmapped users are ignored. Run <em>Test connection</em> to load the MA user list.</div>
+                <div id="ma-user-map-rows" class="plex-settings-fields"></div>
+                <label class="field" style="margin-top:8px">
+                  <span>Plays with no MA user (e.g. started by a Home Assistant automation)</span>
+                  <select name="maDefaultUser" id="ma-default-user-select">
+                    <option value="">Ignore</option>
+                    <% (maListenerOptions || []).forEach(function(id) { %>
+                    <option value="<%= id %>" <%= _ma.defaultUser === id ? 'selected' : '' %>><%= id %></option>
+                    <% }) %>
+                  </select>
+                </label>
+              </div>
+
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save Music Assistant settings</button>
+              </div>
+            </form>
+            <script type="application/json" id="ma-settings-data"><%- JSON.stringify({ userMap: _ma.userMap || {}, listeners: maListenerOptions || [], providerInstance: _ma.providerInstance || '', serverType: mediaServerType || 'plex' }).replace(/</g, '\\u003c') %></script>
           </div>
         </div>
         <% } %>
@@ -4038,6 +4119,137 @@
           status.style.color = 'var(--color-error, #f87171)';
         })
         .finally(function() { btn.disabled = false; });
+    });
+  })();
+
+  // ── Music Assistant ─────────────────────────────────────────────────────
+  (function() {
+    var form = document.getElementById('ma-settings-form');
+    var dataEl = document.getElementById('ma-settings-data');
+    if (!form || !dataEl) return;
+    var _csrf = '<%= csrfToken %>';
+    var data = JSON.parse(dataEl.textContent || '{}');
+    var userMap = Object.assign({}, data.userMap || {});
+    var maUsers = Object.keys(userMap).map(function(id) { return { userId: id, displayName: id, username: '' }; });
+    var rowsEl = document.getElementById('ma-user-map-rows');
+    var providerSelect = document.getElementById('ma-provider-select');
+    var testBtn = document.getElementById('ma-test-btn');
+    var testStatus = document.getElementById('ma-test-status');
+    var liveStatus = document.getElementById('ma-live-status');
+
+    function el(tag, attrs, text) {
+      var node = document.createElement(tag);
+      Object.keys(attrs || {}).forEach(function(k) { node.setAttribute(k, attrs[k]); });
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function suggestListener(user) {
+      var names = [user.username, user.displayName].filter(Boolean).map(function(v) { return String(v).toLowerCase(); });
+      return (data.listeners || []).find(function(id) { return names.indexOf(String(id).toLowerCase()) !== -1; }) || '';
+    }
+
+    function renderRows() {
+      rowsEl.textContent = '';
+      if (!maUsers.length) {
+        rowsEl.appendChild(el('div', { class: 'plex-settings-note' }, 'No Music Assistant users loaded yet.'));
+        return;
+      }
+      maUsers.forEach(function(user) {
+        var label = el('label', { class: 'field' });
+        var caption = user.username && user.username !== user.displayName
+          ? user.displayName + ' (' + user.username + ')'
+          : (user.displayName || user.userId);
+        label.appendChild(el('span', null, 'MA user: ' + caption));
+        var select = el('select', { 'data-ma-user-id': user.userId });
+        select.appendChild(el('option', { value: '' }, 'Ignore'));
+        var current = Object.prototype.hasOwnProperty.call(userMap, user.userId) ? userMap[user.userId] : suggestListener(user);
+        (data.listeners || []).forEach(function(id) {
+          var opt = el('option', { value: id }, id);
+          if (id === current) opt.selected = true;
+          select.appendChild(opt);
+        });
+        label.appendChild(select);
+        rowsEl.appendChild(label);
+      });
+    }
+
+    function renderProviders(providers) {
+      var selected = providerSelect.value || data.providerInstance;
+      providerSelect.textContent = '';
+      providerSelect.appendChild(el('option', { value: '' }, 'Auto (first ' + data.serverType + ' provider)'));
+      providers.forEach(function(p) {
+        var opt = el('option', { value: p.instanceId }, p.name + ' — ' + p.domain + ' (' + p.instanceId + ')' + (p.available ? '' : ' [unavailable]'));
+        if (p.instanceId === selected || (!selected && providers.filter(function(x) { return x.domain === data.serverType; }).length === 1 && p.domain === data.serverType)) opt.selected = true;
+        providerSelect.appendChild(opt);
+      });
+    }
+
+    function formatTime(ms) { return ms ? new Date(ms).toLocaleString() : 'never'; }
+
+    function refreshStatus() {
+      if (!form.closest('.settings-tab-panel').classList.contains('is-active')) return;
+      fetch('/api/music-assistant/status', { headers: { Accept: 'application/json' } })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(s) {
+          if (!s) return;
+          if (s.state === 'disabled') { liveStatus.textContent = 'Status: not enabled.'; return; }
+          var parts = ['Status: ' + s.state];
+          if (s.serverVersion) parts.push('MA ' + s.serverVersion + (s.user ? ' as ' + s.user.username : ''));
+          if (s.counters) parts.push(s.counters.plays + ' plays recorded (' + s.counters.matched + ' matched, ' + s.counters.unmatched + ' unmatched, ' + s.counters.droppedNoUser + ' from unmapped users)');
+          if (s.index) parts.push('track index: ' + s.index.matched + '/' + s.index.scanned + ' matched');
+          parts.push('last play: ' + formatTime(s.lastPlayAt));
+          if (s.tokenExpiresAt) parts.push('token expires ' + new Date(s.tokenExpiresAt).toLocaleDateString());
+          if (s.lastError) parts.push('last error: ' + s.lastError);
+          liveStatus.textContent = parts.join(' · ');
+        })
+        .catch(function() {});
+    }
+
+    testBtn.addEventListener('click', function() {
+      testBtn.disabled = true;
+      testStatus.textContent = 'Connecting…';
+      testStatus.style.color = '';
+      fetch('/api/music-assistant/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+        body: JSON.stringify({ url: document.getElementById('ma-url-input').value, token: document.getElementById('ma-token-input').value }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          if (!res.ok) {
+            testStatus.textContent = res.error || 'Connection failed.';
+            testStatus.style.color = 'var(--color-error, #f87171)';
+            return;
+          }
+          testStatus.textContent = 'Connected to ' + res.serverName + ' (' + res.serverVersion + ') as ' + (res.user ? res.user.username : 'unknown') + '.'
+            + (res.canListUsers ? '' : ' This token cannot list MA users; use an admin token to map other users.')
+            + (res.providers.length ? '' : ' No Plex/Jellyfin/Emby provider found in Music Assistant.');
+          testStatus.style.color = 'var(--color-success, #4ade80)';
+          maUsers = res.users || [];
+          renderRows();
+          renderProviders(res.providers || []);
+        })
+        .catch(function() {
+          testStatus.textContent = 'Connection failed.';
+          testStatus.style.color = 'var(--color-error, #f87171)';
+        })
+        .finally(function() { testBtn.disabled = false; });
+    });
+
+    form.addEventListener('submit', function() {
+      var map = {};
+      rowsEl.querySelectorAll('select[data-ma-user-id]').forEach(function(select) {
+        map[select.getAttribute('data-ma-user-id')] = select.value;
+      });
+      document.getElementById('ma-user-map-input').value = JSON.stringify(map);
+    });
+
+    renderRows();
+    refreshStatus();
+    setInterval(refreshStatus, 10000);
+    document.querySelectorAll('.settings-tab-btn[data-tab="music-assistant"]').forEach(function(btn) {
+      btn.addEventListener('click', function() { setTimeout(refreshStatus, 50); });
     });
   })();
 

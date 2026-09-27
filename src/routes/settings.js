@@ -7,6 +7,13 @@ import { runLastfmHistoryBackfillForUser } from '../services/lastfm-backfill.js'
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
 import { buildBlendableUsers } from './pages.js';
+import {
+  getMaConfig,
+  getMusicAssistantStatus,
+  probeMusicAssistant,
+  restartMusicAssistant,
+} from '../services/music-assistant/index.js';
+import { normalizeMusicAssistantUrl } from '../services/music-assistant/client.js';
 
 // Settings routes — GET /settings and all POST /settings/*
 
@@ -602,6 +609,8 @@ export function registerSettings(app, ctx) {
         apiKey: canViewServiceSecrets ? String(config.lidarr?.apiKey || '') : '',
         apiKeySet: Boolean(String(config.lidarr?.apiKey || '').trim()),
       },
+      // The MA token is never rendered, even for admins.
+      musicAssistant: (({ token: _token, ...rest }) => rest)(getMaConfig(config)),
     };
     const aboutCurrentVersion = normalizeVersionTag(APP_VERSION || '') || 'Unknown';
     const aboutReleases = loadSettingsReleases({ limit: 12, currentVersion: aboutCurrentVersion });
@@ -620,7 +629,9 @@ export function registerSettings(app, ctx) {
       try { return getFeaturePresetAvailabilityFromDb(db); } catch { return { totalTracks: 0, presets: {} }; }
     })();
 
+    const maListenerOptions = canViewServiceSecrets ? listMaListenerOptions(config) : [];
     res.render('settings', {
+      maListenerOptions,
       title: 'Settings — Curatorr',
       user: req.session.user,
       role: getEffectiveRole(req),
@@ -894,6 +905,77 @@ export function registerSettings(app, ctx) {
     const updated = { ...config, emby: { ...config.emby, ...(url ? { url } : {}), ...(apiKey ? { apiKey, apiKeySet: true } : {}), libraries } };
     saveConfig(updated);
     return res.redirect('/settings?tab=emby&success=1');
+  });
+
+  // ── Music Assistant settings ──────────────────────────────────────────────
+
+  // Curatorr listener ids a Music Assistant user can be mapped to: everyone with
+  // play history plus local accounts.
+  function listMaListenerOptions(config) {
+    const ids = new Set();
+    try {
+      for (const row of ctx.db.prepare('SELECT DISTINCT user_plex_id FROM play_events WHERE user_plex_id != \'\'').all()) {
+        ids.add(String(row.user_plex_id));
+      }
+    } catch (_err) { /* db not ready */ }
+    for (const u of resolveLocalUsers(config)) {
+      if (u?.username) ids.add(String(u.username));
+    }
+    return [...ids].sort((a, b) => a.localeCompare(b));
+  }
+
+  function requireActualAdminJson(req, res) {
+    if (getActualRole(req) === 'admin') return true;
+    res.status(403).json({ error: 'Admin access required.' });
+    return false;
+  }
+
+  app.post('/settings/music-assistant', requireAdmin, (req, res) => {
+    if (getActualRole(req) !== 'admin') return res.status(403).send('Admin access required.');
+    const config = loadConfig();
+    const current = config.musicAssistant || {};
+    const url = normalizeMusicAssistantUrl(req.body?.maUrl);
+    const token = String(req.body?.maToken || '').trim();
+    let userMap = current.userMap || {};
+    try {
+      const parsed = JSON.parse(String(req.body?.maUserMap || '{}'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        userMap = Object.fromEntries(Object.entries(parsed)
+          .map(([k, v]) => [String(k).trim(), String(v || '').trim()])
+          .filter(([k]) => k));
+      }
+    } catch (_err) { /* keep existing map */ }
+    const updated = {
+      ...config,
+      musicAssistant: {
+        ...current,
+        enabled: req.body?.maEnabled === 'on' || req.body?.maEnabled === 'true',
+        url,
+        ...(token ? { token } : {}),
+        providerInstance: String(req.body?.maProviderInstance || '').trim(),
+        defaultUser: String(req.body?.maDefaultUser || '').trim(),
+        userMap,
+      },
+    };
+    saveConfig(updated);
+    restartMusicAssistant(ctx);
+    pushLog({ level: 'info', app: 'settings', action: 'music-assistant.save', message: `Music Assistant settings saved (${updated.musicAssistant.enabled ? 'enabled' : 'disabled'}).` });
+    return res.redirect('/settings?tab=music-assistant&success=1');
+  });
+
+  app.get('/api/music-assistant/status', requireAdmin, (req, res) => {
+    if (!requireActualAdminJson(req, res)) return;
+    return res.json(getMusicAssistantStatus());
+  });
+
+  app.post('/api/music-assistant/test', requireAdmin, async (req, res) => {
+    if (!requireActualAdminJson(req, res)) return;
+    const saved = getMaConfig(loadConfig());
+    const url = normalizeMusicAssistantUrl(req.body?.url) || saved.url;
+    const token = String(req.body?.token || '').trim() || saved.token;
+    if (!url || !token) return res.status(400).json({ ok: false, error: 'Enter the Music Assistant URL and token.' });
+    const result = await probeMusicAssistant({ url, token });
+    return res.status(result.ok ? 200 : 502).json(result);
   });
 
   // ── Lidarr settings ───────────────────────────────────────────────────────
