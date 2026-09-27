@@ -4,7 +4,8 @@
     radial-gradient(circle at 12% 12%, rgba(var(--brand-rgb),.18), transparent 42%),
     radial-gradient(circle at 84% 18%, rgba(54,160,200,.18), transparent 45%),
     linear-gradient(180deg, #070d13 0%, #0a121b 50%, #0d1620 100%);
-  overflow:hidden;
+  overflow-x:hidden;
+  overflow-y:auto;
   position:relative;
   color:#eaf2fb;
   font-family:"Space Grotesk","Poppins","JetBrains Mono",sans-serif;
@@ -62,6 +63,16 @@
   background:transparent;
   border:0;
   box-shadow:none;
+}
+
+.login-brand--full{
+  width:min(360px, 100%);
+}
+
+.login-full-logo{
+  display:block;
+  width:100%;
+  height:auto;
 }
 
 .login-brand-mark img{
