@@ -73,6 +73,7 @@
   display:block;
   width:100%;
   height:auto;
+  filter:drop-shadow(0 0 .6px rgba(255,255,255,.65)) drop-shadow(0 0 2px rgba(180,150,255,.2));
 }
 
 .login-brand-mark img{
