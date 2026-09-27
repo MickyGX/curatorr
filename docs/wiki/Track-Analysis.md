@@ -10,12 +10,12 @@ Curatorr can import track-level audio features such as:
 
 ![Curatorr track analysis settings](../media/curatorr-track-analysis.png)
 
-Long-term, Curatorr uses this split:
+Curatorr uses this split:
 
 - Plex API and sonic analysis for ordering and loudness where available
 - Curatorr-owned analysis for explicit `BPM`, key, Camelot, `energy`, and `danceability`
 
-Curatorr now supports two shipped analysis modes:
+Curatorr supports two analysis modes:
 
 1. `Analyzer sidecar`:
    Curatorr posts the manifest and output paths to a separate `curatorr_analyzer` service running beside the main app.
@@ -101,6 +101,14 @@ The sidecar pipeline:
 5. shows chunk progress in `Settings -> Jobs`
 
 If a run is interrupted, the next run starts again from chunk `1` of the remaining missing-track set rather than from the entire library.
+
+## Throttling and long tracks
+
+In **Settings → General → Analyzer throttling**, tune tracks per chunk, delay between chunks, and the sidecar's delay between tracks to reduce sustained load on shared hardware. Zero uses the built-in chunk behavior or no additional delay, as indicated beside the setting.
+
+![Analyzer throttling settings](../media/curatorr-analyzer-throttling.png)
+
+The bundled analyzer decodes at most **180 seconds per track** by default to limit memory use. On the analyzer container, `CURATORR_ANALYZER_MAX_DURATION_SECONDS` changes this cap; the command-line worker also accepts `--max-duration-seconds`. A value of `0` or less disables the cap, which can significantly increase resource use for long files.
 
 ## Export a manifest template
 
@@ -204,11 +212,13 @@ Feature-dependent filters only match tracks that actually have the required data
 
 Curatorr also uses this data in visual playlist presets for both personal and global playlist builders:
 
-- `Club`
-- `Driving`
 - `Workout`
-- `Chill`
+- `Focus`
+- `Late Night`
+- `Driving`
 - `Harmonic`
+- `Wake Up`
+- `Downtempo`
 
 Those presets can prefill BPM, energy, danceability, and Camelot controls, then be tweaked before saving.
 

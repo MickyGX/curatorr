@@ -25,6 +25,10 @@ If live playback source is `Plex`, Tautulli webhooks being absent is not the pro
 - confirm the track is in a selected music library
 - confirm recent playback/session activity is showing up in Curatorr logs
 
+### If playback is through Music Assistant
+
+For Music Assistant, check its separate enable switch, connection status, and user mappings in **Settings → Music Assistant**. An identified but unmapped MA user is ignored even if a default listener is selected. A stopped track can take about 60 seconds to settle. See the [MA troubleshooting table](Music-Assistant.md#status-and-troubleshooting).
+
 ## Tautulli gap-fill is not importing expected rows
 
 Check:
@@ -65,7 +69,7 @@ Check:
 
 - ListenBrainz username in User Profile
 - optional token if needed for the selected feed
-- selected playlist types
+- the source chosen in Playlists → Import playlist → ListenBrainz
 - Smart Playlist / playlist sync job status
 - log entries under the `ListenBrainz` filter
 
@@ -78,7 +82,24 @@ Check:
 - automation scope
 - current role quota
 
-## Session/login problems
+## Imported playlist is incomplete or has wrong matches
+
+- Refresh the master track cache after adding music, then use **Refresh import**.
+- Review **Missing from source**; named artists no longer fall back to unrelated tracks with the same title.
+- For incomplete Spotify URL previews, import an owned copy through the connected Spotify tab.
+- M3U auto-refresh rematches the stored upload. Very old imports without source content may need to be imported again.
+
+See [Playlist Imports](Playlist-Imports.md).
+
+## Audio profile is unavailable or produces few tracks
+
+Check analysis coverage, active content filters, and output caps in the playlist wizard. Missing BPM/key/energy values are not treated as zero. Confirm the sidecar sees the same data files and music paths, then inspect **Track Analysis Pipeline** progress. Use throttling and the decode-duration cap for resource-heavy libraries: [Track Analysis](Track-Analysis.md).
+
+## Artist suggestions are missing
+
+Look in **Discover → Artist Pipeline**, then run or schedule **Artist Pipeline Rebuild**. Last.fm suggestions require the shared Discovery API key. Check personal artist filters and Lidarr configuration if acquisition actions are absent.
+
+## Session/login checks
 
 Check:
 
@@ -94,6 +115,7 @@ Use `Settings -> Logs` and filter by app/component:
 - `plex`
 - `webhook`
 - `tautulli-sync`
+- `music-assistant`
 - `lidarr`
 - `listenbrainz`
 - `settings`

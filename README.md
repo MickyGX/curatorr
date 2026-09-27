@@ -24,12 +24,14 @@ Curatorr is a self-hosted Plex, Jellyfin, and Emby companion for playback tracki
 ## What It Does
 
 - Tracks playback from Plex, Jellyfin, or Emby
+- Adds Music Assistant plays through provider matching and per-listener mapping
 - Builds per-user smart playlists from real listening behavior
 - Supports personal playlists, blended playlists, Curatorr rotating playlists, and configurable Daily Mix
 - Adds feature-driven playlist building with BPM, key, Camelot, energy, and danceability filters when analysis data is available
 - Surfaces library-based suggestions and external discovery
 - Integrates with Lidarr for optional add, queue, and progression workflows
 - Supports Last.fm history/station features and ListenBrainz playlist suggestions on supported server paths
+- Includes listening reports, reusable playlist templates, artwork controls, and M3U/M3U8 import with scheduled refresh
 
 ## Media Server Support
 
@@ -88,6 +90,8 @@ Then open `http://localhost:7676/wizard` and complete the setup wizard for Plex,
 
 ## Optional Features
 
+Music Assistant 2.7+ can track plays alongside your primary media server and supply the Overview Now Playing fallback. Configure it in Settings after initial setup. See [Music Assistant](docs/wiki/Music-Assistant.md).
+
 Curatorr supports an optional analyzer sidecar for `BPM`, `musical key`, `Camelot key`, `energy`, and `danceability` enrichment. For setup and workflow details, see [Track Analysis](docs/wiki/Track-Analysis.md).
 
 Spotify support is optional and user-specific. Users can connect Spotify accounts to browse and import playlists after app-level credentials are configured on the Curatorr container. Owned Spotify playlists imported through the connected-account flow are the most reliable option, especially for larger playlists. Shared or public Spotify playlist URLs imported through the `URL` tab depend on whatever Spotify exposes on its public web pages, so some playlists may only preview or import part of the track list. If a shared/public playlist is incomplete, copy its tracks into a new playlist you own in Spotify and import that owned copy from the Spotify tab instead. For setup details, see [Spotify in Integrations](docs/wiki/Integrations.md#spotify).
@@ -104,10 +108,14 @@ For installation, setup, configuration, and troubleshooting:
 - [Configuration](docs/wiki/Configuration.md)
 - [Authentication and Roles](docs/wiki/Authentication-and-Roles.md)
 - [Integrations](docs/wiki/Integrations.md)
+- [Music Assistant](docs/wiki/Music-Assistant.md)
+- [Overview](docs/wiki/Overview.md)
+- [Listening Report](docs/wiki/Listening-Report.md)
 - [Track Analysis](docs/wiki/Track-Analysis.md)
 - [Artist Suggestions and Lidarr Activity](docs/wiki/Artist-Suggestions-and-Lidarr-Activity.md)
 - [Discover](docs/wiki/Discover.md)
 - [Smart Playlists](docs/wiki/Smart-Playlists.md)
+- [Playlist Imports](docs/wiki/Playlist-Imports.md)
 - [History](docs/wiki/History.md)
 - [Tracks](docs/wiki/Tracks.md)
 - [Blend](docs/wiki/Blend.md)

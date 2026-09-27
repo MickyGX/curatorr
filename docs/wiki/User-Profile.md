@@ -2,7 +2,7 @@
 
 The User Profile page holds the settings that belong to one specific user rather than the whole Curatorr instance.
 
-![Curatorr user profile page](../media/curatorr-user-profile.png)
+![Personal appearance controls in User Profile](../media/curatorr-user-profile.png)
 
 ## Profile
 
@@ -13,7 +13,7 @@ Users can review:
 - email, when available
 - current role
 
-They can also upload a custom avatar image.
+They can also upload a custom avatar image (PNG, JPG, or WEBP up to 2 MB). Account details remain managed by the linked media server for server-backed accounts.
 
 ## Password
 
@@ -61,9 +61,9 @@ If the Spotify section is missing entirely, the app-level credentials are not co
 Per-user Last.fm settings include:
 
 - Last.fm username
-- station playlist options
-- top tracks period
 - full-history backfill controls
+
+Choose station playlists, Loved tracks, and Top Tracks periods from **Playlists → Import playlist → Last.fm**. This is separate from enabling the Last.fm History Sync job. A completed full-history backfill can be reset if you deliberately want to start it again.
 
 ## ListenBrainz
 
@@ -71,9 +71,14 @@ Per-user ListenBrainz settings include:
 
 - username
 - optional API token
-- enabled playlist suggestion types
+
+Choose Daily Jams, Weekly Jams, or Weekly Exploration from **Playlists → Import playlist → ListenBrainz**. See [Playlist Imports](Playlist-Imports.md).
 
 ListenBrainz currently contributes playlist suggestions, not listening history imports.
+
+## Music Assistant
+
+MA listener mappings are configured by the administrator in **Settings → Music Assistant**, rather than on User Profile. Ask the administrator to map your MA user to your existing Curatorr listener.
 
 ## Related pages
 

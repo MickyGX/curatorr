@@ -98,13 +98,25 @@ Tautulli is only relevant for Plex installs.
 - weekly quotas per role
 - automatic add quotas
 
-### Smart Playlist Rules
+### Music Assistant
+
+- optional additional play tracking, independent of the primary playback-source selector
+- direct MA server URL and saved long-lived token
+- connection test, library provider selection, and MA-user-to-Curatorr-listener mappings
+- optional default listener for events with no MA user
+- live connection status, play/match counters, and token expiry
+
+This tab requires an actual admin account. No extra container variable is required. See [Music Assistant](Music-Assistant.md) for setup and troubleshooting.
+
+### Playlists
 
 - default preset for new users
 - Curatorr tier thresholds and weights
 - song skip limit
 - Crescive and Curative starting-position rules
 - addition and subtraction rules
+
+The Playlists tab contains the shared defaults and system-playlist configuration. Personal, blended, and global rule-based playlists are built from the main [Playlists page](Smart-Playlists.md).
 
 ### Discovery
 
@@ -120,13 +132,15 @@ Tautulli is only relevant for Plex installs.
 ### Logs
 
 - filter by app/component
-- inspect Recent, Plex, Tautulli, Lidarr, Last.fm, ListenBrainz, and Settings activity
+- inspect playback, `music-assistant`, Lidarr, Last.fm, ListenBrainz, analyzer, and Settings activity
 
 ### Jobs
 
 - enable or disable background jobs
 - adjust intervals
 - run jobs manually
+
+Use **Artist Pipeline Rebuild** to refresh recommendations, **Master Track Cache Refresh** after library changes, and **Track Analysis Pipeline** for audio enrichment. These jobs have different purposes; playlist rebuild/refresh depends on the library cache already being current.
 
 ### Themes
 
@@ -137,9 +151,9 @@ Tautulli is only relevant for Plex installs.
 Each user also has `User Profile` settings for:
 
 - Spotify account connection for playlist import
-- Last.fm username and playlist options
+- Last.fm username (playlist sources are selected from the import dialog)
 - Last.fm full-history backfill controls
-- ListenBrainz username, token, and playlist options
+- ListenBrainz username and token (playlist suggestions are selected from the import dialog)
 - personal theme selection
 - artist include/exclude lists
 
@@ -151,4 +165,4 @@ Curatorr stores runtime data in `DATA_DIR`, including:
 - logs
 - generated secrets and runtime metadata
 
-Back up `DATA_DIR` regularly if you want to preserve history and stats.
+Back up `DATA_DIR` and the file at `CONFIG_PATH` to preserve history, imported M3U source content, artwork, integration settings, and listener mappings. Keep configuration backups private because they contain credentials.

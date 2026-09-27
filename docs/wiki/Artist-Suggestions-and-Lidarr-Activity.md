@@ -1,124 +1,41 @@
-# Artist Suggestions and Lidarr Activity
+# Artists, Suggestions, and Lidarr Activity
 
-The Artists page contains two panels that work together to surface under-explored artists from your library and track what Curatorr has done with Lidarr.
+Use **Artists** to inspect listening statistics and **Discover → Artist Pipeline** to follow recommendations and acquisitions. Older versions of this guide described separate Suggested Artists and Lidarr Activity panels on the Artists page; those instructions no longer match the current layout.
 
----
+![Curatorr Artists table](../media/curatorr-artists.png)
 
-## Suggested Artists
+## Artists table
 
-This panel shows artists **already in your media-server library** that you have not given much attention to, ranked by how well they match your current taste profile.
+The table shows artist name, plays, skips, skip streak, and current status. Search by name, sort the columns, or filter to **All**, **Played**, **Skipped**, or **Belter** artists.
 
-Only artists that are **not yet in Lidarr** appear here. If an artist is already in your Lidarr library, they move to the Lidarr Activity panel instead.
+Click an artist to open its detail popup. **Reset skips**, where available, clears the artist's skip streak; use it when you intend to change that state, rather than as a way to hide rows.
 
-### How suggestions are built
+Artist tiers summarise your listening. They are separate from the recommendation score shown in Discover.
 
-**Step 1 — Build your taste profile**
+## Recommendations
 
-Curatorr reads your listening history and preferences:
+The [Artist Pipeline](Discover.md#artist-pipeline) combines candidates from your library and Last.fm similar artists. Curatorr builds a taste profile from listening history, genre affinity, and personal preferences, then ranks candidates using:
 
-- Your **top artists** by ranking score and play count
-- Your **recently played tracks** (last 25) and their tiers (Belter, Decent, Half Decent, Skip)
-- Your manually **liked and ignored** genres and artists (set in your user settings)
+- **Genre fit:** up to three matching genres contribute to the score.
+- **Behaviour:** unheard and lightly played artists receive a discovery boost; heavier listening reduces that boost.
+- **Editorial:** catalog breadth, liked genres, and Last.fm similarity can add weight.
 
-**Step 2 — Build genre affinity**
+Last.fm candidates derive genre context from related seed artists and can be enriched with Last.fm tags. Your personal artist filters also affect recommendations. Run or schedule **Artist Pipeline Rebuild** to refresh the cached suggestions.
 
-A weighted score is calculated for every genre in your library:
+## Acquisition through Lidarr
 
-| Signal | Weight |
-|---|---|
-| Manually liked genre | +4 |
-| Manually ignored genre | −5 |
-| Genre of a top artist (scales with rank + plays) | up to +8 |
-| Genre of a recent Belter track | +3.5 |
-| Genre of a recent Half Decent track | +2.25 |
-| Genre of a recent Decent track | +1.25 |
-| Genre of a recent Skip track | −2.5 |
+An eligible request adds the artist if needed, monitors a starter album, and can trigger a search. You may select the album yourself or let Curatorr choose. Already being present in Lidarr does not mean files have arrived in your media-server library.
 
-**Step 3 — Score every library artist**
+The pipeline presents four overall states: **Suggested**, **In progress**, **Stuck**, and **In your library**. Recently Requested and Recently Added Albums provide album-level context. Check **Settings → Logs → Lidarr** and Lidarr itself for detailed search failures or download progress.
 
-Three components combine into a `totalScore` for each candidate artist:
+## Quotas and automation
 
-**Genre Score** — how well the artist's genres match your affinity. The top 3 matching genre weights are summed.
+Administrators configure the connection, automation scope, role-based weekly artist/album quotas, and separate automatic-add limits in **Settings → Lidarr**. Quota chips show current availability; requests can wait in the queue when a limit is reached.
 
-**Behaviour Score** — based on how much you have actually listened to them:
+Automatic adding is optional. When enabled, Curatorr can queue eligible top recommendations, including external Last.fm candidates, subject to those limits. It skips artists already present in Lidarr rather than adding them again.
 
-| Condition | Points |
-|---|---|
-| Never played | +4 |
-| 1–2 plays | +2.75 |
-| 3–5 plays | +1.5 |
-| 6+ plays | gradually decreasing |
-| Not played in 30+ days | +1.5 |
-| Not played in 90+ days | additional +1 |
-| High ranking score (above 3) | small positive bonus |
-| Each skip on record | −0.5 |
+## Album progression
 
-**Editorial Score** — library signals about the artist:
+After acquiring a starter album, Curatorr uses subsequent listening engagement to decide whether to unlock more of the catalog. A stronger positive signal can unlock another album; insufficient engagement can leave an artist waiting. Search retries and fallback release grabs depend on your Lidarr automation settings.
 
-| Condition | Points |
-|---|---|
-| Already a top artist for you | −3 |
-| Has 2 or more albums in your library | +0.75 |
-| Has 8 or more tracks in your library | +0.5 |
-| Any genre appears in your liked genres list | +1 |
-
-**Filtering:**
-
-- Artists with a `totalScore` of 0.5 or below are dropped
-- Artists you have manually excluded are skipped
-- Artists already in your liked artists list are skipped
-- Artists with 12+ plays **and** a ranking score of 7 or above are skipped (they are established favourites, not undiscovered gems)
-
-**Result:** The top 12 by `totalScore` are displayed. Each entry shows:
-- Artist thumbnail
-- Artist name
-- Top 3 matching genres and album count as a subtitle
-- The combined `totalScore` (labelled "Score")
-- The current Lidarr status badge
-- An **Add to Lidarr** button (if Lidarr automation is enabled and the artist is not yet in Lidarr)
-
-### Quota chips
-
-If Lidarr is connected, the panel header shows your current weekly quota usage, for example **Artists 1/3** and **Albums 2/6**. When a quota is reached, the Add to Lidarr button is replaced with a **Quota blocked** message.
-
----
-
-## Lidarr Activity
-
-This panel shows what Curatorr has actually done with Lidarr — artists added, search progress, download status, quota blocks, and progression stages.
-
-### What appears here
-
-An artist appears in Lidarr Activity when any of the following are true:
-
-- It is already in your Lidarr library (Curatorr checks this via a live Lidarr API call on each page load)
-- Curatorr has a local progress record for it (i.e. it was previously acted on)
-- Its suggestion status is anything other than plain `Suggested` — for example it is `Added`, `Queued`, or `Quota blocked`
-
-Artists that are purely `Suggested` and not yet in Lidarr appear in the Suggested Artists panel above, not here.
-
-The panel shows up to **8 entries**, sorted by most recently updated. The count chips in the header (e.g. **3 Downloaded**) tally how many entries carry each status label.
-
-### Status labels
-
-| Status | What it means |
-|---|---|
-| **Suggested** | Artist was scored and surfaced but no action has been taken |
-| **Queued** | Artist is in the queue, waiting for quota to free up before being added |
-| **Quota blocked** | Weekly artist or album limit has been reached; no further adds until quota resets |
-| **Artist added** | Artist has been added to Lidarr |
-| **Starter album added** | Artist is in Lidarr and a starter album has been monitored |
-| **Starter album linked** | A starter album in Lidarr was identified but no new album was added |
-| **Search queued** | Lidarr has queued an `AlbumSearch` command |
-| **Search running** | Lidarr is actively executing the search |
-| **Search complete** | Search finished and track files were found |
-| **Search finished** | Search finished but no files were found yet |
-| **Search failed** | Lidarr search command returned an error |
-| **Downloaded** | Track files exist in Lidarr for this artist |
-| **Next album added** | A subsequent album has been unlocked and added based on listening progress |
-| **Awaiting belter** | Curatorr is waiting for a stronger listening signal (a Belter-tier play) before unlocking the next album |
-| **Catalog complete** | No further album unlocks are pending for this artist |
-
-### Review now button
-
-If an artist is reviewable (e.g. enough time has passed since the last evaluation), a **Review now** button appears. Clicking it triggers an immediate re-evaluation of the artist's Lidarr progression, rather than waiting for the next scheduled job.
+Use the relevant Lidarr jobs in **Settings → Jobs** and the logs to diagnose requests that stop progressing. See [Troubleshooting](Troubleshooting.md) and [Integrations](Integrations.md#lidarr).

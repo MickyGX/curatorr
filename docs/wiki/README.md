@@ -10,6 +10,8 @@ You can:
 - Publish them to the GitHub wiki with the included sync script.
 - Edit them alongside feature work so README and wiki stay aligned.
 
+The site navigation is maintained in `_Sidebar.md`. The current docs and screenshot set were reviewed against v0.1.100; see `docs/media/README.md` for capture details.
+
 Recommended publish order:
 
 1. `Home.md`
@@ -27,6 +29,13 @@ Recommended publish order:
 13. `User-Profile.md`
 14. `Troubleshooting.md`
 15. `FAQ.md`
+
+Additional guides:
+
+- `Music-Assistant.md`
+- `Overview.md`
+- `Listening-Report.md`
+- `Playlist-Imports.md`
 
 ## Publish To GitHub Wiki
 

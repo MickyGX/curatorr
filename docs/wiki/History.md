@@ -12,6 +12,7 @@ This page is best treated as the playback audit trail behind Curatorr's scoring.
 - total listened time for the grouped row
 - when the newest play in that row happened
 - the track's current Curatorr tier badge
+- repeat-play badges for grouped rows, where applicable
 
 Rows marked as skips indicate the track was stopped early.
 
@@ -26,6 +27,7 @@ This keeps the table easier to scan while still preserving total listened time.
 - search across track, artist, album, tier, and skip/play state
 - sort by track, artist, album, listened time, or date
 - load more rows in batches
+- open artist, album, and track detail popups from the row
 
 ## How to use it
 
@@ -38,3 +40,5 @@ This keeps the table easier to scan while still preserving total listened time.
 - The tier badge reflects the track's current status, not necessarily the status it had when the play happened.
 - If the page is empty, Curatorr has not recorded recent playback for that user yet.
 - Playback recording depends on the configured media-server path described in [Integrations](Integrations.md).
+- [Music Assistant](Music-Assistant.md) plays appear for their mapped listener after finalisation. An incomplete stop/pause report can take about 60 seconds to settle.
+- Use [Listening Report](Listening-Report.md) for aggregate patterns rather than counting grouped History rows as individual plays.

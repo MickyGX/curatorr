@@ -33,12 +33,12 @@ Core features like playback history, smart playlists, personal playlists, blende
 
 **Does Curatorr only use my media-server library?**
 
-For scoring and smart playlists, yes.
+Exported smart playlists use tracks matched to your media-server library. Optional Music Assistant listening can also credit an artist when a track is unmatched, without adding that recording to the library.
 
 External discovery is separate:
 
-- `Artists` suggestions are library-based
-- `Discover` can show external Last.fm-driven results
+- `Discover → Artist Pipeline` combines catalog candidates and Last.fm similar-artist suggestions
+- `Tracks` surfaces track and album suggestions from your library
 - `ListenBrainz` currently contributes playlist suggestions, not listening history
 
 ---
@@ -84,3 +84,29 @@ Yes. Each user gets separate:
 Inside `DATA_DIR` as `curatorr.db`.
 
 Back up `DATA_DIR` if you want to preserve history, stats, and user state.
+
+Also back up `CONFIG_PATH` for integration settings and listener mappings.
+
+---
+
+**Does Music Assistant replace Plex, Jellyfin, or Emby?**
+
+No. It is an additional live play source. Your primary server still provides the library, authentication, and exported playlists. See [Music Assistant](Music-Assistant.md).
+
+---
+
+**Can imported playlists pick up music added later?**
+
+Yes. Refresh the library cache, then use Refresh import or a daily, weekly, or monthly import schedule. M3U refresh uses the upload stored in Curatorr. See [Playlist Imports](Playlist-Imports.md).
+
+---
+
+**Why is a refreshed import smaller?**
+
+From v0.1.99, named artists must match. A track that previously matched a same-titled song by another artist will now remain missing instead. Review the missing-source list and artist credits.
+
+---
+
+**Where did Suggested Artists and Added For You go?**
+
+Use Discover's Artist Pipeline, Recently Requested, and Recently Added Albums. Artists now focuses on your artist listening statistics. See [Discover](Discover.md).

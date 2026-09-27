@@ -2,6 +2,8 @@
 
 ## Authentication Modes
 
+![Curatorr sign-in page](../media/curatorr-login.png)
+
 Curatorr supports two login methods side by side:
 
 ### Media server sign-in
@@ -16,6 +18,8 @@ This supports:
 - Emby users
 
 On Plex installs, the Plex server owner is treated as the main admin account when matched against the configured Plex admin user.
+
+Plex Home profiles may require their Home PIN. Select the intended profile after Plex sign-in so listening and playlist state are attached to the correct user.
 
 ### Local admin account
 
@@ -62,3 +66,7 @@ Lidarr access is controlled by:
 - per-role quotas
 
 Users can still be effectively blocked by quota even if the UI surface is visible.
+
+## Music Assistant access
+
+Only an actual Curatorr admin can test, configure, or inspect the Music Assistant integration status. MA user mappings assign plays to existing Curatorr listeners; they do not create a new Curatorr sign-in method or grant those listeners admin access. See [Music Assistant](Music-Assistant.md).

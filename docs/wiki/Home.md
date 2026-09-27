@@ -4,11 +4,13 @@ Curatorr is a self-hosted Plex, Jellyfin, and Emby companion for playback tracki
 
 Use this wiki as the operational source of truth for setup, playback sources, integrations, and day-to-day administration.
 
+This guide and its screenshots were refreshed against **v0.1.100**. The new [Music Assistant integration](Music-Assistant.md) records listening from MA players alongside your primary server.
+
 ## Preview
 
-### Dashboard
+### Overview
 
-![Curatorr dashboard overview](../media/curatorr-dashboard.png)
+![Curatorr Overview](../media/curatorr-dashboard.png)
 
 ### Discover
 
@@ -36,6 +38,11 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 
 ## Page Guides
 
+- [Overview and Now Playing](Overview.md)
+- [Listening Report](Listening-Report.md)
+- [Playlist Imports](Playlist-Imports.md)
+- [Music Assistant](Music-Assistant.md)
+- [Track Analysis](Track-Analysis.md)
 - [History](History.md)
 - [Tracks](Tracks.md)
 - [Blend](Blend.md)
@@ -47,7 +54,7 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 - Builds per-user smart playlists directly in the connected media server using real listening behavior.
 - Builds configurable `Curatorr` rotating playlists and Daily Mix playlists from the same scoring data.
 - Supports feature-driven playlist shaping with BPM, key, Camelot, energy, and danceability when track analysis has been run.
-- Scores artists in your own library to surface under-explored suggestions.
+- Ranks catalog and Last.fm similar-artist suggestions together in Discover's Artist Pipeline.
 - Supports personal playlists, blended playlists, Daily Mix, and external discovery.
 - Optionally connects to Lidarr to queue artists, pick starter albums, and progressively expand catalogs.
 - Supports Last.fm history sync and station playlists, plus ListenBrainz playlist suggestions.
@@ -55,8 +62,11 @@ Use this wiki as the operational source of truth for setup, playback sources, in
 ## Key Product Capabilities
 
 - Multi-server support across Plex, Jellyfin, and Emby, with optional Tautulli live source or gap-fill support on Plex.
+- Music Assistant listener mapping, live play tracking, and Now Playing fallback.
+- Listening reports with period comparisons, activity heatmaps, tags, decades, and listening fingerprints.
 - Per-user track tiers: `Belter`, `Decent`, `Half Decent`, `Skip`, and `Curatorr`.
-- Visual playlist presets for both global and personal playlists, including `Club`, `Driving`, `Workout`, `Chill`, and `Harmonic`.
+- A guided playlist builder with personal, blend, and global audiences, reusable templates, content filters, deduplication, audio profiles, and artwork controls.
+- Playlist imports from Plex, Spotify, supported URLs, M3U/M3U8, Last.fm, and ListenBrainz, with missing-track review and refresh schedules.
 - Coverage-aware preset gating so BPM/key-driven presets disable themselves when the required analysis data is unavailable.
 - Optional analyzer sidecar for first-party BPM/key/Camelot/energy/danceability enrichment.
 - Local admin account plus media-server sign-in support, including Plex Home profiles on Plex installs.

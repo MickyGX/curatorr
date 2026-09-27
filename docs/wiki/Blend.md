@@ -39,6 +39,6 @@ This list surfaces tracks shared across the selected listeners, ranked by averag
 
 ## Creating a blended playlist
 
-The Blend page is primarily for comparison and selection.
+After selecting listeners, use **Create blended playlist** beside the result. It opens the playlist wizard with those listeners and a suggested name. You can also choose **Blend** directly in the wizard.
 
-Saved blended playlists are managed from [Smart Playlists](Smart-Playlists.md) and the main Playlists page.
+Review the content, output rules, and schedule before saving. The selected users shape the ranking, while the resulting blend syncs as a personal playlist for its owner. Manage it later on the [Playlists page](Smart-Playlists.md).

@@ -33,16 +33,19 @@ It includes:
 - total skips
 - current track tier/status
 - exclude or re-include actions
+- pin or unpin controls
 
 The table is the quickest way to answer "why is Curatorr treating this track this way?" because it brings the score inputs, current tier, and exclusion state together in one place.
 
 ## Excluding tracks
 
-Use `Exclude` when you never want a track to influence smart playlist scoring or suggestions.
+Use `Exclude` to keep a track out of smart playlist candidates and suggestions.
 
-Use `Re-include` to return an excluded track to normal scoring.
+Use `Re-include` to return an excluded track to normal eligibility. Excluding a track does not erase its listening history.
 
-Excluded tracks remain visible for review, but Curatorr stops using them when building suggestions and playlist candidates.
+Excluded tracks remain visible for review. **Pin** marks a track for manual inclusion in generated playlists despite normal artist-score or skip-based selection; **Unpin** removes that override. The track must still exist in the connected library.
+
+Click track, album, or artist names to open their detail popups. Flame icons indicate popular album tracks based on Plex rating counts, rather than your personal Belter classification.
 
 ## Related pages
 

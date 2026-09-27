@@ -1,83 +1,47 @@
 # Discover
 
-The Discover page lets you find and add artists that do not yet exist in your connected media-server library. It is separate from the [Artist Suggestions](Artist-Suggestions-and-Lidarr-Activity.md) panel, which only surfaces artists already in your library cache.
+Discover brings together recent acquisitions, external music discovery, manual requests, and the **Artist Pipeline**.
 
-![Curatorr discover page](../media/curatorr-discover.png)
+![Recently added and requested albums in Discover](../media/curatorr-discover.png)
 
----
+## Recently Added Albums and Recently Requested
 
-## Panels
+**Recently Added Albums** shows albums that reached your library. **Recently Requested** shows acquisition requests, including albums monitored in Lidarr that have not arrived yet. Cards show the artist, date, and manual/automatic origin. Use their view and options controls to inspect an album and the actions available for it.
 
-### Trending Artists
+These rows replace the older documentation's separate **Added For You** view.
 
-Globally trending artists from Last.fm. These are artists getting the most plays worldwide right now and may have no overlap with your current library. Requires a Last.fm API key — see [Setup](#setup) below.
+## Trending and similar music
 
-### Trending Tracks
+- **Trending Artists** and **Trending Tracks** use Last.fm's current charts.
+- **Because You Like…** uses artists related to your listening profile. Its heading names the seed artist.
 
-Globally trending tracks from Last.fm, displayed alongside their artist. Same requirement as Trending Artists.
+These panels need the shared Last.fm API key in **Settings → Discovery**, where administrators can choose which panels are shown. The account used for your personal Last.fm history is configured separately in [User Profile](User-Profile.md).
 
-### Because You Like…
+## Manual Discovery
 
-Similar artists to your top-played artists, sourced from Last.fm's similar-artist data. The panel title updates to reflect which of your top artists is being used as the seed (e.g. "Because You Like Arctic Monkeys"). This is personalised to your listening profile.
+Search for an artist by name. When Lidarr is configured, Curatorr looks up artists and albums so you can choose a specific album or let Curatorr select a starter album. Existing library/Lidarr status helps distinguish an acquisition from music you already have.
 
-These can be artists completely outside your library. Clicking one opens the Lidarr lookup and album picker so you can add them.
+Requests follow the configured role permissions and weekly quotas. Requests that cannot proceed immediately can wait in the queue. When the Queue is shown, reorder pending entries to change their priority or remove requests you no longer want.
 
-### Manual Discovery
+## Artist Pipeline
 
-Search for any artist by name. Results come from a Lidarr lookup (MusicBrainz-backed), so you can find any artist regardless of library status. Each result shows whether the artist is already added to Lidarr.
+![Artist Pipeline with library and Last.fm recommendations](../media/curatorr-discover-added-for-you.png)
 
-Once you select an artist, an **Album Choice** panel appears where you can either:
-- **Pick a specific album** — Curatorr adds the artist and monitors that album as the starter
-- **Let Curatorr choose for you** — Curatorr picks based on your taste profile (greatest hits / highest-rated)
+The pipeline combines catalog-based recommendations with Last.fm similar-artist candidates. A Last.fm icon identifies externally sourced suggestions. It is no longer limited to artists already in your media-server library.
 
----
+| State | Meaning |
+|---|---|
+| **Suggested** | Recommended, with no acquisition started |
+| **In progress** | Sent to Lidarr; a starter album is monitored or being acquired |
+| **Stuck** | Acquisition needs attention, for example missing files or quota limits |
+| **In your library** | A starter album has arrived; successful entries age out after 14 days |
 
-## Adding Artists
+Open an artist or its options menu to inspect the available actions. Depending on status and permissions, these include adding to your library, selecting an album, letting Curatorr choose, or dismissing a suggestion. These actions can create Lidarr requests.
 
-All adds from the Discover page are manual — you choose the artist and initiate the add. Curatorr then:
+The score combines **Genre Fit + Behaviour + Editorial**. Underplayed artists get a discovery boost; genre affinity, catalog signals, and Last.fm similarity refine the ranking. Use **What is this table?** for the explanation in the app. **Artist Pipeline Rebuild** in Settings → Jobs refreshes artist, album, and track suggestions.
 
-1. Adds the artist to Lidarr
-2. Monitors the chosen or automatically selected starter album
-3. Triggers a Lidarr search if auto-trigger is enabled in Lidarr settings
-4. Tracks progress in the **Lidarr Activity** panel on the Artists page
+## Automatic acquisition
 
-Weekly role quotas apply (see [Roles and Permissions](Authentication-and-Roles.md#roles)). If your quota is full when you try to add, the request moves into your **Queue** automatically and is processed once quota resets.
+Automatic adds are optional and controlled by **Settings → Lidarr**, including automation scope, role quotas, and automatic-add quotas. Eligible pipeline candidates can include Last.fm suggestions. Merely opening Discover does not enable automation.
 
----
-
-## Queue
-
-The Queue panel shows pending add requests that are waiting for quota. Items can be:
-- **Reordered** by dragging — higher items are processed first
-- **Removed** — removes the request from Curatorr's queue only, not from Lidarr or your library
-
----
-
-## Added For You
-
-The Added For You panel shows a history of all artists added through the Discover page for your account, including both manual adds and any automatic adds. Each entry shows the artist name, the album chosen, whether it was a manual or automatic add, and the current status.
-
-![Curatorr added for you history](../media/curatorr-discover-added-for-you.png)
-
----
-
-## Setup
-
-### Last.fm API Key (required for Trending and Similar Artist panels)
-
-1. Create a free account at [last.fm](https://www.last.fm) if you do not have one
-2. Go to your Last.fm account settings and create an API application to get a key
-3. In Curatorr, go to **Settings → Discovery**
-4. Enter your Last.fm API key
-5. Toggle which panels you want to show: Trending Artists, Trending Tracks, Similar Artists
-
-If no Last.fm key is configured, only the Manual Discovery panel is shown.
-
----
-
-## What Discover Does Not Do
-
-- **Automatic external adds** — Curatorr does not automatically add artists from Last.fm or any external source without you clicking. All Discover adds require a manual action.
-- **Suggestions from external data** — the [Suggested Artists](Artist-Suggestions-and-Lidarr-Activity.md) panel on the Artists page is entirely separate and uses only your media-server library. External discovery lives here on the Discover page.
-
-> **Note:** Automatic adding of library-based suggestions *is* available via **Settings → Lidarr → Automatically add top suggested artists to Lidarr**. This only applies to artists already in your media-server library that score highly enough, not to external Last.fm artists.
+The [Artists and Lidarr guide](Artist-Suggestions-and-Lidarr-Activity.md) explains the distinction between listening statistics, recommendations, acquisition, and subsequent album progression.

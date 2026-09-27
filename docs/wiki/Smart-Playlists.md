@@ -1,185 +1,77 @@
 # Smart Playlists
 
-Curatorr builds and maintains personalized playlists in the connected media server from real listening behavior.
+Curatorr builds and maintains playlists in your connected media server from your listening and selected rules.
 
-![Curatorr playlists page](../media/curatorr-playlists.png)
+![Curatorr Playlists with an imported playlist selected](../media/curatorr-playlists.png)
 
-## Track Tiers
+## Browse and manage playlists
 
-Tracks are classified into:
+Select a playlist card to view its tracks. The filter menu separates playlist categories such as personal, global, system, imported, and external. Cards show track counts, missing-source counts where relevant, update times, and refresh schedules.
 
-- `Belter`
-- `Decent`
-- `Half Decent`
-- `Skip`
-- `Curatorr`
+Use a card's **View**, **Edit**, or options menu for the actions available to that playlist type. These can include rebuilding, refreshing an import, renaming, enabling/disabling, and artwork controls. System playlist name overrides change the exported title; clearing the override restores the generated name.
 
-These are derived from actual playback duration and skip/completion behavior.
+## Track tiers and artist scores
 
-## Curatorr Rules
+Track tiers are **Belter**, **Decent**, **Half Decent**, **Skip**, and **Curatorr**. Playback duration and skip/completion behavior drive classification. Artist scores and skip streaks influence which artists and tracks qualify for generated playlists.
 
-The core rules table controls:
+Administrators configure defaults in **Settings → Playlists**. Users choose **Cautious**, **Measured**, or **Aggressive** curation in User Profile and maintain personal always/never-include artists. Cautious keeps a broader selection; Aggressive curates more tightly.
 
-- skip threshold
-- completion threshold
-- skip and belter weighting
-- artist ranking thresholds
-- song skip limit
+**Crescive** starts with a tighter selection that can grow through engagement. **Curative** starts more broadly and removes material through listening and skip rules. Configurable **Curatorr** rotation and **Daily Mix** provide other generated selections.
 
-`Half Decent` and `Decent` values are derived from the user-editable edge values and are shown as system-driven values in Settings.
+[Music Assistant](Music-Assistant.md) plays use the same scoring path for their mapped listener. Only tracks matched to the local library can be exported.
 
-## Artist Ranking
+## Create a smart playlist
 
-Artists carry a ranking score between `0` and `10`, starting at `5`.
+Select **Create smart playlist**. The wizard has four steps for regular users and an extra **Library scope & cleanup** step for administrators.
 
-Listening behavior moves that score over time:
+![Smart playlist starting points and audience selection](../media/curatorr-playlist-builder.png)
 
-- stronger positive engagement pushes artists upward
-- repeated skips push artists downward
+1. **Starting point:** choose Personal, Blend, or Global where permitted, then a saved template or built-in starting point. Options include Custom, Favourites, Discovery, New Music Mix, Random Library Mix, Seasonal, Curatorr, Crescive, and Curative. Optionally add an audio profile.
+2. **Content filters:** shape the music using include/exclude/neutral chips and the available metadata filters. Audio profiles can suggest content chips; applying those suggestions is optional.
+3. **Output rules:** set artist/album/total track caps, sort order, popularity filters, and duplicate handling.
+4. **Library scope & cleanup** (admin only): refine library/path scope and advanced cleanup rules.
+5. **Finish & create:** review the selection, name it, choose a rebuild schedule and supported artwork handling, then create it. For non-admin users, this is step four.
 
-These artist scores influence:
+The preview distinguishes the **Eligible pool** from the **Final playlist** after output limits and cleanup. If the result is unexpectedly small, check active filters, analysis coverage, caps, and deduplication rules.
 
-- suggestion quality
-- playlist inclusion
-- automation progression
+Personal playlists with no current matches can be saved as Curatorr drafts for later editing when that option is offered; an empty draft is not a populated media-server playlist. Global saves validate the rule set before creating it.
 
-## Presets
+## Audio profiles and ordering
 
-Curatorr ships with:
+Current audio profiles include **Workout**, **Focus**, **Late Night**, **Driving**, **Harmonic**, **Wake Up**, and **Downtempo**. They can set BPM, energy, danceability, and Camelot defaults, which you can then adjust.
 
-- `Cautious`
-- `Measured`
-- `Aggressive`
+Profiles show available audio-ready tracks. Required features must exist: tracks missing the relevant analysis do not qualify as zero-valued matches. See [Track Analysis](Track-Analysis.md).
 
-The default preset for new users is set in Settings. Existing users keep their own selected preset.
+**Camelot focus** accepts keys such as `8A` or `8A, 9A, 10A`. Spread options include exact, adjacent, relative, and full harmonic neighborhoods.
 
-## Crescive and Curative
+Output sorting includes popularity, tier weight, play count, new additions/releases, random, BPM, energy, danceability, Camelot, and DJ flow. Final ordering can add Plex sonic sequencing or loudness smoothing on supported Plex setups.
 
-Curatorr supports two starting-position strategies:
+## Duplicate handling and variety
 
-- `Crescive` starts tighter and grows
-- `Curative` starts broader and is pruned
+Output rules can deduplicate by MusicBrainz recording ID or artist/title, optionally requiring durations within five seconds. Additional guards keep likely live, demo, acoustic, remix, instrumental, or live-album variants separate. Studio and artist-folder preferences help choose among duplicates.
 
-Both are configured in `Settings -> Smart Playlist Types`.
+Artist and album caps improve variety. Album popularity uses the same top-three-by-Plex-rating definition as the flame icons; overall popularity selects a percentage of the candidate pool.
 
-## Addition and Subtraction Rules
+## Templates, schedules, and artwork
 
-Playlist-type settings also include:
+Save a rule set as a template for reuse. Selecting a template retains its base starting point so you can refine it; template management is available in the finishing step.
 
-- addition rules by artist tier
-- subtraction rules for skip-driven removal
+Rule-based playlists support **Daily**, **Weekly**, and **Manual** auto-rebuild schedules. This is separate from imported playlists' auto-refresh schedules.
 
-These control when more tracks are surfaced or removed as engagement changes.
+For Plex, artwork handling supports **Auto-generated**, **Preserve existing artwork**, or **Custom artwork**. Custom images accept PNG, JPG, or WEBP up to 5 MB. Preserved/custom artwork is reapplied during sync.
 
-## Daily Mix and Personal Playlists
+## Imported playlists
 
-Curatorr also supports:
+Use **Import playlist** to browse Plex playlists/collections, connected Spotify playlists, supported URLs, M3U/M3U8 files, Last.fm sources, or ListenBrainz suggestions. Available tabs depend on your primary server and configured accounts.
 
-- Daily Mix
-- Curatorr rotating playlists
-- personal rule-based playlists
-- blended playlists across users
-- global rule-based playlists
+Imports retain their source and missing tracks, support manual refresh, and can rematch as your library grows. See [Playlist Imports](Playlist-Imports.md) for the complete workflow and source restrictions.
 
-Smart playlists, personal playlists, and blended playlists sync on Plex, Jellyfin, and Emby. Daily Mix, Curatorr rotating playlists, sonic ordering, and loudness-aware sequencing are currently Plex-only.
+## Blended playlists
 
-Last.fm station playlists and ListenBrainz playlist suggestions are also currently Plex-only exports.
+Choose **Blend** in the wizard and add listeners, or use **Create blended playlist** from the [Blend](Blend.md) comparison page. Their listening shapes the ranking. A blend syncs as a personal playlist for its owner.
 
-These features use the same underlying play history, track tiers, and master track cache.
+## Server support and jobs
 
-## Imported Playlists
+Core smart, personal, and blended playlists support Plex, Jellyfin, and Emby. Plex has additional integrations including Daily Mix, Curatorr rotation, Last.fm station/ListenBrainz sync, sonic ordering, and loudness-aware sequencing.
 
-Curatorr can also import existing playlists as managed custom playlists.
-
-Supported sources:
-
-- Plex playlists
-- Plex music collections
-- Spotify playlists from a connected Spotify account
-
-Imported playlists:
-
-- appear on the Playlists page alongside Curatorr-built playlists
-- use a dedicated imported badge/icon
-- show both matched and missing counts on the playlist card
-- can be filtered separately from personal, global, system, and external playlists
-- support `Refresh import` to re-read the original source and rematch against the current library
-
-For imported Spotify playlists, tracks that are still missing from your library remain attached
-to the playlist so you can review them later instead of losing that context after import.
-
-You can:
-
-- select missing tracks directly from the playlist page
-- queue them for later Lidarr review
-- or add them directly to the Lidarr queue
-
-When album data is available, Lidarr queue entries preserve the selected album title instead of
-falling back to a generic artist-only request.
-
-## System Playlist Names
-
-System playlists such as `Curatorr`, `Daily Mix`, `Crescive`, and `Curative` can now use a
-manual name override from the playlist card menu.
-
-This override becomes the final exported playlist title in the connected media server. Clearing
-the override returns the playlist to its default generated name.
-
-## Feature Presets
-
-Global and personal playlist builders now include feature presets with visual preset cards:
-
-- `Custom`
-- `Club`
-- `Driving`
-- `Workout`
-- `Chill`
-- `Harmonic`
-
-These presets can prefill:
-
-- `BPM`
-- `energy`
-- `danceability`
-- `Camelot focus`
-- `Camelot spread`
-
-You can then tweak the values before saving the playlist.
-
-Important behavior:
-
-- Presets that rely on BPM, energy, danceability, or Camelot data are coverage-aware.
-- If the required analysis coverage is effectively unavailable, the preset disables itself and explains why.
-- Tracks without the required feature data are ignored by those feature filters rather than being treated as `0`.
-
-## Harmonic Filtering
-
-`Camelot focus` uses DJ wheel notation such as `8A` or `10B` rather than classical names like `A minor` or `D major`.
-
-It accepts one or more focus keys:
-
-- `8A`
-- `8A, 9A, 10A`
-
-`Camelot spread` controls how broadly Curatorr expands the focus keys:
-
-- `Exact key`
-- `Adjacent keys`
-- `Relative major/minor`
-- `Full harmonic set`
-
-This is available in both personal and global playlist builders.
-
-## Background Jobs
-
-Relevant jobs include:
-
-- Master Track Cache Refresh
-- Smart Playlist Sync
-- Daily Mix Sync
-- Track Analysis Pipeline
-- Plex Loudness Sync
-- optional Tautulli gap-fill
-- Last.fm history sync
-
-Use `Settings -> Jobs` to enable, disable, or manually run them.
+Relevant jobs in **Settings → Jobs** include Master Track Cache Refresh, Smart Playlist Sync, Daily Mix Sync, Track Analysis Pipeline, and Plex Loudness Sync. New library tracks must reach the cache before rules or imports can match them.

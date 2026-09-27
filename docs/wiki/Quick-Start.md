@@ -88,6 +88,7 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 
 ## Optional integrations
 
+- Music Assistant 2.7+ can add plays from its players alongside your primary server. Configure its URL, token, provider, and listener mappings in Settings after initial setup: [Music Assistant](Music-Assistant.md).
 - Spotify playlist import requires `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the Curatorr container. Setup details: [Integrations](Integrations.md#spotify).
 - YouTube playlist URL import requires `YOUTUBE_API_KEY` on the Curatorr container. Setup details: [Integrations](Integrations.md#youtube).
 - Track analysis enrichment is optional and uses the separate analyzer sidecar or a custom command workflow. Setup details: [Track Analysis](Track-Analysis.md).
@@ -97,10 +98,14 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 - Smart playlists appear in your connected media server after the next sync cycle.
 - Track tiers begin to populate as plays come in.
 - Suggested artists become useful once there is enough listening history.
-- If Lidarr is configured, add/queue actions and progression appear on the Artists page.
+- If Lidarr is configured, requests and acquisitions appear in Discover's Artist Pipeline and recent album rows.
+- Overview shows recent listening and Now Playing; Report shows period-based listening patterns.
 
 ## Next steps
 
+- [Overview](Overview.md)
+- [Listening Report](Listening-Report.md)
+- [Playlist Imports](Playlist-Imports.md)
 - [Configuration](Configuration.md)
 - [Integrations](Integrations.md)
 - [Authentication and Roles](Authentication-and-Roles.md)

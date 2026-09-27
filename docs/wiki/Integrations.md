@@ -114,6 +114,8 @@ Tautulli is Plex-only. It is not used on Jellyfin or Emby installs.
 
 Curatorr can count listening on [Music Assistant](https://www.music-assistant.io/) players towards stats, skips and smart playlists. Music Assistant is an additional play source: plays are recorded alongside your primary Plex, Jellyfin or Emby source, not instead of it.
 
+Available from **v0.1.100**. See the dedicated [Music Assistant guide](Music-Assistant.md) for screenshots, listener mapping, Now Playing, status counters, and troubleshooting.
+
 Requirements:
 
 - Music Assistant 2.7 or newer (2.7 added the authentication Curatorr uses)
@@ -135,9 +137,11 @@ Requirements:
 - A play is recorded when a track finishes, is skipped, or is stopped. The usual skip threshold applies.
 - Pausing and resuming a track keeps it as one play. A skip is confirmed about a minute after playback stops, so a short pause isn't counted as a skip.
 - Tracks are matched to your library through the Music Assistant provider, then by MusicBrainz recording ID, then by artist and title.
-- Tracks Music Assistant plays from providers outside your library (for example a streaming service) still count towards the artist, but don't add tracks to Curatorr.
-- Music Assistant streams aren't reported by Plex or Tautulli, so plays aren't counted twice.
-- Long-lived Music Assistant tokens expire after a year. The settings page shows the expiry date.
+- Unmatched tracks can still count towards the artist, but do not add a library track. A streaming-provider track can match an existing local recording through its metadata.
+- Music Assistant's Plex streams do not normally appear as Plex/Tautulli playback sessions. Keep your primary source configured as before.
+- The settings page shows token expiry. Renew the token before that date; the tested MA 2.10 setup issues one-year tokens.
+- Now Playing falls back to the listener's MA queue when there is no matching primary media-server session.
+- Curatorr continues exporting playlists to the primary media server; Plex playlists are available in MA through its Plex provider.
 
 ## Last.fm
 
@@ -160,10 +164,9 @@ Configured in `User Profile`.
 Users can set:
 
 - Last.fm username
-- station playlist types
-- Loved tracks playlist
-- Top Tracks playlist and period
 - full-history backfill controls
+
+For playlists, use **Playlists → Import playlist → Last.fm** to choose Recommended, Mix, Library, Neighbours, Loved, or Top Tracks and its period. See [Playlist Imports](Playlist-Imports.md). These playlist selections are separate from Last.fm history sync.
 
 Last.fm history sync is not a replacement for webhook playback tracking. It is best used as historical backfill or as a supplement.
 
@@ -244,9 +247,7 @@ Unlike Spotify, YouTube playlist URL import does not require each Curatorr user 
 
 ListenBrainz is optional and user-specific.
 
-Configured in `User Profile`.
-
-Current support is for playlist suggestions synced into Plex:
+Set the account username and optional token in `User Profile`, then choose playlist suggestions from **Playlists → Import playlist → ListenBrainz** on supported Plex installs:
 
 - Daily Jams
 - Weekly Jams
@@ -314,6 +315,10 @@ Important behavior:
 - If a run is interrupted, the next run starts again from chunk `1` of the remaining missing-track set, not from the whole library.
 
 Full workflow details are documented in [Track Analysis](Track-Analysis.md).
+
+## M3U and M3U8
+
+Upload a playlist file from **Playlists → Import playlist → M3U**. Curatorr matches file paths and metadata to the local library, retains missing entries, and stores the uploaded source for later refresh. Daily, weekly, and monthly auto-refresh are available from v0.1.98. See [Playlist Imports](Playlist-Imports.md).
 
 ## Lidarr
 
