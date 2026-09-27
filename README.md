@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="public/icons/curatorr-icon.png" alt="" width="64" height="64" />
+  <img src="docs/media/curatorr-full-logo.png" alt="Curatorr - Music that moves with you" width="640" />
 </p>
-<h3 align="center">CURATORR</h3>
-<p align="center"><sub>SMART PLAYLIST CURATOR</sub></p>
 <p align="center">
   <a href="https://github.com/MickyGX/curatorr/releases/latest"><img src="https://img.shields.io/github/v/release/MickyGX/curatorr?display_name=release&label=latest%20release" alt="Latest release" /></a>
   <a href="https://discord.gg/TvrxJWD4PK"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>

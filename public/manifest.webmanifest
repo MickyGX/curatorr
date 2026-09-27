@@ -9,10 +9,10 @@
   "theme_color": "#8b5cf6",
   "icons": [
     {
-      "src": "/icons/curatorr-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "/icons/curatorr-icon.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

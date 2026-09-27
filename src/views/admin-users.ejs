@@ -204,7 +204,7 @@
     <aside class="dash-sidebar">
       <div class="dash-brand">
         <span class="dash-logo">
-          <img class="nav-icon app-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" onerror="this.style.display='none'" />
+          <img class="nav-icon app-icon" src="/icons/curatorr-icon.png" alt="Curatorr" onerror="this.style.display='none'" />
         </span>
         <div><div class="dash-title">Curatorr</div></div>
       </div>
@@ -419,10 +419,10 @@
                       <div class="cur-admin-user-cell cur-admin-user-cell--user">
                         <% if (entry.avatarUrl && /^https?:\/\//i.test(entry.avatarUrl)) { %>
                           <img class="cur-admin-user-avatar" src="<%= entry.avatarUrl %>" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
-                          <img class="cur-admin-user-avatar-curatorr" src="/icons/curatorr-icon.svg" alt="" loading="lazy" style="display:none" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                          <img class="cur-admin-user-avatar-curatorr" src="/icons/curatorr-icon.png" alt="" loading="lazy" style="display:none" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
                           <span class="cur-admin-user-avatar-fallback" aria-hidden="true" style="display:none"><%= entry.avatarLabel || 'P' %></span>
                         <% } else { %>
-                          <img class="cur-admin-user-avatar-curatorr" src="/icons/curatorr-icon.svg" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+                          <img class="cur-admin-user-avatar-curatorr" src="/icons/curatorr-icon.png" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
                           <span class="cur-admin-user-avatar-fallback" aria-hidden="true" style="display:none"><%= entry.avatarLabel || 'P' %></span>
                         <% } %>
                         <span class="cur-admin-user-identity">

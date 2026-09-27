@@ -115,7 +115,7 @@
             '<div class="release-welcome-panel release-welcome-hero">' +
               '<div class="release-welcome-content">' +
                 '<div class="release-welcome-brand">' +
-                  '<img class="release-welcome-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="eager" />' +
+                  '<img class="release-welcome-icon" src="/icons/curatorr-icon.png" alt="Curatorr" loading="eager" />' +
                   '<div class="plex-pills release-welcome-pills">' +
                     `<span class="plex-pill2 release-welcome-pill">${escapeHtml(versionTag)}</span>` +
                   '</div>' +
@@ -221,7 +221,7 @@
               '<div class="plex-modal-hero quick-start-hero">' +
                 '<div class="quick-start-content">' +
                   '<div class="quick-start-brand">' +
-                    '<img class="quick-start-icon" src="/icons/curatorr-icon.svg" alt="Curatorr" loading="eager" />' +
+                    '<img class="quick-start-icon" src="/icons/curatorr-icon.png" alt="Curatorr" loading="eager" />' +
                     '<div class="quick-start-summary">Recommended first steps:</div>' +
                   '</div>' +
                   '<ol class="quick-start-list">' +

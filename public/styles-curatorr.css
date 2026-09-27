@@ -6411,7 +6411,7 @@ html[data-launcharr-embed="1"] .cur-playlist-hero {
 
 .cur-discover-ledger-thumb.is-empty {
   background:
-    center / 18px 18px no-repeat url('/icons/curatorr-icon.svg'),
+    center / 18px 18px no-repeat url('/icons/curatorr-icon.png'),
     rgba(255,255,255,.04);
 }
 

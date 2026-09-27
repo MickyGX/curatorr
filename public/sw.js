@@ -1,11 +1,8 @@
-const CACHE_NAME = 'curatorr-static-v1';
+const CACHE_NAME = 'curatorr-static-v2';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/styles.css',
-  '/icons/curatorr-icon.svg',
-  '/icons/app.svg',
-  '/icons/app-arr.svg',
-  '/icons/prowlarr.png',
+  '/icons/curatorr-icon.png',
   '/icons/dashboard.svg',
   '/icons/overview.svg',
   '/icons/launch.svg',
