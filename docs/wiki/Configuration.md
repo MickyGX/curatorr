@@ -22,6 +22,7 @@ Curatorr is configured through container environment variables and the Settings 
 | `TIDAL_CLIENT_SECRET` | No | TIDAL app client secret used for TIDAL playlist import and refresh. |
 | `TIDAL_COUNTRY_CODE` | No | Two-letter catalog region for public TIDAL playlist links read without a connected account. Default: `US` |
 | `YOUTUBE_API_KEY` | No | YouTube Data API v3 key used for public YouTube playlist URL import. |
+| `PLAYLIST_BACKUP_BODY_LIMIT` | No | Largest playlist backup file accepted for restore. Default: `64mb` |
 
 For Spotify:
 
@@ -177,3 +178,5 @@ Curatorr stores runtime data in `DATA_DIR`, including:
 - generated secrets and runtime metadata
 
 Back up `DATA_DIR` and the file at `CONFIG_PATH` to preserve history, imported M3U source content, artwork, integration settings, and listener mappings. Keep configuration backups private because they contain credentials.
+
+For playlists alone, **Playlists → Back up and restore playlists** downloads a portable backup file that can rebuild them on a reinstalled or new media server. See [Playlist Backup and Restore](Playlist-Backup.md).

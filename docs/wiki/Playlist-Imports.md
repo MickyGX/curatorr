@@ -41,6 +41,8 @@ M3U/M3U8 imports support those schedules from v0.1.98. Curatorr stores the uploa
 
 After adding music, refresh the master track cache before refreshing the import. Source refresh and playlist sync are separate from acquiring missing files through Lidarr.
 
+If an imported Plex playlist or collection no longer exists, for example after a Plex reinstall, **Refresh import** rebuilds from the tracks Curatorr already holds instead of failing. A Plex source is matched by its ID and title, so a different playlist that reuses the ID on a new server is never read. To keep copies of Plex playlists without importing them into Plex again, see [Back up Plex playlists](Playlist-Backup.md#back-up-plex-playlists).
+
 ## Convert an import to a smart playlist
 
 Open the imported playlist's **Edit** dialog and choose **Convert to Smart** where offered. Curatorr opens a wizard draft with inferred audio/profile defaults and suggested content filters. Review the suggested chips or switch to all detected genres, moods, and tags, then adjust output rules before saving.

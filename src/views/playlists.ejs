@@ -57,6 +57,7 @@
           if (source === 'lastfm-station') return 'imported-lastfm';
           if (source === 'listenbrainz-playlist') return 'imported-listenbrainz';
           if (source === 'm3u-file') return 'imported-m3u';
+          if (source === 'curatorr-backup') return 'imported-backup';
           if (source.startsWith('plex-')) return 'imported-plex';
           const type = String(playlistType || '').trim().toLowerCase();
           if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
@@ -64,10 +65,10 @@
         }
         function playlistAudienceIconMarkup(audience, playlistType, sourceType) {
           const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
-          if (audience === 'global' && (kind === 'imported-spotify' || kind === 'imported-tidal' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex')) {
+          if (audience === 'global' && kind.startsWith('imported-')) {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
           }
-          if (kind === 'imported-spotify' || kind === 'imported-tidal' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex') {
+          if (kind.startsWith('imported-')) {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
           }
           if (kind === 'global') {
@@ -92,6 +93,7 @@
           if (audience === 'global' && kind === 'imported-lastfm') return 'Global Last.fm playlist (all users)';
           if (audience === 'global' && kind === 'imported-listenbrainz') return 'Global ListenBrainz playlist (all users)';
           if (audience === 'global' && kind === 'imported-m3u') return 'Global M3U playlist (all users)';
+          if (audience === 'global' && kind === 'imported-backup') return 'Global playlist restored from a Curatorr backup (all users)';
           if (audience === 'global' && kind === 'imported-plex') return 'Global Plex playlist (all users)';
           if (kind === 'imported-spotify') return 'Imported Spotify playlist';
           if (kind === 'imported-tidal') return 'Imported TIDAL playlist';
@@ -99,6 +101,7 @@
           if (kind === 'imported-lastfm') return 'Imported Last.fm playlist';
           if (kind === 'imported-listenbrainz') return 'Imported ListenBrainz playlist';
           if (kind === 'imported-m3u') return 'Imported M3U playlist';
+          if (kind === 'imported-backup') return 'Restored from a Curatorr backup';
           if (kind === 'imported-plex') return 'Imported Plex playlist';
           if (kind === 'global') return 'Global playlist';
           if (kind === 'blend') return 'Blend playlist';
@@ -118,6 +121,7 @@
               <button class="btn btn-sm pl-toolbar-button pl-selection-clear" type="button" onclick="clearCardSelection()">Clear</button>
               <button class="btn btn-sm pl-toolbar-button" type="button" id="plSelectionEnableBtn" onclick="toggleSelectedPlaylists(true)">Enable Selected</button>
               <button class="btn btn-sm pl-toolbar-button" type="button" id="plSelectionDisableBtn" onclick="toggleSelectedPlaylists(false)">Disable Selected</button>
+              <button class="btn btn-sm pl-toolbar-button" type="button" onclick="exportSelectedPlaylists()">Export Selected</button>
               <button class="btn btn-sm pl-toolbar-button pl-toolbar-button--danger" type="button" onclick="deleteSelectedPlaylists()">Delete Selected</button>
             </div>
             <div class="cur-panel-actions">
@@ -127,6 +131,9 @@
                 <span class="pl-header-import" aria-hidden="true">⇣</span>
               </button>
               <% } %>
+              <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Back up and restore playlists" title="Back up and restore playlists" onclick="openPlaylistBackupModal()">
+                <svg class="pl-header-backup" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.2"></rect><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"></path><path d="M10 13h4"></path></svg>
+              </button>
               <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Create smart playlist" title="Create smart playlist" onclick="openSmartPlaylistModal()">
                 <span class="pl-header-plus" aria-hidden="true">+</span>
               </button>
@@ -208,6 +215,7 @@
                       data-playlist-type="<%= p.playlistType || '' %>"
                       data-playlist-audience="<%= p.playlistAudience || 'personal' %>"
                       data-playlist-active="<%= p.active === false ? 'false' : 'true' %>"
+                      data-playlist-backup-only="<%= p.backupOnly ? 'true' : 'false' %>"
                       data-playlist-state="<%= p.state || 'pending' %>"
                       data-playlist-track-count="<%= Number(p.trackCount || 0) %>"
                       data-playlist-missing-count="<%= Number(p.missingCount || 0) %>"
@@ -269,7 +277,13 @@
                             <button type="button" onclick="event.stopPropagation(); renameCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Rename</button>
                             <% } %>
                             <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
-                            <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
+                            <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? (p.backupOnly ? 'Restore to ' + _msLabel : 'Enable') : 'Disable' %></button>
+                            <% } %>
+                            <% if (p.playlistKey && p.playlistKind !== 'legacy') { %>
+                            <button type="button" onclick="event.stopPropagation(); exportCardPlaylist(this.closest('.cur-playlist-carousel-card'), 'json')">Export backup</button>
+                            <% if (p.playlistKind !== 'draft') { %>
+                            <button type="button" onclick="event.stopPropagation(); exportCardPlaylist(this.closest('.cur-playlist-carousel-card'), 'm3u')">Export M3U</button>
+                            <% } %>
                             <% } %>
                             <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && importedSourceTypes.includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
                             <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
@@ -281,8 +295,8 @@
                       <div class="plex-footer cur-discover-result-main cur-playlist-carousel-main">
                         <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= p.playlistTitle || 'Playlist' %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks<% if (Number(p.missingCount || 0) > 0) { %> • <%= Number(p.missingCount || 0).toLocaleString() %> missing<% } %></div>
-                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? 'Disabled in Plex' : (p.playlistKind === 'draft' ? 'Draft saved in Curatorr' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt)) %></div>
-                        <% if (p.playlistType === 'custom' && importedSourceTypes.filter(function(t) { return t !== 'm3u-file'; }).includes(p.sourceType)) { %>
+                        <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? (p.backupOnly ? 'Backup only, not in ' + _msLabel : 'Disabled in Plex') : (p.playlistKind === 'draft' ? 'Draft saved in Curatorr' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt)) %></div>
+                        <% if (p.playlistType === 'custom' && importedSourceTypes.filter(function(t) { return t !== 'm3u-file' && t !== 'curatorr-backup'; }).includes(p.sourceType)) { %>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= (p.importedSyncPeriod || 'disabled') === 'daily' ? 'Auto-refresh every day' : ((p.importedSyncPeriod || 'disabled') === 'weekly' ? 'Auto-refresh every week' : ((p.importedSyncPeriod || 'disabled') === 'monthly' ? 'Auto-refresh every month' : 'Auto-refresh disabled')) %></div>
                         <% } %>
                       </div>
@@ -620,6 +634,27 @@
       min-height: 19px;
       margin-top: -2px;
     }
+    .pl-header-backup { display:block; width:16px; height:16px; }
+    .pl-backup-dialog { width:min(640px, calc(100vw - 32px)); height:auto; max-height:min(760px, calc(100vh - 32px)); }
+    .pl-backup-body { display:grid; gap:14px; }
+    .pl-backup-body .import-pl-tabs { margin-top:0; flex-wrap:wrap; }
+    .pl-backup-panel, .pl-backup-options { display:grid; gap:14px; }
+    .pl-backup-list-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .pl-backup-list-title { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted,#94a3b8); }
+    .pl-backup-list { display:grid; gap:8px; max-height:340px; overflow:auto; }
+    .pl-backup-row { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); cursor:pointer; }
+    .pl-backup-row input { margin-top:3px; accent-color:var(--brand,#8b5cf6); flex:0 0 auto; }
+    .pl-backup-row.is-unavailable { cursor:default; opacity:.6; }
+    .pl-backup-row-copy { display:grid; gap:3px; min-width:0; flex:1 1 auto; }
+    .pl-backup-row-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .pl-backup-row-title { font-weight:700; color:#f8fafc; overflow-wrap:anywhere; }
+    .pl-backup-row-meta { font-size:12px; line-height:1.45; color:var(--muted,#a0aec0); overflow-wrap:anywhere; }
+    .pl-backup-row-meta--warn { color:#fcd34d; }
+    [data-theme="day"] .pl-backup-row { background:rgba(255,255,255,.88); border-color:rgba(10,20,30,.1); }
+    [data-theme="day"] .pl-backup-row-title { color:#1f2d3d; }
+    [data-theme="day"] .pl-backup-row-meta { color:#5e6d80; }
+    [data-theme="day"] .pl-backup-row-meta--warn { color:#a16207; }
+    [data-theme="day"] .pl-backup-list-title { color:#6b7a8d; }
     .import-pl-tabs { display:flex; gap:8px; margin-top:14px; }
     .import-pl-tab { appearance:none; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:var(--muted,#a0aec0); border-radius:999px; padding:8px 14px; cursor:pointer; font-weight:600; }
     .import-pl-tab.is-active { border-color:rgba(74,222,128,.72); color:#f8fafc; background:rgba(74,222,128,.12); }
@@ -794,6 +829,106 @@
       <div class="spm-footer">
         <button class="btn btn-ghost" type="button" onclick="closePlaylistArtworkModal()">Cancel</button>
         <button class="btn btn-primary" type="button" id="playlistArtworkSaveBtn" onclick="submitPlaylistArtwork()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="playlistBackupModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closePlaylistBackupModal()">
+    <div class="spm-dialog pl-backup-dialog" role="dialog" aria-modal="true" aria-labelledby="playlistBackupModalTitle">
+      <div class="spm-header">
+        <span class="spm-title" id="playlistBackupModalTitle">Back up &amp; restore playlists</span>
+        <button class="spm-close" type="button" onclick="closePlaylistBackupModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="spm-body pl-backup-body">
+        <div class="import-pl-tabs" role="tablist" aria-label="Backup actions">
+          <button type="button" class="import-pl-tab is-active" id="plBackupExportTabBtn" onclick="setPlaylistBackupTab('export')" role="tab" aria-selected="true">Export</button>
+          <button type="button" class="import-pl-tab" id="plBackupRestoreTabBtn" onclick="setPlaylistBackupTab('restore')" role="tab" aria-selected="false">Restore</button>
+          <% if (_msType === 'plex') { %>
+          <button type="button" class="import-pl-tab" id="plBackupPlexTabBtn" onclick="setPlaylistBackupTab('plex')" role="tab" aria-selected="false">Plex playlists</button>
+          <% } %>
+        </div>
+
+        <div id="plBackupExportPanel" class="pl-backup-panel">
+          <div class="playlist-feature-note">Download a Curatorr backup file of your playlists: smart playlist rules, imported and static track lists, and system playlist names and artwork. Restore it here after a reinstall, or on a new <%= _msLabel %> server, and Curatorr rebuilds each playlist from your library. To back up only some playlists, use <strong>Export backup</strong> on a card or select cards and use <strong>Export Selected</strong>.</div>
+          <label class="imported-playlist-toggle">
+            <input id="plBackupIncludeArtwork" type="checkbox" checked />
+            <span class="imported-playlist-toggle-copy">
+              <span class="imported-playlist-toggle-title">Include artwork</span>
+              <span class="playlist-feature-note imported-playlist-toggle-note">Embed custom and preserved playlist images. Turn this off for a smaller file.</span>
+            </span>
+          </label>
+          <label class="imported-playlist-toggle">
+            <input id="plBackupIncludeSettings" type="checkbox" checked />
+            <span class="imported-playlist-toggle-copy">
+              <span class="imported-playlist-toggle-title">Include system playlist settings</span>
+              <span class="playlist-feature-note imported-playlist-toggle-note">Liked and ignored genres and artists, smart playlist tuning, and Last.fm and ListenBrainz playlist choices. Passwords, tokens, and API keys are never exported.</span>
+            </span>
+          </label>
+          <% if (_isAdmin) { %>
+          <label class="playlist-artwork-field">
+            <span>Playlists to include</span>
+            <select id="plBackupScope" class="playlist-artwork-control">
+              <option value="mine">My playlists and global playlists</option>
+              <option value="all">Every user's playlists and global playlists</option>
+            </select>
+          </label>
+          <% } %>
+        </div>
+
+        <div id="plBackupRestorePanel" class="pl-backup-panel" style="display:none">
+          <div class="playlist-feature-note">Choose a <code>.curatorr.json</code> backup. Curatorr shows what it will restore and how many tracks it found in your library before anything changes.</div>
+          <label class="import-pl-field">
+            <span>Backup file</span>
+            <input id="plBackupFile" class="cur-input" type="file" accept=".json,application/json" onchange="onPlaylistBackupFileChange()" />
+          </label>
+          <div id="plBackupRestoreOptions" class="pl-backup-options" style="display:none">
+            <label class="playlist-artwork-field">
+              <span>If a name is taken</span>
+              <select id="plBackupOnConflict" class="playlist-artwork-control">
+                <option value="rename">Restore with "(restored)" added</option>
+                <option value="skip">Skip that playlist</option>
+              </select>
+            </label>
+            <% if (_isAdmin) { %>
+            <label class="playlist-artwork-field" id="plBackupOwnerField" style="display:none">
+              <span>Restore to</span>
+              <select id="plBackupOwnerMode" class="playlist-artwork-control" onchange="refreshPlaylistBackupPreview()">
+                <option value="original">Each playlist's original user</option>
+                <option value="self">My account</option>
+              </select>
+            </label>
+            <% } %>
+            <label class="imported-playlist-toggle" id="plBackupSettingsField" style="display:none">
+              <input id="plBackupRestoreSettings" type="checkbox" checked />
+              <span class="imported-playlist-toggle-copy">
+                <span class="imported-playlist-toggle-title">Restore system playlist settings</span>
+                <span class="playlist-feature-note imported-playlist-toggle-note" id="plBackupSettingsNote">Replaces liked and ignored genres and artists and smart playlist tuning with the backed-up values.</span>
+              </span>
+            </label>
+            <div class="pl-backup-list-header">
+              <span class="pl-backup-list-title">Playlists</span>
+              <button type="button" class="btn btn-sm btn-ghost" onclick="togglePlaylistBackupSelection()">Select all / none</button>
+            </div>
+            <div id="plBackupRestoreList" class="pl-backup-list" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <% if (_msType === 'plex') { %>
+        <div id="plBackupPlexPanel" class="pl-backup-panel" style="display:none">
+          <div class="playlist-feature-note">Save a copy of Plex playlists that Curatorr does not manage. Backups stay in Curatorr without adding a second copy to Plex, refresh weekly while the Plex playlist exists, and are included in Curatorr backup files. If a playlist is lost, use <strong>Restore to Plex</strong> on its card.</div>
+          <div class="pl-backup-list-header">
+            <span class="pl-backup-list-title">Plex playlists</span>
+            <button type="button" class="btn btn-sm btn-ghost" onclick="togglePlexBackupSelection()">Select all / none</button>
+          </div>
+          <div id="plBackupPlexList" class="pl-backup-list" aria-live="polite"></div>
+        </div>
+        <% } %>
+
+        <div id="plBackupStatus" class="playlist-feature-note imported-playlist-status" role="status"></div>
+      </div>
+      <div class="spm-footer">
+        <button class="btn btn-ghost" type="button" onclick="closePlaylistBackupModal()">Close</button>
+        <button class="btn btn-primary" type="button" id="plBackupPrimaryBtn" onclick="runPlaylistBackupAction()">Download backup</button>
       </div>
     </div>
   </div>
@@ -3741,11 +3876,14 @@
       var sourceLabel = document.getElementById('importedPlaylistSourceLabel');
       if (headerEl) headerEl.textContent = 'Edit Imported Playlist: ' + String(card.dataset.plTitle || 'Playlist');
       if (titleEl) titleEl.value = String(card.dataset.plTitle || '').trim();
-      var isM3uSource = String(card.dataset.playlistSourceType || '').trim().toLowerCase() === 'm3u-file';
+      var editedSourceType = String(card.dataset.playlistSourceType || '').trim().toLowerCase();
+      var isM3uSource = editedSourceType === 'm3u-file';
       if (syncEl) {
         syncEl.value = normalizeImportedSyncPeriod(card.dataset.playlistImportedSyncPeriod || 'disabled');
         syncEl.disabled = false;
-        syncEl.title = isM3uSource ? 'Re-match the stored M3U tracks against the current library.' : '';
+        syncEl.title = isM3uSource
+          ? 'Re-match the stored M3U tracks against the current library.'
+          : (editedSourceType === 'curatorr-backup' ? 'Re-match the restored tracks against the current library.' : '');
       }
       if (globalEl) globalEl.checked = playlistAudience === 'global';
       if (statusEl) statusEl.textContent = '';
@@ -4082,6 +4220,356 @@
         })
         .catch(function(err) {
           status.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
+    }
+
+    // ── Backup, restore, and Plex playlist backups ──────────────────────────
+    var PLAYLIST_BACKUP_CONTENT_TYPE = 'application/x-curatorr-backup';
+    var _playlistBackupState = { tab: 'export', backup: null, preview: null, plexSources: [] };
+
+    function playlistBackupTypeLabel(entry) {
+      if (entry.type === 'smart') return 'Smart';
+      if (entry.type === 'global') return 'Global';
+      if (entry.type === 'imported') return 'Imported';
+      if (entry.type === 'static') return 'Static';
+      if (entry.type === 'system') return 'System';
+      return entry.type || 'Playlist';
+    }
+
+    function exportCardPlaylist(card, format) {
+      closeAllCardMenus();
+      var playlistKey = String(card && card.dataset.plKey || '').trim();
+      if (!playlistKey) return;
+      window.location.href = format === 'm3u'
+        ? '/api/music/playlists/backup/export.m3u?key=' + encodeURIComponent(playlistKey)
+        : '/api/music/playlists/backup/export?keys=' + encodeURIComponent(playlistKey);
+    }
+
+    function exportSelectedPlaylists() {
+      var keys = Array.from(document.querySelectorAll('.pl-card-checkbox:checked'))
+        .map(function(cb) { return cb.closest('.cur-playlist-carousel-card'); })
+        .map(function(card) { return String(card && card.dataset.plKey || '').trim(); })
+        .filter(Boolean);
+      if (!keys.length) return;
+      window.location.href = '/api/music/playlists/backup/export?keys=' + encodeURIComponent(keys.join(','));
+    }
+
+    function setPlaylistBackupStatus(message) {
+      var statusEl = document.getElementById('plBackupStatus');
+      if (statusEl) statusEl.textContent = message || '';
+    }
+
+    function openPlaylistBackupModal(tab) {
+      var modal = ensureModalAtRoot('playlistBackupModal');
+      if (!modal) return;
+      modal.style.display = '';
+      setPlaylistBackupTab(tab || 'export');
+    }
+
+    function closePlaylistBackupModal() {
+      var modal = document.getElementById('playlistBackupModal');
+      if (modal) modal.style.display = 'none';
+      setPlaylistBackupStatus('');
+    }
+
+    function setPlaylistBackupTab(tab) {
+      _playlistBackupState.tab = tab;
+      ['export', 'restore', 'plex'].forEach(function(name) {
+        var key = name.charAt(0).toUpperCase() + name.slice(1);
+        var btn = document.getElementById('plBackup' + key + 'TabBtn');
+        var panel = document.getElementById('plBackup' + key + 'Panel');
+        if (btn) {
+          btn.classList.toggle('is-active', name === tab);
+          btn.setAttribute('aria-selected', name === tab ? 'true' : 'false');
+        }
+        if (panel) panel.style.display = name === tab ? '' : 'none';
+      });
+      setPlaylistBackupStatus('');
+      if (tab === 'plex') loadPlexBackupSources();
+      updatePlaylistBackupPrimary();
+    }
+
+    function updatePlaylistBackupPrimary() {
+      var btn = document.getElementById('plBackupPrimaryBtn');
+      if (!btn) return;
+      var tab = _playlistBackupState.tab;
+      if (tab === 'export') {
+        btn.textContent = 'Download backup';
+        btn.disabled = false;
+      } else if (tab === 'restore') {
+        var count = document.querySelectorAll('#plBackupRestoreList input[type="checkbox"]:checked').length;
+        btn.textContent = count ? 'Restore ' + count + ' playlist' + (count === 1 ? '' : 's') : 'Restore';
+        var settingsEl = document.getElementById('plBackupRestoreSettings');
+        var settingsVisible = document.getElementById('plBackupSettingsField');
+        var wantsSettings = settingsEl && settingsEl.checked && settingsVisible && settingsVisible.style.display !== 'none';
+        btn.disabled = !_playlistBackupState.backup || (!count && !wantsSettings);
+      } else {
+        var plexCount = document.querySelectorAll('#plBackupPlexList input[type="checkbox"]:checked').length;
+        btn.textContent = plexCount ? 'Back up ' + plexCount + ' playlist' + (plexCount === 1 ? '' : 's') : 'Back up';
+        btn.disabled = !plexCount;
+      }
+    }
+
+    function runPlaylistBackupAction() {
+      if (_playlistBackupState.tab === 'export') return downloadPlaylistBackup();
+      if (_playlistBackupState.tab === 'restore') return restoreSelectedBackupPlaylists();
+      return backUpSelectedPlexPlaylists();
+    }
+
+    function downloadPlaylistBackup() {
+      var artworkEl = document.getElementById('plBackupIncludeArtwork');
+      var settingsEl = document.getElementById('plBackupIncludeSettings');
+      var scopeEl = document.getElementById('plBackupScope');
+      var params = new URLSearchParams();
+      params.set('artwork', artworkEl && !artworkEl.checked ? '0' : '1');
+      params.set('settings', settingsEl && !settingsEl.checked ? '0' : '1');
+      if (scopeEl && scopeEl.value === 'all') params.set('scope', 'all');
+      setPlaylistBackupStatus('Preparing your backup… the download starts when it is ready.');
+      window.location.href = '/api/music/playlists/backup/export?' + params.toString();
+    }
+
+    function postPlaylistBackup(url, options) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': PLAYLIST_BACKUP_CONTENT_TYPE, 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ backup: _playlistBackupState.backup, options: options || {} }),
+      }).then(function(r) {
+        return r.json().catch(function() { return { error: 'Request failed (' + r.status + ').' }; })
+          .then(function(data) {
+            if (!r.ok || !data.ok) throw new Error(data.error || ('Request failed (' + r.status + ').'));
+            return data;
+          });
+      });
+    }
+
+    function onPlaylistBackupFileChange() {
+      var input = document.getElementById('plBackupFile');
+      var file = input && input.files && input.files[0];
+      _playlistBackupState.backup = null;
+      _playlistBackupState.preview = null;
+      document.getElementById('plBackupRestoreOptions').style.display = 'none';
+      updatePlaylistBackupPrimary();
+      if (!file) return;
+      setPlaylistBackupStatus('Reading ' + file.name + '…');
+      file.text().then(function(text) {
+        try {
+          _playlistBackupState.backup = JSON.parse(text);
+        } catch (_err) {
+          throw new Error('This file is not a Curatorr playlist backup.');
+        }
+        return refreshPlaylistBackupPreview();
+      }).catch(function(err) {
+        _playlistBackupState.backup = null;
+        setPlaylistBackupStatus(err.message || 'The backup could not be read.');
+        updatePlaylistBackupPrimary();
+      });
+    }
+
+    function readPlaylistBackupOptions() {
+      var ownerEl = document.getElementById('plBackupOwnerMode');
+      var ownerField = document.getElementById('plBackupOwnerField');
+      var conflictEl = document.getElementById('plBackupOnConflict');
+      var settingsEl = document.getElementById('plBackupRestoreSettings');
+      return {
+        ownerMode: ownerEl && ownerField && ownerField.style.display !== 'none' ? ownerEl.value : 'self',
+        onConflict: conflictEl ? conflictEl.value : 'rename',
+        includeSettings: Boolean(settingsEl && settingsEl.checked),
+      };
+    }
+
+    function refreshPlaylistBackupPreview() {
+      if (!_playlistBackupState.backup) return Promise.resolve();
+      setPlaylistBackupStatus('Matching the backup against your library…');
+      return postPlaylistBackup('/api/music/playlists/backup/preview', readPlaylistBackupOptions())
+        .then(function(preview) {
+          _playlistBackupState.preview = preview;
+          renderPlaylistBackupPreview(preview);
+          var made = preview.exportedAt ? new Date(preview.exportedAt).toLocaleString() : 'an unknown date';
+          setPlaylistBackupStatus('Backup from ' + made + (preview.curatorrVersion ? ' (Curatorr ' + preview.curatorrVersion + ')' : '') + ': ' + preview.playlists.length + ' playlist' + (preview.playlists.length === 1 ? '' : 's') + '.');
+        })
+        .catch(function(err) {
+          _playlistBackupState.backup = null;
+          document.getElementById('plBackupRestoreOptions').style.display = 'none';
+          setPlaylistBackupStatus(err.message || 'The backup could not be read.');
+          updatePlaylistBackupPrimary();
+        });
+    }
+
+    function renderPlaylistBackupPreview(preview) {
+      var listEl = document.getElementById('plBackupRestoreList');
+      var optionsEl = document.getElementById('plBackupRestoreOptions');
+      var ownerField = document.getElementById('plBackupOwnerField');
+      var settingsField = document.getElementById('plBackupSettingsField');
+      var settingsNote = document.getElementById('plBackupSettingsNote');
+      var previouslyChecked = {};
+      listEl.querySelectorAll('input[type="checkbox"]').forEach(function(cb) { previouslyChecked[cb.value] = cb.checked; });
+      var hadSelection = Object.keys(previouslyChecked).length > 0;
+      optionsEl.style.display = '';
+      var foreignOwners = (preview.owners || []).filter(function(owner) { return owner && owner !== CURRENT_USER_ID; });
+      if (ownerField) ownerField.style.display = foreignOwners.length ? '' : 'none';
+      if (settingsField) {
+        settingsField.style.display = preview.settings && preview.settings.length ? '' : 'none';
+        if (settingsNote && preview.settings && preview.settings.length > 1) {
+          settingsNote.textContent = 'Replaces liked and ignored genres and artists and smart playlist tuning for ' + preview.settings.length + ' users with the backed-up values.';
+        }
+      }
+      listEl.innerHTML = '';
+      if (!preview.playlists.length) {
+        listEl.innerHTML = '<div class="cur-empty">This backup contains no playlists.</div>';
+      }
+      preview.playlists.forEach(function(entry) {
+        var row = document.createElement('label');
+        row.className = 'pl-backup-row' + (entry.restorable ? '' : ' is-unavailable');
+        var meta = [];
+        if (entry.type === 'imported' || entry.type === 'static') {
+          meta.push(Number(entry.matched || 0).toLocaleString() + ' of ' + Number((entry.matched || 0) + (entry.missing || 0)).toLocaleString() + ' tracks found in your library');
+        } else if (entry.trackCount) {
+          meta.push(Number(entry.trackCount).toLocaleString() + ' tracks when backed up');
+        }
+        if (entry.targetUser && entry.targetUser !== CURRENT_USER_ID) meta.push('for ' + entry.targetUser);
+        if (entry.backupOnly) meta.push('backup only');
+        else if (entry.enabled === false) meta.push('disabled');
+        var warnings = [];
+        if (entry.conflict) warnings.push('A playlist with this name already exists.');
+        if (entry.unknownUser) warnings.push('This user has not signed in to Curatorr yet; the playlist appears when they do.');
+        row.innerHTML =
+          '<input type="checkbox" value="' + escHtml(entry.entryId) + '"' + (entry.restorable ? '' : ' disabled') + ' />' +
+          '<span class="pl-backup-row-copy">' +
+            '<span class="pl-backup-row-top">' +
+              '<span class="pl-backup-row-title">' + escHtml(entry.name) + '</span>' +
+              '<span class="import-pl-option__badge">' + escHtml(playlistBackupTypeLabel(entry)) + '</span>' +
+            '</span>' +
+            (meta.length ? '<span class="pl-backup-row-meta">' + escHtml(meta.join(' • ')) + '</span>' : '') +
+            (entry.note ? '<span class="pl-backup-row-meta">' + escHtml(entry.note) + '</span>' : '') +
+            warnings.map(function(w) { return '<span class="pl-backup-row-meta pl-backup-row-meta--warn">' + escHtml(w) + '</span>'; }).join('') +
+          '</span>';
+        var cb = row.querySelector('input');
+        cb.checked = entry.restorable && (hadSelection ? previouslyChecked[entry.entryId] !== false : true);
+        cb.addEventListener('change', updatePlaylistBackupPrimary);
+        listEl.appendChild(row);
+      });
+      var settingsEl = document.getElementById('plBackupRestoreSettings');
+      if (settingsEl && !settingsEl.dataset.bound) {
+        settingsEl.dataset.bound = 'true';
+        settingsEl.addEventListener('change', updatePlaylistBackupPrimary);
+      }
+      updatePlaylistBackupPrimary();
+    }
+
+    function togglePlaylistBackupSelection() {
+      var boxes = Array.from(document.querySelectorAll('#plBackupRestoreList input[type="checkbox"]:not(:disabled)'));
+      var allChecked = boxes.length && boxes.every(function(cb) { return cb.checked; });
+      boxes.forEach(function(cb) { cb.checked = !allChecked; });
+      updatePlaylistBackupPrimary();
+    }
+
+    function restoreSelectedBackupPlaylists() {
+      if (!_playlistBackupState.backup) return;
+      var entryIds = Array.from(document.querySelectorAll('#plBackupRestoreList input[type="checkbox"]:checked'))
+        .map(function(cb) { return cb.value; });
+      var options = readPlaylistBackupOptions();
+      var settingsField = document.getElementById('plBackupSettingsField');
+      if (!settingsField || settingsField.style.display === 'none') options.includeSettings = false;
+      options.entryIds = entryIds;
+      var btn = document.getElementById('plBackupPrimaryBtn');
+      if (btn) btn.disabled = true;
+      setPlaylistBackupStatus('Restoring…');
+      postPlaylistBackup('/api/music/playlists/backup/restore', options)
+        .then(function(result) {
+          var parts = [result.restored.length + ' playlist' + (result.restored.length === 1 ? '' : 's') + ' restored'];
+          if (result.skipped.length) parts.push(result.skipped.length + ' skipped');
+          if (result.settingsRestored) parts.push('settings restored');
+          setPlaylistBackupStatus(parts.join(', ') + '. ' + MS_LABEL + ' playlists are being created in the background. Reloading…');
+          setTimeout(function() { window.location.reload(); }, 1800);
+        })
+        .catch(function(err) {
+          setPlaylistBackupStatus('Restore failed: ' + (err.message || 'Unknown error'));
+          updatePlaylistBackupPrimary();
+        });
+    }
+
+    function loadPlexBackupSources() {
+      var listEl = document.getElementById('plBackupPlexList');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+      setPlaylistBackupStatus('Loading Plex playlists…');
+      fetch('/api/music/import/plex/backup', { headers: { Accept: 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Could not load Plex playlists.');
+          _playlistBackupState.plexSources = data.playlists || [];
+          renderPlexBackupSources();
+        })
+        .catch(function(err) {
+          setPlaylistBackupStatus(err.message || 'Could not load Plex playlists.');
+          updatePlaylistBackupPrimary();
+        });
+    }
+
+    function renderPlexBackupSources() {
+      var listEl = document.getElementById('plBackupPlexList');
+      var sources = _playlistBackupState.plexSources;
+      listEl.innerHTML = '';
+      if (!sources.length) {
+        listEl.innerHTML = '<div class="cur-empty">No Plex playlists to back up. Playlists Curatorr manages are already part of your Curatorr backups.</div>';
+        setPlaylistBackupStatus('');
+        updatePlaylistBackupPrimary();
+        return;
+      }
+      var saved = sources.filter(function(item) { return item.backedUp; }).length;
+      setPlaylistBackupStatus(sources.length + ' Plex playlist' + (sources.length === 1 ? '' : 's') + (saved ? ', ' + saved + ' already saved in Curatorr' : '') + '.');
+      sources.forEach(function(item) {
+        var row = document.createElement('label');
+        row.className = 'pl-backup-row';
+        row.innerHTML =
+          '<input type="checkbox" value="' + escHtml(item.id) + '" />' +
+          '<span class="pl-backup-row-copy">' +
+            '<span class="pl-backup-row-top">' +
+              '<span class="pl-backup-row-title">' + escHtml(item.title || 'Untitled') + '</span>' +
+              (item.backedUp ? '<span class="import-pl-option__badge">Saved</span>' : '') +
+            '</span>' +
+            '<span class="pl-backup-row-meta">' + Number(item.trackCount || 0).toLocaleString() + ' tracks' + (item.backedUp ? ' • backing up again refreshes the saved copy' : '') + '</span>' +
+          '</span>';
+        var cb = row.querySelector('input');
+        cb.checked = !item.backedUp;
+        cb.addEventListener('change', updatePlaylistBackupPrimary);
+        listEl.appendChild(row);
+      });
+      updatePlaylistBackupPrimary();
+    }
+
+    function togglePlexBackupSelection() {
+      var boxes = Array.from(document.querySelectorAll('#plBackupPlexList input[type="checkbox"]'));
+      var allChecked = boxes.length && boxes.every(function(cb) { return cb.checked; });
+      boxes.forEach(function(cb) { cb.checked = !allChecked; });
+      updatePlaylistBackupPrimary();
+    }
+
+    function backUpSelectedPlexPlaylists() {
+      var sourceIds = Array.from(document.querySelectorAll('#plBackupPlexList input[type="checkbox"]:checked'))
+        .map(function(cb) { return cb.value; });
+      if (!sourceIds.length) return;
+      var btn = document.getElementById('plBackupPrimaryBtn');
+      if (btn) btn.disabled = true;
+      setPlaylistBackupStatus('Backing up ' + sourceIds.length + ' Plex playlist' + (sourceIds.length === 1 ? '' : 's') + '…');
+      fetch('/api/music/import/plex/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ sourceIds: sourceIds }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Backup failed.');
+          var parts = [];
+          if (data.created) parts.push(data.created + ' saved');
+          if (data.updated) parts.push(data.updated + ' refreshed');
+          if (data.failed && data.failed.length) parts.push(data.failed.length + ' failed (' + data.failed.map(function(f) { return f.title; }).join(', ') + ')');
+          setPlaylistBackupStatus((parts.join(', ') || 'Nothing changed') + '. Reloading…');
+          setTimeout(function() { window.location.reload(); }, 1500);
+        })
+        .catch(function(err) {
+          setPlaylistBackupStatus('Backup failed: ' + (err.message || 'Unknown error'));
+          updatePlaylistBackupPrimary();
         });
     }
 

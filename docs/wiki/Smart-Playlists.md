@@ -8,7 +8,7 @@ Curatorr builds and maintains playlists in your connected media server from your
 
 Select a playlist card to view its tracks. The filter menu separates playlist categories such as personal, global, system, imported, and external. Cards show track counts, missing-source counts where relevant, update times, and refresh schedules.
 
-Use a card's **View**, **Edit**, or options menu for the actions available to that playlist type. These can include rebuilding, refreshing an import, renaming, enabling/disabling, and artwork controls. System playlist name overrides change the exported title; clearing the override restores the generated name.
+Use a card's **View**, **Edit**, or options menu for the actions available to that playlist type. These can include rebuilding, refreshing an import, renaming, enabling/disabling, artwork controls, and **Export backup** or **Export M3U**. See [Playlist Backup and Restore](Playlist-Backup.md). System playlist name overrides change the exported title; clearing the override restores the generated name.
 
 ## Track tiers and artist scores
 

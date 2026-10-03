@@ -6,7 +6,7 @@ import {
   getUserPreferences, saveUserPreferences,
   getUserPlaylist, saveUserPlaylist,
   getPlaylistJob, savePlaylistJob, recordPlaylistSync,
-  refreshMasterTracks, pruneStaleMasterTracks, updateMasterTrackTagMetadata, getMasterTracks, getMasterTrackCount,
+  refreshMasterTracks, pruneStaleMasterTracks, remapPlaylistTracks, updateMasterTrackTagMetadata, getMasterTracks, getMasterTrackCount,
   getGenresFromMaster, getArtistsFromMaster, dedupeMasterArtistNames, getResolvedUserArtistFilters,
   listUserGeneratedPlaylists, saveUserGeneratedPlaylist,
   clearPlaylistState,
@@ -356,13 +356,45 @@ export async function refreshMasterTrackCache(ctx) {
       trackCount = tracks.length;
       moodCount = tracks.filter((t) => Array.isArray(t.moods) && t.moods.length > 0).length;
     }
-    const staleCount = pruneStaleMasterTracks(db, selectedKeys, refreshStartedAt);
-    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${trackCount} tracks, ${moodCount} with moods${staleCount ? `, ${staleCount} stale removed` : ''}` });
+    const remaps = [];
+    const staleCount = pruneStaleMasterTracks(db, selectedKeys, refreshStartedAt, {
+      onPlaylistRemap: (result) => remaps.push(result),
+    });
+    // Rows orphaned by a library switch (for example a new server install) re-point to the
+    // same recordings once their new library has loaded.
+    remaps.push(remapPlaylistTracks(db));
+    const remapped = remaps.reduce((sum, result) => sum + result.remapped, 0);
+    const movedToMissing = remaps.reduce((sum, result) => sum + result.missing, 0);
+    pushLog({ level: 'info', app: 'wizard', action: 'master.refresh', message: `Master track cache refreshed: ${trackCount} tracks, ${moodCount} with moods${staleCount ? `, ${staleCount} stale removed` : ''}${remapped ? `, ${remapped} playlist tracks re-matched` : ''}${movedToMissing ? `, ${movedToMissing} playlist tracks now missing` : ''}` });
+    resyncRemappedCustomPlaylists(ctx, remaps.flatMap((result) => result.changed));
     return trackCount;
   } catch (err) {
     pushLog({ level: 'error', app: 'wizard', action: 'master.refresh.error', message: safeMessage(err) });
     throw err;
   }
+}
+
+function resyncRemappedCustomPlaylists(ctx, changed) {
+  const { db, playlistService, pushLog, safeMessage } = ctx;
+  if (!playlistService?.syncCustomPlaylist) return;
+  const seen = new Set();
+  const targets = (changed || []).filter((entry) => {
+    const id = `${entry.userPlexId}\u0000${entry.playlistKey}`;
+    if (entry.playlistType !== 'custom' || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (!targets.length) return;
+  setImmediate(async () => {
+    for (const { userPlexId, playlistKey } of targets) {
+      const playlist = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: true })
+        .find((entry) => entry.playlistKey === playlistKey);
+      if (!playlist) continue;
+      await playlistService.syncCustomPlaylist(userPlexId, playlist).catch((err) => {
+        pushLog({ level: 'warn', app: 'playlist', action: 'remap.sync.error', message: `Could not re-sync ${playlistKey} for ${userPlexId}: ${safeMessage(err)}` });
+      });
+    }
+  });
 }
 
 // ── Tautulli webhook auto-configurator ────────────────────────────────────────

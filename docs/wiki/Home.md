@@ -41,6 +41,7 @@ This guide and its screenshots were refreshed against **v0.1.100**. The new [Mus
 - [Overview and Now Playing](Overview.md)
 - [Listening Report](Listening-Report.md)
 - [Playlist Imports](Playlist-Imports.md)
+- [Playlist Backup and Restore](Playlist-Backup.md)
 - [Music Assistant](Music-Assistant.md)
 - [Track Analysis](Track-Analysis.md)
 - [History](History.md)
@@ -67,6 +68,7 @@ This guide and its screenshots were refreshed against **v0.1.100**. The new [Mus
 - Per-user track tiers: `Belter`, `Decent`, `Half Decent`, `Skip`, and `Curatorr`.
 - A guided playlist builder with personal, blend, and global audiences, reusable templates, content filters, deduplication, audio profiles, and artwork controls.
 - Playlist imports from Plex, Spotify, TIDAL, supported URLs, M3U/M3U8, Last.fm, and ListenBrainz, with missing-track review and refresh schedules.
+- Playlist backup files covering smart, global, imported, static, and system playlists, restorable on a new media server, plus backup-only copies of Plex playlists and M3U export.
 - Coverage-aware preset gating so BPM/key-driven presets disable themselves when the required analysis data is unavailable.
 - Optional analyzer sidecar for first-party BPM/key/Camelot/energy/danceability enrichment.
 - Local admin account plus media-server sign-in support, including Plex Home profiles on Plex installs.

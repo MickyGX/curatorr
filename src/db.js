@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { buildTrackIdentityLookups, resolveTrackIdentity } from './services/track-identity.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -584,13 +585,32 @@ export function initDb(dbPath) {
   if (!generatedCols.includes('audience'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN audience TEXT NOT NULL DEFAULT 'personal'");
 
+  if (!generatedCols.includes('backup_only'))
+    db.exec('ALTER TABLE user_generated_playlists ADD COLUMN backup_only INTEGER NOT NULL DEFAULT 0');
+
   const playlistTrackCols = db.prepare('PRAGMA table_info(playlist_tracks)').all().map((c) => c.name);
   if (!playlistTrackCols.includes('source_position'))
     db.exec('ALTER TABLE playlist_tracks ADD COLUMN source_position INTEGER NOT NULL DEFAULT 0');
+  // Track identity kept beside the media-server id, so a playlist survives its tracks being
+  // re-keyed (a Plex database rebuild or a brand-new server install).
+  if (!playlistTrackCols.includes('track_title'))
+    db.exec("ALTER TABLE playlist_tracks ADD COLUMN track_title TEXT NOT NULL DEFAULT ''");
+  if (!playlistTrackCols.includes('album_name'))
+    db.exec("ALTER TABLE playlist_tracks ADD COLUMN album_name TEXT NOT NULL DEFAULT ''");
+  if (!playlistTrackCols.includes('duration_ms'))
+    db.exec('ALTER TABLE playlist_tracks ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0');
+  if (!playlistTrackCols.includes('file_path'))
+    db.exec("ALTER TABLE playlist_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
+  if (!playlistTrackCols.includes('recording_mbid'))
+    db.exec("ALTER TABLE playlist_tracks ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
 
   const importedUnmatchedCols = db.prepare('PRAGMA table_info(imported_playlist_unmatched)').all().map((c) => c.name);
   if (!importedUnmatchedCols.includes('album_image_url'))
     db.exec("ALTER TABLE imported_playlist_unmatched ADD COLUMN album_image_url TEXT NOT NULL DEFAULT ''");
+  if (!importedUnmatchedCols.includes('file_path'))
+    db.exec("ALTER TABLE imported_playlist_unmatched ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
+  if (!importedUnmatchedCols.includes('recording_mbid'))
+    db.exec("ALTER TABLE imported_playlist_unmatched ADD COLUMN recording_mbid TEXT NOT NULL DEFAULT ''");
 
   const masterCols = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (!masterCols.includes('rating_count'))
@@ -732,6 +752,8 @@ export function initDb(dbPath) {
       insertTemplate.run(t.id, t.name, t.description, JSON.stringify(t.rules));
     }
   }
+
+  backfillPlaylistTrackIdentity(db);
 
   return db;
 }
@@ -2138,7 +2160,7 @@ export function refreshMasterTracks(db, tracks) {
   masterTracksCache.delete(db);
 }
 
-export function pruneStaleMasterTracks(db, libraryKeys = [], refreshedSince = 0) {
+export function pruneStaleMasterTracks(db, libraryKeys = [], refreshedSince = 0, { onPlaylistRemap = null } = {}) {
   const keys = [...new Set(
     (Array.isArray(libraryKeys) ? libraryKeys : [libraryKeys])
       .map((key) => String(key || '').trim())
@@ -2159,12 +2181,15 @@ export function pruneStaleMasterTracks(db, libraryKeys = [], refreshedSince = 0)
 
   const stalePlaceholders = staleKeys.map(() => '?').join(', ');
   const run = db.transaction(() => {
+    // Keep each playlist row's identity before its library entry goes, so it can be re-pointed.
+    backfillPlaylistTrackIdentity(db, staleKeys);
     db.prepare(`DELETE FROM track_enrichment WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
-    db.prepare(`DELETE FROM playlist_tracks WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
     db.prepare(`DELETE FROM master_tracks WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
   });
   run();
   masterTracksCache.delete(db);
+  const remap = remapPlaylistTracks(db, { goneKeys: staleKeys });
+  if (typeof onPlaylistRemap === 'function') onPlaylistRemap(remap);
   return staleKeys.length;
 }
 
@@ -2205,6 +2230,10 @@ const masterTracksCache = new WeakMap();
 
 export function invalidateMasterTracksCache(db) {
   masterTracksCache.delete(db);
+}
+
+export function hasMasterTrack(db, ratingKey) {
+  return Boolean(db.prepare('SELECT 1 FROM master_tracks WHERE rating_key = ?').get(String(ratingKey || '')));
 }
 
 export function getMasterTracks(db) {
@@ -2648,14 +2677,52 @@ export function getPlaylistTracks(db, userId, playlistKey) {
     .map((r) => ({ ratingKey: r.rating_key, artistName: r.artist_name }));
 }
 
+function readPlaylistTrackIdentity(db) {
+  const masterStmt = db.prepare(`
+    SELECT artist_name, track_title, album_name, duration_ms, file_path, recording_mbid
+    FROM master_tracks WHERE rating_key = ?
+  `);
+  return (track, previous = null) => {
+    const master = masterStmt.get(String(track?.ratingKey || ''));
+    const pick = (masterValue, explicitValue, previousValue) => (
+      masterValue || explicitValue || previousValue || ''
+    );
+    return {
+      artistName: String(track?.artistName || master?.artist_name || previous?.artist_name || ''),
+      title: String(pick(master?.track_title, track?.trackTitle || track?.title, previous?.track_title)),
+      albumName: String(pick(master?.album_name, track?.albumName, previous?.album_name)),
+      durationMs: Number(master?.duration_ms || track?.durationMs || previous?.duration_ms || 0),
+      filePath: String(pick(master?.file_path, track?.filePath, previous?.file_path)),
+      recordingMbid: String(pick(master?.recording_mbid, track?.recordingMbid, previous?.recording_mbid)),
+    };
+  };
+}
+
+const PLAYLIST_TRACK_INSERT_SQL = `
+  INSERT OR IGNORE INTO playlist_tracks (
+    playlist_key, user_plex_id, rating_key, artist_name, source_position, added_at,
+    track_title, album_name, duration_ms, file_path, recording_mbid
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
+
 export function setPlaylistTracks(db, userId, playlistKey, tracks) {
+  const previousRows = new Map(
+    db.prepare('SELECT * FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?')
+      .all(userId, playlistKey)
+      .map((row) => [row.rating_key, row]),
+  );
   const del = db.prepare('DELETE FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?');
-  const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, source_position, added_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const ins = db.prepare(PLAYLIST_TRACK_INSERT_SQL);
+  const identityOf = readPlaylistTrackIdentity(db);
   const now = Date.now();
   db.transaction(() => {
     del.run(userId, playlistKey);
     (Array.isArray(tracks) ? tracks : []).forEach((t, index) => {
-      ins.run(playlistKey, userId, t.ratingKey, t.artistName || '', Number(t.sourcePosition || t.position || index + 1), now);
+      const identity = identityOf(t, previousRows.get(t.ratingKey));
+      ins.run(
+        playlistKey, userId, t.ratingKey, identity.artistName, Number(t.sourcePosition || t.position || index + 1), now,
+        identity.title, identity.albumName, identity.durationMs, identity.filePath, identity.recordingMbid,
+      );
     });
   })();
 }
@@ -2663,13 +2730,215 @@ export function setPlaylistTracks(db, userId, playlistKey, tracks) {
 export function addPlaylistTracks(db, userId, playlistKey, tracks) {
   const maxRow = db.prepare('SELECT COALESCE(MAX(source_position), 0) AS max_pos FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?').get(userId, playlistKey);
   const startPosition = Number(maxRow?.max_pos || 0);
-  const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks (playlist_key, user_plex_id, rating_key, artist_name, source_position, added_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const ins = db.prepare(PLAYLIST_TRACK_INSERT_SQL);
+  const identityOf = readPlaylistTrackIdentity(db);
   const now = Date.now();
   db.transaction(() => {
     (Array.isArray(tracks) ? tracks : []).forEach((t, index) => {
-      ins.run(playlistKey, userId, t.ratingKey, t.artistName || '', Number(t.sourcePosition || t.position || startPosition + index + 1), now);
+      const identity = identityOf(t);
+      ins.run(
+        playlistKey, userId, t.ratingKey, identity.artistName, Number(t.sourcePosition || t.position || startPosition + index + 1), now,
+        identity.title, identity.albumName, identity.durationMs, identity.filePath, identity.recordingMbid,
+      );
     });
   })();
+}
+
+// Playlist tracks with their stored identity, falling back to the library cache for rows saved
+// before identity was recorded.
+export function getPlaylistTrackSnapshots(db, userId, playlistKey) {
+  return db.prepare(`
+    SELECT
+      pt.rating_key,
+      pt.source_position,
+      COALESCE(NULLIF(pt.artist_name, ''), m.artist_name, '') AS artist_name,
+      COALESCE(NULLIF(pt.track_title, ''), m.track_title, '') AS track_title,
+      COALESCE(NULLIF(pt.album_name, ''), m.album_name, '') AS album_name,
+      COALESCE(NULLIF(pt.duration_ms, 0), m.duration_ms, 0) AS duration_ms,
+      COALESCE(NULLIF(pt.file_path, ''), m.file_path, '') AS file_path,
+      COALESCE(NULLIF(pt.recording_mbid, ''), m.recording_mbid, '') AS recording_mbid
+    FROM playlist_tracks pt
+    LEFT JOIN master_tracks m ON m.rating_key = pt.rating_key
+    WHERE pt.user_plex_id = ? AND pt.playlist_key = ?
+    ORDER BY pt.source_position ASC, pt.added_at ASC, pt.rowid ASC
+  `).all(userId, playlistKey).map((row, index) => ({
+    ratingKey: row.rating_key,
+    position: Number(row.source_position || index + 1),
+    artistName: String(row.artist_name || ''),
+    title: String(row.track_title || ''),
+    albumName: String(row.album_name || ''),
+    durationMs: Number(row.duration_ms || 0),
+    filePath: String(row.file_path || ''),
+    recordingMbid: String(row.recording_mbid || ''),
+  }));
+}
+
+// Copies identity from the library cache onto playlist rows that do not have it yet.
+export function backfillPlaylistTrackIdentity(db, ratingKeys = null) {
+  const keys = Array.isArray(ratingKeys) ? ratingKeys.map((key) => String(key || '').trim()).filter(Boolean) : null;
+  if (keys && !keys.length) return 0;
+  const column = (name) => `(SELECT m.${name} FROM master_tracks m WHERE m.rating_key = playlist_tracks.rating_key)`;
+  const keyClause = keys ? `AND rating_key IN (${keys.map(() => '?').join(', ')})` : '';
+  return db.prepare(`
+    UPDATE playlist_tracks SET
+      track_title = COALESCE(${column('track_title')}, track_title),
+      album_name = COALESCE(${column('album_name')}, album_name),
+      duration_ms = COALESCE(${column('duration_ms')}, duration_ms),
+      file_path = COALESCE(${column('file_path')}, file_path),
+      recording_mbid = COALESCE(${column('recording_mbid')}, recording_mbid),
+      artist_name = CASE WHEN artist_name = '' THEN COALESCE(${column('artist_name')}, '') ELSE artist_name END
+    WHERE track_title = ''
+      AND EXISTS (SELECT 1 FROM master_tracks m WHERE m.rating_key = playlist_tracks.rating_key)
+      ${keyClause}
+  `).run(...(keys || [])).changes;
+}
+
+function updateCustomPlaylistCounts(db, userId, playlistKey) {
+  db.prepare(`
+    UPDATE user_generated_playlists SET
+      track_count = (SELECT COUNT(*) FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ?),
+      missing_count = (SELECT COUNT(*) FROM imported_playlist_unmatched WHERE user_plex_id = ? AND playlist_key = ?),
+      updated_at = ?
+    WHERE user_plex_id = ? AND playlist_key = ? AND playlist_type = 'custom'
+  `).run(userId, playlistKey, userId, playlistKey, Date.now(), userId, playlistKey);
+}
+
+// Re-points playlist rows whose media-server id is no longer in the library cache at the same
+// recording under its new id (file path, MBID, then artist/title/album). Rows for ids confirmed
+// gone (goneKeys) that cannot be matched leave the playlist: custom playlists keep them in their
+// missing list, generated playlists drop them. Unmatched rows whose id is not confirmed gone are
+// left alone because they may belong to a library Curatorr does not cache.
+export function remapPlaylistTracks(db, { goneKeys = [], userId = '', playlistKey = '' } = {}) {
+  const gone = new Set((Array.isArray(goneKeys) ? goneKeys : []).map((key) => String(key || '').trim()).filter(Boolean));
+  const clauses = ['m.rating_key IS NULL'];
+  const params = [];
+  if (userId) { clauses.push('pt.user_plex_id = ?'); params.push(userId); }
+  if (playlistKey) { clauses.push('pt.playlist_key = ?'); params.push(playlistKey); }
+  const orphans = db.prepare(`
+    SELECT pt.rowid AS row_id, pt.*, g.playlist_type
+    FROM playlist_tracks pt
+    LEFT JOIN master_tracks m ON m.rating_key = pt.rating_key
+    LEFT JOIN user_generated_playlists g ON g.user_plex_id = pt.user_plex_id AND g.playlist_key = pt.playlist_key
+    WHERE ${clauses.join(' AND ')}
+  `).all(...params).filter((row) => row.track_title || gone.has(row.rating_key));
+  const result = { remapped: 0, missing: 0, removed: 0, changed: [] };
+  if (!orphans.length) return result;
+  const masterCount = Number(db.prepare('SELECT COUNT(*) AS n FROM master_tracks').get()?.n || 0);
+  // An empty cache means the library has not loaded yet, not that every track is gone.
+  if (!masterCount) return result;
+
+  const lookups = buildTrackIdentityLookups(getMasterTracks(db));
+  const hasKey = db.prepare('SELECT 1 FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ? AND rating_key = ?');
+  const update = db.prepare(`
+    UPDATE playlist_tracks SET
+      rating_key = ?, artist_name = ?, track_title = ?, album_name = ?, duration_ms = ?, file_path = ?, recording_mbid = ?
+    WHERE rowid = ?
+  `);
+  const remove = db.prepare('DELETE FROM playlist_tracks WHERE rowid = ?');
+  const hasMissing = db.prepare(`
+    SELECT 1 FROM imported_playlist_unmatched
+    WHERE user_plex_id = ? AND playlist_key = ? AND LOWER(track_title) = LOWER(?) AND LOWER(artist_name) = LOWER(?)
+  `);
+  const addMissing = db.prepare(`
+    INSERT INTO imported_playlist_unmatched (
+      playlist_key, user_plex_id, source_track_id, position, track_title, artist_name, artists_json,
+      album_title, duration_ms, file_path, recording_mbid, selected, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `);
+  const changed = new Map();
+  const now = Date.now();
+  db.transaction(() => {
+    for (const row of orphans) {
+      const { match } = row.track_title
+        ? resolveTrackIdentity(lookups, {
+          title: row.track_title,
+          artistName: row.artist_name,
+          albumName: row.album_name,
+          durationMs: row.duration_ms,
+          filePath: row.file_path,
+          recordingMbid: row.recording_mbid,
+        })
+        : { match: null };
+      if (match?.ratingKey && hasMasterTrack(db, match.ratingKey)) {
+        if (hasKey.get(row.user_plex_id, row.playlist_key, match.ratingKey)) remove.run(row.row_id);
+        else {
+          update.run(
+            match.ratingKey, match.artistName || row.artist_name, match.trackTitle, match.albumName, match.durationMs,
+            match.filePath, match.recordingMbid, row.row_id,
+          );
+        }
+        result.remapped += 1;
+      } else if (gone.has(row.rating_key)) {
+        if (row.playlist_type === 'custom' && row.track_title) {
+          if (!hasMissing.get(row.user_plex_id, row.playlist_key, row.track_title, row.artist_name)) {
+            addMissing.run(
+              row.playlist_key, row.user_plex_id, row.rating_key, Number(row.source_position || 0),
+              row.track_title, row.artist_name, JSON.stringify(row.artist_name ? [row.artist_name] : []),
+              row.album_name, Number(row.duration_ms || 0), row.file_path, row.recording_mbid, now, now,
+            );
+          }
+          result.missing += 1;
+        } else {
+          result.removed += 1;
+        }
+        remove.run(row.row_id);
+      } else {
+        continue;
+      }
+      changed.set(`${row.user_plex_id}\u0000${row.playlist_key}`, {
+        userPlexId: row.user_plex_id,
+        playlistKey: row.playlist_key,
+        playlistType: row.playlist_type || '',
+      });
+    }
+    for (const entry of changed.values()) updateCustomPlaylistCounts(db, entry.userPlexId, entry.playlistKey);
+  })();
+  result.changed = [...changed.values()];
+  return result;
+}
+
+// Moves a custom playlist's missing tracks back into the playlist, at their original positions,
+// once they can be matched in the library.
+export function rematchImportedPlaylistUnmatched(db, userId, playlistKey) {
+  const rows = db.prepare(`
+    SELECT * FROM imported_playlist_unmatched WHERE user_plex_id = ? AND playlist_key = ?
+  `).all(userId, playlistKey);
+  if (!rows.length) return 0;
+  const lookups = buildTrackIdentityLookups(getMasterTracks(db));
+  const existing = new Set(getPlaylistTracks(db, userId, playlistKey).map((track) => track.ratingKey));
+  const matched = [];
+  for (const row of rows) {
+    let artists = [];
+    try { artists = JSON.parse(row.artists_json || '[]'); } catch { artists = []; }
+    const { match } = resolveTrackIdentity(lookups, {
+      title: row.track_title,
+      artistName: row.artist_name || artists[0] || '',
+      albumName: row.album_title,
+      durationMs: row.duration_ms,
+      filePath: row.file_path,
+      recordingMbid: row.recording_mbid,
+    });
+    if (!match?.ratingKey) continue;
+    matched.push({ id: row.id, position: Number(row.position || 0), match });
+  }
+  if (!matched.length) return 0;
+  const removeMissing = db.prepare('DELETE FROM imported_playlist_unmatched WHERE id = ?');
+  db.transaction(() => {
+    const additions = [];
+    for (const entry of matched) {
+      removeMissing.run(entry.id);
+      if (existing.has(entry.match.ratingKey)) continue;
+      existing.add(entry.match.ratingKey);
+      additions.push({
+        ratingKey: entry.match.ratingKey,
+        artistName: entry.match.artistName,
+        sourcePosition: entry.position || undefined,
+      });
+    }
+    if (additions.length) addPlaylistTracks(db, userId, playlistKey, additions);
+    updateCustomPlaylistCounts(db, userId, playlistKey);
+  })();
+  return matched.length;
 }
 
 export function removePlaylistTracks(db, userId, playlistKey, ratingKeys) {
@@ -2682,7 +2951,7 @@ export function removePlaylistTracks(db, userId, playlistKey, ratingKeys) {
 
 export function listImportedPlaylistUnmatched(db, userId, playlistKey) {
   return db.prepare(`
-    SELECT id, source_track_id, position, track_title, artist_name, artists_json, album_title, album_type, album_image_url, duration_ms, selected
+    SELECT id, source_track_id, position, track_title, artist_name, artists_json, album_title, album_type, album_image_url, duration_ms, file_path, recording_mbid, selected
     FROM imported_playlist_unmatched
     WHERE user_plex_id = ? AND playlist_key = ?
     ORDER BY position ASC, artist_name COLLATE NOCASE ASC, track_title COLLATE NOCASE ASC, id ASC
@@ -2700,6 +2969,8 @@ export function listImportedPlaylistUnmatched(db, userId, playlistKey) {
       albumType: String(row.album_type || '').trim(),
       albumImageUrl: String(row.album_image_url || '').trim(),
       durationMs: Number(row.duration_ms || 0),
+      filePath: String(row.file_path || '').trim(),
+      recordingMbid: String(row.recording_mbid || '').trim(),
       selected: Boolean(row.selected),
     };
   });
@@ -2711,8 +2982,8 @@ export function setImportedPlaylistUnmatched(db, userId, playlistKey, rows) {
     INSERT INTO imported_playlist_unmatched (
       playlist_key, user_plex_id, source_track_id, position, track_title,
       artist_name, artists_json, album_title, album_type, album_image_url, duration_ms,
-      selected, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      file_path, recording_mbid, selected, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const now = Date.now();
   db.transaction(() => {
@@ -2731,6 +3002,8 @@ export function setImportedPlaylistUnmatched(db, userId, playlistKey, rows) {
         String(row?.albumType || '').trim(),
         String(row?.albumImageUrl || '').trim(),
         Number(row?.durationMs || 0),
+        String(row?.filePath || '').trim(),
+        String(row?.recordingMbid || '').trim(),
         row?.selected === false ? 0 : 1,
         now,
         now,
@@ -3438,6 +3711,7 @@ export function listUserGeneratedPlaylists(db, userPlexId, { activeOnly = true }
     trackCount: Number(row.track_count || 0),
     missingCount: Number(row.missing_count || 0),
     active: Boolean(row.active),
+    backupOnly: Boolean(row.backup_only),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -3458,7 +3732,7 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
   const playlistKey = String(playlist?.playlistKey || '').trim();
   if (!playlistKey) throw new Error('playlistKey is required');
   const existing = db.prepare(`
-    SELECT imported_sync_period, artwork_mode, custom_artwork_asset, preserved_artwork_asset, source_content, source_filename
+    SELECT imported_sync_period, artwork_mode, custom_artwork_asset, preserved_artwork_asset, source_content, source_filename, backup_only
     FROM user_generated_playlists
     WHERE user_plex_id = ? AND playlist_key = ?
   `).get(userPlexId, playlistKey);
@@ -3482,8 +3756,8 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
       playlist_title, title_override, artwork_mode, custom_artwork_asset, preserved_artwork_asset,
       source_type, source_ref, source_title, source_owner, source_content, source_filename, imported_sync_period,
       audience, algorithm_version, last_built_at, last_synced_at,
-      track_count, missing_count, active, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      track_count, missing_count, active, backup_only, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id, playlist_key) DO UPDATE SET
       playlist_type = excluded.playlist_type,
       plex_playlist_id = excluded.plex_playlist_id,
@@ -3506,6 +3780,7 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
       track_count = excluded.track_count,
       missing_count = excluded.missing_count,
       active = excluded.active,
+      backup_only = excluded.backup_only,
       updated_at = excluded.updated_at
   `).run(
     userPlexId,
@@ -3547,6 +3822,10 @@ export function saveUserGeneratedPlaylist(db, userPlexId, playlist) {
     Number(playlist?.trackCount || 0),
     Number(playlist?.missingCount || 0),
     playlist?.active === false ? 0 : 1,
+    // A backup-only playlist stays out of the media server; enabling it ends backup-only mode.
+    playlist?.active === false && (
+      playlist?.backupOnly !== undefined ? Boolean(playlist.backupOnly) : Boolean(existing?.backup_only)
+    ) ? 1 : 0,
     Number(playlist?.createdAt || now),
     Number(playlist?.updatedAt || now),
   );

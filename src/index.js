@@ -15,6 +15,7 @@ import { registerWizard, refreshMasterTrackCache } from './routes/wizard.js';
 import { syncLastfmTags } from './services/lastfm-tags.js';
 import { registerPages } from './routes/pages.js';
 import { registerApiMusic } from './routes/api-music.js';
+import { registerPlaylistBackup } from './routes/api-playlist-backup.js';
 import { registerWebhooks } from './routes/webhooks.js';
 import { registerSettings } from './routes/settings.js';
 import { initDb, getUserPreferences, getAllUserIds, listLidarrRequests, updateLidarrRequest, requeueFailedLidarrRequests, removeQueuedLidarrRequest, listUserPersonalPlaylists, listUserGeneratedPlaylists, purgeUserScopedMusicData } from './db.js';
@@ -2274,6 +2275,7 @@ export async function start() {
     registerWizard(app, _routeCtx);
     registerPages(app, _routeCtx);
     registerApiMusic(app, _routeCtx);
+    registerPlaylistBackup(app, _routeCtx);
     registerWebhooks(app, _routeCtx);
     registerSettings(app, _routeCtx);
 

@@ -31,6 +31,16 @@ Core features like playback history, smart playlists, personal playlists, blende
 
 ---
 
+**Can Curatorr back up my playlists and rebuild them if I have to reinstall Plex?**
+
+Yes.
+
+**Playlists → Back up and restore playlists** downloads a backup file covering every Curatorr playlist: smart playlist rules, imported and static track lists, artwork, and system playlist settings. Restoring it on a new Plex install rebuilds those playlists from your library, matching tracks by file path, MusicBrainz ID, or artist and title. Tracks that cannot be found are kept on a missing list.
+
+Plex playlists that Curatorr does not manage, such as ones made in Plexamp, can be saved from the **Plex playlists** tab. Curatorr keeps a backup-only copy and can recreate the playlist in Plex later. If Curatorr's own data survives the Plex reinstall, it re-matches existing playlists to the new library automatically after the next library refresh. See [Playlist Backup and Restore](Playlist-Backup.md).
+
+---
+
 **Does Curatorr only use my media-server library?**
 
 Exported smart playlists use tracks matched to your media-server library. Optional Music Assistant listening can also credit an artist when a track is unmatched, without adding that recording to the library.

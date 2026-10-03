@@ -2619,6 +2619,7 @@ export function registerPages(app, ctx) {
         curatorrCreatedAt: Number(playlist.createdAt || 0),
         state: playlist.active === false ? 'disabled' : (playlist.plexPlaylistId ? 'synced' : 'pending'),
         active: playlist.active !== false,
+        backupOnly: Boolean(playlist.backupOnly),
         description: String(playlist.playlistType || 'generated'),
         playlistAudience: resolvePlaylistAudience(playlist.playlistType, playlist.playlistKey, personalPlaylistMap, playlist.sourceType, playlist.audience),
         artPath: '',

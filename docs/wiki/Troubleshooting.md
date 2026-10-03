@@ -29,6 +29,14 @@ If live playback source is `Plex`, Tautulli webhooks being absent is not the pro
 
 For Music Assistant, check its separate enable switch, connection status, and user mappings in **Settings → Music Assistant**. An identified but unmapped MA user is ignored even if a default listener is selected. A stopped track can take about 60 seconds to settle. See the [MA troubleshooting table](Music-Assistant.md#status-and-troubleshooting).
 
+## Restored playlists are missing tracks
+
+- run **Master Track Cache Refresh** against the server you restored to, then use **Refresh import** on the playlist; found tracks return to their original positions
+- check that the files are in a music library selected in Curatorr; matching uses file path, MusicBrainz ID, or artist and title, so retagged artist names may not match
+- smart and system playlists rebuild from rules and settings, so they have no missing list; check their rules match your new library
+
+See [Playlist Backup and Restore](Playlist-Backup.md).
+
 ## Tautulli gap-fill is not importing expected rows
 
 Check:

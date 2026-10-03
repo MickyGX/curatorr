@@ -28,6 +28,8 @@ import {
   getUserPreferences,
   listUserGeneratedPlaylists,
   saveUserGeneratedPlaylist,
+  remapPlaylistTracks,
+  rematchImportedPlaylistUnmatched,
   saveUserPreferences,
   getResolvedUserArtistFilters,
   cleanMasterArtistName,
@@ -2417,6 +2419,8 @@ export function registerApiMusic(app, ctx) {
         importedSyncPeriod: existing.importedSyncPeriod || 'disabled',
         trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
         missingCount: unmatchedTracks.length,
+        // Importing a playlist that is only kept as a backup brings it into the media server.
+        ...(existing.backupOnly ? { active: true, backupOnly: false } : {}),
         lastBuiltAt: now,
         updatedAt: now,
       });
@@ -2502,18 +2506,44 @@ export function registerApiMusic(app, ctx) {
     };
   }
 
+  // The stored id only counts while it still names the same playlist: a new or rebuilt Plex
+  // server reuses ids, so the title must agree. A playlist that is gone resolves to ''.
   async function resolveImportedPlexSourceId(userPlexId, playlist) {
     const sourceRef = String(playlist?.sourceRef || '').trim();
-    if (sourceRef) return sourceRef;
     const sourceTitle = String(playlist?.sourceTitle || '').trim().toLowerCase();
     const sourceType = String(playlist?.sourceType || '').trim().toLowerCase();
-    if (!sourceTitle || !sourceType.startsWith('plex-')) return '';
+    if (!sourceType.startsWith('plex-')) return '';
     const kind = sourceType.replace(/^plex-/, '');
     const sources = kind === 'collection'
       ? await fetchPlexImportCollections(userPlexId)
       : await fetchPlexImportPlaylists(userPlexId);
-    const matches = (sources || []).filter((entry) => String(entry?.title || '').trim().toLowerCase() === sourceTitle);
+    const titleOf = (entry) => String(entry?.title || '').trim().toLowerCase();
+    const byId = sourceRef ? (sources || []).find((entry) => String(entry?.id || '').trim() === sourceRef) : null;
+    if (byId && (!sourceTitle || titleOf(byId) === sourceTitle)) return sourceRef;
+    if (!sourceTitle) return '';
+    const matches = (sources || []).filter((entry) => titleOf(entry) === sourceTitle);
     return matches.length === 1 ? String(matches[0]?.id || '').trim() : '';
+  }
+
+  // Refreshes a custom playlist from the tracks Curatorr already holds: re-points re-keyed tracks
+  // and moves missing tracks back in once the library has them. Used for restored backups and for
+  // Plex imports whose source playlist no longer exists.
+  async function refreshCustomPlaylistFromStoredTracks(userPlexId, playlist) {
+    const playlistKey = String(playlist?.playlistKey || '').trim();
+    remapPlaylistTracks(db, { userId: userPlexId, playlistKey });
+    rematchImportedPlaylistUnmatched(db, userPlexId, playlistKey);
+    const now = Date.now();
+    saveUserGeneratedPlaylist(db, userPlexId, {
+      ...playlist,
+      trackCount: getPlaylistTracks(db, userPlexId, playlistKey).length,
+      missingCount: listImportedPlaylistUnmatched(db, userPlexId, playlistKey).length,
+      lastBuiltAt: now,
+      updatedAt: now,
+    });
+    const updated = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .find((entry) => String(entry?.playlistKey || '') === playlistKey);
+    if (!updated || updated.active === false) return updated || null;
+    return playlistService?.syncCustomPlaylist(userPlexId, updated);
   }
 
   async function resolveImportedSpotifySourceId(userPlexId, playlist, auth) {
@@ -2540,9 +2570,19 @@ export function registerApiMusic(app, ctx) {
     let sourceTitle = String(playlist?.sourceTitle || '').trim();
     let sourceOwner = String(playlist?.sourceOwner || '').trim();
 
-    if (sourceType === 'plex-playlist' || sourceType === 'plex-collection') {
+    if (sourceType === 'curatorr-backup') {
+      return refreshCustomPlaylistFromStoredTracks(userPlexId, playlist);
+    } else if (sourceType === 'plex-playlist' || sourceType === 'plex-collection') {
       sourceRef = await resolveImportedPlexSourceId(userPlexId, playlist);
-      if (!sourceRef) throw new Error('Original Plex source could not be resolved.');
+      if (!sourceRef) {
+        pushLog({
+          level: 'info',
+          app: 'playlist',
+          action: 'import.refresh.stored',
+          message: `Plex source for "${playlist.playlistTitle || playlist.playlistKey}" no longer exists; refreshed from Curatorr's stored tracks for ${userPlexId}`,
+        });
+        return refreshCustomPlaylistFromStoredTracks(userPlexId, playlist);
+      }
       trackRefs = sourceType === 'plex-playlist'
         ? await fetchPlexPlaylistImportTracks(userPlexId, sourceRef)
         : await fetchPlexCollectionImportTracks(userPlexId, sourceRef);
@@ -2628,7 +2668,8 @@ export function registerApiMusic(app, ctx) {
     const playlists = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
       .filter((playlist) => String(playlist?.playlistType || '').trim().toLowerCase() === 'custom')
       .filter((playlist) => isImportedCustomSourceType(playlist?.sourceType))
-      .filter((playlist) => playlist?.active !== false)
+      // Backup-only playlists stay out of the media server but keep their copy current.
+      .filter((playlist) => playlist?.active !== false || playlist?.backupOnly)
       .filter((playlist) => normalizeImportedSyncPeriod(playlist?.importedSyncPeriod) !== 'disabled');
     let refreshed = 0;
     let skipped = 0;
@@ -5297,6 +5338,92 @@ export function registerApiMusic(app, ctx) {
         importedTrackCount: trackRefs.length,
         audience: makeGlobal ? 'global' : 'personal',
       });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  // ── Back up Plex playlists that Curatorr does not manage ─────────────────
+  // A backup keeps the tracks in Curatorr without creating a second copy in Plex. It refreshes
+  // from Plex on a schedule and can be restored to Plex from its card at any time.
+
+  function listPlexBackupPlaylists(userPlexId) {
+    return listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .filter((entry) => entry.playlistType === 'custom' && entry.sourceType === 'plex-playlist');
+  }
+
+  app.get('/api/music/import/plex/backup', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const msType = String(loadConfig()?.mediaServer?.type || 'plex').trim().toLowerCase();
+    if (msType !== 'plex') return res.status(400).json({ error: 'Plex backup is only available when Plex is the active media server.' });
+    try {
+      const saved = new Map(listPlexBackupPlaylists(userPlexId).map((entry) => [entry.sourceRef, entry]));
+      const playlists = (await fetchPlexImportPlaylists(userPlexId)).map((entry) => ({
+        ...entry,
+        backedUp: saved.has(entry.id),
+        playlistKey: saved.get(entry.id)?.playlistKey || '',
+      }));
+      return res.json({ ok: true, playlists });
+    } catch (err) {
+      return res.status(500).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/plex/backup', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const msType = String(loadConfig()?.mediaServer?.type || 'plex').trim().toLowerCase();
+    if (msType !== 'plex') return res.status(400).json({ error: 'Plex backup is only available when Plex is the active media server.' });
+    const requestedIds = Array.isArray(req.body?.sourceIds)
+      ? new Set(req.body.sourceIds.map((value) => String(value || '').trim()).filter(Boolean))
+      : null;
+    try {
+      const sources = (await fetchPlexImportPlaylists(userPlexId))
+        .filter((entry) => !requestedIds || requestedIds.has(entry.id));
+      const saved = new Map(listPlexBackupPlaylists(userPlexId).map((entry) => [entry.sourceRef, entry]));
+      const result = { created: 0, updated: 0, failed: [] };
+      for (const source of sources) {
+        try {
+          const trackRefs = await fetchPlexPlaylistImportTracks(userPlexId, source.id);
+          const existing = saved.get(source.id);
+          const now = Date.now();
+          const playlistKey = existing?.playlistKey || makeImportedCustomPlaylistKey();
+          saveUserGeneratedPlaylist(db, userPlexId, {
+            ...(existing || {
+              playlistKey,
+              playlistType: 'custom',
+              playlistTitle: source.title,
+              plexPlaylistId: '',
+              active: false,
+              backupOnly: true,
+              importedSyncPeriod: 'weekly',
+              createdAt: now,
+            }),
+            sourceType: 'plex-playlist',
+            sourceRef: source.id,
+            sourceTitle: source.title,
+            trackCount: trackRefs.length,
+            missingCount: Number(existing?.missingCount || 0),
+            lastBuiltAt: now,
+            updatedAt: now,
+          });
+          setPlaylistTracks(db, userPlexId, playlistKey, trackRefs);
+          const updated = existing && existing.active !== false
+            ? listUserGeneratedPlaylists(db, userPlexId, { activeOnly: true }).find((entry) => entry.playlistKey === playlistKey)
+            : null;
+          if (updated) await playlistService?.syncCustomPlaylist(userPlexId, updated).catch(() => {});
+          if (existing) result.updated += 1;
+          else result.created += 1;
+        } catch (err) {
+          result.failed.push({ id: source.id, title: source.title, error: safeMessage(err) });
+        }
+      }
+      pushLog({
+        level: result.failed.length ? 'warn' : 'info',
+        app: 'playlist',
+        action: 'plex.backup',
+        message: `Backed up ${result.created + result.updated} Plex playlist(s) for ${userPlexId} (${result.created} new, ${result.updated} updated${result.failed.length ? `, ${result.failed.length} failed` : ''})`,
+      });
+      return res.json({ ok: true, ...result });
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });
     }

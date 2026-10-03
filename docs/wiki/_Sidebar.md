@@ -13,6 +13,7 @@
 - [Discover and Artist Pipeline](Discover.md)
 - [Smart Playlists](Smart-Playlists.md)
 - [Playlist Imports](Playlist-Imports.md)
+- [Playlist Backup and Restore](Playlist-Backup.md)
 - [History](History.md)
 - [Tracks](Tracks.md)
 - [Blend](Blend.md)

@@ -14,6 +14,9 @@ import {
   getMasterTracks,
   setPlaylistTracks,
   getPlaylistTracks,
+  remapPlaylistTracks,
+  hasMasterTrack,
+  listImportedPlaylistUnmatched,
   updateUserPersonalPlaylist,
   getArtistTagMap,
   getEffectiveTrackTags,
@@ -3309,6 +3312,17 @@ export function createPlaylistService(ctx) {
     setPlaylistTracks(db, userPlexId, playlist.playlistKey, tracks);
   }
 
+  // Current track refs of a generated playlist as held by the media server.
+  async function fetchGeneratedPlaylistTrackRefs(userPlexId, playlist) {
+    if (!playlist?.plexPlaylistId) return [];
+    const config = ctx.loadConfig();
+    const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
+    if (msType === 'jellyfin' || msType === 'emby') {
+      return fetchJellyfinPlaylistTrackRefs(userPlexId, playlist.plexPlaylistId, msType).catch(() => []);
+    }
+    return fetchPlexPlaylistTrackRefs(userPlexId, playlist.plexPlaylistId).catch(() => []);
+  }
+
   async function deleteGeneratedPlaylistFromMediaServer(userPlexId, playlist) {
     if (!playlist?.plexPlaylistId) return;
     const config = ctx.loadConfig();
@@ -3340,6 +3354,8 @@ export function createPlaylistService(ctx) {
 
   async function syncCustomPlaylist(userPlexId, playlist) {
     if (!playlist) throw new Error('Playlist not found.');
+    // Re-point tracks whose server ids changed before pushing the playlist.
+    remapPlaylistTracks(db, { userId: userPlexId, playlistKey: playlist.playlistKey });
     const trackRefs = getPlaylistTracks(db, userPlexId, playlist.playlistKey);
     const ratingKeys = trackRefs.map((track) => String(track.ratingKey || '').trim()).filter(Boolean);
     const config = ctx.loadConfig();
@@ -3383,7 +3399,18 @@ export function createPlaylistService(ctx) {
       String(playlist.playlistTitle || 'Playlist'),
       machineId,
     );
-    await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+    const plexSync = await replacePlexPlaylistItems(ctx, userPlexId, playlistRow.plexPlaylistId, machineId, ratingKeys);
+    // Tracks Plex no longer has, and the library cache no longer lists, move to the missing list.
+    const goneKeys = (plexSync?.missingKeys || []).filter((key) => !hasMasterTrack(db, key));
+    const remap = goneKeys.length
+      ? remapPlaylistTracks(db, { goneKeys, userId: userPlexId, playlistKey: playlist.playlistKey })
+      : null;
+    const syncedTrackCount = remap?.changed?.length
+      ? getPlaylistTracks(db, userPlexId, playlist.playlistKey).length
+      : ratingKeys.length;
+    const syncedMissingCount = remap?.changed?.length
+      ? listImportedPlaylistUnmatched(db, userPlexId, playlist.playlistKey).length
+      : Number(playlist.missingCount || 0);
     const syncedArtwork = await syncGeneratedPlaylistArtwork(userPlexId, {
       ...playlistRow,
       playlistKey: playlist.playlistKey,
@@ -3395,7 +3422,8 @@ export function createPlaylistService(ctx) {
       artworkMode: syncedArtwork.artworkMode,
       customArtworkAsset: syncedArtwork.customArtworkAsset,
       preservedArtworkAsset: syncedArtwork.preservedArtworkAsset,
-      trackCount: ratingKeys.length,
+      trackCount: syncedTrackCount,
+      missingCount: syncedMissingCount,
       active: true,
       lastSyncedAt: now,
       updatedAt: now,
@@ -4797,6 +4825,7 @@ export function createPlaylistService(ctx) {
     syncCurative,
     syncBothForUser,
     setGeneratedActive,
+    fetchGeneratedPlaylistTrackRefs,
     updateGeneratedPlaylistArtwork,
     removeSmartPlaylistType,
     renameGeneratedPlaylistTitle,

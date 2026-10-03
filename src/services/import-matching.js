@@ -12,6 +12,7 @@ export const IMPORTED_PLAYLIST_SOURCE_TYPES = Object.freeze([
   'lastfm-station',
   'listenbrainz-playlist',
   'm3u-file',
+  'curatorr-backup',
 ]);
 
 export function isImportedPlaylistSourceType(sourceType) {

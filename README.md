@@ -30,6 +30,7 @@ Curatorr is a self-hosted Plex, Jellyfin, and Emby companion for playback tracki
 - Integrates with Lidarr for optional add, queue, and progression workflows
 - Supports Last.fm history/station features and ListenBrainz playlist suggestions on supported server paths
 - Includes listening reports, reusable playlist templates, artwork controls, and M3U/M3U8 import with scheduled refresh
+- Backs up every Curatorr playlist (smart rules, imported and static track lists, system playlist settings) to a file that can rebuild them on a new media server, keeps backup-only copies of Plex playlists, and exports M3U
 
 ## Media Server Support
 
@@ -116,6 +117,7 @@ For installation, setup, configuration, and troubleshooting:
 - [Discover](docs/wiki/Discover.md)
 - [Smart Playlists](docs/wiki/Smart-Playlists.md)
 - [Playlist Imports](docs/wiki/Playlist-Imports.md)
+- [Playlist Backup and Restore](docs/wiki/Playlist-Backup.md)
 - [History](docs/wiki/History.md)
 - [Tracks](docs/wiki/Tracks.md)
 - [Blend](docs/wiki/Blend.md)

@@ -11,6 +11,8 @@ const {
   getLastPlaylistSync,
   getPlaylistTracks,
   initDb,
+  listImportedPlaylistUnmatched,
+  setPlaylistTracks,
   listUserGeneratedPlaylists,
   refreshMasterTracks,
   saveUserGeneratedPlaylist,
@@ -219,6 +221,32 @@ describe('Plex rejected playlist batch recovery', () => {
     assert.equal(calls.filter((call) => call.method === 'DELETE').length, 1);
     assert.equal(calls.filter((call) => call.target.pathname === '/').length, 1);
     assert.ok(logs.some((entry) => entry.action === 'plex.playlist.unavailable_track'));
+  });
+
+  it('moves custom playlist tracks Plex confirms gone to the missing list', async () => {
+    mockPlex();
+    const dbPath = path.join(testDir, `playlist-sync-missing-${Date.now()}.db`);
+    const db = initDb(dbPath);
+    try {
+      refreshMasterTracks(db, [{ ratingKey: 'live', artistName: 'Artist', trackTitle: 'Live Song', albumName: 'Album', libraryKey: '1' }]);
+      saveUserGeneratedPlaylist(db, 'alice', {
+        playlistKey: 'custom-x', playlistType: 'custom', playlistTitle: 'Mix', plexPlaylistId: 'playlist', active: true,
+      });
+      // 'stale' is a re-keyed track Curatorr still knows by name but can no longer match.
+      setPlaylistTracks(db, 'alice', 'custom-x', [
+        { ratingKey: 'live' },
+        { ratingKey: 'stale', artistName: 'Artist', trackTitle: 'Gone Song', albumName: 'Album', durationMs: 1000 },
+      ]);
+      const service = createPlaylistService(createTestContext(db, []));
+      const playlist = listUserGeneratedPlaylists(db, 'alice', { activeOnly: false })[0];
+      const synced = await service.syncCustomPlaylist('alice', playlist);
+      assert.deepEqual(getPlaylistTracks(db, 'alice', 'custom-x').map((track) => track.ratingKey), ['live']);
+      assert.deepEqual(listImportedPlaylistUnmatched(db, 'alice', 'custom-x').map((row) => row.title), ['Gone Song']);
+      assert.equal(synced.trackCount, 1);
+      assert.equal(synced.missingCount, 1);
+    } finally {
+      db.close();
+    }
   });
 
   it('skips an old music ID reassigned to a TV episode after a Plex database repair', async () => {
