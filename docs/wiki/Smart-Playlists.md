@@ -64,7 +64,7 @@ For Plex, artwork handling supports **Auto-generated**, **Preserve existing artw
 
 ## Imported playlists
 
-Use **Import playlist** to browse Plex playlists/collections, connected Spotify playlists, supported URLs, M3U/M3U8 files, Last.fm sources, or ListenBrainz suggestions. Available tabs depend on your primary server and configured accounts.
+Use **Import playlist** to browse Plex playlists/collections, connected Spotify or TIDAL playlists, supported URLs, M3U/M3U8 files, Last.fm sources, or ListenBrainz suggestions. Available tabs depend on your primary server and configured accounts.
 
 Imports retain their source and missing tracks, support manual refresh, and can rematch as your library grows. See [Playlist Imports](Playlist-Imports.md) for the complete workflow and source restrictions.
 

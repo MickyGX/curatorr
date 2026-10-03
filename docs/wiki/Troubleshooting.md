@@ -87,6 +87,7 @@ Check:
 - Refresh the master track cache after adding music, then use **Refresh import**.
 - Review **Missing from source**; named artists no longer fall back to unrelated tracks with the same title.
 - For incomplete Spotify URL previews, import an owned copy through the connected Spotify tab.
+- If a TIDAL URL reports the playlist as not found, it is private to another account. Make it public in TIDAL, or import it from the owner's connected TIDAL tab.
 - M3U auto-refresh rematches the stored upload. Very old imports without source content may need to be imported again.
 
 See [Playlist Imports](Playlist-Imports.md).

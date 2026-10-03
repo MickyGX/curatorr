@@ -10,7 +10,8 @@ Import existing selections from **Playlists → Import playlist**. Curatorr matc
 |---|---|
 | Plex | Browse existing playlists and music collections on Plex installs |
 | Spotify | Connect your account in User Profile; the connected-account tab browses owned playlists |
-| URL | Preview supported Spotify or public YouTube playlist URLs; YouTube requires the container's `YOUTUBE_API_KEY` |
+| TIDAL | Connect your account in User Profile; the TIDAL tab browses playlists owned by that account |
+| URL | Preview supported Spotify, public TIDAL, or public YouTube playlist URLs; YouTube requires the container's `YOUTUBE_API_KEY` |
 | M3U | Upload an `.m3u` or `.m3u8` file; matches paths first, then available artist/title metadata |
 | Last.fm | Set your username in User Profile, then choose Recommended, Mix, Library, Neighbours, Loved, or a Top Tracks period |
 | ListenBrainz | Set your username and optional token in User Profile, then choose Daily Jams, Weekly Jams, or Weekly Exploration |
@@ -49,5 +50,11 @@ The finishing step can keep the original imported mirror or remove it. Keeping t
 ## Spotify URL previews
 
 Owned playlists imported from the connected **Spotify** tab are the most reliable route for large playlists. The **URL** tab depends on Spotify's public page data and can expose only part of a shared/public playlist. If the preview is incomplete, copy the tracks into a playlist you own in Spotify and import that copy through the connected-account tab.
+
+## TIDAL imports
+
+The **TIDAL** tab lists playlists owned by the connected TIDAL account, including private ones. Public TIDAL playlist links (`https://tidal.com/playlist/...`) can be pasted into the **URL** tab by any user, whether or not they have connected TIDAL. A private playlist owned by another account can't be read; import it from the owner's Curatorr account instead.
+
+Only tracks are imported. Videos in a TIDAL playlist are skipped and do not count as missing. TIDAL import requires `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` on the container; see [Integrations](Integrations.md#tidal).
 
 See [Smart Playlists](Smart-Playlists.md) for artwork, filters, and general playlist management.

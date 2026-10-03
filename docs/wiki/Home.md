@@ -66,7 +66,7 @@ This guide and its screenshots were refreshed against **v0.1.100**. The new [Mus
 - Listening reports with period comparisons, activity heatmaps, tags, decades, and listening fingerprints.
 - Per-user track tiers: `Belter`, `Decent`, `Half Decent`, `Skip`, and `Curatorr`.
 - A guided playlist builder with personal, blend, and global audiences, reusable templates, content filters, deduplication, audio profiles, and artwork controls.
-- Playlist imports from Plex, Spotify, supported URLs, M3U/M3U8, Last.fm, and ListenBrainz, with missing-track review and refresh schedules.
+- Playlist imports from Plex, Spotify, TIDAL, supported URLs, M3U/M3U8, Last.fm, and ListenBrainz, with missing-track review and refresh schedules.
 - Coverage-aware preset gating so BPM/key-driven presets disable themselves when the required analysis data is unavailable.
 - Optional analyzer sidecar for first-party BPM/key/Camelot/energy/danceability enrichment.
 - Local admin account plus media-server sign-in support, including Plex Home profiles on Plex installs.

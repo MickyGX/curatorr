@@ -94,6 +94,8 @@ Curatorr supports an optional analyzer sidecar for `BPM`, `musical key`, `Camelo
 
 Spotify support is optional and user-specific. Users can connect Spotify accounts to browse and import playlists after app-level credentials are configured on the Curatorr container. Owned Spotify playlists imported through the connected-account flow are the most reliable option, especially for larger playlists. Shared or public Spotify playlist URLs imported through the `URL` tab depend on whatever Spotify exposes on its public web pages, so some playlists may only preview or import part of the track list. If a shared/public playlist is incomplete, copy its tracks into a new playlist you own in Spotify and import that owned copy from the Spotify tab instead. For setup details, see [Spotify in Integrations](docs/wiki/Integrations.md#spotify).
 
+TIDAL support is optional and user-specific. Users can connect TIDAL accounts to browse and import their own playlists after `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` are configured on the Curatorr container. Public TIDAL playlist links can also be imported from the `URL` tab without connecting an account. For setup details, see [TIDAL in Integrations](docs/wiki/Integrations.md#tidal).
+
 YouTube playlist URL import is optional and server-level. Public YouTube playlists can be previewed and imported when `YOUTUBE_API_KEY` is configured on the Curatorr container. For setup details, see [Integrations](docs/wiki/Integrations.md#youtube).
 
 ## Documentation
