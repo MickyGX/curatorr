@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.105 (2026-10-03)
+
+- Added playlist backup and restore. **Playlists → Back up and restore playlists** exports a `.curatorr.json` file with smart playlist rules, global playlists, imported and static track lists, artwork, and optional system playlist settings. Restoring it rebuilds the playlists against the current library, on the same server or a new one.
+- Playlist cards can export a single playlist as a backup or as M3U, and selected cards can be exported together.
+- Added backups of Plex playlists that Curatorr doesn't manage. Curatorr keeps a copy without adding it to Plex, refreshes it weekly, and can restore it to Plex from its card.
+- Fixed master track cache refreshes deleting playlist tracks whose Plex IDs changed after a Plex rebuild or reinstall. Tracks are now re-matched by file path, MusicBrainz ID, or artist and title. Tracks confirmed gone move to the missing list.
+- Fixed **Refresh import** failing when an imported Plex playlist no longer exists. It now rebuilds from Curatorr's stored tracks and never reads a different playlist that reuses the old ID.
+- Added regression coverage for track re-matching, backup export and restore, Plex playlist backups, and refreshing from stored tracks.
+
 ## v0.1.104 (2026-10-03)
 
 - Added a Play count filter to smart playlists. In the wizard's content filters, set **At least** and/or **At most** to keep only tracks the listener has played that many times in Curatorr.
