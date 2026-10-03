@@ -159,6 +159,12 @@ function parseNullablePlaylistDayCount(value) {
   return Math.max(1, Math.round(num));
 }
 
+function parseNullablePlaylistPlayCount(value) {
+  const num = parseNullablePlaylistNumber(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.round(num));
+}
+
 function formatOverviewReleaseDate(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -274,6 +280,8 @@ function buildPlaylistFeatureRules(payload = {}) {
       ? String(payload.lastPlayedMode).trim()
       : 'any',
     lastPlayedDays: parseNullablePlaylistDayCount(payload.lastPlayedDays),
+    playCountMin: parseNullablePlaylistPlayCount(payload.playCountMin),
+    playCountMax: parseNullablePlaylistPlayCount(payload.playCountMax),
     libraryAddedMode,
     libraryAddedDays: parseNullablePlaylistDayCount(payload.libraryAddedDays),
     releaseYearMin: parseNullablePlaylistNumber(payload.releaseYearMin),
@@ -535,6 +543,8 @@ function inferImportedWizardPrefill(db, userPlexId, playlist) {
     seasonalKeywordsMode: 'any',
     lastPlayedMode: 'any',
     lastPlayedDays: null,
+    playCountMin: null,
+    playCountMax: null,
     includeFolders: [],
     excludeFolders: [],
     advancedRules: [],

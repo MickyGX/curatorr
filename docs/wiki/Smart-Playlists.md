@@ -32,6 +32,8 @@ Select **Create smart playlist**. The wizard has four steps for regular users an
 4. **Library scope & cleanup** (admin only): refine library/path scope and advanced cleanup rules.
 5. **Finish & create:** review the selection, name it, choose a rebuild schedule and supported artwork handling, then create it. For non-admin users, this is step four.
 
+Content filters also include **Last played** (played within / not played within N days, or never played) and **Play count** (at least / at most N plays, counted from the listener's Curatorr play history). Combined with a play count sort and a total track cap, these can recreate "rediscover old favourites" style playlists.
+
 The preview distinguishes the **Eligible pool** from the **Final playlist** after output limits and cleanup. If the result is unexpectedly small, check active filters, analysis coverage, caps, and deduplication rules.
 
 Personal playlists with no current matches can be saved as Curatorr drafts for later editing when that option is offered; an empty draft is not a populated media-server playlist. Global saves validate the rule set before creating it.

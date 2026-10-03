@@ -4240,6 +4240,18 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
     return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
   }
 
+  function matchesPlayCountRule(stat) {
+    const min = rules?.playCountMin == null || rules.playCountMin === '' ? null : Number(rules.playCountMin);
+    const max = rules?.playCountMax == null || rules.playCountMax === '' ? null : Number(rules.playCountMax);
+    const hasMin = Number.isFinite(min) && min > 0;
+    const hasMax = Number.isFinite(max) && max >= 0;
+    if (!hasMin && !hasMax) return true;
+    const playCount = Number(stat?.play_count ?? stat?.playCount ?? 0);
+    if (hasMin && playCount < min) return false;
+    if (hasMax && playCount > max) return false;
+    return true;
+  }
+
   function matchesSeasonalRule(track) {
     const seasonalGenres = Array.isArray(rules?.seasonalGenres) ? rules.seasonalGenres.filter(Boolean) : [];
     const seasonalKeywords = Array.isArray(rules?.seasonalKeywords) ? rules.seasonalKeywords.filter(Boolean) : [];
@@ -4299,6 +4311,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
       if (!matchesLastPlayedRule(stat)) continue;
+      if (!matchesPlayCountRule(stat)) continue;
       if (!matchesLibraryAddedRule(t, rules)) continue;
       if (!matchesReleaseRules(t, rules)) continue;
 
@@ -4382,6 +4395,7 @@ export function previewGlobalPlaylist(db, rules, userIdFilter, smartSettings, fi
       if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
       if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
       if (!matchesLastPlayedRule(stat)) continue;
+      if (!matchesPlayCountRule(stat)) continue;
       if (!matchesLibraryAddedRule(t, rules)) continue;
       if (!matchesReleaseRules(t, rules)) continue;
       if (!matchesTriStateValues(t.genres || [], gf)) continue;

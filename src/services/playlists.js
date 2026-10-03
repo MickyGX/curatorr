@@ -728,6 +728,18 @@ function matchesLastPlayedRule(stat, rules = {}, now = Date.now()) {
   return mode === 'within' ? ageMs <= thresholdMs : ageMs > thresholdMs;
 }
 
+function matchesPlayCountRule(stat, rules = {}) {
+  const min = rules?.playCountMin == null || rules.playCountMin === '' ? null : Number(rules.playCountMin);
+  const max = rules?.playCountMax == null || rules.playCountMax === '' ? null : Number(rules.playCountMax);
+  const hasMin = Number.isFinite(min) && min > 0;
+  const hasMax = Number.isFinite(max) && max >= 0;
+  if (!hasMin && !hasMax) return true;
+  const playCount = Number(stat?.play_count ?? stat?.playCount ?? 0);
+  if (hasMin && playCount < min) return false;
+  if (hasMax && playCount > max) return false;
+  return true;
+}
+
 function parsePositiveDayCount(value) {
   const days = Number(value || 0);
   return Number.isFinite(days) && days > 0 ? days : null;
@@ -2767,6 +2779,7 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
     if (trackTierFilter.include && !trackTierFilter.include.has(normTier)) continue;
     if (trackTierFilter.exclude && trackTierFilter.exclude.has(normTier)) continue;
     if (!matchesLastPlayedRule(stat, rules)) continue;
+    if (!matchesPlayCountRule(stat, rules)) continue;
     if (!matchesLibraryAddedRule(t, rules)) continue;
     if (!matchesReleaseRules(t, rules)) continue;
 

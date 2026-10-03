@@ -336,6 +336,12 @@ function parseNullableDayCount(value) {
   return Math.max(1, Math.round(num));
 }
 
+function parseNullablePlayCount(value) {
+  const num = parseNullableNumber(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.round(num));
+}
+
 function normalizePlaylistFeaturePreset(value) {
   const raw = String(value || '').trim().toLowerCase();
   return PLAYLIST_FEATURE_PRESETS.includes(raw) ? raw : 'none';
@@ -369,6 +375,8 @@ function buildPlaylistFeatureRuleConfig(input = {}) {
       ? String(input.lastPlayedMode).trim()
       : 'any',
     lastPlayedDays: parseNullableDayCount(input.lastPlayedDays),
+    playCountMin: parseNullablePlayCount(input.playCountMin),
+    playCountMax: parseNullablePlayCount(input.playCountMax),
   };
 }
 
@@ -2178,6 +2186,8 @@ export function registerSettings(app, ctx) {
           camelotMode: req.body?.camelotMode !== undefined ? req.body.camelotMode : existing.rules?.camelotMode,
           lastPlayedMode: req.body?.lastPlayedMode !== undefined ? req.body.lastPlayedMode : existing.rules?.lastPlayedMode,
           lastPlayedDays: req.body?.lastPlayedDays !== undefined ? req.body.lastPlayedDays : existing.rules?.lastPlayedDays,
+          playCountMin: req.body?.playCountMin !== undefined ? req.body.playCountMin : existing.rules?.playCountMin,
+          playCountMax: req.body?.playCountMax !== undefined ? req.body.playCountMax : existing.rules?.playCountMax,
         }),
       },
       trackFilters: req.body?.trackFilters !== undefined ? (() => {

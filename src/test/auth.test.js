@@ -5835,7 +5835,7 @@ describe('security guards', () => {
     }
   });
 
-  it('filters smart playlist previews by last played recency', () => {
+  it('filters smart playlist previews by last played recency and play count', () => {
     const dbPath = join(process.env.DATA_DIR, `curatorr-last-played-preview-${Date.now()}.db`);
     const db = initDb(dbPath);
     const userId = `last-played-user-${Date.now()}`;
@@ -5914,6 +5914,20 @@ describe('security guards', () => {
       );
       assert.equal(neverPreview.forUser?.eligibleTrackCount, 1);
       assert.equal(neverPreview.forUser?.trackCount, 1);
+
+      const minPlaysPreview = previewGlobalPlaylist(db, { playCountMin: 10 }, userId, {});
+      assert.equal(minPlaysPreview.forUser?.eligibleTrackCount, 1);
+
+      const maxPlaysPreview = previewGlobalPlaylist(db, { playCountMax: 7 }, userId, {});
+      assert.equal(maxPlaysPreview.forUser?.eligibleTrackCount, 2);
+
+      const rewindPreview = previewGlobalPlaylist(
+        db,
+        { playCountMin: 5, lastPlayedMode: 'notWithin', lastPlayedDays: 30 },
+        userId,
+        {},
+      );
+      assert.equal(rewindPreview.forUser?.eligibleTrackCount, 1);
     } finally {
       db.close();
     }

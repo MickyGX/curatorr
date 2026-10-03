@@ -4280,6 +4280,8 @@
         seasonalKeywordsMode: rules.seasonalKeywordsMode === 'all' ? 'all' : 'any',
         lastPlayedMode: String(rules.lastPlayedMode || 'any'),
         lastPlayedDays: rules.lastPlayedDays != null ? Number(rules.lastPlayedDays) : null,
+        playCountMin: rules.playCountMin != null ? Number(rules.playCountMin) : null,
+        playCountMax: rules.playCountMax != null ? Number(rules.playCountMax) : null,
         libraryAddedMode: String(rules.libraryAddedMode || 'any'),
         libraryAddedDays: rules.libraryAddedDays != null ? Number(rules.libraryAddedDays) : null,
         releaseYearMin: rules.releaseYearMin != null ? Number(rules.releaseYearMin) : null,
@@ -5078,6 +5080,8 @@
         seasonalKeywordsMode: 'any',
         lastPlayedMode: 'any',
         lastPlayedDays: null,
+        playCountMin: null,
+        playCountMax: null,
         libraryAddedMode: 'any',
         libraryAddedDays: null,
         releaseYearMin: null,
@@ -5160,6 +5164,8 @@
         lastPlayedDays: (ws.lastPlayedMode === 'within' || ws.lastPlayedMode === 'notWithin')
           ? (ws.lastPlayedDays || null)
           : null,
+        playCountMin: ws.playCountMin != null ? ws.playCountMin : null,
+        playCountMax: ws.playCountMax != null ? ws.playCountMax : null,
         libraryAddedMode: ws.libraryAddedMode || 'any',
         libraryAddedDays: (ws.libraryAddedMode === 'within' || ws.libraryAddedMode === 'notWithin')
           ? (ws.libraryAddedDays || null)
@@ -5486,6 +5492,8 @@
       state.trackTiers = { include: [], exclude: [], includeMode: 'any' };
       state.lastPlayedMode = 'any';
       state.lastPlayedDays = null;
+      state.playCountMin = null;
+      state.playCountMax = null;
       state.libraryAddedMode = 'any';
       state.libraryAddedDays = null;
       state.releaseYearMin = null;
@@ -6195,6 +6203,20 @@
             '</label>' +
           '</div>' +
         '</div>' +
+        '<div class="spm-filter-section" style="margin-top:14px">' +
+          '<div class="spm-filter-label">Play count</div>' +
+          '<div class="spm-wizard-subsection-copy" style="margin-bottom:10px">Filter tracks by how many times you have played them in Curatorr. Leave blank for no limit.</div>' +
+          '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">' +
+            '<label style="display:flex;flex-direction:column;gap:6px;min-width:120px">' +
+              '<span class="spm-chip-hint" style="margin:0">At least</span>' +
+              '<input type="number" id="wiz-play-count-min" class="input" min="0" step="1" placeholder="Any" value="' + escH(_wizardState.playCountMin != null ? String(_wizardState.playCountMin) : '') + '" />' +
+            '</label>' +
+            '<label style="display:flex;flex-direction:column;gap:6px;min-width:120px">' +
+              '<span class="spm-chip-hint" style="margin:0">At most</span>' +
+              '<input type="number" id="wiz-play-count-max" class="input" min="0" step="1" placeholder="Any" value="' + escH(_wizardState.playCountMax != null ? String(_wizardState.playCountMax) : '') + '" />' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
         '<div class="spm-wizard-subsection spm-wizard-accordion' + (tiersOpen ? ' is-open' : '') + '" data-accordion-kind="tiers">' +
           '<button type="button" class="spm-wizard-accordion-toggle" data-accordion-toggle="tiers">' +
             '<span class="spm-wizard-subsection-title">Artist and track tiers</span>' +
@@ -6557,6 +6579,14 @@
             : 'Never played');
         html += row('Last played', lastPlayedLabel);
       }
+      if (ws.playCountMin != null || ws.playCountMax != null) {
+        var playCountLabel = ws.playCountMin != null && ws.playCountMax != null
+          ? (escH(String(ws.playCountMin)) + '–' + escH(String(ws.playCountMax)) + ' plays')
+          : (ws.playCountMin != null
+            ? ('At least ' + escH(String(ws.playCountMin)) + ' plays')
+            : ('At most ' + escH(String(ws.playCountMax)) + ' plays'));
+        html += row('Play count', playCountLabel);
+      }
       if (ws.libraryAddedMode && ws.libraryAddedMode !== 'any') {
         html += row('Added to library', (ws.libraryAddedMode === 'within' ? 'Added within last ' : 'Not added within last ') + escH(String(ws.libraryAddedDays || '')) + ' days');
       }
@@ -6721,6 +6751,12 @@
         if (_wizardState.lastPlayedMode !== 'within' && _wizardState.lastPlayedMode !== 'notWithin') {
           _wizardState.lastPlayedDays = null;
         }
+        ['Min', 'Max'].forEach(function(suffix) {
+          var el = document.getElementById('wiz-play-count-' + suffix.toLowerCase());
+          if (!el) return;
+          var n = parseInt(el.value, 10);
+          _wizardState['playCount' + suffix] = Number.isFinite(n) && n >= 0 ? n : null;
+        });
         _wizardState.libraryAddedMode = document.getElementById('wiz-library-added-mode')
           ? (document.getElementById('wiz-library-added-mode').value || 'any')
           : 'any';
@@ -7249,6 +7285,16 @@
           lastPlayedDaysEl.addEventListener('change', lastPlayedDaysHandler);
           lastPlayedDaysEl.addEventListener('input', lastPlayedDaysHandler);
         }
+        ['wiz-play-count-min', 'wiz-play-count-max'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          var handler = function() {
+            wizardSaveStateFromStep(2);
+            setTimeout(wizardRunPreview, 200);
+          };
+          el.addEventListener('change', handler);
+          el.addEventListener('input', handler);
+        });
         var libraryAddedModeEl = document.getElementById('wiz-library-added-mode');
         if (libraryAddedModeEl) {
           libraryAddedModeEl.addEventListener('change', function() {
