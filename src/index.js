@@ -36,6 +36,7 @@ import { startMusicAssistant, stopMusicAssistant } from './services/music-assist
 import { createTrackEnrichmentService } from './services/track-enrichment.js';
 import { createSpotifyService } from './services/spotify.js';
 import { createYouTubeService } from './services/youtube.js';
+import { createTidalService } from './services/tidal.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2025,6 +2026,7 @@ export async function start() {
     _routeCtx.trackEnrichmentService = createTrackEnrichmentService(_routeCtx);
     _routeCtx.spotifyService = createSpotifyService(_routeCtx);
     _routeCtx.youtubeService = createYouTubeService(_routeCtx);
+    _routeCtx.tidalService = createTidalService(_routeCtx);
 
     // Middleware: redirect Plex users who haven't completed the personal wizard.
     // Locally created Curatorr users can still launch it manually if they want.

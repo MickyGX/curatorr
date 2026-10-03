@@ -44,6 +44,7 @@ import {
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildStoredPlaylistArtworkUrl } from '../services/playlist-artwork.js';
 import { resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
+import { IMPORTED_PLAYLIST_SOURCE_TYPES, isImportedPlaylistSourceType } from '../services/import-matching.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
 import * as embyAdapter from '../services/media-servers/emby.js';
 
@@ -119,8 +120,8 @@ function resolvePlaylistAudience(playlistType, playlistKey = '', personalPlaylis
   const type = String(playlistType || '').trim().toLowerCase();
   const source = String(sourceType || '').trim().toLowerCase();
   const aud = String(audience || 'personal').trim().toLowerCase();
-  if ((['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(source) || source.startsWith('plex-')) && aud === 'global') return 'global';
-  if (['spotify-playlist', 'youtube-playlist', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(source) || source.startsWith('plex-')) return 'imported';
+  if (isImportedPlaylistSourceType(source) && aud === 'global') return 'global';
+  if (isImportedPlaylistSourceType(source)) return 'imported';
   if (type === 'global') return 'global';
   if (['lastfm-station', 'listenbrainz-playlist'].includes(type)) return 'external';
   if (['legacy', 'curatorred', 'curatorr', 'curative', 'crescive', 'daily-mix'].includes(type)) return 'system';
@@ -1297,6 +1298,7 @@ export function registerPages(app, ctx) {
     lidarrService,
     fetchPlexPlaylistsForToken,
     spotifyService,
+    tidalService,
     youtubeService,
     SERVER_TIME_ZONE,
     fetchPlexUser,
@@ -2708,6 +2710,9 @@ export function registerPages(app, ctx) {
       spotifyConfigured: Boolean(spotifyService?.isConfigured?.()),
       youtubeConfigured: Boolean(youtubeService?.isConfigured?.()),
       spotifyDisplayName: String(userPrefs?.spotifyDisplayName || ''),
+      tidalConnected: Boolean(userPrefs?.tidalRefreshToken || userPrefs?.tidalAccessToken),
+      tidalConfigured: Boolean(tidalService?.isConfigured?.()),
+      importedSourceTypes: IMPORTED_PLAYLIST_SOURCE_TYPES,
       lidarrAutomationEligible,
       lidarrConfigured,
       blendableUsers: await buildBlendableUsers(
@@ -2795,6 +2800,7 @@ export function registerPages(app, ctx) {
     const spotifyUserId = userPrefs?.spotifyUserId || '';
     const spotifyDisplayName = userPrefs?.spotifyDisplayName || '';
     const spotifyConnected = Boolean(userPrefs?.spotifyRefreshToken || userPrefs?.spotifyAccessToken);
+    const tidalConnected = Boolean(userPrefs?.tidalRefreshToken || userPrefs?.tidalAccessToken);
     res.render('user-settings', {
       title: 'My Settings — Curatorr',
       user: req.session.user,
@@ -2818,6 +2824,10 @@ export function registerPages(app, ctx) {
       spotifyUserId,
       spotifyDisplayName,
       spotifyConnected,
+      tidalConfigured: Boolean(tidalService?.isConfigured?.()),
+      tidalConnected,
+      tidalDisplayName: userPrefs?.tidalDisplayName || '',
+      tidalCountryCode: userPrefs?.tidalCountryCode || '',
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

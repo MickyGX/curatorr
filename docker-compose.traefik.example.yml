@@ -13,6 +13,11 @@ services:
       # https://curatorr.example.com/user-settings/spotify/callback
       # - SPOTIFY_CLIENT_ID=your-spotify-client-id
       # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
+      # Optional: required for TIDAL playlist import and refresh.
+      # Add the matching callback URL in your TIDAL app settings:
+      # https://curatorr.example.com/user-settings/tidal/callback
+      # - TIDAL_CLIENT_ID=your-tidal-client-id
+      # - TIDAL_CLIENT_SECRET=your-tidal-client-secret
       # Comma-separated list of origins allowed to iframe Curatorr.
       # - EMBED_ALLOWED_ORIGINS=https://launcharr.example.com
       # Generate once: openssl rand -hex 32

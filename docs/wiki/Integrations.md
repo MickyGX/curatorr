@@ -219,6 +219,45 @@ URL, for example:
 These credentials identify the Curatorr app, not a single Spotify account. Each Curatorr
 user still connects their own Spotify account separately through OAuth.
 
+## TIDAL
+
+TIDAL is optional and user-specific.
+
+Current support is for:
+
+- connecting a TIDAL account from `User Profile`
+- browsing TIDAL playlists owned by the connected account from the Playlists page `TIDAL` tab
+- importing public TIDAL playlist links from the `URL` tab, with or without a connected account
+- importing matched tracks into Curatorr as managed custom playlists
+- refreshing imported TIDAL playlists against the current library
+
+Notes:
+
+- Only tracks are imported. Videos in a TIDAL playlist are skipped.
+- Private playlists can only be read through the account that owns them. Public playlist links
+  fall back to the app credentials, so they work for users who have not connected TIDAL.
+- Bidirectional sync and playback from TIDAL are not supported.
+
+TIDAL requires app-level credentials on the Curatorr container:
+
+- `TIDAL_CLIENT_ID`
+- `TIDAL_CLIENT_SECRET`
+- `TIDAL_COUNTRY_CODE` (optional, default `US`): catalog region used when reading public
+  playlists without a connected account. Connected accounts use their own country.
+
+### TIDAL app setup
+
+1. Go to the [TIDAL Developer Dashboard](https://developer.tidal.com/dashboard).
+2. Sign in with a TIDAL account and create an app.
+3. Enable the `playlists.read` and `user.read` scopes for the app.
+4. Add a redirect URI that matches your Curatorr base URL, for example:
+   - `http://localhost:7676/user-settings/tidal/callback`
+   - `https://curatorr.example.com/user-settings/tidal/callback`
+5. Copy the `Client ID` into `TIDAL_CLIENT_ID` and the `Client Secret` into `TIDAL_CLIENT_SECRET`.
+
+As with Spotify, these credentials identify the Curatorr app. Each Curatorr user connects
+their own TIDAL account separately through OAuth.
+
 ## YouTube
 
 YouTube playlist URL import is optional and server-level.

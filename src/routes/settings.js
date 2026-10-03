@@ -32,7 +32,7 @@ const PLAYLIST_ALBUM_POPULARITY_VALUES = ['all', 'top3Only', 'excludeTop3'];
 const PLAYLIST_POPULARITY_VALUES = ['all', 'top50', 'top25', 'top10', 'top5', 'custom'];
 const PLAYLIST_LAST_PLAYED_MODES = ['any', 'within', 'notWithin', 'never'];
 const JOB_INTERVAL_MAX_MINUTES = 10080;
-const SPOTIFY_OAUTH_PENDING_MAX_AGE_MS = 10 * 60 * 1000;
+const OAUTH_PENDING_MAX_AGE_MS = 10 * 60 * 1000;
 
 function normaliseTriStateInput(value) {
   if (!value) return { include: [], exclude: [], includeMode: 'any' };
@@ -474,39 +474,40 @@ export function registerSettings(app, ctx) {
     playlistService,
     resolvePublicBaseUrl,
     spotifyService,
+    tidalService,
     lidarrService,
   } = ctx;
-  const pendingSpotifyAuth = new Map();
+  const pendingOAuth = new Map();
 
-  function prunePendingSpotifyAuth(now = Date.now()) {
-    for (const [state, entry] of pendingSpotifyAuth) {
-      if (now - Number(entry?.createdAt || 0) > SPOTIFY_OAUTH_PENDING_MAX_AGE_MS) pendingSpotifyAuth.delete(state);
+  function prunePendingOAuth(now = Date.now()) {
+    for (const [state, entry] of pendingOAuth) {
+      if (now - Number(entry?.createdAt || 0) > OAUTH_PENDING_MAX_AGE_MS) pendingOAuth.delete(state);
     }
   }
 
-  function rememberPendingSpotifyAuth(entry) {
+  function rememberPendingOAuth(entry) {
     const state = String(entry?.state || '').trim();
     if (!state) return;
-    prunePendingSpotifyAuth();
-    pendingSpotifyAuth.set(state, {
+    prunePendingOAuth();
+    pendingOAuth.set(state, {
       ...entry,
       state,
       createdAt: Number(entry?.createdAt || Date.now()),
     });
   }
 
-  function consumePendingSpotifyAuth(state) {
+  function consumePendingOAuth(state, provider) {
     const key = String(state || '').trim();
     if (!key) return null;
-    const entry = pendingSpotifyAuth.get(key) || null;
-    pendingSpotifyAuth.delete(key);
-    if (!entry) return null;
-    if (Date.now() - Number(entry.createdAt || 0) > SPOTIFY_OAUTH_PENDING_MAX_AGE_MS) return null;
+    const entry = pendingOAuth.get(key) || null;
+    if (!entry || entry.provider !== provider) return null;
+    pendingOAuth.delete(key);
+    if (Date.now() - Number(entry.createdAt || 0) > OAUTH_PENDING_MAX_AGE_MS) return null;
     return entry;
   }
 
-  const pendingSpotifyAuthCleanup = setInterval(() => prunePendingSpotifyAuth(), 60 * 1000);
-  pendingSpotifyAuthCleanup.unref?.();
+  const pendingOAuthCleanup = setInterval(() => prunePendingOAuth(), 60 * 1000);
+  pendingOAuthCleanup.unref?.();
 
   function sanitizeRelativeReturnPath(value, fallback = '/user-settings') {
     const raw = String(value || '').trim();
@@ -1803,13 +1804,14 @@ export function registerSettings(app, ctx) {
         state,
       });
       const pending = {
+        provider: 'spotify',
         state,
         returnTo,
         redirectUri: auth.redirectUri,
         userPlexId,
         createdAt: Date.now(),
       };
-      rememberPendingSpotifyAuth(pending);
+      rememberPendingOAuth(pending);
       req.session.spotifyAuth = pending;
       return res.redirect(auth.url);
     } catch (err) {
@@ -1821,7 +1823,7 @@ export function registerSettings(app, ctx) {
     const state = String(req.query?.state || '').trim();
     const sessionPending = req.session?.spotifyAuth || null;
     if (req.session) delete req.session.spotifyAuth;
-    const pending = consumePendingSpotifyAuth(state) || sessionPending;
+    const pending = consumePendingOAuth(state, 'spotify') || sessionPending;
     if (!spotifyService?.isConfigured()) return res.redirect('/user-settings?error=spotify-not-configured');
     const sessionUserPlexId = String(req.session?.user?.username || '').trim();
     const userPlexId = String(pending?.userPlexId || sessionUserPlexId || '').trim();
@@ -1873,6 +1875,97 @@ export function registerSettings(app, ctx) {
       spotifyTokenExpiresAt: 0,
     });
     return res.redirect('/user-settings?success=spotify-disconnected');
+  });
+
+  app.get('/user-settings/tidal/connect', requireUser, (req, res) => {
+    if (!tidalService?.isConfigured()) return res.redirect('/user-settings?error=tidal-not-configured');
+    const state = crypto.randomUUID();
+    const returnTo = sanitizeRelativeReturnPath(req.query?.returnTo, '/user-settings');
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    try {
+      const { codeVerifier, codeChallenge } = tidalService.createPkcePair();
+      const auth = tidalService.getAuthorizationUrl({
+        baseUrl: resolvePublicBaseUrl(req),
+        state,
+        codeChallenge,
+      });
+      const pending = {
+        provider: 'tidal',
+        state,
+        returnTo,
+        redirectUri: auth.redirectUri,
+        codeVerifier,
+        userPlexId,
+        createdAt: Date.now(),
+      };
+      rememberPendingOAuth(pending);
+      req.session.tidalAuth = pending;
+      return res.redirect(auth.url);
+    } catch (err) {
+      return res.redirect(`/user-settings?error=${encodeURIComponent(String(err?.message || 'tidal-connect-failed'))}`);
+    }
+  });
+
+  app.get('/user-settings/tidal/callback', async (req, res) => {
+    const state = String(req.query?.state || '').trim();
+    const sessionPending = req.session?.tidalAuth || null;
+    if (req.session) delete req.session.tidalAuth;
+    const pending = consumePendingOAuth(state, 'tidal') || sessionPending;
+    if (!tidalService?.isConfigured()) return res.redirect('/user-settings?error=tidal-not-configured');
+    const sessionUserPlexId = String(req.session?.user?.username || '').trim();
+    const userPlexId = String(pending?.userPlexId || sessionUserPlexId || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    const error = String(req.query?.error || '').trim();
+    if (error) {
+      return res.redirect(`${sanitizeRelativeReturnPath(pending?.returnTo, '/user-settings')}?error=${encodeURIComponent(`tidal-${error}`)}`);
+    }
+    const code = String(req.query?.code || '').trim();
+    if (!pending || !pending.state || state !== pending.state || !code || !pending.codeVerifier) {
+      return res.redirect('/user-settings?error=tidal-auth-invalid');
+    }
+    if (sessionUserPlexId && sessionUserPlexId !== userPlexId) {
+      return res.redirect('/user-settings?error=tidal-auth-user-mismatch');
+    }
+    try {
+      const token = await tidalService.exchangeCode({
+        code,
+        redirectUri: String(pending.redirectUri || '').trim(),
+        codeVerifier: String(pending.codeVerifier || '').trim(),
+      });
+      const profile = await tidalService.getCurrentUser(token.accessToken);
+      const prefs = getUserPreferences(db, userPlexId);
+      saveUserPreferences(db, userPlexId, {
+        ...prefs,
+        tidalUserId: String(profile?.id || token.userId || '').trim(),
+        tidalDisplayName: String(profile?.displayName || profile?.username || '').trim(),
+        tidalCountryCode: String(profile?.countryCode || '').trim(),
+        tidalAccessToken: token.accessToken,
+        tidalRefreshToken: token.refreshToken,
+        tidalTokenExpiresAt: token.expiresAt,
+      });
+      const target = sanitizeRelativeReturnPath(pending.returnTo, '/user-settings');
+      const sep = target.includes('?') ? '&' : '?';
+      return res.redirect(`${target}${sep}success=tidal-connected`);
+    } catch (err) {
+      return res.redirect(`/user-settings?error=${encodeURIComponent(`tidal-auth-failed:${safeMessage(err)}`)}`);
+    }
+  });
+
+  app.post('/user-settings/tidal/disconnect', requireUser, (req, res) => {
+    const userPlexId = String(req.session?.user?.username || '').trim();
+    if (!userPlexId) return res.redirect('/user-settings?error=not-found');
+    const prefs = getUserPreferences(db, userPlexId);
+    saveUserPreferences(db, userPlexId, {
+      ...prefs,
+      tidalUserId: '',
+      tidalDisplayName: '',
+      tidalCountryCode: '',
+      tidalAccessToken: '',
+      tidalRefreshToken: '',
+      tidalTokenExpiresAt: 0,
+    });
+    return res.redirect('/user-settings?success=tidal-disconnected');
   });
 
   app.post('/user-settings/lastfm/run-backfill', requireUser, (req, res) => {

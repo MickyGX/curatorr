@@ -76,7 +76,7 @@ import {
   classifyTier,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
-import { buildSpotifyTrackLookups, normalizeImportMatchText, pickSpotifyTrackMatch } from '../services/import-matching.js';
+import { buildSpotifyTrackLookups, isImportedPlaylistSourceType, normalizeImportMatchText, pickSpotifyTrackMatch } from '../services/import-matching.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import {
@@ -311,7 +311,7 @@ function sanitizeImportedSourceInput(value) {
   if (!value || typeof value !== 'object') return null;
   const sourceType = String(value.sourceType || '').trim().toLowerCase();
   const playlistKey = String(value.playlistKey || '').trim();
-  if (!playlistKey || !['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(sourceType)) return null;
+  if (!playlistKey || !isImportedPlaylistSourceType(sourceType)) return null;
   return {
     playlistKey,
     sourceType,
@@ -1290,6 +1290,7 @@ export function registerApiMusic(app, ctx) {
     recommendationService,
     playlistService,
     spotifyService,
+    tidalService,
     youtubeService,
     lidarrService,
     canUserAccessLidarrAutomation,
@@ -1956,6 +1957,111 @@ export function registerApiMusic(app, ctx) {
     return parsed.id;
   }
 
+  async function getTidalAuthForUser(userPlexId) {
+    if (!tidalService?.isConfigured?.()) {
+      const err = new Error('TIDAL integration is not configured.');
+      err.status = 400;
+      throw err;
+    }
+    const prefs = getUserPreferences(db, userPlexId);
+    const refreshToken = String(prefs?.tidalRefreshToken || '').trim();
+    const accessToken = String(prefs?.tidalAccessToken || '').trim();
+    if (!refreshToken && !accessToken) {
+      const err = new Error('Connect TIDAL in User Settings first.');
+      err.status = 400;
+      throw err;
+    }
+    const auth = await tidalService.ensureAccessToken({
+      accessToken,
+      refreshToken,
+      expiresAt: Number(prefs?.tidalTokenExpiresAt || 0),
+    });
+    if (auth.refreshed) {
+      saveUserPreferences(db, userPlexId, {
+        ...prefs,
+        tidalAccessToken: auth.accessToken,
+        tidalRefreshToken: auth.refreshToken,
+        tidalTokenExpiresAt: auth.expiresAt,
+      });
+    }
+    return {
+      ...auth,
+      userId: String(prefs?.tidalUserId || '').trim(),
+      countryCode: String(prefs?.tidalCountryCode || '').trim(),
+      displayName: String(prefs?.tidalDisplayName || '').trim(),
+    };
+  }
+
+  function resolveTidalPlaylistId(value) {
+    const parsed = tidalService?.parsePlaylistReference?.(value) || null;
+    if (!parsed?.id) {
+      const err = new Error('Enter a valid TIDAL playlist URL or playlist id.');
+      err.status = 400;
+      throw err;
+    }
+    return parsed.id;
+  }
+
+  // Reads a TIDAL playlist with the user's token when connected. Public playlists
+  // (and users who have not connected TIDAL) fall back to an app-level token.
+  async function fetchTidalImportSource(userPlexId, playlistId) {
+    if (!tidalService?.isConfigured?.()) {
+      const err = new Error('TIDAL integration is not configured.');
+      err.status = 400;
+      throw err;
+    }
+    let auth = null;
+    try {
+      auth = await getTidalAuthForUser(userPlexId);
+    } catch (err) {
+      if (Number(err?.status || 0) !== 400) throw err;
+    }
+    const readWith = async (accessToken, countryCode) => {
+      const [playlistMeta, playlistItems] = await Promise.all([
+        tidalService.getPlaylist(accessToken, playlistId, { countryCode }),
+        tidalService.getPlaylistItems(accessToken, playlistId, { countryCode }),
+      ]);
+      return { playlistMeta, playlistItems };
+    };
+    let result;
+    if (auth) {
+      try {
+        result = await readWith(auth.accessToken, auth.countryCode);
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status !== 403 && status !== 404) throw err;
+      }
+    }
+    if (!result) {
+      try {
+        result = await readWith(await tidalService.getClientCredentialsToken(), '');
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 403 || status === 404) {
+          const notFound = new Error(auth
+            ? 'TIDAL playlist not found, or it is private to another account.'
+            : 'TIDAL playlist not found. Private playlists need TIDAL connected in User Settings.');
+          notFound.status = 404;
+          throw notFound;
+        }
+        throw err;
+      }
+    }
+    const isOwnPlaylist = Boolean(auth?.userId) && result.playlistMeta.ownerId === auth.userId;
+    const playlistMeta = {
+      ...result.playlistMeta,
+      ownerName: (isOwnPlaylist ? auth.displayName : '') || 'TIDAL',
+    };
+    const items = Array.isArray(result.playlistItems?.items) ? result.playlistItems.items : [];
+    const matchResult = buildGenericImportMatchResult(items, buildSpotifyTrackLookups(getMasterTracks(db)));
+    return {
+      playlistId,
+      playlistMeta,
+      items,
+      matchResult,
+    };
+  }
+
   async function fetchYouTubePlaylistImportSource(playlistId) {
     if (!youtubeService?.isConfigured?.()) {
       const err = new Error('YouTube integration is not configured.');
@@ -2124,8 +2230,7 @@ export function registerApiMusic(app, ctx) {
   }
 
   function isImportedCustomSourceType(sourceType) {
-    return ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file']
-      .includes(String(sourceType || '').trim().toLowerCase());
+    return isImportedPlaylistSourceType(sourceType);
   }
 
   function getImportedPlaylistRefreshIntervalMs(period) {
@@ -2445,6 +2550,13 @@ export function registerApiMusic(app, ctx) {
       const matchResult = mapSpotifyPlaylistItems(playlistItems.items || []);
       trackRefs = matchResult.trackRefs;
       unmatched = matchResult.unmatched;
+    } else if (sourceType === 'tidal-playlist') {
+      if (!sourceRef) throw new Error('Original TIDAL playlist could not be resolved.');
+      const source = await fetchTidalImportSource(userPlexId, sourceRef);
+      sourceTitle = String(source.playlistMeta?.name || sourceTitle || playlist.playlistTitle || '').trim();
+      sourceOwner = String(source.playlistMeta?.ownerName || sourceOwner || '').trim();
+      trackRefs = source.matchResult.trackRefs;
+      unmatched = source.matchResult.unmatched;
     } else if (sourceType === 'youtube-playlist') {
       if (!youtubeService?.isConfigured?.()) throw new Error('YouTube integration is not configured.');
       if (!sourceRef) throw new Error('Original YouTube playlist could not be resolved.');
@@ -4657,7 +4769,7 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Only imported custom playlists can be refreshed.' });
     }
     const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(sourceType)) {
+    if (!isImportedPlaylistSourceType(sourceType)) {
       return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
     }
 
@@ -4693,7 +4805,7 @@ export function registerApiMusic(app, ctx) {
       return res.status(400).json({ error: 'Only imported custom playlists can be converted.' });
     }
     const sourceType = String(playlist.sourceType || '').trim().toLowerCase();
-    if (!['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(sourceType)) {
+    if (!isImportedPlaylistSourceType(sourceType)) {
       return res.status(400).json({ error: 'This playlist is not linked to an import source.' });
     }
 
@@ -5306,6 +5418,54 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
+  app.get('/api/music/import/tidal/playlists', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    try {
+      const auth = await getTidalAuthForUser(userPlexId);
+      const playlists = await tidalService.listCurrentUserPlaylists(auth.accessToken, {
+        countryCode: auth.countryCode,
+        ownerName: auth.displayName,
+      });
+      return res.json({ ok: true, playlists });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.get('/api/music/import/tidal/preview', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    let playlistId = '';
+    try {
+      playlistId = resolveTidalPlaylistId(req.query?.playlistId || req.query?.playlistRef || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
+    try {
+      const source = await fetchTidalImportSource(userPlexId, playlistId);
+      const trackLookups = buildSpotifyTrackLookups(getMasterTracks(db));
+      const preview = buildGenericImportPreview(source.items, (item) => pickSpotifyTrackMatch(trackLookups, item));
+      return res.json({
+        ok: true,
+        playlist: source.playlistMeta,
+        totalSourceTracks: source.items.length,
+        playlistTrackCount: Number(source.playlistMeta?.trackCount || source.items.length || 0),
+        matchedCount: preview.matched.length,
+        unmatchedCount: preview.unmatched.length,
+        unmatchedArtistCount: preview.unmatchedArtists.length,
+        duplicateCount: preview.duplicateMatches.length,
+        warning: '',
+        partial: false,
+        source: 'api',
+        matched: preview.matched.slice(0, 100),
+        unmatchedArtists: preview.unmatchedArtists,
+        unmatched: preview.unmatched.slice(0, 100),
+        duplicateMatches: preview.duplicateMatches.slice(0, 100),
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
   app.get('/api/music/import/youtube/preview', requireUser, async (req, res) => {
     let playlistId = '';
     try {
@@ -5519,6 +5679,41 @@ export function registerApiMusic(app, ctx) {
         audience: makeGlobal ? 'global' : 'personal',
         warning: String(playlistSource.warning || '').trim(),
         partial: playlistSource.partial === true,
+      });
+    } catch (err) {
+      return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
+    }
+  });
+
+  app.post('/api/music/import/tidal', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const makeGlobal = req.body?.audience === 'global' && isAdminRole(req);
+    let playlistId = '';
+    try {
+      playlistId = resolveTidalPlaylistId(req.body?.playlistId || req.body?.playlistRef || '');
+    } catch (err) {
+      return res.status(Number(err?.status || 400)).json({ error: safeMessage(err) });
+    }
+    try {
+      const source = await fetchTidalImportSource(userPlexId, playlistId);
+      const { trackRefs, unmatched } = source.matchResult;
+      if (!trackRefs.length) return res.status(404).json({ error: 'No TIDAL tracks matched your local library.' });
+      const title = normaliseImportedPlaylistTitle(req.body?.title, source.playlistMeta?.name || 'Imported TIDAL Playlist');
+      const playlist = await createImportedCustomPlaylist(userPlexId, title, trackRefs, {
+        sourceType: 'tidal-playlist',
+        sourceRef: playlistId,
+        sourceTitle: String(source.playlistMeta?.name || title).trim(),
+        sourceOwner: String(source.playlistMeta?.ownerName || '').trim(),
+        unmatchedTracks: unmatched,
+      });
+      if (makeGlobal && playlist) scheduleGlobalImportSync(userPlexId, playlist);
+      return res.json({
+        ok: true,
+        playlist: playlist || null,
+        importedTrackCount: trackRefs.length,
+        unmatchedCount: unmatched.length,
+        importedMissingCount: unmatched.length,
+        audience: makeGlobal ? 'global' : 'personal',
       });
     } catch (err) {
       return res.status(Number(err?.status || 500)).json({ error: safeMessage(err) });
@@ -6756,7 +6951,7 @@ export function registerApiMusic(app, ctx) {
         .find((entry) => entry.playlistKey === removeImportedSourcePlaylistKey);
       if (importedPlaylist && String(importedPlaylist.playlistType || '').trim().toLowerCase() === 'custom') {
         const importedSourceType = String(importedPlaylist.sourceType || '').trim().toLowerCase();
-        if (['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(importedSourceType)) {
+        if (isImportedPlaylistSourceType(importedSourceType)) {
           await deleteGeneratedPlaylistWithRemote({
             db,
             loadConfig,

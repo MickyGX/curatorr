@@ -18,6 +18,9 @@ Curatorr is configured through container environment variables and the Settings 
 | `LOCAL_AUTH_MIN_PASSWORD` | No | Minimum password length for local Curatorr accounts. Default: `12` |
 | `SPOTIFY_CLIENT_ID` | No | Spotify app client ID used for Spotify playlist import and refresh. |
 | `SPOTIFY_CLIENT_SECRET` | No | Spotify app client secret used for Spotify playlist import and refresh. |
+| `TIDAL_CLIENT_ID` | No | TIDAL app client ID used for TIDAL playlist import and refresh. |
+| `TIDAL_CLIENT_SECRET` | No | TIDAL app client secret used for TIDAL playlist import and refresh. |
+| `TIDAL_COUNTRY_CODE` | No | Two-letter catalog region for public TIDAL playlist links read without a connected account. Default: `US` |
 | `YOUTUBE_API_KEY` | No | YouTube Data API v3 key used for public YouTube playlist URL import. |
 
 For Spotify:
@@ -26,6 +29,13 @@ For Spotify:
 2. Add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/spotify/callback`.
 3. Put the app `Client ID` into `SPOTIFY_CLIENT_ID`.
 4. Put the app `Client Secret` into `SPOTIFY_CLIENT_SECRET`.
+
+For TIDAL:
+
+1. Create an app in the [TIDAL Developer Dashboard](https://developer.tidal.com/dashboard) with the `playlists.read` and `user.read` scopes.
+2. Add a redirect URI that matches your Curatorr base URL, for example `http://localhost:7676/user-settings/tidal/callback`.
+3. Put the app `Client ID` into `TIDAL_CLIENT_ID`.
+4. Put the app `Client Secret` into `TIDAL_CLIENT_SECRET`.
 
 For YouTube:
 
@@ -151,6 +161,7 @@ Use **Artist Pipeline Rebuild** to refresh recommendations, **Master Track Cache
 Each user also has `User Profile` settings for:
 
 - Spotify account connection for playlist import
+- TIDAL account connection for playlist import
 - Last.fm username (playlist sources are selected from the import dialog)
 - Last.fm full-history backfill controls
 - ListenBrainz username and token (playlist suggestions are selected from the import dialog)

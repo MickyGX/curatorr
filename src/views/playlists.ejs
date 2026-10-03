@@ -52,6 +52,7 @@
         function resolvePlaylistBadgeKind(audience, playlistType, sourceType) {
           const source = String(sourceType || '').trim().toLowerCase();
           if (source === 'spotify-playlist') return 'imported-spotify';
+          if (source === 'tidal-playlist') return 'imported-tidal';
           if (source === 'youtube-playlist') return 'imported-youtube';
           if (source === 'lastfm-station') return 'imported-lastfm';
           if (source === 'listenbrainz-playlist') return 'imported-listenbrainz';
@@ -63,10 +64,10 @@
         }
         function playlistAudienceIconMarkup(audience, playlistType, sourceType) {
           const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
-          if (audience === 'global' && (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex')) {
+          if (audience === 'global' && (kind === 'imported-spotify' || kind === 'imported-tidal' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex')) {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
           }
-          if (kind === 'imported-spotify' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex') {
+          if (kind === 'imported-spotify' || kind === 'imported-tidal' || kind === 'imported-youtube' || kind === 'imported-lastfm' || kind === 'imported-listenbrainz' || kind === 'imported-m3u' || kind === 'imported-plex') {
             return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
           }
           if (kind === 'global') {
@@ -86,12 +87,14 @@
         function playlistAudienceTitle(audience, playlistType, sourceType) {
           const kind = resolvePlaylistBadgeKind(audience, playlistType, sourceType);
           if (audience === 'global' && kind === 'imported-spotify') return 'Global Spotify playlist (all users)';
+          if (audience === 'global' && kind === 'imported-tidal') return 'Global TIDAL playlist (all users)';
           if (audience === 'global' && kind === 'imported-youtube') return 'Global YouTube playlist (all users)';
           if (audience === 'global' && kind === 'imported-lastfm') return 'Global Last.fm playlist (all users)';
           if (audience === 'global' && kind === 'imported-listenbrainz') return 'Global ListenBrainz playlist (all users)';
           if (audience === 'global' && kind === 'imported-m3u') return 'Global M3U playlist (all users)';
           if (audience === 'global' && kind === 'imported-plex') return 'Global Plex playlist (all users)';
           if (kind === 'imported-spotify') return 'Imported Spotify playlist';
+          if (kind === 'imported-tidal') return 'Imported TIDAL playlist';
           if (kind === 'imported-youtube') return 'Imported YouTube playlist';
           if (kind === 'imported-lastfm') return 'Imported Last.fm playlist';
           if (kind === 'imported-listenbrainz') return 'Imported ListenBrainz playlist';
@@ -243,7 +246,7 @@
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
-                          <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
+                          <% } else if (p.playlistType === 'custom' && importedSourceTypes.includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
                           <button class="pl-card-btn pl-card-btn--edit" type="button" title="Edit imported playlist" style="position:absolute;bottom:8px;left:8px;padding:5px;background:rgba(161,106,0,.85)" onclick="event.stopPropagation(); openImportedPlaylistSettingsModal(this.closest('.cur-playlist-carousel-card'))">
                             <img src="/icons/edit.svg" alt="Edit" style="display:block;width:18px;height:18px" />
                           </button>
@@ -256,7 +259,7 @@
                             <button type="button" onclick="event.stopPropagation(); openEditPlaylistModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                             <% } else if (p.playlistType === 'global') { %>
                             <button type="button" onclick="event.stopPropagation(); openEditGlobalPlaylist(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
-                            <% } else if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
+                            <% } else if (p.playlistType === 'custom' && importedSourceTypes.includes(p.sourceType) && (p.playlistAudience !== 'global' || _isAdmin)) { %>
                             <button type="button" onclick="event.stopPropagation(); openImportedPlaylistSettingsModal(this.closest('.cur-playlist-carousel-card')); closeAllCardMenus()">Edit</button>
                             <% } %>
                             <% if (_msType === 'plex' && p.playlistKind !== 'draft' && p.playlistKey && (p.playlistType !== 'global' || _isAdmin)) { %>
@@ -268,7 +271,7 @@
                             <% if (p.playlistKey && p.playlistKind !== 'draft') { %>
                             <button type="button" onclick="event.stopPropagation(); toggleCardPlaylistActive(this.closest('.cur-playlist-carousel-card'), <%= p.active === false ? 'true' : 'false' %>)"><%= p.active === false ? 'Enable' : 'Disable' %></button>
                             <% } %>
-                            <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist', 'm3u-file'].includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
+                            <button type="button" <%= p.active === false ? 'disabled title="Enable this playlist first."' : '' %> onclick="event.stopPropagation(); rebuildCardPlaylist(this.closest('.cur-playlist-carousel-card'))"><%= (p.playlistType === 'custom' && importedSourceTypes.includes(p.sourceType)) ? 'Refresh import' : 'Rebuild' %></button>
                             <% if (['personal', 'global', 'custom', 'lastfm-station', 'listenbrainz-playlist'].includes(p.playlistType)) { %>
                             <button type="button" class="pl-card-menu-delete" onclick="event.stopPropagation(); deleteCardPlaylist(this.closest('.cur-playlist-carousel-card'))">Delete</button>
                             <% } %>
@@ -279,7 +282,7 @@
                         <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= p.playlistTitle || 'Playlist' %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks<% if (Number(p.missingCount || 0) > 0) { %> • <%= Number(p.missingCount || 0).toLocaleString() %> missing<% } %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? 'Disabled in Plex' : (p.playlistKind === 'draft' ? 'Draft saved in Curatorr' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt)) %></div>
-                        <% if (p.playlistType === 'custom' && ['spotify-playlist', 'youtube-playlist', 'plex-playlist', 'plex-collection', 'lastfm-station', 'listenbrainz-playlist'].includes(p.sourceType)) { %>
+                        <% if (p.playlistType === 'custom' && importedSourceTypes.filter(function(t) { return t !== 'm3u-file'; }).includes(p.sourceType)) { %>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= (p.importedSyncPeriod || 'disabled') === 'daily' ? 'Auto-refresh every day' : ((p.importedSyncPeriod || 'disabled') === 'weekly' ? 'Auto-refresh every week' : ((p.importedSyncPeriod || 'disabled') === 'monthly' ? 'Auto-refresh every month' : 'Auto-refresh disabled')) %></div>
                         <% } %>
                       </div>
@@ -303,7 +306,7 @@
               </div>
             </div>
 
-            <% if (_msType === 'plex' || spotifyConfigured || youtubeConfigured || lastfmUsername || listenbrainzUsername) { %>
+            <% if (_msType === 'plex' || spotifyConfigured || tidalConfigured || youtubeConfigured || lastfmUsername || listenbrainzUsername) { %>
             <div id="importPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeImportPlaylistModal()">
               <div id="importPlDialog" class="spm-dialog spm-dialog--import" role="dialog" aria-modal="true" aria-label="Import Plex playlist or collection">
                 <div id="importPlHeader" class="spm-header">
@@ -311,7 +314,7 @@
                   <button class="spm-close" type="button" onclick="closeImportPlaylistModal()" aria-label="Close">✕</button>
                 </div>
                 <div class="spm-body">
-                  <div class="playlist-feature-note">Import an existing Plex, Spotify, URL, M3U, Last.fm, or ListenBrainz playlist as a managed custom playlist in Curatorr.</div>
+                  <div class="playlist-feature-note">Import an existing Plex, Spotify, TIDAL, URL, M3U, Last.fm, or ListenBrainz playlist as a managed custom playlist in Curatorr.</div>
                   <div class="import-pl-tabs" role="tablist" aria-label="Import source">
                     <% if (_msType === 'plex') { %>
                     <button type="button" class="import-pl-tab is-active" id="importPlexTabBtn" onclick="setImportSourceTab('plex')" role="tab" aria-selected="true">Plex</button>
@@ -319,8 +322,11 @@
                     <% if (spotifyConfigured) { %>
                     <button type="button" class="import-pl-tab<%= _msType === 'plex' ? '' : ' is-active' %>" id="importSpotifyTabBtn" onclick="setImportSourceTab('spotify')" role="tab" aria-selected="<%= _msType === 'plex' ? 'false' : 'true' %>">Spotify</button>
                     <% } %>
-                    <% if (spotifyConfigured || youtubeConfigured) { %>
-                    <button type="button" class="import-pl-tab<%= _msType === 'plex' || spotifyConfigured ? '' : ' is-active' %>" id="importUrlTabBtn" onclick="setImportSourceTab('url')" role="tab" aria-selected="<%= _msType === 'plex' || spotifyConfigured ? 'false' : 'true' %>">URL</button>
+                    <% if (tidalConfigured) { %>
+                    <button type="button" class="import-pl-tab<%= _msType === 'plex' || spotifyConfigured ? '' : ' is-active' %>" id="importTidalTabBtn" onclick="setImportSourceTab('tidal')" role="tab" aria-selected="<%= _msType === 'plex' || spotifyConfigured ? 'false' : 'true' %>">TIDAL</button>
+                    <% } %>
+                    <% if (spotifyConfigured || tidalConfigured || youtubeConfigured) { %>
+                    <button type="button" class="import-pl-tab<%= _msType === 'plex' || spotifyConfigured || tidalConfigured ? '' : ' is-active' %>" id="importUrlTabBtn" onclick="setImportSourceTab('url')" role="tab" aria-selected="<%= _msType === 'plex' || spotifyConfigured || tidalConfigured ? 'false' : 'true' %>">URL</button>
                     <% } %>
                     <button type="button" class="import-pl-tab" id="importM3uTabBtn" onclick="setImportSourceTab('m3u')" role="tab" aria-selected="false">M3U</button>
                     <% if (lastfmUsername) { %>
@@ -355,12 +361,26 @@
                     <% } %>
                   </div>
                   <% } %>
-                  <% if (spotifyConfigured || youtubeConfigured) { %>
+                  <% if (tidalConfigured) { %>
+                  <div id="importTidalPanel" class="import-pl-panel" style="display:<%= _msType === 'plex' || spotifyConfigured ? 'none' : 'block' %>">
+                    <% if (tidalConnected) { %>
+                    <label class="field import-pl-field">
+                      <span>Find a TIDAL playlist</span>
+                      <input id="importTidalSearch" class="cur-input" type="search" placeholder="Filter TIDAL playlists…" oninput="renderImportTidalSources()" />
+                    </label>
+                    <div id="importTidalList" class="import-pl-list" aria-live="polite"></div>
+                    <div id="importTidalEmpty" class="cur-empty" style="display:none">No TIDAL playlists match that search.</div>
+                    <% } else { %>
+                    <div class="cur-empty" style="display:block">Connect TIDAL in <a href="/user-settings">User Settings</a> first, or paste a public TIDAL playlist link in the URL tab.</div>
+                    <% } %>
+                  </div>
+                  <% } %>
+                  <% if (spotifyConfigured || tidalConfigured || youtubeConfigured) { %>
                   <div id="importUrlPanel" class="import-pl-panel" style="display:none">
                     <div class="import-url-providers" aria-label="URL import providers">
                       <span class="import-url-provider is-active" id="importUrlProviderBadge">Auto-detecting</span>
                     </div>
-                    <div class="cur-panel-meta import-url-note" id="importUrlSupportNote">Supported URLs: Spotify playlist links, URIs, playlist ids<%= youtubeConfigured ? ', and YouTube playlist links' : '' %>.</div>
+                    <div class="cur-panel-meta import-url-note" id="importUrlSupportNote">Supported URLs: <%= [spotifyConfigured ? 'Spotify playlist links, URIs, playlist ids' : '', tidalConfigured ? 'TIDAL playlist links' : '', youtubeConfigured ? 'YouTube playlist links' : ''].filter(Boolean).join('; ') %>.</div>
                     <label class="field import-pl-field">
                       <span>Paste a playlist URL or id</span>
                       <input id="importUrlInput" class="cur-input" type="text" placeholder="https://open.spotify.com/playlist/..." autocomplete="off" oninput="onImportUrlInput()" />
@@ -1151,6 +1171,9 @@
     var SPOTIFY_CONNECTED = <%- JSON.stringify(Boolean(spotifyConnected)) %>;
     var SPOTIFY_CONFIGURED = <%- JSON.stringify(Boolean(spotifyConfigured)) %>;
     var YOUTUBE_CONFIGURED = <%- JSON.stringify(Boolean(youtubeConfigured)) %>;
+    var TIDAL_CONFIGURED = <%- JSON.stringify(Boolean(tidalConfigured)) %>;
+    var TIDAL_CONNECTED = <%- JSON.stringify(Boolean(tidalConnected)) %>;
+    var IMPORTED_SOURCE_TYPES = <%- JSON.stringify(importedSourceTypes || []) %>;
     var LIDARR_AUTOMATION_ELIGIBLE = <%- JSON.stringify(Boolean(lidarrAutomationEligible)) %>;
     var LIDARR_CONFIGURED = <%- JSON.stringify(Boolean(lidarrConfigured)) %>;
     var IMPORT_HAS_PLEX = <%- JSON.stringify(_msType === 'plex') %>;
@@ -1160,6 +1183,9 @@
     var _importSpotifySources = [];
     var _importSpotifySelection = null;
     var _importSpotifyPreview = null;
+    var _importTidalSources = [];
+    var _importTidalSelection = null;
+    var _importTidalPreview = null;
     var _importUrlSelection = null;
     var _importUrlPreview = null;
     var _importLastfmSelection = null;
@@ -1169,7 +1195,7 @@
     var _importM3uSelection = null;
     var _importM3uPreview = null;
     var _importUrlDebounce = null;
-    var _importSourceTab = IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : 'url');
+    var _importSourceTab = IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : (TIDAL_CONFIGURED ? 'tidal' : 'url'));
     var _playlistCardFilterState = {
       type: 'all',
       status: 'all',
@@ -1706,25 +1732,11 @@
 
     function isImportedRefreshPlaylist(card) {
       if (!card || String(card.dataset.playlistType || '').trim().toLowerCase() !== 'custom') return false;
-      var sourceType = String(card.dataset.playlistSourceType || '').trim().toLowerCase();
-      return sourceType === 'spotify-playlist'
-        || sourceType === 'youtube-playlist'
-        || sourceType === 'lastfm-station'
-        || sourceType === 'listenbrainz-playlist'
-        || sourceType === 'm3u-file'
-        || sourceType === 'plex-playlist'
-        || sourceType === 'plex-collection';
+      return isImportedCustomSource(card.dataset.playlistSourceType);
     }
 
     function isImportedCustomSource(sourceType) {
-      var source = String(sourceType || '').trim().toLowerCase();
-      return source === 'spotify-playlist'
-        || source === 'youtube-playlist'
-        || source === 'lastfm-station'
-        || source === 'listenbrainz-playlist'
-        || source === 'm3u-file'
-        || source === 'plex-playlist'
-        || source === 'plex-collection';
+      return IMPORTED_SOURCE_TYPES.indexOf(String(sourceType || '').trim().toLowerCase()) !== -1;
     }
 
     function normalizeImportedSyncPeriod(value) {
@@ -1782,7 +1794,7 @@
       var audience = String((data && data.playlistAudience) || '').trim().toLowerCase();
       if (audience === 'global' || audience === 'external' || audience === 'blend' || audience === 'personal' || audience === 'system' || audience === 'imported') return audience;
       var source = String(data && data.sourceType || data && data.playlistSourceType || '').trim().toLowerCase();
-      if (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source === 'm3u-file' || source.indexOf('plex-') === 0) return 'imported';
+      if (isImportedCustomSource(source)) return 'imported';
       var type = String(data && data.playlistType || '').trim().toLowerCase();
       if (type === 'global') return 'global';
       if (type === 'lastfm-station' || type === 'listenbrainz-playlist') return 'external';
@@ -1845,11 +1857,13 @@
     function playlistAudienceTitle(audience, sourceType) {
       var source = String(sourceType || '').trim().toLowerCase();
       if (audience === 'global' && source === 'spotify-playlist') return 'Global Spotify playlist (all users)';
+      if (audience === 'global' && source === 'tidal-playlist') return 'Global TIDAL playlist (all users)';
       if (audience === 'global' && source === 'youtube-playlist') return 'Global YouTube playlist (all users)';
       if (audience === 'global' && source === 'lastfm-station') return 'Global Last.fm playlist (all users)';
       if (audience === 'global' && source === 'listenbrainz-playlist') return 'Global ListenBrainz playlist (all users)';
       if (audience === 'global' && source.indexOf('plex-') === 0) return 'Global Plex playlist (all users)';
       if (source === 'spotify-playlist') return 'Imported Spotify playlist';
+      if (source === 'tidal-playlist') return 'Imported TIDAL playlist';
       if (source === 'youtube-playlist') return 'Imported YouTube playlist';
       if (source === 'lastfm-station') return 'Imported Last.fm playlist';
       if (source === 'listenbrainz-playlist') return 'Imported ListenBrainz playlist';
@@ -1865,9 +1879,9 @@
     function buildPlaylistAudienceBadgeHtml(audience, sourceType) {
       var iconHtml = '';
       var source = String(sourceType || '').trim().toLowerCase();
-      if (audience === 'global' && (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0)) {
+      if (audience === 'global' && (source === 'spotify-playlist' || source === 'tidal-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0)) {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
-      } else if (source === 'spotify-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0) {
+      } else if (source === 'spotify-playlist' || source === 'tidal-playlist' || source === 'youtube-playlist' || source === 'lastfm-station' || source === 'listenbrainz-playlist' || source.indexOf('plex-') === 0) {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10"></path><path d="m8.5 9.5 3.5 3.5 3.5-3.5"></path><path d="M4 16.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"></path></svg>';
       } else if (audience === 'global') {
         iconHtml = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18"></path><path d="M12 3a15 15 0 0 0 0 18"></path></svg>';
@@ -2034,6 +2048,7 @@
 
     function getImportSpotifySelectionForTab(tab) {
       if (tab === 'url') return _importUrlSelection;
+      if (tab === 'tidal') return _importTidalSelection;
       if (tab === 'lastfm') return _importLastfmSelection;
       if (tab === 'listenbrainz') return _importListenbrainzSelection;
       if (tab === 'm3u') return _importM3uSelection;
@@ -2042,6 +2057,7 @@
 
     function getImportSpotifyPreviewForTab(tab) {
       if (tab === 'url') return _importUrlPreview;
+      if (tab === 'tidal') return _importTidalPreview;
       if (tab === 'lastfm') return _importLastfmPreview;
       if (tab === 'listenbrainz') return _importListenbrainzPreview;
       if (tab === 'm3u') return _importM3uPreview;
@@ -2050,6 +2066,7 @@
 
     function setImportSpotifyPreviewForTab(tab, value) {
       if (tab === 'url') _importUrlPreview = value;
+      else if (tab === 'tidal') _importTidalPreview = value;
       else if (tab === 'lastfm') _importLastfmPreview = value;
       else if (tab === 'listenbrainz') _importListenbrainzPreview = value;
       else if (tab === 'm3u') _importM3uPreview = value;
@@ -2058,6 +2075,7 @@
 
     function setImportSpotifySelectionForTab(tab, value) {
       if (tab === 'url') _importUrlSelection = value;
+      else if (tab === 'tidal') _importTidalSelection = value;
       else if (tab === 'lastfm') _importLastfmSelection = value;
       else if (tab === 'listenbrainz') _importListenbrainzSelection = value;
       else if (tab === 'm3u') _importM3uSelection = value;
@@ -2067,6 +2085,8 @@
     function clearNonPlexImportSelections() {
       _importSpotifySelection = null;
       _importSpotifyPreview = null;
+      _importTidalSelection = null;
+      _importTidalPreview = null;
       _importUrlSelection = null;
       _importUrlPreview = null;
       _importLastfmSelection = null;
@@ -2108,6 +2128,10 @@
       if (tab === 'lastfm') return 'Select a Last.fm source.';
       if (tab === 'listenbrainz') return 'Select a ListenBrainz source.';
       if (tab === 'm3u') return 'Choose an M3U or M3U8 file.';
+      if (tab === 'tidal') {
+        if (_importTidalSources.length) return _importTidalSources.length + ' TIDAL playlists available.';
+        return TIDAL_CONNECTED ? 'Loading TIDAL playlists…' : 'Connect TIDAL in User Settings first.';
+      }
       if (_importSpotifySources.length) return _importSpotifySources.length + ' Spotify playlists available.';
       return SPOTIFY_CONNECTED ? 'Loading Spotify playlists…' : 'Connect Spotify in User Settings first.';
     }
@@ -2115,6 +2139,7 @@
     function getImportUrlSupportSummary() {
       var supported = [];
       if (SPOTIFY_CONFIGURED) supported.push('Spotify playlist links, URIs, and playlist ids');
+      if (TIDAL_CONFIGURED) supported.push('TIDAL playlist links and playlist ids');
       if (YOUTUBE_CONFIGURED) supported.push('YouTube playlist links and playlist ids');
       return supported.length ? supported.join('; ') : 'No URL providers are configured.';
     }
@@ -2128,6 +2153,9 @@
       if (/^(PL|LL|FL|UU|RD|OLAK5uy)[A-Za-z0-9_-]{10,}$/i.test(raw)) {
         return { provider: 'youtube', label: 'YouTube', supported: YOUTUBE_CONFIGURED };
       }
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+        return { provider: 'tidal', label: 'TIDAL', supported: TIDAL_CONFIGURED };
+      }
       if (/^[A-Za-z0-9]{20,}$/i.test(raw)) {
         return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED };
       }
@@ -2135,6 +2163,7 @@
         var parsed = new URL(raw);
         var host = String(parsed.hostname || '').toLowerCase();
         if (host.endsWith('spotify.com')) return { provider: 'spotify', label: 'Spotify', supported: SPOTIFY_CONFIGURED };
+        if (host === 'tidal.com' || host.endsWith('.tidal.com')) return { provider: 'tidal', label: 'TIDAL', supported: TIDAL_CONFIGURED };
         if (host.indexOf('youtube.com') !== -1 || host === 'youtu.be') return { provider: 'youtube', label: 'YouTube', supported: YOUTUBE_CONFIGURED };
         if (host.endsWith('music.apple.com')) return { provider: 'apple', label: 'Apple Music', supported: false };
         if (host.endsWith('deezer.com')) return { provider: 'deezer', label: 'Deezer', supported: false };
@@ -2154,7 +2183,7 @@
       if (noteEl) {
         if (!String(value || '').trim()) noteEl.textContent = 'Supported URLs: ' + getImportUrlSupportSummary() + '.';
         else if (info.supported) noteEl.textContent = 'Supported now: ' + getImportUrlSupportSummary() + '.';
-        else if (info.provider === 'youtube' || info.provider === 'apple' || info.provider === 'deezer' || info.provider === 'amazon') {
+        else if (info.provider === 'youtube' || info.provider === 'tidal' || info.provider === 'apple' || info.provider === 'deezer' || info.provider === 'amazon') {
           noteEl.textContent = info.label + ' URLs are not supported yet. Supported now: ' + getImportUrlSupportSummary() + '.';
         } else {
           noteEl.textContent = 'Unsupported URL. Supported now: ' + getImportUrlSupportSummary() + '.';
@@ -2163,7 +2192,7 @@
     }
 
     function renderActiveImportSpotifyPreview() {
-      var activeTab = (_importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz' || _importSourceTab === 'm3u')
+      var activeTab = (_importSourceTab === 'url' || _importSourceTab === 'tidal' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz' || _importSourceTab === 'm3u')
         ? _importSourceTab
         : 'spotify';
       var selection = getImportSpotifySelectionForTab(activeTab);
@@ -2176,7 +2205,7 @@
       var provider = String(selection && selection.provider || (activeTab === 'url' ? '' : activeTab)).trim().toLowerCase();
       var providerLabel = provider === 'youtube'
         ? 'YouTube'
-        : (provider === 'lastfm' ? 'Last.fm' : (provider === 'listenbrainz' ? 'ListenBrainz' : (provider === 'm3u' ? 'M3U' : 'Spotify')));
+        : provider === 'tidal' ? 'TIDAL' : (provider === 'lastfm' ? 'Last.fm' : (provider === 'listenbrainz' ? 'ListenBrainz' : (provider === 'm3u' ? 'M3U' : 'Spotify')));
       if (!statusEl || !previewEl) return;
       if (!selection) {
         if (previewEl) previewEl.style.display = 'none';
@@ -2213,16 +2242,18 @@
     }
 
     function setImportSourceTab(tab) {
-      if (tab === 'spotify' || tab === 'url' || tab === 'lastfm' || tab === 'listenbrainz' || tab === 'm3u') _importSourceTab = tab;
+      if (tab === 'spotify' || tab === 'tidal' || tab === 'url' || tab === 'lastfm' || tab === 'listenbrainz' || tab === 'm3u') _importSourceTab = tab;
       else _importSourceTab = 'plex';
       var plexBtn = document.getElementById('importPlexTabBtn');
       var spotifyBtn = document.getElementById('importSpotifyTabBtn');
+      var tidalBtn = document.getElementById('importTidalTabBtn');
       var urlBtn = document.getElementById('importUrlTabBtn');
       var lastfmBtn = document.getElementById('importLastfmTabBtn');
       var listenbrainzBtn = document.getElementById('importListenbrainzTabBtn');
       var m3uBtn = document.getElementById('importM3uTabBtn');
       var plexPanel = document.getElementById('importPlexPanel');
       var spotifyPanel = document.getElementById('importSpotifyPanel');
+      var tidalPanel = document.getElementById('importTidalPanel');
       var urlPanel = document.getElementById('importUrlPanel');
       var lastfmPanel = document.getElementById('importLastfmPanel');
       var listenbrainzPanel = document.getElementById('importListenbrainzPanel');
@@ -2235,6 +2266,10 @@
       if (spotifyBtn) {
         spotifyBtn.classList.toggle('is-active', _importSourceTab === 'spotify');
         spotifyBtn.setAttribute('aria-selected', _importSourceTab === 'spotify' ? 'true' : 'false');
+      }
+      if (tidalBtn) {
+        tidalBtn.classList.toggle('is-active', _importSourceTab === 'tidal');
+        tidalBtn.setAttribute('aria-selected', _importSourceTab === 'tidal' ? 'true' : 'false');
       }
       if (urlBtn) {
         urlBtn.classList.toggle('is-active', _importSourceTab === 'url');
@@ -2254,6 +2289,7 @@
       }
       if (plexPanel) plexPanel.style.display = _importSourceTab === 'plex' ? 'block' : 'none';
       if (spotifyPanel) spotifyPanel.style.display = _importSourceTab === 'spotify' ? 'block' : 'none';
+      if (tidalPanel) tidalPanel.style.display = _importSourceTab === 'tidal' ? 'block' : 'none';
       if (urlPanel) urlPanel.style.display = _importSourceTab === 'url' ? 'block' : 'none';
       if (lastfmPanel) lastfmPanel.style.display = _importSourceTab === 'lastfm' ? 'block' : 'none';
       if (listenbrainzPanel) listenbrainzPanel.style.display = _importSourceTab === 'listenbrainz' ? 'block' : 'none';
@@ -2261,7 +2297,7 @@
       if (previewWrap) {
         var targetPanel = _importSourceTab === 'spotify'
           ? spotifyPanel
-          : (_importSourceTab === 'url'
+          : _importSourceTab === 'tidal' ? tidalPanel : (_importSourceTab === 'url'
             ? urlPanel
             : (_importSourceTab === 'lastfm'
               ? lastfmPanel
@@ -2271,7 +2307,7 @@
         }
       }
       resetImportedTitleField();
-      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz' || _importSourceTab === 'm3u') {
+      if (_importSourceTab === 'spotify' || _importSourceTab === 'tidal' || _importSourceTab === 'url' || _importSourceTab === 'lastfm' || _importSourceTab === 'listenbrainz' || _importSourceTab === 'm3u') {
         renderActiveImportSpotifyPreview();
       } else {
         var previewEl = document.getElementById('importSpotifyPreview');
@@ -2287,12 +2323,14 @@
     function getUrlImportEndpoint(provider, mode) {
       if (mode === 'import') {
         if (provider === 'youtube') return '/api/music/import/youtube';
+        if (provider === 'tidal') return '/api/music/import/tidal';
         if (provider === 'lastfm') return '/api/music/import/lastfm';
         if (provider === 'listenbrainz') return '/api/music/import/listenbrainz';
         if (provider === 'm3u') return '/api/music/import/m3u';
         return '/api/music/import/spotify';
       }
       if (provider === 'youtube') return '/api/music/import/youtube/preview';
+      if (provider === 'tidal') return '/api/music/import/tidal/preview';
       if (provider === 'lastfm') return '/api/music/import/lastfm/preview';
       if (provider === 'listenbrainz') return '/api/music/import/listenbrainz/preview';
       if (provider === 'm3u') return '/api/music/import/m3u/preview';
@@ -2316,7 +2354,7 @@
     function updateImportSubmitButton() {
       var submitBtn = document.getElementById('importPlexSubmitBtn');
       if (!submitBtn) return;
-      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u') {
+      if (_importSourceTab === 'spotify' || _importSourceTab === 'tidal' || _importSourceTab === 'url' || _importSourceTab === 'm3u') {
         var selection = getImportSpotifySelectionForTab(_importSourceTab);
         var preview = getImportSpotifyPreviewForTab(_importSourceTab);
         var canImportSpotify = Boolean(selection && preview && Number(preview.matchedCount || 0) > 0);
@@ -2396,11 +2434,28 @@
       }
     }
 
+    function parseTidalPlaylistIdFromInput(value) {
+      var raw = String(value || '').trim();
+      var uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRe.test(raw)) return raw.toLowerCase();
+      try {
+        var parsed = new URL(raw);
+        var host = String(parsed.hostname || '').toLowerCase();
+        if (!(host === 'tidal.com' || host.endsWith('.tidal.com'))) return '';
+        var match = String(parsed.pathname || '').match(/\/playlist\/([0-9a-f-]{36})(?:\/|$)/i);
+        return match && uuidRe.test(match[1]) ? match[1].toLowerCase() : '';
+      } catch (_err) {
+        return '';
+      }
+    }
+
     function resetImportedTitleField() {
       var titleInput = document.getElementById('importPlexTitle');
       if (!titleInput) return;
       if (_importSourceTab === 'spotify' && _importSpotifySelection && !_importPlexTitleTouched) {
         titleInput.value = _importSpotifySelection.name || '';
+      } else if (_importSourceTab === 'tidal' && _importTidalSelection && !_importPlexTitleTouched) {
+        titleInput.value = _importTidalSelection.name || '';
       } else if (_importSourceTab === 'url' && _importUrlSelection && !_importPlexTitleTouched) {
         titleInput.value = _importUrlSelection.name || '';
       } else if (_importSourceTab === 'lastfm' && _importLastfmSelection && !_importPlexTitleTouched) {
@@ -2480,17 +2535,20 @@
           if (statusEl) {
             if (providerInfo.provider === 'spotify' && SPOTIFY_CONFIGURED && !SPOTIFY_CONNECTED) statusEl.textContent = 'Connect Spotify in User Settings first.';
             else if (providerInfo.provider === 'youtube' && !YOUTUBE_CONFIGURED) statusEl.textContent = 'YouTube integration is not configured.';
+            else if (providerInfo.provider === 'tidal' && !TIDAL_CONFIGURED) statusEl.textContent = 'TIDAL integration is not configured.';
             else statusEl.textContent = 'Enter a supported playlist URL or id.';
           }
           return;
         }
         var playlistId = providerInfo.provider === 'youtube'
           ? parseYouTubePlaylistIdFromInput(raw)
-          : parseSpotifyPlaylistIdFromInput(raw);
+          : (providerInfo.provider === 'tidal' ? parseTidalPlaylistIdFromInput(raw) : parseSpotifyPlaylistIdFromInput(raw));
         if (!playlistId) {
           if (statusEl) statusEl.textContent = providerInfo.provider === 'youtube'
             ? 'Enter a valid YouTube playlist URL or playlist id.'
-            : 'Enter a valid Spotify playlist URL, URI, or playlist id.';
+            : (providerInfo.provider === 'tidal'
+              ? 'Enter a valid TIDAL playlist URL or playlist id.'
+              : 'Enter a valid Spotify playlist URL, URI, or playlist id.');
           return;
         }
         _importUrlSelection = {
@@ -2541,6 +2599,9 @@
       _importSpotifySources = [];
       _importSpotifySelection = null;
       _importSpotifyPreview = null;
+      _importTidalSources = [];
+      _importTidalSelection = null;
+      _importTidalPreview = null;
       _importUrlSelection = null;
       _importUrlPreview = null;
       _importLastfmSelection = null;
@@ -2552,6 +2613,7 @@
       var titleInput = document.getElementById('importPlexTitle');
       var searchInput = document.getElementById('importPlexSearch');
       var spotifySearchInput = document.getElementById('importSpotifySearch');
+      var tidalSearchInput = document.getElementById('importTidalSearch');
       var urlInput = document.getElementById('importUrlInput');
       var m3uFileInput = document.getElementById('importM3uFile');
       var statusEl = document.getElementById('importPlexStatus');
@@ -2560,6 +2622,7 @@
       if (titleInput) titleInput.value = '';
       if (searchInput) searchInput.value = '';
       if (spotifySearchInput) spotifySearchInput.value = '';
+      if (tidalSearchInput) tidalSearchInput.value = '';
       if (urlInput) urlInput.value = '';
       if (m3uFileInput) m3uFileInput.value = '';
       var globalCheckbox = document.getElementById('importGlobalCheckbox');
@@ -2567,16 +2630,20 @@
       updateImportUrlProviderUI('');
       if (submitBtn) submitBtn.disabled = true;
       if (statusEl) statusEl.textContent = 'Loading sources…';
-      if (spotifyStatusEl) spotifyStatusEl.textContent = getImportSpotifyIdleStatus(IMPORT_HAS_PLEX ? 'spotify' : (SPOTIFY_CONFIGURED ? 'spotify' : (LASTFM_USERNAME ? 'lastfm' : (LISTENBRAINZ_USERNAME ? 'listenbrainz' : 'm3u'))));
+      var initialImportTab = IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : (TIDAL_CONFIGURED ? 'tidal' : (LASTFM_USERNAME ? 'lastfm' : (LISTENBRAINZ_USERNAME ? 'listenbrainz' : 'm3u'))));
+      if (spotifyStatusEl) spotifyStatusEl.textContent = getImportSpotifyIdleStatus(initialImportTab === 'plex' ? 'spotify' : initialImportTab);
       if (document.getElementById('importPlexList')) document.getElementById('importPlexList').innerHTML = '';
       if (document.getElementById('importSpotifyList')) document.getElementById('importSpotifyList').innerHTML = '';
+      if (document.getElementById('importTidalList')) document.getElementById('importTidalList').innerHTML = '';
+      if (document.getElementById('importTidalEmpty')) document.getElementById('importTidalEmpty').style.display = 'none';
       if (document.getElementById('importPlexEmpty')) document.getElementById('importPlexEmpty').style.display = 'none';
       if (document.getElementById('importSpotifyEmpty')) document.getElementById('importSpotifyEmpty').style.display = 'none';
       if (document.getElementById('importSpotifyPreview')) document.getElementById('importSpotifyPreview').style.display = 'none';
       bindStaticImportSourceButtons();
-      setImportSourceTab(IMPORT_HAS_PLEX ? 'plex' : (SPOTIFY_CONFIGURED ? 'spotify' : (LASTFM_USERNAME ? 'lastfm' : (LISTENBRAINZ_USERNAME ? 'listenbrainz' : 'm3u'))));
+      setImportSourceTab(initialImportTab);
       if (IMPORT_HAS_PLEX) loadImportPlexSources();
       if (SPOTIFY_CONFIGURED && SPOTIFY_CONNECTED) loadImportSpotifySources();
+      if (TIDAL_CONFIGURED && TIDAL_CONNECTED) loadImportTidalSources();
       renderImportLastfmSources();
       renderImportListenbrainzSources();
     }
@@ -2761,6 +2828,66 @@
       });
     }
 
+    function loadImportTidalSources() {
+      fetch('/api/music/import/tidal/playlists')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Failed to load TIDAL playlists.');
+          _importTidalSources = Array.isArray(data.playlists) ? data.playlists : [];
+          _importTidalSources.sort(function(a, b) {
+            return String(a.name || '').localeCompare(String(b.name || ''));
+          });
+          renderImportTidalSources();
+        })
+        .catch(function(err) {
+          var statusEl = document.getElementById('importSpotifyStatus');
+          if (_importSourceTab === 'tidal' && statusEl) statusEl.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
+    }
+
+    function renderImportTidalSources() {
+      var listEl = document.getElementById('importTidalList');
+      if (!listEl) return;
+      var statusEl = document.getElementById('importSpotifyStatus');
+      var emptyEl = document.getElementById('importTidalEmpty');
+      var searchEl = document.getElementById('importTidalSearch');
+      var search = String(searchEl && searchEl.value || '').trim().toLowerCase();
+      var visibleItems = _importTidalSources.filter(function(item) {
+        if (!search) return true;
+        return String(item.name || '').toLowerCase().indexOf(search) !== -1;
+      });
+      listEl.innerHTML = '';
+      if (emptyEl) emptyEl.style.display = visibleItems.length ? 'none' : '';
+      var showStatus = _importSourceTab === 'tidal' && !_importTidalSelection && statusEl;
+      if (!visibleItems.length) {
+        if (showStatus) statusEl.textContent = _importTidalSources.length ? 'No TIDAL playlists match that search.' : 'No TIDAL playlists owned by you were found.';
+        return;
+      }
+      if (showStatus) statusEl.textContent = visibleItems.length + ' TIDAL playlists available.';
+      visibleItems.forEach(function(item) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'import-pl-option' + (_importTidalSelection && _importTidalSelection.id === item.id ? ' is-active' : '');
+        button.innerHTML =
+          '<span class="import-pl-option__top">' +
+            '<span class="import-pl-option__title">' + escHtml(item.name || 'Untitled') + '</span>' +
+            '<span class="import-pl-option__badge">tidal</span>' +
+          '</span>' +
+          '<span class="import-pl-option__meta">' +
+            Number(item.trackCount || 0).toLocaleString() + ' tracks' +
+            (item.ownerName ? ' • ' + escHtml(item.ownerName) : '') +
+          '</span>';
+        button.addEventListener('click', function() {
+          _importTidalSelection = Object.assign({}, item, { provider: 'tidal' });
+          _importTidalPreview = null;
+          resetImportedTitleField();
+          renderImportTidalSources();
+          loadImportSpotifyPreview(_importTidalSelection, 'tidal');
+        });
+        listEl.appendChild(button);
+      });
+    }
+
     function renderSpotifyPreviewSection(sectionId, listId, items, formatter, totalCount) {
       var sectionEl = document.getElementById(sectionId);
       var listEl = document.getElementById(listId);
@@ -2861,7 +2988,7 @@
     }
 
     function loadImportSpotifyPreview(item, sourceTab) {
-      var activeTab = (sourceTab === 'url' || sourceTab === 'lastfm' || sourceTab === 'listenbrainz' || sourceTab === 'm3u') ? sourceTab : 'spotify';
+      var activeTab = (sourceTab === 'url' || sourceTab === 'tidal' || sourceTab === 'lastfm' || sourceTab === 'listenbrainz' || sourceTab === 'm3u') ? sourceTab : 'spotify';
       var statusEl = document.getElementById('importSpotifyStatus');
       var previewEl = document.getElementById('importSpotifyPreview');
       if (!item || !item.id) return;
@@ -2895,6 +3022,7 @@
             selection.trackCount = Number(data.playlistTrackCount || data.totalSourceTracks || 0);
             resetImportedTitleField();
             if (activeTab === 'spotify') renderImportSpotifySources();
+            if (activeTab === 'tidal') renderImportTidalSources();
           }
           if (_importSourceTab === activeTab) renderActiveImportSpotifyPreview();
           updateImportSubmitButton();
@@ -2912,7 +3040,7 @@
       var globalCheckbox = document.getElementById('importGlobalCheckbox');
       var makeGlobal = globalCheckbox && globalCheckbox.checked;
       var title = String(titleInput && titleInput.value || '').trim()
-        || ((_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u')
+        || ((_importSourceTab === 'spotify' || _importSourceTab === 'tidal' || _importSourceTab === 'url' || _importSourceTab === 'm3u')
           ? (getImportSpotifySelectionForTab(_importSourceTab) && getImportSpotifySelectionForTab(_importSourceTab).name)
           : (_importSourceTab === 'lastfm'
             ? (_importLastfmSelection && _importLastfmSelection.title)
@@ -2920,12 +3048,12 @@
               ? (_importListenbrainzSelection && _importListenbrainzSelection.title)
               : (_importPlexSelection && _importPlexSelection.title))))
         || 'Imported Playlist';
-      if (_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u') {
+      if (_importSourceTab === 'spotify' || _importSourceTab === 'tidal' || _importSourceTab === 'url' || _importSourceTab === 'm3u') {
         var spotifySelection = getImportSpotifySelectionForTab(_importSourceTab);
         if (!spotifySelection) return;
         var spotifyStatusEl = document.getElementById('importSpotifyStatus');
         var provider = String(spotifySelection.provider || (_importSourceTab === 'url' ? '' : 'spotify')).trim().toLowerCase() || 'spotify';
-        var providerLabel = provider === 'youtube' ? 'YouTube' : (provider === 'm3u' ? 'M3U' : 'Spotify');
+        var providerLabel = provider === 'youtube' ? 'YouTube' : (provider === 'tidal' ? 'TIDAL' : (provider === 'm3u' ? 'M3U' : 'Spotify'));
         submitBtn.disabled = true;
         if (spotifyStatusEl) spotifyStatusEl.textContent = 'Importing matched ' + providerLabel + ' tracks…';
         var importPayload = provider === 'm3u'
@@ -2957,7 +3085,7 @@
               playlistKind: 'generated',
               playlistType: 'custom',
               playlistAudience: data.audience === 'global' ? 'global' : 'imported',
-              sourceType: playlist.sourceType || (provider === 'youtube' ? 'youtube-playlist' : (provider === 'm3u' ? 'm3u-file' : 'spotify-playlist')),
+              sourceType: playlist.sourceType || (provider === 'youtube' ? 'youtube-playlist' : (provider === 'tidal' ? 'tidal-playlist' : (provider === 'm3u' ? 'm3u-file' : 'spotify-playlist'))),
               importedSyncPeriod: playlist.importedSyncPeriod || 'disabled',
               active: true,
               trackCount: Number(data.importedTrackCount || playlist.trackCount || 0),
@@ -2973,7 +3101,7 @@
             if (spotifyStatusEl) spotifyStatusEl.textContent = 'Error: ' + (err.message || 'Unknown');
           })
           .finally(function() {
-            if ((_importSourceTab === 'spotify' || _importSourceTab === 'url' || _importSourceTab === 'm3u') && getImportSpotifyPreviewForTab(_importSourceTab)) renderActiveImportSpotifyPreview();
+            if ((_importSourceTab === 'spotify' || _importSourceTab === 'tidal' || _importSourceTab === 'url' || _importSourceTab === 'm3u') && getImportSpotifyPreviewForTab(_importSourceTab)) renderActiveImportSpotifyPreview();
             updateImportSubmitButton();
           });
         return;
@@ -3582,6 +3710,7 @@
       var ref = String(sourceRef || '').trim();
       if (!ref) return '';
       if (type === 'spotify-playlist') return 'https://open.spotify.com/playlist/' + encodeURIComponent(ref);
+      if (type === 'tidal-playlist') return 'https://tidal.com/playlist/' + encodeURIComponent(ref);
       if (type === 'youtube-playlist') return 'https://www.youtube.com/playlist?list=' + encodeURIComponent(ref);
       return '';
     }
@@ -3589,6 +3718,7 @@
     function buildImportSourceLabel(sourceType) {
       var type = String(sourceType || '').trim().toLowerCase();
       if (type === 'spotify-playlist') return 'View on Spotify';
+      if (type === 'tidal-playlist') return 'View on TIDAL';
       if (type === 'youtube-playlist') return 'View on YouTube';
       return '';
     }
@@ -5722,7 +5852,7 @@
       if (ws.importSource) {
         var importLabel = ws.importSource.sourceType === 'spotify-playlist'
           ? 'Spotify playlist'
-          : (ws.importSource.sourceType === 'youtube-playlist'
+          : ws.importSource.sourceType === 'tidal-playlist' ? 'TIDAL playlist' : (ws.importSource.sourceType === 'youtube-playlist'
             ? 'YouTube playlist'
             : (ws.importSource.sourceType === 'lastfm-station'
               ? 'Last.fm playlist'

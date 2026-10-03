@@ -1,6 +1,7 @@
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -15,6 +16,8 @@ process.env.CURATORR_DISABLE_AUTOSTART = '1';
 process.env.PORT = String(37000 + (process.pid % 1000));
 process.env.SPOTIFY_CLIENT_ID = 'test-spotify-client-id';
 process.env.SPOTIFY_CLIENT_SECRET = 'test-spotify-client-secret';
+process.env.TIDAL_CLIENT_ID = 'test-tidal-client-id';
+process.env.TIDAL_CLIENT_SECRET = 'test-tidal-client-secret';
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
@@ -1053,6 +1056,145 @@ describe('user settings integrations', () => {
       assert.ok(prefs.spotifyTokenExpiresAt > Date.now());
     } finally {
       db.close();
+    }
+  });
+
+  it('connects and disconnects TIDAL with PKCE', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const connect = await client.request('/user-settings/tidal/connect');
+    assert.equal(connect.status, 302);
+    const authorizeUrl = new URL(connect.location);
+    assert.equal(authorizeUrl.origin + authorizeUrl.pathname, 'https://login.tidal.com/authorize');
+    assert.equal(authorizeUrl.searchParams.get('code_challenge_method'), 'S256');
+    const state = authorizeUrl.searchParams.get('state');
+    const codeChallenge = authorizeUrl.searchParams.get('code_challenge');
+    assert.ok(state && codeChallenge);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      const target = String(url || '');
+      if (target === 'https://auth.tidal.com/v1/oauth2/token') {
+        const body = new URLSearchParams(String(options?.body || ''));
+        assert.equal(body.get('grant_type'), 'authorization_code');
+        assert.equal(body.get('code'), 'tidal-code');
+        assert.equal(body.get('redirect_uri'), `${baseUrl}/user-settings/tidal/callback`);
+        const verifier = body.get('code_verifier');
+        assert.equal(createHash('sha256').update(verifier).digest('base64url'), codeChallenge);
+        return new Response(JSON.stringify({
+          access_token: 'tidal-access-token',
+          refresh_token: 'tidal-refresh-token',
+          expires_in: 3600,
+          user_id: 777,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (target === 'https://openapi.tidal.com/v2/users/me') {
+        assert.equal(options?.headers?.Authorization, 'Bearer tidal-access-token');
+        return new Response(JSON.stringify({
+          data: { id: '777', type: 'users', attributes: { username: 'tidalfan', firstName: 'Tidal', lastName: 'Fan', country: 'GB' } },
+        }), { status: 200, headers: { 'Content-Type': 'application/vnd.api+json' } });
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const callback = await client.request(`/user-settings/tidal/callback?code=tidal-code&state=${encodeURIComponent(state)}`);
+      assert.equal(callback.status, 302);
+      assert.equal(callback.location, '/user-settings?success=tidal-connected');
+      // The pending state is single-use.
+      const replay = await client.request(`/user-settings/tidal/callback?code=tidal-code&state=${encodeURIComponent(state)}`);
+      assert.equal(replay.location, '/user-settings?error=tidal-auth-invalid');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const readTidalPrefs = () => {
+      const db = initDb(join(process.env.DATA_DIR, 'curatorr.db'));
+      try {
+        return getUserPreferences(db, 'testadmin');
+      } finally {
+        db.close();
+      }
+    };
+    let prefs = readTidalPrefs();
+    assert.equal(prefs.tidalUserId, '777');
+    assert.equal(prefs.tidalDisplayName, 'Tidal Fan');
+    assert.equal(prefs.tidalCountryCode, 'GB');
+    assert.equal(prefs.tidalAccessToken, 'tidal-access-token');
+    assert.equal(prefs.tidalRefreshToken, 'tidal-refresh-token');
+
+    const settingsPage = await client.request('/user-settings');
+    assert.match(settingsPage.text, /Connected as <strong>Tidal Fan<\/strong>/);
+
+    const disconnect = await client.postForm('/user-settings/tidal/disconnect', {}, '/user-settings');
+    assert.equal(disconnect.location, '/user-settings?success=tidal-disconnected');
+    prefs = readTidalPrefs();
+    assert.equal(prefs.tidalAccessToken, '');
+    assert.equal(prefs.tidalRefreshToken, '');
+  });
+
+  it('previews a public TIDAL playlist URL with app credentials when TIDAL is not connected', async () => {
+    const { client, response } = await login('coadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+    const playlistId = '5c1d7e2a-9b3f-4c8d-a1e2-f3a4b5c6d7e8';
+
+    const originalFetch = globalThis.fetch;
+    const apiAuth = [];
+    globalThis.fetch = async (url, options) => {
+      const target = new URL(String(url || ''));
+      if (target.href === 'https://auth.tidal.com/v1/oauth2/token') {
+        const body = new URLSearchParams(String(options?.body || ''));
+        assert.equal(body.get('grant_type'), 'client_credentials');
+        return new Response(JSON.stringify({ access_token: 'tidal-app-token', expires_in: 3600 }), { status: 200 });
+      }
+      if (target.hostname === 'openapi.tidal.com') {
+        apiAuth.push(options?.headers?.Authorization);
+        if (target.pathname === `/v2/playlists/${playlistId}`) {
+          return new Response(JSON.stringify({
+            data: { id: playlistId, type: 'playlists', attributes: { name: 'Shared Mix', numberOfTrackItems: 2 }, relationships: { owners: { data: [{ id: '999', type: 'users' }] } } },
+          }), { status: 200 });
+        }
+        if (target.pathname === `/v2/playlists/${playlistId}/relationships/items`) {
+          return new Response(JSON.stringify({
+            data: [{ id: '501', type: 'tracks' }, { id: '502', type: 'tracks' }],
+            links: { self: '' },
+          }), { status: 200 });
+        }
+        if (target.pathname === '/v2/tracks') {
+          return new Response(JSON.stringify({
+            data: [
+              { id: '501', type: 'tracks', attributes: { title: 'Tidal Only Song Zeta', duration: 'PT2M' }, relationships: { artists: { data: [{ id: 'a1', type: 'artists' }] } } },
+              { id: '502', type: 'tracks', attributes: { title: 'Tidal Only Song Eta', duration: 'PT3M' }, relationships: { artists: { data: [{ id: 'a1', type: 'artists' }] } } },
+            ],
+            included: [{ id: 'a1', type: 'artists', attributes: { name: 'Nobody In This Library' } }],
+          }), { status: 200 });
+        }
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const preview = await client.request(`/api/music/import/tidal/preview?playlistId=${encodeURIComponent(`https://tidal.com/playlist/${playlistId}`)}`);
+      assert.equal(preview.status, 200);
+      const data = JSON.parse(preview.text);
+      assert.equal(data.ok, true);
+      assert.equal(data.playlist.name, 'Shared Mix');
+      assert.equal(data.playlist.ownerName, 'TIDAL');
+      assert.equal(data.totalSourceTracks, 2);
+      assert.equal(data.matchedCount, 0);
+      assert.equal(data.unmatchedCount, 2);
+      assert.deepEqual(data.unmatched.map((track) => track.title), ['Tidal Only Song Zeta', 'Tidal Only Song Eta']);
+      assert.ok(apiAuth.length > 0 && apiAuth.every((header) => header === 'Bearer tidal-app-token'));
+
+      const imported = await client.postJson('/api/music/import/tidal', { playlistId, title: 'Shared Mix' }, '/user-settings');
+      assert.equal(imported.status, 404);
+      assert.match(JSON.parse(imported.text).error, /No TIDAL tracks matched/);
+
+      const invalid = await client.request('/api/music/import/tidal/preview?playlistId=not-a-playlist');
+      assert.equal(invalid.status, 400);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 

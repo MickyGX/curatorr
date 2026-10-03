@@ -50,6 +50,8 @@
             'preset-updated': 'Curation style saved.',
             'lastfm-updated': 'Last.fm username saved.',
             'listenbrainz-updated': 'ListenBrainz settings saved.',
+            'tidal-connected': 'TIDAL connected.',
+            'tidal-disconnected': 'TIDAL disconnected.',
             'backfill-reset': 'Backfill reset — trigger Last.fm History Backfill in Jobs to restart.',
           };
           const profileNote = error
@@ -531,6 +533,38 @@
               </div>
             </div>
           </div>
+
+          <% if (tidalConfigured || tidalConnected) { %>
+          <div class="settings-card settings-integration-card">
+            <div class="settings-integration-head">
+              <div>
+                <div class="settings-card-title">TIDAL Import</div>
+                <div class="settings-card-sub">Connect TIDAL so Curatorr can browse your playlists and import them into your local library.</div>
+              </div>
+              <span class="settings-integration-tag"><%= tidalConnected ? 'Connected' : 'Optional' %></span>
+            </div>
+            <div class="settings-form">
+              <div class="settings-card-sub" style="margin-bottom:0.75rem">
+                <% if (tidalConnected) { %>
+                  Connected as <strong><%= tidalDisplayName || 'TIDAL user' %></strong><% if (tidalCountryCode) { %> (<code><%= tidalCountryCode %></code>)<% } %>.
+                <% } else { %>
+                  TIDAL is not connected yet. Once connected, the Playlists page will be able to list your TIDAL playlists for import.
+                <% } %>
+              </div>
+              <div class="settings-access-row" style="justify-content:flex-start;gap:0.75rem;">
+                <% if (tidalConfigured) { %>
+                  <a class="primary-button" href="/user-settings/tidal/connect"><%= tidalConnected ? 'Reconnect TIDAL' : 'Connect TIDAL' %></a>
+                <% } %>
+                <% if (tidalConnected) { %>
+                  <form method="post" action="/user-settings/tidal/disconnect" style="margin:0">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                    <button class="primary-button secondary-button" type="submit">Disconnect</button>
+                  </form>
+                <% } %>
+              </div>
+            </div>
+          </div>
+          <% } %>
 
         </div>
       </div>

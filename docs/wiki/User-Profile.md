@@ -56,6 +56,20 @@ This enables:
 
 If the Spotify section is missing entirely, the app-level credentials are not configured on the Curatorr container yet.
 
+## TIDAL
+
+If the Curatorr container is configured with `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET`,
+users can connect their own TIDAL account from `User Profile`.
+
+This enables:
+
+- browsing their TIDAL playlists from the Playlists page
+- importing TIDAL playlists into Curatorr
+- refreshing previously imported TIDAL playlists after the local library changes
+
+Public TIDAL playlist links can also be imported from the `URL` tab without connecting an account.
+If the TIDAL section is missing, the app-level credentials are not configured on the Curatorr container yet.
+
 ## Last.fm
 
 Per-user Last.fm settings include:

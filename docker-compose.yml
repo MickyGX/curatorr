@@ -15,6 +15,11 @@ services:
       # http://localhost:7676/user-settings/spotify/callback
       # - SPOTIFY_CLIENT_ID=your-spotify-client-id
       # - SPOTIFY_CLIENT_SECRET=your-spotify-client-secret
+      # Optional: required for TIDAL playlist import and refresh.
+      # Add the matching callback URL in your TIDAL app settings:
+      # http://localhost:7676/user-settings/tidal/callback
+      # - TIDAL_CLIENT_ID=your-tidal-client-id
+      # - TIDAL_CLIENT_SECRET=your-tidal-client-secret
       # Allow Launcharr or another dashboard to embed Curatorr in an iframe.
       # Example: EMBED_ALLOWED_ORIGINS=http://localhost:3333
       # - EMBED_ALLOWED_ORIGINS=http://localhost:3333

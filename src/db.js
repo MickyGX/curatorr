@@ -194,6 +194,12 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   spotify_access_token TEXT NOT NULL DEFAULT '',
   spotify_refresh_token TEXT NOT NULL DEFAULT '',
   spotify_token_expires_at INTEGER NOT NULL DEFAULT 0,
+  tidal_user_id       TEXT NOT NULL DEFAULT '',
+  tidal_display_name  TEXT NOT NULL DEFAULT '',
+  tidal_country_code  TEXT NOT NULL DEFAULT '',
+  tidal_access_token  TEXT NOT NULL DEFAULT '',
+  tidal_refresh_token TEXT NOT NULL DEFAULT '',
+  tidal_token_expires_at INTEGER NOT NULL DEFAULT 0,
   updated_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
 );
 
@@ -545,6 +551,11 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN spotify_refresh_token TEXT NOT NULL DEFAULT ''");
   if (!prefCols.includes('spotify_token_expires_at'))
     db.exec('ALTER TABLE user_preferences ADD COLUMN spotify_token_expires_at INTEGER NOT NULL DEFAULT 0');
+  for (const col of ['tidal_user_id', 'tidal_display_name', 'tidal_country_code', 'tidal_access_token', 'tidal_refresh_token']) {
+    if (!prefCols.includes(col)) db.exec(`ALTER TABLE user_preferences ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!prefCols.includes('tidal_token_expires_at'))
+    db.exec('ALTER TABLE user_preferences ADD COLUMN tidal_token_expires_at INTEGER NOT NULL DEFAULT 0');
   const generatedCols = db.prepare('PRAGMA table_info(user_generated_playlists)').all().map((c) => c.name);
   if (!generatedCols.includes('title_override'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN title_override TEXT NOT NULL DEFAULT ''");
@@ -1805,6 +1816,12 @@ export function getUserPreferences(db, userPlexId) {
     spotifyAccessToken: '',
     spotifyRefreshToken: '',
     spotifyTokenExpiresAt: 0,
+    tidalUserId: '',
+    tidalDisplayName: '',
+    tidalCountryCode: '',
+    tidalAccessToken: '',
+    tidalRefreshToken: '',
+    tidalTokenExpiresAt: 0,
   };
   return {
     likedGenres: JSON.parse(row.liked_genres || '[]'),
@@ -1831,6 +1848,12 @@ export function getUserPreferences(db, userPlexId) {
     spotifyAccessToken: String(row.spotify_access_token || ''),
     spotifyRefreshToken: String(row.spotify_refresh_token || ''),
     spotifyTokenExpiresAt: Number(row.spotify_token_expires_at || 0),
+    tidalUserId: String(row.tidal_user_id || ''),
+    tidalDisplayName: String(row.tidal_display_name || ''),
+    tidalCountryCode: String(row.tidal_country_code || ''),
+    tidalAccessToken: String(row.tidal_access_token || ''),
+    tidalRefreshToken: String(row.tidal_refresh_token || ''),
+    tidalTokenExpiresAt: Number(row.tidal_token_expires_at || 0),
   };
 }
 
@@ -1858,6 +1881,12 @@ export function saveUserPreferences(db, userPlexId, {
   spotifyAccessToken = undefined,
   spotifyRefreshToken = undefined,
   spotifyTokenExpiresAt = undefined,
+  tidalUserId = undefined,
+  tidalDisplayName = undefined,
+  tidalCountryCode = undefined,
+  tidalAccessToken = undefined,
+  tidalRefreshToken = undefined,
+  tidalTokenExpiresAt = undefined,
 }) {
   const existing = getUserPreferences(db, userPlexId);
   const resolvedSmartConfig = smartConfig !== undefined ? smartConfig : existing.smartConfig;
@@ -1878,6 +1907,12 @@ export function saveUserPreferences(db, userPlexId, {
   const resolvedSpotifyAccessToken = spotifyAccessToken !== undefined ? String(spotifyAccessToken).trim() : existing.spotifyAccessToken;
   const resolvedSpotifyRefreshToken = spotifyRefreshToken !== undefined ? String(spotifyRefreshToken).trim() : existing.spotifyRefreshToken;
   const resolvedSpotifyTokenExpiresAt = spotifyTokenExpiresAt !== undefined ? Number(spotifyTokenExpiresAt || 0) : existing.spotifyTokenExpiresAt;
+  const resolvedTidalUserId = tidalUserId !== undefined ? String(tidalUserId).trim() : existing.tidalUserId;
+  const resolvedTidalDisplayName = tidalDisplayName !== undefined ? String(tidalDisplayName).trim() : existing.tidalDisplayName;
+  const resolvedTidalCountryCode = tidalCountryCode !== undefined ? String(tidalCountryCode).trim() : existing.tidalCountryCode;
+  const resolvedTidalAccessToken = tidalAccessToken !== undefined ? String(tidalAccessToken).trim() : existing.tidalAccessToken;
+  const resolvedTidalRefreshToken = tidalRefreshToken !== undefined ? String(tidalRefreshToken).trim() : existing.tidalRefreshToken;
+  const resolvedTidalTokenExpiresAt = tidalTokenExpiresAt !== undefined ? Number(tidalTokenExpiresAt || 0) : existing.tidalTokenExpiresAt;
   db.prepare(`
     INSERT INTO user_preferences (
       user_plex_id, liked_genres, ignored_genres, liked_artists, ignored_artists, user_wizard_completed,
@@ -1886,9 +1921,10 @@ export function saveUserPreferences(db, userPlexId, {
       listenbrainz_username, listenbrainz_token, listenbrainz_enabled_playlists, listenbrainz_strict_match_playlists,
       listenbrainz_playlist_sorts, listenbrainz_playlist_final_orderings,
       spotify_user_id, spotify_display_name, spotify_access_token, spotify_refresh_token, spotify_token_expires_at,
+      tidal_user_id, tidal_display_name, tidal_country_code, tidal_access_token, tidal_refresh_token, tidal_token_expires_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_plex_id) DO UPDATE SET
       liked_genres = excluded.liked_genres,
       ignored_genres = excluded.ignored_genres,
@@ -1913,6 +1949,12 @@ export function saveUserPreferences(db, userPlexId, {
       spotify_access_token = excluded.spotify_access_token,
       spotify_refresh_token = excluded.spotify_refresh_token,
       spotify_token_expires_at = excluded.spotify_token_expires_at,
+      tidal_user_id = excluded.tidal_user_id,
+      tidal_display_name = excluded.tidal_display_name,
+      tidal_country_code = excluded.tidal_country_code,
+      tidal_access_token = excluded.tidal_access_token,
+      tidal_refresh_token = excluded.tidal_refresh_token,
+      tidal_token_expires_at = excluded.tidal_token_expires_at,
       updated_at = excluded.updated_at
   `).run(
     userPlexId,
@@ -1939,6 +1981,12 @@ export function saveUserPreferences(db, userPlexId, {
     resolvedSpotifyAccessToken,
     resolvedSpotifyRefreshToken,
     resolvedSpotifyTokenExpiresAt,
+    resolvedTidalUserId,
+    resolvedTidalDisplayName,
+    resolvedTidalCountryCode,
+    resolvedTidalAccessToken,
+    resolvedTidalRefreshToken,
+    resolvedTidalTokenExpiresAt,
     Date.now(),
   );
 }

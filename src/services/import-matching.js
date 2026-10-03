@@ -1,6 +1,23 @@
 // Text matching of imported playlist items (Spotify, Last.fm, ListenBrainz, M3U #EXTINF, ...)
 // against the master track cache.
 
+// Source types for custom playlists imported from an external source. These can
+// be refreshed from their source and edited through the imported-playlist modal.
+export const IMPORTED_PLAYLIST_SOURCE_TYPES = Object.freeze([
+  'spotify-playlist',
+  'tidal-playlist',
+  'youtube-playlist',
+  'plex-playlist',
+  'plex-collection',
+  'lastfm-station',
+  'listenbrainz-playlist',
+  'm3u-file',
+]);
+
+export function isImportedPlaylistSourceType(sourceType) {
+  return IMPORTED_PLAYLIST_SOURCE_TYPES.includes(String(sourceType || '').trim().toLowerCase());
+}
+
 const ARTIST_CREDIT_SPLIT_RE = /\s*(?:,|;|\/|&|\+|\bfeat\.?\s|\bft\.?\s|\bfeaturing\b|\bvs\.?\s)\s*/i;
 
 export function normalizeImportMatchText(value) {

@@ -90,6 +90,7 @@ Large libraries can take a while on first refresh. Curatorr pages tracks through
 
 - Music Assistant 2.7+ can add plays from its players alongside your primary server. Configure its URL, token, provider, and listener mappings in Settings after initial setup: [Music Assistant](Music-Assistant.md).
 - Spotify playlist import requires `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` on the Curatorr container. Setup details: [Integrations](Integrations.md#spotify).
+- TIDAL playlist import requires `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` on the Curatorr container. Setup details: [Integrations](Integrations.md#tidal).
 - YouTube playlist URL import requires `YOUTUBE_API_KEY` on the Curatorr container. Setup details: [Integrations](Integrations.md#youtube).
 - Track analysis enrichment is optional and uses the separate analyzer sidecar or a custom command workflow. Setup details: [Track Analysis](Track-Analysis.md).
 

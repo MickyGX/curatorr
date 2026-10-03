@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { readFileSync, unlinkSync } from 'node:fs';
 import vm from 'node:vm';
 import express from 'express';
+import { IMPORTED_PLAYLIST_SOURCE_TYPES, isImportedPlaylistSourceType } from '../services/import-matching.js';
 import request from 'supertest';
 
 import {
@@ -98,7 +99,7 @@ describe('M3U import parsing and matching', () => {
     const source = readFileSync(new URL('../routes/pages.js', import.meta.url), 'utf8');
     const start = source.indexOf('function resolvePlaylistAudience(');
     const end = source.indexOf('function getPlaylistAudienceSortRank(', start);
-    const resolve = vm.runInNewContext(`(${source.slice(start, end).trim()})`);
+    const resolve = vm.runInNewContext(`(${source.slice(start, end).trim()})`, { isImportedPlaylistSourceType });
     assert.equal(resolve('custom', 'm3u:test', new Map(), 'm3u-file', 'personal'), 'imported');
     assert.equal(resolve('custom', 'm3u:test', new Map(), 'm3u-file', 'global'), 'global');
   });
@@ -112,6 +113,7 @@ describe('M3U import parsing and matching', () => {
       document: { getElementById: (id) => elements[id] || null },
       ensureModalAtRoot: () => ({ style: {} }),
       CAN_EDIT_GLOBAL_PLAYLISTS: false,
+      IMPORTED_SOURCE_TYPES: IMPORTED_PLAYLIST_SOURCE_TYPES,
     });
     for (const name of names) {
       const start = source.indexOf('    function ' + name + '(');
