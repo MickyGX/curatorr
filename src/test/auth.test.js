@@ -1117,6 +1117,48 @@ describe('user settings integrations', () => {
       db.close();
     }
   });
+
+  it('lets an admin add a local user who can then sign in', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const res = await client.postForm('/settings/local-users/add', {
+      username: 'pwuser',
+      email: 'pwuser@curatorr.test',
+      password: 'PwUserPassword1!',
+      role: 'user',
+    }, '/settings');
+    assert.equal(res.status, 302);
+    assert.equal(res.location, '/settings?tab=users&success=1');
+
+    const config = await readConfig();
+    const added = config.users.find((user) => user.username === 'pwuser');
+    assert.ok(added, 'expected the new local user to be saved');
+    assert.ok(added.salt && added.passwordHash);
+
+    const { response: loginRes } = await login('pwuser', 'PwUserPassword1!');
+    assert.equal(loginRes.status, 302);
+    assert.notEqual(loginRes.location, '/login');
+  });
+
+  it('changes a local user password from user settings', async () => {
+    const { client, response } = await login('pwuser', 'PwUserPassword1!');
+    assert.equal(response.status, 302);
+
+    const res = await client.postForm('/user-settings/password', {
+      currentPassword: 'PwUserPassword1!',
+      newPassword: 'ChangedPassword2!',
+      confirmPassword: 'ChangedPassword2!',
+    }, '/user-settings');
+    assert.equal(res.status, 302);
+    assert.equal(res.location, '/user-settings?success=password-changed');
+
+    const { response: oldLogin } = await login('pwuser', 'PwUserPassword1!');
+    assert.equal(oldLogin.status, 401);
+    const { response: newLogin } = await login('pwuser', 'ChangedPassword2!');
+    assert.equal(newLogin.status, 302);
+    assert.notEqual(newLogin.location, '/login');
+  });
 });
 
 describe('security guards', () => {

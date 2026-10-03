@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, getGenresFromMaster, getMoodsFromMaster, getArtistCountriesFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments, getFeaturePresetAvailabilityFromDb } from '../db.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import { JOB_DEFS } from '../services/jobs.js';
@@ -1353,7 +1354,6 @@ export function registerSettings(app, ctx) {
       return res.redirect('/settings?tab=users&error=username-taken');
     }
 
-    // crypto imported at top of file
     const salt = crypto.randomBytes(16).toString('hex');
     const newUser = {
       username, email, role,
@@ -1685,7 +1685,6 @@ export function registerSettings(app, ctx) {
     if (pwErr) return res.redirect(`/user-settings?error=${encodeURIComponent(pwErr)}`);
     if (newPw !== confirm) return res.redirect('/user-settings?error=passwords-mismatch');
 
-    // crypto imported at top of file
     const salt = crypto.randomBytes(16).toString('hex');
     const updatedUsers = users.map((u, i) => i === idx ? { ...u, passwordHash: hashPassword(newPw, salt), salt } : u);
     saveConfig({ ...config, users: serializeLocalUsers(updatedUsers) });
