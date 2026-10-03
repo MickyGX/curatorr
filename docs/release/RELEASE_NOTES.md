@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.104 (2026-10-03)
+
+- Added a Play count filter to smart playlists. In the wizard's content filters, set **At least** and/or **At most** to keep only tracks the listener has played that many times in Curatorr.
+- Combined with the Last played filter, a play count sort, and a track cap, this can build "rediscover old favourites" playlists, such as tracks played 10+ times but not in the last 120 days.
+- The filter applies to playlist builds, the wizard preview, and blended playlists. Admin global playlists accept it too.
+- Added regression coverage for minimum, maximum, and combined play count and last-played rules.
+
 ## v0.1.103 (2026-10-03)
 
 - Added TIDAL playlist import. Users can connect a TIDAL account in User Profile, browse their own playlists from a new TIDAL tab in the import dialog, preview local matches, and import them as managed custom playlists with manual or scheduled refresh.
