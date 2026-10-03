@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.103 (2026-10-03)
+
+- Added TIDAL playlist import. Users can connect a TIDAL account in User Profile, browse their own playlists from a new TIDAL tab in the import dialog, preview local matches, and import them as managed custom playlists with manual or scheduled refresh.
+- Public TIDAL playlist links can be imported from the URL tab, including by users who have not connected TIDAL. Only tracks are imported; videos are skipped.
+- TIDAL is enabled with `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` on the container, plus an optional `TIDAL_COUNTRY_CODE`.
+- Fixed changing a local account password from User Profile, and adding local users from Settings → Users, failing with an HTTP 500 error (`crypto.randomBytes is not a function`).
+- Added regression coverage for local password changes, local user creation, the TIDAL client, and TIDAL account connection and import.
+
 ## v0.1.102 (2026-09-27)
 
 - Fixed Plex playlist rebuilds failing on rejected batches containing missing tracks or music IDs reassigned to non-music items after a Plex database repair. Curatorr isolates the rejected items, confirms they are unavailable, and continues with valid tracks.
