@@ -147,6 +147,8 @@ const IMPORTED_SYNC_PERIOD_LABELS = {
 // Most imported playlists one scheduled run refreshes per user. The rest wait for
 // the next run, so a large library of auto-refreshing imports is staggered.
 const IMPORTED_REFRESH_BATCH_LIMIT = 25;
+const IMPORTED_REFRESH_BATCH_PAUSE_MS = 3 * 60 * 1000;
+const IMPORTED_REFRESH_RETRY_MS = 6 * 60 * 60 * 1000;
 const IMPORTED_SYNC_PERIOD_MS = {
   disabled: 0,
   daily: DAY_MS,
@@ -2700,7 +2702,24 @@ export function registerApiMusic(app, ctx) {
     return playlistService?.syncCustomPlaylist(userPlexId, updated);
   }
 
+  // Failed refreshes wait this long before they are retried, so playlists that
+  // keep failing (a deleted source, expired auth) cannot fill every batch.
+  const importedRefreshFailures = new Map();
+  // One imported refresh per user at a time, whether it comes from the
+  // scheduled job or a "refresh all" background run.
+  const importedRefreshInFlight = new Set();
+
   async function refreshScheduledImportedPlaylistsForUser(userPlexId, options = {}) {
+    if (importedRefreshInFlight.has(userPlexId)) return { refreshed: 0, skipped: 0, deferred: 0, busy: true };
+    importedRefreshInFlight.add(userPlexId);
+    try {
+      return await runImportedRefreshBatch(userPlexId, options);
+    } finally {
+      importedRefreshInFlight.delete(userPlexId);
+    }
+  }
+
+  async function runImportedRefreshBatch(userPlexId, options = {}) {
     const now = Number(options?.now || Date.now());
     const batchLimit = Math.max(1, Number(options?.limit) || IMPORTED_REFRESH_BATCH_LIMIT);
     const playlists = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
@@ -2710,10 +2729,16 @@ export function registerApiMusic(app, ctx) {
     let skipped = 0;
     const due = [];
     for (const playlist of playlists) {
+      const failureKey = `${userPlexId}\n${playlist.playlistKey}`;
+      const failedAt = Number(importedRefreshFailures.get(failureKey) || 0);
+      if (failedAt && (now - failedAt) < IMPORTED_REFRESH_RETRY_MS) {
+        skipped += 1;
+        continue;
+      }
       // A manual "refresh all" request is due from when it was made.
       const requestedAt = Number(playlist?.importedRefreshRequestedAt || 0);
       if (requestedAt > 0) {
-        due.push({ playlist, dueAt: requestedAt });
+        due.push({ playlist, dueAt: requestedAt, requested: true });
         continue;
       }
       const intervalMs = getImportedPlaylistRefreshIntervalMs(playlist.importedSyncPeriod);
@@ -2723,18 +2748,23 @@ export function registerApiMusic(app, ctx) {
         skipped += 1;
         continue;
       }
-      due.push({ playlist, dueAt: baseline + intervalMs });
+      due.push({ playlist, dueAt: baseline + intervalMs, requested: false });
     }
     due.sort((a, b) => a.dueAt - b.dueAt);
     const batch = due.slice(0, batchLimit);
     const deferred = due.length - batch.length;
     let refreshed = 0;
-    for (const { playlist } of batch) {
+    let failed = 0;
+    for (const { playlist, requested } of batch) {
+      const failureKey = `${userPlexId}\n${playlist.playlistKey}`;
       try {
-        if (Number(playlist?.importedRefreshRequestedAt || 0) > 0) clearImportedPlaylistRefreshDue(db, userPlexId, playlist.playlistKey);
         await refreshImportedCustomPlaylist(userPlexId, playlist);
+        importedRefreshFailures.delete(failureKey);
+        if (requested) clearImportedPlaylistRefreshDue(db, userPlexId, playlist.playlistKey);
         refreshed += 1;
       } catch (err) {
+        failed += 1;
+        importedRefreshFailures.set(failureKey, Date.now());
         pushLog({
           level: 'warn',
           app: 'playlist',
@@ -2748,28 +2778,42 @@ export function registerApiMusic(app, ctx) {
         level: 'info',
         app: 'playlist',
         action: 'import.refresh.deferred',
-        message: `Refreshed ${refreshed} imported playlist(s) for ${userPlexId}; ${deferred} more will refresh on the next run`,
+        message: `Refreshed ${refreshed} imported playlist(s) for ${userPlexId}; ${deferred} more will refresh in a later batch`,
       });
     }
-    return { refreshed, skipped, deferred };
+    return { refreshed, skipped, deferred, ...(failed ? { failed } : {}) };
   }
 
   ctx.refreshScheduledImportedPlaylistsForUser = refreshScheduledImportedPlaylistsForUser;
 
-  // One background refresh per user at a time; later batches come from the
-  // scheduled Smart Playlist Sync job.
-  const importedRefreshInFlight = new Set();
+  // Works through a "refresh all" request in batches with a pause between them,
+  // so users the scheduled job does not cover still finish, and the media
+  // server is not hit with every playlist at once.
+  const importedRefreshLoops = new Set();
   function startImportedRefreshInBackground(userPlexId) {
-    if (importedRefreshInFlight.has(userPlexId)) return;
-    importedRefreshInFlight.add(userPlexId);
-    refreshScheduledImportedPlaylistsForUser(userPlexId)
-      .catch((err) => pushLog({
-        level: 'warn',
-        app: 'playlist',
-        action: 'import.refresh.error',
-        message: `Background import refresh failed for ${userPlexId}: ${safeMessage(err)}`,
-      }))
-      .finally(() => importedRefreshInFlight.delete(userPlexId));
+    if (importedRefreshLoops.has(userPlexId)) return;
+    importedRefreshLoops.add(userPlexId);
+    const runBatch = () => refreshScheduledImportedPlaylistsForUser(userPlexId)
+      .then((result) => {
+        const pending = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+          .some((playlist) => Number(playlist?.importedRefreshRequestedAt || 0) > 0);
+        if (pending && (result.busy || result.deferred > 0)) {
+          const timer = setTimeout(runBatch, IMPORTED_REFRESH_BATCH_PAUSE_MS);
+          timer.unref?.();
+          return;
+        }
+        importedRefreshLoops.delete(userPlexId);
+      })
+      .catch((err) => {
+        importedRefreshLoops.delete(userPlexId);
+        pushLog({
+          level: 'warn',
+          app: 'playlist',
+          action: 'import.refresh.error',
+          message: `Background import refresh failed for ${userPlexId}: ${safeMessage(err)}`,
+        });
+      });
+    runBatch();
   }
 
   // Reads a watch-folder playlist by its relative path, or returns null when the
@@ -5288,7 +5332,13 @@ export function registerApiMusic(app, ctx) {
       action: 'import.refresh.queued',
       message: `Queued ${keys.length} imported playlist(s) for refresh for ${userPlexId}`,
     });
-    return res.json({ ok: true, queued: keys.length, newlyQueued: queued, batchSize: IMPORTED_REFRESH_BATCH_LIMIT });
+    return res.json({
+      ok: true,
+      queued: keys.length,
+      newlyQueued: queued,
+      batchSize: IMPORTED_REFRESH_BATCH_LIMIT,
+      batchPauseMinutes: Math.round(IMPORTED_REFRESH_BATCH_PAUSE_MS / 60000),
+    });
   });
 
   app.post('/api/music/playlists/imported-audience', requireUser, async (req, res) => {

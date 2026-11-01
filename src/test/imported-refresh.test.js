@@ -126,8 +126,30 @@ describe('imported playlist auto-refresh at scale', () => {
     }
     assert.equal(pending(), 5, 'expected the background run to take one batch');
 
-    const result = await ctx.refreshScheduledImportedPlaylistsForUser(USER);
+    let result = await ctx.refreshScheduledImportedPlaylistsForUser(USER);
+    for (let i = 0; i < 100 && result.busy; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      result = await ctx.refreshScheduledImportedPlaylistsForUser(USER);
+    }
     assert.equal(result.refreshed, 5);
     assert.equal(pending(), 0);
+  });
+
+  it('backs off playlists whose refresh keeps failing so others still get a turn', async () => {
+    saveUserGeneratedPlaylist(db, USER, {
+      playlistKey: 'custom-import-broken',
+      playlistTitle: 'Broken source',
+      playlistType: 'custom',
+      sourceType: 'spotify-playlist',
+      sourceRef: '',
+      importedSyncPeriod: 'daily',
+      active: true,
+      lastBuiltAt: 1,
+      updatedAt: 1,
+    });
+    const first = await ctx.refreshScheduledImportedPlaylistsForUser(USER, { limit: 1 });
+    assert.equal(first.failed, 1);
+    const second = await ctx.refreshScheduledImportedPlaylistsForUser(USER, { limit: 1 });
+    assert.equal(second.failed, undefined, 'expected the failing playlist to wait before retrying');
   });
 });

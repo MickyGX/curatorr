@@ -4502,7 +4502,7 @@
     function refreshAllImportedPlaylists() {
       var btn = document.getElementById('plRefreshAllImportedBtn');
       var status = document.getElementById('syncStatus');
-      if (!confirm('Refresh all imported playlists from their sources? They are queued and refreshed in batches in the background.')) return;
+      if (!confirm('Refresh all imported playlists from their sources? They are queued and refreshed in batches of 25 in the background.')) return;
       if (btn) btn.disabled = true;
       status.textContent = 'Queuing imported playlists…';
       fetch('/api/music/playlists/imported/refresh-all', {
@@ -4519,7 +4519,7 @@
             ? 'No imported playlists to refresh.'
             : (queued <= batch
               ? 'Refreshing ' + queued + ' imported playlist' + (queued === 1 ? '' : 's') + ' in the background.'
-              : 'Queued ' + queued + ' imported playlists. The first ' + batch + ' are refreshing now; the rest follow with each Smart Playlist Sync run.');
+              : 'Queued ' + queued + ' imported playlists. They refresh in the background, ' + batch + ' every ' + Number(data.batchPauseMinutes || 3) + ' minutes or so.');
         })
         .catch(function(err) {
           status.textContent = 'Error: ' + (err.message || 'Unknown');
