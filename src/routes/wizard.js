@@ -428,6 +428,16 @@ async function configureTautulliWebhook(tautulliUrl, apiKey, ctx, { req = null }
   const resolved = buildReachableWebhookUrl(ctx, config, req, 'webhook/tautulli', 'Tautulli');
   if (!resolved.ok) return { ok: false, reason: resolved.reason };
   const webhookUrl = resolved.url;
+  const ownSecret = String(ctx.getWebhookSharedSecret?.(config) || '').trim();
+  // Only a notifier that is clearly this instance's old registration is
+  // replaced: one pointing at localhost, or one carrying this instance's key.
+  // Another Curatorr sharing the same Tautulli keeps its notifier.
+  const isStaleOwnHook = (hook) => {
+    if (!normalizeWebhookPathname(hook).endsWith('/webhook/tautulli')) return false;
+    const parsed = parseBaseUrl(hook);
+    if (!parsed) return false;
+    return isLoopbackHostname(parsed.hostname) || Boolean(ownSecret && parsed.searchParams.get('key') === ownSecret);
+  };
   const api = `${tautulliUrl.replace(/\/$/, '')}/api/v2`;
   const triggers = ['on_play', 'on_stop', 'on_pause', 'on_resume', 'on_watched'];
   const fetchTautulliJson = async (params) => {
@@ -463,9 +473,9 @@ async function configureTautulliWebhook(tautulliUrl, apiKey, ctx, { req = null }
       pushLog({ level: 'info', app: 'wizard', action: 'tautulli.webhook.exists', message: `Tautulli webhook already configured (notifier ${n.id})` });
       return { ok: true, notifierId: n.id, created: false, alreadyConfigured: true };
     }
-    // A notifier already pointing at a Curatorr Tautulli webhook (e.g. an old
-    // localhost URL) is updated in place instead of adding a duplicate.
-    if (hook && staleNotifierId == null && normalizeWebhookPathname(hook).endsWith('/webhook/tautulli')) staleNotifierId = n.id;
+    // This instance's old registration is updated in place instead of adding
+    // a duplicate.
+    if (hook && staleNotifierId == null && isStaleOwnHook(hook)) staleNotifierId = n.id;
     if (!hook && reusableNotifierId == null && (!friendlyName || friendlyName === 'Curatorr')) reusableNotifierId = n.id;
   }
   if (staleNotifierId != null) reusableNotifierId = staleNotifierId;

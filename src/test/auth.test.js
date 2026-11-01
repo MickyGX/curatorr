@@ -7525,10 +7525,17 @@ describe('security guards', () => {
         headers: { 'Content-Type': 'application/json' },
       });
       if (cmd === 'get_notifiers') {
-        return reply({ result: 'success', data: [{ id: 7, agent_name: 'webhook', friendly_name: 'Curatorr' }] });
+        return reply({ result: 'success', data: [
+          { id: 6, agent_name: 'webhook', friendly_name: 'Curatorr' },
+          { id: 7, agent_name: 'webhook', friendly_name: 'Curatorr' },
+        ] });
       }
       if (cmd === 'get_notifier_config') {
-        return reply({ result: 'success', data: { config: { hook: 'http://localhost:7676/webhook/tautulli?key=old' } } });
+        // Notifier 6 belongs to another Curatorr instance and must be left alone.
+        const hook = params.get('notifier_id') === '6'
+          ? 'https://other-curatorr.example/webhook/tautulli?key=someone-else'
+          : 'http://localhost:7676/webhook/tautulli?key=old';
+        return reply({ result: 'success', data: { config: { hook } } });
       }
       if (cmd === 'set_notifier_config') {
         savedParams = params;
