@@ -3415,65 +3415,114 @@
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <%
                 const _jobsCfg = config.jobs || {};
-                const _jobIds = Object.keys(jobDefs || {});
+                const _jobAvail = jobAvailability || {};
+                const _grouped = new Set();
+                const _groups = (jobGroups || []).map(function(g) {
+                  g.jobs.forEach(function(id) { _grouped.add(id); });
+                  return g;
+                });
+                const _otherJobs = Object.keys(jobDefs || {}).filter(function(id) { return !_grouped.has(id); });
+                if (_otherJobs.length) _groups.push({ key: 'other', label: 'Other', description: '', jobs: _otherJobs });
               %>
-              <% for (const _jid of _jobIds) { %>
-              <%
-                const _jdef = jobDefs[_jid];
-                const _jcfg = _jobsCfg[_jid] || {};
-                const _jstat = jobStatus[_jid] || {};
-                const _jEnabled = _jcfg.enabled !== false;
-                const _jInterval = _jcfg.intervalMinutes || _jdef.defaultIntervalMinutes;
-                const _jMaxInterval = Math.max(10080, Number(_jdef.defaultIntervalMinutes || 0));
-                const _jStatus = _jstat.status || 'idle';
-                const _jLastRun = _jstat.lastRunAt;
-                const _jMsg = _jstat.message || '';
-              %>
-              <div class="settings-card settings-job-card" data-job-id="<%= _jid %>">
-                <div class="settings-job-card-header">
-                  <div class="settings-job-card-meta">
-                    <div class="settings-card-title" style="margin-bottom:4px"><%= _jdef.label %></div>
-                    <div class="settings-card-sub" style="margin-bottom:0"><%= _jdef.description %></div>
-                  </div>
-                  <div class="settings-job-card-actions">
-                    <span class="settings-job-status-badge settings-job-status-badge--<%= _jStatus %>" data-job-status="<%= _jid %>"><%= _jStatus %></span>
-                    <button type="button" class="ghost-button settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
-                  </div>
+              <div class="settings-card settings-job-toolbar">
+                <div class="settings-job-toolbar-actions">
+                  <button type="button" class="primary-button" id="jobsRunAllBtn">Run all jobs</button>
+                  <span class="settings-job-sequence-status" id="jobsSequenceStatus" aria-live="polite"></span>
                 </div>
-                <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
-                  <% if (_jLastRun) { %>
-                    Last run: <span class="settings-job-time" data-ts="<%= _jLastRun %>"></span>
-                    <% if (_jMsg) { %><span class="settings-job-msg"> — <%= _jMsg %></span><% } %>
-                  <% } else { %>
-                    Never run
+                <label class="settings-toggle settings-job-show-all">
+                  <input type="checkbox" id="jobsShowAll" />
+                  <span class="settings-toggle-slider" aria-hidden="true"></span>
+                  <span class="settings-toggle-text">Show hidden and unconfigured jobs</span>
+                </label>
+                <div class="settings-card-sub" style="margin:6px 0 0">Run all runs every enabled job shown below, one at a time, in this order. Manual-only batch jobs are skipped, and the Track Analysis Pipeline runs last because it can take a long time.</div>
+              </div>
+              <% for (const _group of _groups) { %>
+              <%
+                const _groupJobs = _group.jobs.filter(function(id) { return jobDefs[id]; }).slice().sort(function(a, b) {
+                  const af = (jobStatus[a] || {}).status === 'error' ? 0 : 1;
+                  const bf = (jobStatus[b] || {}).status === 'error' ? 0 : 1;
+                  return af - bf;
+                });
+              %>
+              <details class="settings-job-group" data-job-group="<%= _group.key %>" open>
+                <summary class="settings-job-group-summary">
+                  <span class="settings-job-group-title"><%= _group.label %></span>
+                  <span class="settings-job-group-count" data-job-group-count></span>
+                </summary>
+                <div class="settings-job-group-head">
+                  <% if (_group.description) { %><div class="settings-card-sub" style="margin:0"><%= _group.description %></div><% } %>
+                  <% if (_group.key !== 'other') { %>
+                  <button type="button" class="ghost-button settings-job-group-run" data-job-group-run="<%= _group.key %>">Run group</button>
                   <% } %>
                 </div>
-                <% if (!_jdef.manualOnly) { %>
-                <div class="settings-job-controls">
-                  <label class="field" style="flex:0 0 auto;min-width:0">
-                    <span>Interval (minutes)</span>
-                    <input type="number" name="<%= _jid %>_interval" value="<%= _jInterval %>" min="1" max="<%= _jMaxInterval %>" style="width:90px" />
-                  </label>
-                  <label class="settings-smart-toggle-field" style="align-self:flex-end;padding-bottom:2px">
-                    <span class="settings-smart-toggle-field-title">Enabled</span>
-                    <span class="settings-toggle">
+                <% for (const _jid of _groupJobs) { %>
+                <%
+                  const _jdef = jobDefs[_jid];
+                  const _jcfg = _jobsCfg[_jid] || {};
+                  const _jstat = jobStatus[_jid] || {};
+                  const _jEnabled = _jcfg.enabled !== false;
+                  const _jHidden = _jcfg.hidden === true;
+                  const _jUnavailable = _jobAvail[_jid] || '';
+                  const _jInterval = _jcfg.intervalMinutes || _jdef.defaultIntervalMinutes;
+                  const _jMaxInterval = Math.max(10080, Number(_jdef.defaultIntervalMinutes || 0));
+                  const _jStatus = _jstat.status || 'idle';
+                  const _jLastRun = _jstat.lastRunAt;
+                  const _jMsg = _jstat.message || '';
+                %>
+                <div class="settings-job-row<%= _jStatus === 'error' ? ' is-failed' : '' %>" data-job-id="<%= _jid %>" data-job-hidden="<%= _jHidden ? '1' : '' %>" data-job-unavailable="<%= _jUnavailable %>">
+                  <div class="settings-job-row-main">
+                    <div class="settings-job-row-name">
+                      <span class="settings-job-row-title"><%= _jdef.shortLabel || _jdef.label %></span>
+                      <% if (_jUnavailable) { %><span class="settings-job-tag" title="<%= _jUnavailable %>">Not configured</span><% } %>
+                      <% if (_jHidden) { %><span class="settings-job-tag">Hidden</span><% } %>
+                      <% if (_jdef.manualOnly) { %><span class="settings-job-tag">Manual</span><% } %>
+                    </div>
+                    <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
+                      <% if (_jLastRun) { %>
+                        Last run: <span class="settings-job-time" data-ts="<%= _jLastRun %>"></span>
+                        <% if (_jMsg) { %><span class="settings-job-msg"> — <%= _jMsg %></span><% } %>
+                      <% } else { %>
+                        Never run
+                      <% } %>
+                    </div>
+                    <details class="settings-job-about">
+                      <summary>About this job</summary>
+                      <div class="settings-card-sub"><%= _jdef.description %><% if (_jUnavailable) { %> <%= _jUnavailable %><% } %></div>
+                    </details>
+                  </div>
+                  <div class="settings-job-row-controls">
+                    <span class="settings-job-status-badge settings-job-status-badge--<%= _jStatus %>" data-job-status="<%= _jid %>"><%= _jStatus %></span>
+                    <% if (!_jdef.manualOnly) { %>
+                    <label class="settings-job-interval">
+                      <span>Every</span>
+                      <input type="number" name="<%= _jid %>_interval" value="<%= _jInterval %>" min="1" max="<%= _jMaxInterval %>" aria-label="<%= _jdef.label %> interval in minutes" />
+                      <span>min</span>
+                    </label>
+                    <label class="settings-toggle settings-job-toggle" title="Run on its schedule">
                       <input id="job_enabled_<%= _jid %>" type="checkbox" name="<%= _jid %>_enabled" value="1" <%= _jEnabled ? 'checked' : '' %> />
                       <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    </span>
-                  </label>
+                      <span class="settings-toggle-text">Enabled</span>
+                    </label>
+                    <% } %>
+                    <label class="settings-job-hide" title="Hide this job from the list and from Run all">
+                      <input type="checkbox" name="<%= _jid %>_hidden" value="1" <%= _jHidden ? 'checked' : '' %> />
+                      <span>Hide</span>
+                    </label>
+                    <button type="button" class="ghost-button settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
+                  </div>
+                  <% if (_jid === 'tautulliDailySync') { %>
+                  <div class="settings-job-row-extra">
+                    <label class="settings-toggle">
+                      <input type="checkbox" name="tautulli_enableHistoryRepair" value="1" <%= config.tautulli?.enableHistoryRepair ? 'checked' : '' %> />
+                      <span class="settings-toggle-slider" aria-hidden="true"></span>
+                      <span class="settings-toggle-text">Enable guarded Tautulli repair for shorter Plex plays</span>
+                    </label>
+                    <small class="settings-smart-helper">Off: Tautulli only fills missing plays. On: Tautulli may upgrade an existing Plex play when the timestamps match closely and Tautulli shows a longer, plausible completed listen.</small>
+                  </div>
+                  <% } %>
                 </div>
                 <% } %>
-                <% if (_jid === 'tautulliDailySync') { %>
-                <div style="margin-top:12px">
-                  <label class="settings-toggle">
-                    <input type="checkbox" name="tautulli_enableHistoryRepair" value="1" <%= config.tautulli?.enableHistoryRepair ? 'checked' : '' %> />
-                    <span class="settings-toggle-slider" aria-hidden="true"></span>
-                    <span class="settings-toggle-text">Enable guarded Tautulli repair for shorter Plex plays</span>
-                  </label>
-                  <small class="settings-smart-helper">Off: Tautulli only fills missing plays. On: Tautulli may upgrade an existing Plex play when the timestamps match closely and Tautulli shows a longer, plausible completed listen.</small>
-                </div>
-                <% } %>
-              </div>
+              </details>
               <% } %>
               <div class="settings-card-actions settings-card-actions--full" style="margin-top:4px">
                 <button type="submit" class="primary-button">Save Job Settings</button>
@@ -3575,13 +3624,60 @@
           badge.className = 'settings-job-status-badge settings-job-status-badge--' + s.status;
         }
         if (lastRunEl && s.lastRunAt) {
-          var msg = s.message ? ' \u2014 ' + s.message : '';
-          lastRunEl.innerHTML = 'Last run: <span class="settings-job-time">' + fmtRelTime(s.lastRunAt) + '</span>' + (msg ? '<span class="settings-job-msg">' + msg + '</span>' : '');
+          // Messages can contain playlist or file names, so build text nodes.
+          lastRunEl.textContent = 'Last run: ';
+          var timeEl = document.createElement('span');
+          timeEl.className = 'settings-job-time';
+          timeEl.textContent = fmtRelTime(s.lastRunAt);
+          lastRunEl.appendChild(timeEl);
+          if (s.message) {
+            var msgEl = document.createElement('span');
+            msgEl.className = 'settings-job-msg';
+            msgEl.textContent = ' \u2014 ' + s.message;
+            lastRunEl.appendChild(msgEl);
+          }
         } else if (lastRunEl && !s.lastRunAt) {
           lastRunEl.textContent = 'Never run';
         }
+        var row = document.querySelector('.settings-job-row[data-job-id="' + jobId + '"]');
+        if (row) row.classList.toggle('is-failed', s.status === 'error');
+      });
+      refreshJobGroups();
+    }
+
+    // Hidden and unconfigured jobs stay out of the list unless "Show all" is on.
+    var JOBS_SHOW_ALL_KEY = 'curatorr.jobs.showAll';
+    function readShowAll() {
+      try { return window.localStorage.getItem(JOBS_SHOW_ALL_KEY) === '1'; } catch (_) { return false; }
+    }
+    function refreshJobGroups() {
+      var toggle = document.getElementById('jobsShowAll');
+      var showAll = Boolean(toggle && toggle.checked);
+      document.querySelectorAll('.settings-job-group').forEach(function(group) {
+        var rows = Array.from(group.querySelectorAll('.settings-job-row'));
+        var visible = rows.filter(function(row) {
+          var show = showAll || (!row.dataset.jobHidden && !row.dataset.jobUnavailable);
+          row.hidden = !show;
+          return show;
+        });
+        group.hidden = !visible.length;
+        var failed = visible.filter(function(row) { return row.classList.contains('is-failed'); }).length;
+        var countEl = group.querySelector('[data-job-group-count]');
+        if (countEl) {
+          countEl.textContent = visible.length + ' job' + (visible.length === 1 ? '' : 's') + (failed ? ', ' + failed + ' failed' : '');
+          countEl.classList.toggle('has-failed', failed > 0);
+        }
       });
     }
+    var showAllToggle = document.getElementById('jobsShowAll');
+    if (showAllToggle) {
+      showAllToggle.checked = readShowAll();
+      showAllToggle.addEventListener('change', function() {
+        try { window.localStorage.setItem(JOBS_SHOW_ALL_KEY, showAllToggle.checked ? '1' : '0'); } catch (_) {}
+        refreshJobGroups();
+      });
+    }
+    refreshJobGroups();
 
     // Relative timestamps on page load
     document.querySelectorAll('.settings-job-time[data-ts]').forEach(function(el) {
@@ -3612,6 +3708,74 @@
           .catch(function() {});
       });
     });
+
+    // Run all / Run group: the server runs the jobs one at a time.
+    var sequenceStatus = document.getElementById('jobsSequenceStatus');
+    var sequenceButtons = Array.from(document.querySelectorAll('#jobsRunAllBtn, [data-job-group-run]'));
+    var sequenceTimer = null;
+    function jobLabel(jobId) {
+      var title = document.querySelector('.settings-job-row[data-job-id="' + jobId + '"] .settings-job-row-title');
+      return title ? title.textContent : jobId;
+    }
+    function setSequenceButtons(disabled) {
+      sequenceButtons.forEach(function(btn) { btn.disabled = disabled; });
+    }
+    function renderSequence(seq) {
+      if (!sequenceStatus) return;
+      var total = (seq.jobIds || []).length;
+      if (seq.running) {
+        sequenceStatus.textContent = 'Running ' + Math.min(seq.index + 1, total) + ' of ' + total + ': ' + jobLabel(seq.current) + '…';
+        return;
+      }
+      if (seq.finishedAt) {
+        var failed = (seq.results || []).filter(function(r) { return r.status === 'error'; });
+        sequenceStatus.textContent = 'Finished ' + total + ' job' + (total === 1 ? '' : 's')
+          + (failed.length ? ', ' + failed.length + ' failed: ' + failed.map(function(r) { return jobLabel(r.jobId); }).join(', ') : ', all succeeded') + '.';
+      }
+    }
+    function pollSequence() {
+      fetch('/api/jobs/sequence').then(function(r) { return r.json(); }).then(function(seq) {
+        renderSequence(seq);
+        if (seq.running) {
+          setSequenceButtons(true);
+          startPolling();
+          sequenceTimer = setTimeout(pollSequence, 2000);
+        } else {
+          setSequenceButtons(false);
+          sequenceTimer = null;
+          fetch('/api/jobs/status').then(function(r) { return r.json(); }).then(applyStatus).catch(function() {});
+        }
+      }).catch(function() { sequenceTimer = setTimeout(pollSequence, 4000); });
+    }
+    function startSequence(group) {
+      setSequenceButtons(true);
+      if (sequenceStatus) sequenceStatus.textContent = 'Starting…';
+      fetch('/api/jobs/run-sequence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' },
+        body: JSON.stringify(group ? { group: group } : {}),
+      })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+        .then(function(res) {
+          if (!res.ok) {
+            setSequenceButtons(false);
+            if (sequenceStatus) sequenceStatus.textContent = res.data.error || 'Could not start the jobs.';
+            return;
+          }
+          if (!sequenceTimer) pollSequence();
+        })
+        .catch(function() {
+          setSequenceButtons(false);
+          if (sequenceStatus) sequenceStatus.textContent = 'Request failed.';
+        });
+    }
+    var runAllBtn = document.getElementById('jobsRunAllBtn');
+    if (runAllBtn) runAllBtn.addEventListener('click', function() { startSequence(''); });
+    document.querySelectorAll('[data-job-group-run]').forEach(function(btn) {
+      btn.addEventListener('click', function() { startSequence(btn.getAttribute('data-job-group-run')); });
+    });
+    // Pick up a sequence that is already running (e.g. after a page reload).
+    if (runAllBtn) pollSequence();
   })();
 
   function reassignPlaylists() {

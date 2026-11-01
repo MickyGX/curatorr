@@ -15,16 +15,18 @@ export const JOB_DEFS = {
   },
   lidarrReviewArtists: {
     label: 'Lidarr: Review Due Artists',
+    shortLabel: 'Review Due Artists',
     description: 'Reviews suggested artists and queues Lidarr searches for artists that are due for evaluation.',
     defaultIntervalMinutes: 30,
   },
   lidarrProcessQueue: {
     label: 'Lidarr: Process Queued Requests',
+    shortLabel: 'Process Queued Requests',
     description: 'Processes pending Lidarr add and monitor requests from the automation queue.',
     defaultIntervalMinutes: 20,
   },
   dailyMixSync: {
-    label: 'Rotating Playlist Sync',
+    label: 'Daily Mix and Curatorr Playlist Sync',
     description: 'Builds each user\'s Daily Mix and Curatorr rotating playlists from recent favourites, discovery candidates, and stored playlist settings, then syncs them to your media server.',
     defaultIntervalMinutes: 1440,
   },
@@ -47,6 +49,8 @@ export const JOB_DEFS = {
     label: 'Track Analysis Pipeline',
     description: 'Exports a Curatorr feature template, runs either the analyzer sidecar or a configured external analyzer command, merges the analyzer output, and imports the results back into track enrichment.',
     defaultIntervalMinutes: 1440,
+    // Can run for hours, so "Run all" leaves it until last.
+    longRunning: true,
   },
   tautulliDailySync: {
     label: 'Tautulli Gap-Fill Sync',
@@ -75,6 +79,7 @@ export const JOB_DEFS = {
   },
   lidarrRetryFailed: {
     label: 'Lidarr: Retry Failed Requests',
+    shortLabel: 'Retry Failed Requests',
     description: 'Re-queues failed Lidarr add requests so they are picked up by the next queue processing run. Requests that have already been retried 3 times are skipped.',
     defaultIntervalMinutes: 1440,
   },
@@ -84,6 +89,81 @@ export const JOB_DEFS = {
     defaultIntervalMinutes: 15,
   },
 };
+
+// ─── Groups ───────────────────────────────────────────────────────────────────
+
+// Jobs are shown, and run by "Run all", in this order: library first, then the
+// history and metadata it feeds, then discovery, then the playlists built from
+// all of it.
+export const JOB_GROUPS = [
+  {
+    key: 'library',
+    label: 'Library',
+    description: 'Keeps Curatorr\'s copy of your music library and watch-folder playlists up to date.',
+    jobs: ['masterTrackRefresh', 'playlistWatchFolder'],
+  },
+  {
+    key: 'history',
+    label: 'Listening history',
+    description: 'Fills in plays from Tautulli and Last.fm that webhooks missed.',
+    jobs: ['tautulliDailySync', 'lastfmHistorySync', 'lastfmHistoryBackfill'],
+  },
+  {
+    key: 'metadata',
+    label: 'Track metadata and analysis',
+    description: 'Adds release dates, tags, loudness and audio features used by playlist filters and ordering.',
+    jobs: ['trackEnrichmentSync', 'lastfmTagSync', 'trackFeatureImportSync', 'trackPlexLoudnessSync', 'trackAnalysisPipeline'],
+  },
+  {
+    key: 'discovery',
+    label: 'Discovery and Lidarr',
+    description: 'Builds artist and track suggestions and works through Lidarr requests.',
+    jobs: ['suggestionRebuild', 'lidarrReviewArtists', 'lidarrProcessQueue', 'lidarrRetryFailed'],
+  },
+  {
+    key: 'playlists',
+    label: 'Playlists',
+    description: 'Rebuilds smart and rotating playlists and syncs them to your media server.',
+    jobs: ['smartPlaylistSync', 'dailyMixSync'],
+  },
+];
+
+// Why a job is not available with the current configuration, or '' when it is.
+// Jobs whose integration is missing are hidden from the Jobs list by default.
+export function resolveJobAvailability(config = {}) {
+  const lidarr = config?.lidarr || {};
+  const hasLidarr = Boolean(String(lidarr.url || lidarr.localUrl || '').trim() && String(lidarr.apiKey || '').trim());
+  const isPlex = String(config?.mediaServer?.type || 'plex').trim().toLowerCase() === 'plex';
+  const hasTautulli = isPlex && Boolean(String(config?.tautulli?.url || '').trim() && String(config?.tautulli?.apiKey || '').trim());
+  const hasLastfm = Boolean(String(config?.discovery?.lastfmApiKey || '').trim());
+  const hasWatchFolder = config?.playlistWatchFolder?.enabled === true;
+  const reasons = {
+    lidarrReviewArtists: hasLidarr ? '' : 'Lidarr is not configured.',
+    lidarrProcessQueue: hasLidarr ? '' : 'Lidarr is not configured.',
+    lidarrRetryFailed: hasLidarr ? '' : 'Lidarr is not configured.',
+    tautulliDailySync: hasTautulli ? '' : 'Tautulli is not configured.',
+    lastfmTagSync: hasLastfm ? '' : 'No Last.fm API key is set.',
+    lastfmHistorySync: hasLastfm ? '' : 'No Last.fm API key is set.',
+    lastfmHistoryBackfill: hasLastfm ? '' : 'No Last.fm API key is set.',
+    trackPlexLoudnessSync: isPlex ? '' : 'Only available with Plex.',
+    playlistWatchFolder: hasWatchFolder ? '' : 'The playlist watch folder is turned off.',
+  };
+  return Object.fromEntries(Object.keys(JOB_DEFS).map((jobId) => [jobId, reasons[jobId] || '']));
+}
+
+// Jobs "Run all" (or "Run group") would run, in order: visible, enabled,
+// scheduled jobs; long-running jobs go last.
+export function buildJobRunSequence(config = {}, groupKey = '') {
+  const groups = groupKey ? JOB_GROUPS.filter((group) => group.key === groupKey) : JOB_GROUPS;
+  const availability = resolveJobAvailability(config);
+  const jobsCfg = config?.jobs || {};
+  const ids = groups.flatMap((group) => group.jobs).filter((jobId) => {
+    const def = JOB_DEFS[jobId];
+    const cfg = jobsCfg[jobId] || {};
+    return def && !def.manualOnly && !availability[jobId] && cfg.hidden !== true && cfg.enabled !== false;
+  });
+  return [...ids.filter((jobId) => !JOB_DEFS[jobId].longRunning), ...ids.filter((jobId) => JOB_DEFS[jobId].longRunning)];
+}
 
 // ─── Service factory ──────────────────────────────────────────────────────────
 
@@ -218,5 +298,48 @@ export function createJobService(ctx, jobFunctions) {
     );
   }
 
-  return { runJob, startAll, reschedule, getStatus };
+  // One "Run all" / "Run group" sequence at a time. Jobs run one after another;
+  // a job that is already running (e.g. on its schedule) is waited for rather
+  // than started twice.
+  let sequence = { running: false, group: '', jobIds: [], index: 0, current: '', startedAt: 0, finishedAt: 0, results: [] };
+
+  async function waitWhileRunning(jobId, { pollMs = 1000 } = {}) {
+    while (running.has(jobId)) await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  function runSequence(jobIds, { group = '', pollMs = 1000 } = {}) {
+    if (sequence.running) return false;
+    const ids = (Array.isArray(jobIds) ? jobIds : []).filter((jobId) => jobFunctions[jobId]);
+    sequence = { running: true, group, jobIds: ids, index: 0, current: '', startedAt: Date.now(), finishedAt: 0, results: [] };
+    pushLog({ level: 'info', app: 'jobs', action: 'sequence.start', message: `Running ${ids.length} job(s) in sequence${group ? ` (${group})` : ''}` });
+    const done = (async () => {
+      for (let i = 0; i < ids.length; i += 1) {
+        const jobId = ids[i];
+        sequence.index = i;
+        sequence.current = jobId;
+        if (running.has(jobId)) {
+          await waitWhileRunning(jobId, { pollMs });
+          sequence.results.push({ jobId, status: 'skipped', message: 'Already running; waited for it to finish.' });
+          continue;
+        }
+        await runJob(jobId);
+        const row = getSystemJobRun(db, jobId);
+        sequence.results.push({ jobId, status: row?.status || 'success', message: row?.message || '' });
+      }
+      sequence.running = false;
+      sequence.current = '';
+      sequence.index = ids.length;
+      sequence.finishedAt = Date.now();
+      const failed = sequence.results.filter((result) => result.status === 'error').length;
+      pushLog({ level: failed ? 'warn' : 'info', app: 'jobs', action: 'sequence.complete', message: `Job sequence finished: ${ids.length - failed} succeeded, ${failed} failed` });
+    })();
+    done.catch(() => { sequence.running = false; });
+    return done;
+  }
+
+  function getSequenceStatus() {
+    return { ...sequence, jobIds: [...sequence.jobIds], results: sequence.results.map((result) => ({ ...result })) };
+  }
+
+  return { runJob, startAll, reschedule, getStatus, runSequence, getSequenceStatus };
 }

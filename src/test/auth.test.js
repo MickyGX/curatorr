@@ -7434,6 +7434,44 @@ describe('security guards', () => {
     }
   });
 
+  it('groups jobs in settings, saves hidden jobs, and validates run-sequence requests', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+    const originalConfig = await readConfig();
+    const { JOB_DEFS } = await import('../services/jobs.js');
+    const { lidarr: _lidarr, ...withoutLidarr } = originalConfig;
+    await writeConfig(withoutLidarr);
+
+    try {
+      const page = await client.request('/settings?tab=jobs');
+      assert.equal(page.status, 200);
+      assert.match(page.text, /data-job-group="library"/);
+      assert.match(page.text, /data-job-group="discovery"/);
+      assert.match(page.text, /id="jobsRunAllBtn"/);
+      // Lidarr is not configured in the test instance, so its jobs are flagged.
+      assert.match(page.text, /data-job-id="lidarrReviewArtists" data-job-hidden="" data-job-unavailable="Lidarr is not configured\."/);
+
+      const fields = { trackEnrichmentSync_hidden: '1' };
+      for (const [jobId, def] of Object.entries(JOB_DEFS)) {
+        if (!def.manualOnly) fields[`${jobId}_enabled`] = '1';
+      }
+      const saved = await client.postForm('/settings/jobs', fields, '/settings?tab=jobs');
+      assert.equal(saved.status, 302);
+      const config = await readConfig();
+      assert.equal(config.jobs.trackEnrichmentSync.hidden, true);
+      assert.equal(config.jobs.masterTrackRefresh.hidden, false);
+      assert.equal(config.jobs.masterTrackRefresh.enabled, true);
+
+      const unknown = await client.postJson('/api/jobs/run-sequence', { group: 'not-a-group' }, '/settings');
+      assert.equal(unknown.status, 404);
+      const sequence = await client.request('/api/jobs/sequence');
+      assert.equal(sequence.status, 200);
+      assert.equal(sequence.json?.running, false);
+    } finally {
+      await writeConfig(originalConfig);
+    }
+  });
+
   it('blocks co-admin access to admin-only wizard actions', async () => {
     const { client, response } = await login('coadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
