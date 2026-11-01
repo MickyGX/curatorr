@@ -153,6 +153,13 @@ function refineRecordedPlay(db, existing, { listenedMs, trackDurationMs, stopped
   return { listenedMs: nextListenedMs, trackDurationMs: nextTrackDurationMs, isSkip: nextIsSkip };
 }
 
+function selectedSectionIds(config) {
+  const keys = (Array.isArray(config?.plex?.libraries) ? config.plex.libraries : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  return keys.length ? [...new Set(keys)] : [''];
+}
+
 export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
   const { db, loadConfig, pushLog, safeMessage } = ctx;
   const config = loadConfig();
@@ -170,10 +177,14 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
 
   let inserted = 0;
   let skipped = 0;
-  let start = 0;
+  let libraryFiltered = 0;
   const pageSize = 100;
 
   try {
+    // get_history rows carry no section_id, so filter on Tautulli's side with one
+    // query per selected library and attribute each row to the library queried.
+    for (const sectionId of selectedSectionIds(config)) {
+    let start = 0;
     while (true) {
       const body = new URLSearchParams({
         apikey: apiKey,
@@ -185,6 +196,7 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         order_dir: 'desc',
         after: afterDate,
       });
+      if (sectionId) body.set('section_id', sectionId);
       const res = await fetch(api, {
         method: 'POST',
         headers: { Accept: 'application/json' },
@@ -213,11 +225,11 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
         const trackTitle = String(row.title || '').trim();
         const artistName = String(row.original_title || row.grandparent_title || '').trim();
         const albumName = String(row.parent_title || '').trim();
-        const libraryKey = String(row.section_id || '').trim();
+        const libraryKey = String(row.section_id || sectionId || '').trim();
         const libraryName = String(row.section_name || row.library_name || '').trim();
 
         if (!isPlexLibrarySelected(config, { libraryKey, libraryName })) {
-          skipped++;
+          libraryFiltered++;
           continue;
         }
 
@@ -426,6 +438,7 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
       start += pageSize;
       if (rows.length < pageSize) break;
     }
+    }
   } catch (err) {
     pushLog({ level: 'error', app: 'tautulli-sync', action: 'sync.error', message: safeMessage(err) });
     throw err;
@@ -433,7 +446,8 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
 
   pushLog({
     level: 'info', app: 'tautulli-sync', action: 'sync.complete',
-    message: `Tautulli sync: ${inserted} new play${inserted !== 1 ? 's' : ''} backfilled, ${skipped} already recorded`,
+    message: `Tautulli sync: ${inserted} new play${inserted !== 1 ? 's' : ''} backfilled, ${skipped} already recorded`
+      + (libraryFiltered ? `, ${libraryFiltered} outside selected libraries` : ''),
   });
-  return { inserted, skipped };
+  return { inserted, skipped, libraryFiltered };
 }

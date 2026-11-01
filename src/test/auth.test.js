@@ -1882,7 +1882,7 @@ describe('security guards', () => {
         safeMessage: (err) => String(err?.message || err || ''),
       });
       assert.equal(result.inserted, 0);
-      assert.equal(result.skipped, 1);
+      assert.equal(result.libraryFiltered, 1);
     } finally {
       global.fetch = originalFetch;
       db.close();
@@ -1895,6 +1895,66 @@ describe('security guards', () => {
       ratingKey,
     );
     assert.equal(eventRow, undefined);
+  });
+
+  it('backfills Tautulli history rows without section info by querying each selected library', async () => {
+    const originalConfig = await readConfig();
+    const updatedConfig = {
+      ...originalConfig,
+      plex: {
+        ...originalConfig.plex,
+        libraries: ['1'],
+        availableLibraries: [{ key: '1', title: 'Music' }],
+      },
+    };
+    await writeConfig(updatedConfig);
+
+    const user = `plex-user-${Date.now()}`;
+    const ratingKey = `plex-track-${Date.now()}`;
+    const startedAt = Date.now() - 10 * 60 * 1000;
+    const requestedSections = [];
+
+    const originalFetch = global.fetch;
+    global.fetch = async (_url, init) => {
+      requestedSections.push(new URLSearchParams(String(init?.body || '')).get('section_id'));
+      return new Response(JSON.stringify({
+        response: {
+          data: {
+            data: [{
+              media_type: 'track',
+              user,
+              rating_key: ratingKey,
+              started: Math.floor(startedAt / 1000),
+              stopped: Math.floor((startedAt + 220000) / 1000),
+              play_duration: 220,
+              full_duration: 240,
+              title: 'No Section Track',
+              original_title: 'No Section Artist',
+              parent_title: 'No Section Album',
+              watched_status: 1,
+            }],
+          },
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+
+    const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
+    const db = initDb(dbPath);
+    try {
+      const result = await runTautulliDailySync({
+        db,
+        loadConfig: () => updatedConfig,
+        pushLog: () => {},
+        safeMessage: (err) => String(err?.message || err || ''),
+      });
+      assert.equal(result.inserted, 1);
+      assert.equal(result.libraryFiltered, 0);
+      assert.deepEqual(requestedSections, ['1']);
+    } finally {
+      global.fetch = originalFetch;
+      db.close();
+      await writeConfig(originalConfig);
+    }
   });
 
   it('removes stale Plex library data when a library is deselected in settings', async () => {
