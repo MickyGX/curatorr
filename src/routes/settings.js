@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, listPlaylistWatchFiles, getGenresFromMaster, getMoodsFromMaster, getArtistCountriesFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments, getFeaturePresetAvailabilityFromDb } from '../db.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
-import { JOB_DEFS } from '../services/jobs.js';
+import { JOB_DEFS, JOB_GROUPS, buildJobRunSequence, resolveJobAvailability } from '../services/jobs.js';
 import { normalizePlaylistWatchConfig } from '../services/playlist-watch-folder.js';
 import { parsePlaylistArtworkDataUrl, savePlaylistArtworkBuffer } from '../services/playlist-artwork.js';
 import { pruneDeselectedPlexLibraries } from '../services/plex-library-cleanup.js';
@@ -683,6 +683,8 @@ export function registerSettings(app, ctx) {
       lidarrMetadataProfilesError,
       logSettings,
       jobDefs: JOB_DEFS,
+      jobGroups: JOB_GROUPS,
+      jobAvailability: resolveJobAvailability(config),
       jobStatus: jobService?.getStatus() || {},
       aboutCurrentVersion,
       aboutLatestVersion: String(aboutReleases[0]?.tag || '').trim() || aboutCurrentVersion,
@@ -2077,6 +2079,22 @@ export function registerSettings(app, ctx) {
 
   app.get('/api/jobs/status', requireAdmin, (req, res) => {
     res.json(jobService?.getStatus() || {});
+  });
+
+  // "Run all jobs" (no group) or "Run group": visible, enabled jobs one at a time.
+  app.post('/api/jobs/run-sequence', requireAdmin, (req, res) => {
+    if (!jobService) return res.status(503).json({ error: 'Job service unavailable' });
+    const group = String(req.body?.group || '').trim();
+    if (group && !JOB_GROUPS.some((entry) => entry.key === group)) return res.status(404).json({ error: 'Unknown job group' });
+    if (jobService.getSequenceStatus().running) return res.status(409).json({ error: 'Jobs are already running in sequence.' });
+    const jobIds = buildJobRunSequence(loadConfig(), group);
+    if (!jobIds.length) return res.status(400).json({ error: 'No enabled jobs to run.' });
+    jobService.runSequence(jobIds, { group });
+    res.json({ ok: true, group, jobIds });
+  });
+
+  app.get('/api/jobs/sequence', requireAdmin, (req, res) => {
+    res.json(jobService?.getSequenceStatus() || { running: false, jobIds: [], results: [] });
   });
 
   app.post('/api/jobs/:jobId/run', requireAdmin, (req, res) => {

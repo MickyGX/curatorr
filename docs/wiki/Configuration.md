@@ -150,7 +150,11 @@ The Playlists tab contains the shared defaults and system-playlist configuration
 
 - enable or disable background jobs
 - adjust intervals
-- run jobs manually
+- run jobs manually, one group at a time, or all at once
+
+Jobs are grouped by purpose, in the order they usually need to run: **Library**, **Listening history**, **Track metadata and analysis**, **Discovery and Lidarr**, then **Playlists**. Each group has a **Run group** button, and **Run all jobs** at the top runs every enabled job shown, one at a time, in that order. Manual-only batch jobs such as the Last.fm full backfill are skipped. **Track Analysis Pipeline** runs last because it can take a long time.
+
+Jobs for integrations that are not set up, such as Lidarr, Tautulli, Last.fm or the watch folder, are marked **Not configured** and are skipped by **Run all jobs** and **Run group**.
 
 **Playlist Watch Folder** scans the configured folder for new and changed playlist files. It does nothing until the watch folder is turned on in the Playlists tab.
 

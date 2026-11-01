@@ -6297,6 +6297,98 @@ html[data-square-corners="1"] .widget-card-customize-panel {
   flex-wrap: wrap;
 }
 
+.settings-job-toolbar { padding: 14px 18px; }
+.settings-job-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.settings-job-sequence-status { font-size: 12px; color: var(--muted, #888); }
+.settings-job-group {
+  margin: 0 0 12px;
+  border: 1px solid rgba(127,127,127,.22);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.settings-job-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  background: rgba(127,127,127,.07);
+}
+.settings-job-group-summary::-webkit-details-marker { display: none; }
+.settings-job-group-summary::before {
+  content: "\25B8";
+  font-size: 11px;
+  transition: transform .15s ease;
+}
+.settings-job-group[open] > .settings-job-group-summary::before { transform: rotate(90deg); }
+.settings-job-group-title { font-weight: 700; font-size: 14px; }
+.settings-job-group-count { margin-left: auto; font-size: 12px; color: var(--muted, #888); }
+.settings-job-group-count.has-failed { color: #f87171; }
+.settings-job-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  flex-wrap: wrap;
+}
+.settings-job-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(127,127,127,.16);
+}
+.settings-job-row.is-failed { background: rgba(248,113,113,.06); }
+.settings-job-row.is-failed .settings-job-msg { color: #f87171; opacity: 1; }
+.settings-job-row-main { flex: 1 1 260px; min-width: 0; }
+.settings-job-row-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.settings-job-row-title { font-weight: 600; font-size: 13px; }
+.settings-job-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(127,127,127,.35);
+  color: var(--muted, #888);
+}
+.settings-job-row .settings-job-last-run { margin: 2px 0 0; overflow-wrap: anywhere; }
+.settings-job-about { margin-top: 2px; font-size: 11px; }
+.settings-job-about > summary { cursor: pointer; color: var(--muted, #888); width: max-content; }
+.settings-job-about .settings-card-sub { margin: 4px 0 0; }
+.settings-job-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  flex: 0 1 auto;
+}
+.settings-job-interval { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.settings-job-interval input { width: 72px; }
+.settings-job-toggle .settings-toggle-text { font-size: 12px; }
+.settings-job-row-extra { flex-basis: 100%; }
+.settings-job-maint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border-top: 1px dashed rgba(127,127,127,.25);
+}
+@media (max-width: 640px) {
+  .settings-job-row-controls { width: 100%; }
+}
+
 /* ── Playlist type settings ──────────────────────────────────────────────── */
 .settings-type-grid {
   display: grid;
