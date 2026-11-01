@@ -1336,6 +1336,107 @@ describe('user settings integrations', () => {
     assert.notEqual(loginRes.location, '/login');
   });
 
+  it('lets a Plex account add a password sign-in that opens the same Plex identity', async () => {
+    const originalConfig = await readConfig();
+    const plexAccount = { id: 'plexpw-4242', username: 'plexpwuser', email: 'plexpw@example.test', thumb: '' };
+    const password = 'PlexFallback1!';
+
+    async function signInWithPlex() {
+      const client = createClient();
+      const originalFetch = global.fetch;
+      global.fetch = async (url, options = {}) => {
+        const target = String(url || '');
+        if (target.startsWith(baseUrl)) return originalFetch(url, options);
+        const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        if (target === 'https://plex.tv/api/v2/pins/123456') return json({ authToken: 'plex-pw-token' });
+        if (target === 'https://plex.tv/api/v2/home/users') return json([]);
+        if (target === 'https://plex.tv/api/v2/user') return json(plexAccount);
+        if (target.startsWith('https://plex.tv/api/v2/resources')) return json([]);
+        throw new Error(`Unexpected fetch in Plex password test: ${target}`);
+      };
+      try {
+        assert.equal((await client.request('/auth/plex')).status, 200);
+        const pin = await client.request('/api/plex/pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinId: '123456' }),
+        });
+        assert.equal(pin.status, 200);
+        const callback = await client.request('/oauth/callback');
+        assert.equal(callback.status, 302);
+      } finally {
+        global.fetch = originalFetch;
+      }
+      return client;
+    }
+
+    try {
+      const plexClient = await signInWithPlex();
+      let page = await plexClient.request('/user-settings');
+      assert.equal(page.status, 200);
+      assert.match(page.text, /id="plex-password-signin"/);
+      assert.match(page.text, /Status: <strong>off<\/strong>/);
+
+      const weak = await plexClient.postForm('/user-settings/plex-password', { newPassword: 'short', confirmPassword: 'short' }, '/user-settings');
+      assert.match(weak.location, /error=/);
+      const saved = await plexClient.postForm('/user-settings/plex-password', { newPassword: password, confirmPassword: password }, '/user-settings');
+      assert.equal(saved.location, '/user-settings?success=plex-password-set');
+      const stored = (await readConfig()).plexPasswordLogins?.[plexAccount.id];
+      assert.equal(stored?.username, plexAccount.username);
+      assert.ok(stored?.passwordHash && !JSON.stringify(stored).includes(password));
+
+      // Wrong password is refused; the right one works by username or email.
+      const wrong = await login(plexAccount.username, 'WrongPassword9!');
+      assert.equal(wrong.response.status, 401);
+      const byEmail = await login(plexAccount.email, password);
+      assert.equal(byEmail.response.status, 302);
+      const { client: pwClient, response } = await login(plexAccount.username, password);
+      assert.equal(response.status, 302);
+      page = await pwClient.request('/user-settings');
+      assert.equal(page.status, 200);
+      assert.match(page.text, /You signed in with this password\. Sign in with Plex to change it\./);
+      assert.ok(!page.text.includes('action="/user-settings/password"'), 'expected no local password form for a Plex identity');
+
+      // A password session cannot change the password, so it can't lock the owner out.
+      const blocked = await pwClient.postForm('/user-settings/plex-password', { newPassword: 'Takeover123!', confirmPassword: 'Takeover123!' }, '/user-settings');
+      assert.match(decodeURIComponent(blocked.location), /Sign in with Plex to set or change this password/);
+
+      // An admin can't create a local user that clashes with it.
+      const admin = await login('testadmin', 'TestPassword1!');
+      const clash = await admin.client.postForm('/settings/local-users/add', {
+        username: plexAccount.username, email: '', password: 'AnotherPass12!', role: 'user',
+      }, '/settings?tab=users');
+      assert.match(clash.location, /error=username-taken/);
+
+      // Disabled Plex accounts can't use the password either.
+      const disabledPath = join(process.env.DATA_DIR, 'disabledusers.json');
+      await writeFile(disabledPath, JSON.stringify({ disabledUsers: [plexAccount.username] }));
+      try {
+        const disabled = await login(plexAccount.username, password);
+        assert.equal(disabled.response.status, 403);
+      } finally {
+        await writeFile(disabledPath, JSON.stringify({ disabledUsers: [] }));
+      }
+
+      // Admins see the account in Settings → Users and can remove it.
+      const usersPage = await admin.client.request('/settings?tab=users');
+      assert.match(usersPage.text, /id="plex-password-logins"/);
+      assert.ok(usersPage.text.includes(`value="${plexAccount.id}"`));
+      const adminRemoved = await admin.client.postForm('/settings/plex-password/remove', { plexId: plexAccount.id }, '/settings?tab=users');
+      assert.match(adminRemoved.location, /success=plex-password-removed/);
+      assert.equal((await login(plexAccount.username, password)).response.status, 401);
+      const reset = await plexClient.postForm('/user-settings/plex-password', { newPassword: password, confirmPassword: password }, '/user-settings');
+      assert.equal(reset.location, '/user-settings?success=plex-password-set');
+
+      const removed = await pwClient.postForm('/user-settings/plex-password/remove', {}, '/user-settings');
+      assert.equal(removed.location, '/user-settings?success=plex-password-removed');
+      assert.equal((await login(plexAccount.username, password)).response.status, 401);
+    } finally {
+      resetLoginAttempts();
+      await writeConfig(originalConfig);
+    }
+  });
+
   it('changes a local user password from user settings', async () => {
     const { client, response } = await login('pwuser', 'PwUserPassword1!');
     assert.equal(response.status, 302);

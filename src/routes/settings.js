@@ -682,6 +682,12 @@ export function registerSettings(app, ctx) {
       lidarrMetadataProfiles,
       lidarrMetadataProfilesError,
       logSettings,
+      plexPasswordLogins: Object.entries(ctx.resolvePlexPasswordLogins?.(config) || {}).map(([plexId, entry]) => ({
+        plexId,
+        username: String(entry?.username || ''),
+        email: String(entry?.email || ''),
+        updatedAt: Number(entry?.updatedAt || 0),
+      })),
       jobDefs: JOB_DEFS,
       jobGroups: JOB_GROUPS,
       jobAvailability: resolveJobAvailability(config),
@@ -1415,6 +1421,10 @@ export function registerSettings(app, ctx) {
     if (users.find((u) => u.username.toLowerCase() === username.toLowerCase())) {
       return res.redirect('/settings?tab=users&error=username-taken');
     }
+    // A Plex account with a password sign-in already answers to this name.
+    if (ctx.findPlexPasswordLogin?.(config, username) || (email && ctx.findPlexPasswordLogin?.(config, email))) {
+      return res.redirect('/settings?tab=users&error=username-taken');
+    }
 
     const salt = crypto.randomBytes(16).toString('hex');
     const newUser = {
@@ -1428,6 +1438,18 @@ export function registerSettings(app, ctx) {
     saveConfig({ ...config, users: serializeLocalUsers([...users, newUser]) });
     pushLog({ level: 'info', app: 'settings', action: 'user.add', message: `Local user added: ${username}` });
     return res.redirect('/settings?tab=users&success=1');
+  });
+
+  // Admins can remove (not set) a Plex account's password sign-in.
+  app.post('/settings/plex-password/remove', requireAdmin, (req, res) => {
+    const plexId = String(req.body?.plexId || '').trim();
+    const config = loadConfig();
+    const logins = ctx.resolvePlexPasswordLogins?.(config) || {};
+    if (!plexId || !logins[plexId]) return res.redirect('/settings?tab=users&error=' + encodeURIComponent('That password sign-in no longer exists.') + '#plex-password-logins');
+    const { [plexId]: removed, ...rest } = logins;
+    saveConfig({ ...config, plexPasswordLogins: rest });
+    pushLog({ level: 'info', app: 'settings', action: 'plex-password.admin-remove', message: `Admin removed password sign-in for Plex account ${removed.username || plexId}` });
+    return res.redirect('/settings?tab=users&success=plex-password-removed#plex-password-logins');
   });
 
   app.post('/settings/local-users/role', requireAdmin, (req, res) => {
@@ -1751,6 +1773,71 @@ export function registerSettings(app, ctx) {
     const updatedUsers = users.map((u, i) => i === idx ? { ...u, passwordHash: hashPassword(newPw, salt), salt } : u);
     saveConfig({ ...config, users: serializeLocalUsers(updatedUsers) });
     return res.redirect('/user-settings?success=password-changed');
+  });
+
+  // ── Password sign-in for a Plex account ──────────────────────────────────
+
+  // Setting or changing it needs a real Plex sign-in, so someone who only has
+  // the password cannot use it to lock the owner out. Removing it is allowed
+  // either way, since that only takes access away.
+  app.post('/user-settings/plex-password', requireUser, (req, res) => {
+    const sessionUser = req.session.user;
+    const plexId = String(sessionUser?.plexId || '').trim();
+    if (String(sessionUser?.source || '').toLowerCase() !== 'plex' || !plexId) {
+      return res.redirect('/user-settings?error=' + encodeURIComponent('Only Plex accounts can add a password sign-in.'));
+    }
+    if (sessionUser.authMethod === 'password') {
+      return res.redirect('/user-settings?error=' + encodeURIComponent('Sign in with Plex to set or change this password.'));
+    }
+    const newPw = String(req.body?.newPassword || '');
+    const confirm = String(req.body?.confirmPassword || '');
+    const pwErr = validateLocalPasswordStrength(newPw);
+    if (pwErr) return res.redirect(`/user-settings?error=${encodeURIComponent(pwErr)}`);
+    if (newPw !== confirm) return res.redirect('/user-settings?error=passwords-mismatch');
+
+    const config = loadConfig();
+    const names = [sessionUser.username, sessionUser.email].map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
+    const clash = resolveLocalUsers(config).some((u) => names.includes(String(u.username || '').trim().toLowerCase())
+      || (u.email && names.includes(String(u.email).trim().toLowerCase())));
+    if (clash) {
+      return res.redirect('/user-settings?error=' + encodeURIComponent('A local Curatorr account already uses this username or email. Ask an admin to rename or remove it first.'));
+    }
+    const other = names.map((name) => ctx.findPlexPasswordLogin?.(config, name)).find((found) => found && found.plexId !== plexId);
+    if (other) {
+      return res.redirect('/user-settings?error=' + encodeURIComponent('Another Plex account already uses this username or email for password sign-in.'));
+    }
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    const existing = ctx.resolvePlexPasswordLogins?.(config) || {};
+    saveConfig({
+      ...config,
+      plexPasswordLogins: {
+        ...existing,
+        [plexId]: {
+          username: sessionUser.username,
+          email: sessionUser.email || '',
+          avatar: sessionUser.avatar || '',
+          passwordHash: hashPassword(newPw, salt),
+          salt,
+          updatedAt: Date.now(),
+        },
+      },
+    });
+    pushLog({ level: 'info', app: 'settings', action: 'plex-password.set', message: `Password sign-in set for Plex account ${sessionUser.username}` });
+    return res.redirect('/user-settings?success=plex-password-set');
+  });
+
+  app.post('/user-settings/plex-password/remove', requireUser, (req, res) => {
+    const sessionUser = req.session.user;
+    const plexId = String(sessionUser?.plexId || '').trim();
+    if (String(sessionUser?.source || '').toLowerCase() !== 'plex' || !plexId) {
+      return res.redirect('/user-settings?error=' + encodeURIComponent('Only Plex accounts can add a password sign-in.'));
+    }
+    const config = loadConfig();
+    const { [plexId]: _removed, ...rest } = ctx.resolvePlexPasswordLogins?.(config) || {};
+    saveConfig({ ...config, plexPasswordLogins: rest });
+    pushLog({ level: 'info', app: 'settings', action: 'plex-password.remove', message: `Password sign-in removed for Plex account ${sessionUser.username}` });
+    return res.redirect('/user-settings?success=plex-password-removed');
   });
 
   app.post('/user-settings/avatar', requireUser, (req, res) => {

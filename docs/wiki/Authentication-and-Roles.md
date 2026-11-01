@@ -21,6 +21,17 @@ On Plex installs, the Plex server owner is treated as the main admin account whe
 
 Plex Home profiles may require their Home PIN. Select the intended profile after Plex sign-in so listening and playlist state are attached to the correct user.
 
+### Password sign-in for Plex accounts
+
+A Plex user can add a password as a fallback for networks that block Plex sign-in, such as a work VPN. Sign in with Plex, open **User Profile → Password sign-in**, and set a password. On the Curatorr login page you can then use your Plex username or email with that password.
+
+Password sign-in opens the same account as a Plex sign-in: the same playlists, history and role. Role and disabled status are checked again on every sign-in.
+
+- Setting or changing the password needs a Plex sign-in, so someone who only knows the password can't use it to lock you out. You can remove it from either kind of sign-in.
+- A local account can't share a username or email with a Plex account that uses password sign-in.
+- Admins can see which Plex accounts have password sign-in in **Settings → Users** and remove it there. Only the user can set it.
+- Password sign-in uses the Plex server token Curatorr saved at your last Plex sign-in. If Plex revokes that token, sign in with Plex once to refresh it.
+
 ### Local admin account
 
 Created during setup.

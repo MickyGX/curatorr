@@ -1707,8 +1707,78 @@ async function completePlexLogin(req, authToken) {
     }
   } catch (err) { /* non-fatal */ }
 
+  // Keep a password sign-in for this Plex account in step with a renamed
+  // username, email or avatar.
+  const plexId = req.session.user.plexId;
+  const passwordLogin = plexId ? config.plexPasswordLogins?.[plexId] : null;
+  if (passwordLogin) {
+    config = {
+      ...config,
+      plexPasswordLogins: {
+        ...config.plexPasswordLogins,
+        [plexId]: {
+          ...passwordLogin,
+          username: req.session.user.username,
+          email: req.session.user.email,
+          avatar: req.session.user.avatar,
+        },
+      },
+    };
+  }
+
   saveConfig(config);
   pushLog({ level: 'info', app: 'plex', action: 'login.success', message: 'Plex login successful.', meta: { user: req.session.user.username, role } });
+}
+
+// ─── Password sign-in for Plex accounts ───────────────────────────────────────
+// A Plex user can add a password as a fallback for networks that block Plex
+// sign-in. It belongs to the Plex account (keyed by Plex account id) rather
+// than being a separate local user, so signing in with it gives exactly the
+// same identity, role checks and stored Plex token as a Plex sign-in.
+
+function resolvePlexPasswordLogins(config = loadConfig()) {
+  const raw = config?.plexPasswordLogins;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+function findPlexPasswordLogin(config, identifier) {
+  const candidate = String(identifier || '').trim().toLowerCase();
+  if (!candidate) return null;
+  for (const [plexId, entry] of Object.entries(resolvePlexPasswordLogins(config))) {
+    const username = String(entry?.username || '').trim().toLowerCase();
+    const email = String(entry?.email || '').trim().toLowerCase();
+    if (candidate === username || (email && candidate === email)) return { plexId, entry };
+  }
+  return null;
+}
+
+function completePlexPasswordLogin(req, { plexId, entry }) {
+  const role = resolveRole({ username: entry.username, email: entry.email, title: entry.username });
+  if (role === 'disabled') {
+    const err = new Error('This Plex account is disabled.');
+    err.code = 'disabled';
+    throw err;
+  }
+  req.session.user = {
+    username: entry.username,
+    email: entry.email || '',
+    avatar: entry.avatar || '',
+    avatarFallback: '/icons/user-profile.svg',
+    role,
+    source: 'plex',
+    plexId: String(plexId || '').trim(),
+    authMethod: 'password',
+  };
+  req.session.viewRole = null;
+  req.session.previewUserId = null;
+  req.session.pinId = null;
+  let config = loadConfig();
+  const tokens = config?.plex?.userServerTokens || {};
+  const serverToken = resolveUserIdentifiers(req.session.user).map((id) => tokens[id]).find(Boolean);
+  if (serverToken) req.session.plexServerToken = serverToken;
+  config = updateUserLogins(config, { identifier: entry.email || entry.username, curatorr: true });
+  saveConfig(config);
+  pushLog({ level: 'info', app: 'system', action: 'login.plex-password', message: 'Signed in with the password for a Plex account.', meta: { user: entry.username, role } });
 }
 
 async function ensureKeypair() {
@@ -1937,6 +2007,9 @@ const _routeCtx = {
   exchangePin,
   exchangePinWithRetry,
   completePlexLogin,
+  completePlexPasswordLogin,
+  findPlexPasswordLogin,
+  resolvePlexPasswordLogins,
   fetchPlexUser,
   fetchPlexResources,
   fetchPlexHomeUsers,
