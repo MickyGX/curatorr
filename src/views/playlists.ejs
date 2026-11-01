@@ -5090,7 +5090,6 @@
         templateId: combinedRules ? 'tmpl_combined' : 'blank',
         startingPointId: combinedRules ? 'tmpl_combined' : 'blank',
         combinedSources: combinedRules && Array.isArray(combinedRules.sources) ? combinedRules.sources.slice() : [],
-        combinedMode: combinedRules && combinedRules.mode === 'append' ? 'append' : 'interleave',
         name: String(playlist && playlist.name || '').trim(),
         nameManual: true,
         playlistTarget: target,
@@ -5646,7 +5645,7 @@
       { id: 'tmpl_discovery',   icon: '⊕', name: 'Discovery',   description: 'Unplayed tracks from unranked artists.', rules: { artistTiers: { include: ['unranked'], exclude: [] }, trackTiers: { include: ['unplayed'], exclude: [] } }, trackFilters: null },
       { id: 'tmpl_new_music_mix', icon: '♪', name: 'New Music Mix', description: 'Fresh library additions with album variety controls.', meta: 'Added 90 days · 1 per album · daily', rules: { libraryAddedMode: 'within', libraryAddedDays: 90, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'libraryAddedDesc', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
       { id: 'tmpl_random_library', icon: '⇄', name: 'Random Library Mix', description: '50 random library tracks with artist and album variety.', meta: '50 tracks · 1 per artist · 1 per album · daily', rules: { topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'random', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
-      { id: 'tmpl_combined',    icon: '⧉', name: 'Combined', description: 'Mix the tracks of two or more of your playlists into one.', meta: 'Interleave or append · personal only', rules: { combinedMode: 'interleave', combinedSources: [], sortBy: 'source' }, trackFilters: null },
+      { id: 'tmpl_combined',    icon: '⧉', name: 'Combined', description: 'Build one playlist from the tracks of two or more of your playlists.', meta: 'Personal only', rules: { combinedSources: [] }, trackFilters: null },
       { id: 'tmpl_seasonal',    icon: '❄', name: 'Seasonal',    description: 'Holiday genre plus festive title and album keywords.', rules: { seasonalGenres: ['Holiday'], seasonalKeywords: ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday'] }, trackFilters: null },
     ];
 
@@ -5951,7 +5950,6 @@
         preferArtistFolderOverCompilation: false,
         preferStudioRecordings: false,
         combinedSources: [],
-        combinedMode: 'interleave',
         artworkMode: 'auto',
         customArtworkAsset: '',
         preservedArtworkAsset: '',
@@ -5993,7 +5991,7 @@
       var options = wizardCombinedSourceOptions();
       var html = '<div class="spm-wizard-subsection" id="wiz-combined-section">';
       html += '<div class="spm-wizard-subsection-title">Playlists to combine</div>';
-      html += '<div class="spm-wizard-subsection-copy">Pick two or more playlists. Each one is sorted with the sort you choose on step 3, then their tracks are mixed. Duplicates are removed, and the playlist rebuilds from their current tracks on its schedule.</div>';
+      html += '<div class="spm-wizard-subsection-copy">Pick two or more playlists. Their tracks are pooled with duplicates removed, then sorted and capped with the output rules on step 3, like any playlist. It rebuilds from their current tracks on its schedule.</div>';
       if (!options.length) {
         html += '<div class="spm-wizard-field-hint">You need at least two synced playlists to combine.</div>';
       } else {
@@ -6007,12 +6005,6 @@
         });
         html += '</div>';
       }
-      html += '<div class="spm-filter-label" style="margin-top:12px">How to mix them</div>';
-      html += '<div class="gp-blend-modes">' +
-        '<label class="gp-blend-mode-option"><input type="radio" name="wiz-combined-mode" value="interleave"' + (ws.combinedMode !== 'append' ? ' checked' : '') + ' /><span class="gp-blend-mode-name">Interleave</span></label>' +
-        '<label class="gp-blend-mode-option"><input type="radio" name="wiz-combined-mode" value="append"' + (ws.combinedMode === 'append' ? ' checked' : '') + ' /><span class="gp-blend-mode-name">Append</span></label>' +
-        '</div>';
-      html += '<div class="spm-wizard-field-hint">Interleave takes one track from each playlist in turn. Append adds each playlist in full, one after another, in the order listed above.</div>';
       html += '</div>';
       return html;
     }
@@ -6102,7 +6094,6 @@
         popularityPercent: (ws.popularityMode || 'all') === 'custom' ? (ws.popularityPercent || null) : null,
         combined: wizardIsCombined(ws) ? {
           sources: Array.isArray(ws.combinedSources) ? ws.combinedSources.slice() : [],
-          mode: ws.combinedMode === 'append' ? 'append' : 'interleave',
         } : null,
       };
     }
@@ -7203,7 +7194,7 @@
         '<label class="field" style="flex:1"><span>Max tracks per album</span><input type="number" id="wiz-max-album-tracks" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.maxTracksPerAlbum||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Max total tracks</span><input type="number" id="wiz-max-tracks" min="1" placeholder="No limit" value="' + (_wizardState.maxTracks||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Sort tracks by</span><select id="wiz-sort-by">' +
-        (wizardIsCombined() ? [['source', 'Keep each playlist\'s own order']] : []).concat([['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['libraryAddedDesc','Newest library additions'],['releaseDateDesc','Newest releases'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']]).map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['libraryAddedDesc','Newest library additions'],['releaseDateDesc','Newest releases'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
         '</select></label>' +
         '<label class="field" style="flex:1"><span>Final ordering</span><select id="wiz-final-ordering">' +
         [['none','No final ordering'],['plexSonic','Plex sonic'],['loudness','Loudness smoothing'],['plexSonicLoudness','Plex sonic then loudness']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.finalOrdering===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
@@ -7599,8 +7590,6 @@
         if (document.getElementById('wiz-combined-section')) {
           _wizardState.combinedSources = Array.from(document.querySelectorAll('#spm-wizard-body [data-combined-source]:checked'))
             .map(function(cb) { return cb.dataset.combinedSource; });
-          var combinedModeEl = document.querySelector('#spm-wizard-body input[name="wiz-combined-mode"]:checked');
-          _wizardState.combinedMode = combinedModeEl && combinedModeEl.value === 'append' ? 'append' : 'interleave';
         }
         var selPreset = document.querySelector('#spm-wizard-body [data-audio-preset].is-selected');
         _wizardState.featurePreset = selPreset ? (selPreset.dataset.audioPreset || 'none') : 'none';
@@ -8160,7 +8149,7 @@
           if (el.tagName === 'INPUT') el.addEventListener('input', handler);
         });
         if (_wizardState.playlistTarget === 'blend') wizardBindBlendPicker(1);
-        document.querySelectorAll('#spm-wizard-body [data-combined-source], #spm-wizard-body input[name="wiz-combined-mode"]').forEach(function(el) {
+        document.querySelectorAll('#spm-wizard-body [data-combined-source]').forEach(function(el) {
           el.addEventListener('change', function() { wizardSaveStateFromStep(1); setTimeout(wizardRunPreview, 150); });
         });
       }

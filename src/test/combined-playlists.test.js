@@ -19,8 +19,8 @@ import { buildCombinedPlaylistRatingKeys, createPlaylistService } from '../servi
 
 const USER = 'combined-user';
 
-function track(ratingKey, artistName) {
-  return { ratingKey, artistName, trackTitle: `Song ${ratingKey}`, albumName: `${artistName} Album`, libraryKey: '1' };
+function track(ratingKey, artistName, ratingCount = 0) {
+  return { ratingKey, artistName, ratingCount, trackTitle: `Song ${ratingKey}`, albumName: `${artistName} Album`, libraryKey: '1' };
 }
 
 describe('combined playlists', () => {
@@ -32,9 +32,9 @@ describe('combined playlists', () => {
     dbPath = join(tmpdir(), `curatorr-combined-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
     db = initDb(dbPath);
     refreshMasterTracks(db, [
-      track('n1', 'Artist A'), track('n2', 'Artist B'), track('n3', 'Artist C'),
-      track('t1', 'Artist D'), track('t2', 'Artist A'), track('t3', 'Artist E'),
-      track('x1', 'Artist F'),
+      track('n1', 'Artist A', 50), track('n2', 'Artist B', 10), track('n3', 'Artist C', 70),
+      track('t1', 'Artist D', 90), track('t2', 'Artist A', 30), track('t3', 'Artist E', 60),
+      track('x1', 'Artist F', 100),
     ]);
     // "Newest" and "Top played" sources; n1 appears in both to test dedupe.
     const sources = {
@@ -57,7 +57,7 @@ describe('combined playlists', () => {
     createUserPersonalPlaylist(db, USER, {
       id: 'nested',
       name: 'Nested',
-      rules: { combined: { sources: ['personal:newest', 'custom-import-top'], mode: 'interleave' } },
+      rules: { combined: { sources: ['personal:newest', 'custom-import-top'] } },
     });
 
     const ctx = {
@@ -93,33 +93,32 @@ describe('combined playlists', () => {
 
   const build = (combined, extraRules = {}) => buildCombinedPlaylistRatingKeys(db, USER, {
     id: 'mix',
-    rules: { sortBy: 'source', ...extraRules, combined },
+    rules: { ...extraRules, combined },
   });
 
-  it('interleaves sources by default and drops duplicates', () => {
+  it('pools the sources without duplicates and sorts them like any playlist', () => {
+    // Default sort is global rating count, across both sources.
     assert.deepEqual(
       build({ sources: ['personal:newest', 'custom-import-top'] }),
-      ['n1', 't1', 'n2', 'n3', 't2', 't3'],
+      ['t1', 'n3', 't3', 'n1', 't2', 'n2'],
     );
-  });
-
-  it('appends sources one after another when asked', () => {
     assert.deepEqual(
-      build({ sources: ['custom-import-top', 'personal:newest'], mode: 'append' }),
-      ['t1', 'n1', 't2', 't3', 'n2', 'n3'],
+      build({ sources: ['personal:newest', 'custom-import-top'] }, { sortBy: 'ratingCount' }),
+      build({ sources: ['custom-import-top', 'personal:newest'] }, { sortBy: 'ratingCount' }),
+      'source order does not change a sorted result',
     );
   });
 
-  it('applies the per-artist and total caps after mixing', () => {
-    // Artist A has n1 and t2; with one per artist, t2 is dropped.
+  it('applies the per-artist and total caps after sorting', () => {
+    // Artist A has n1 (50) and t2 (30); with one per artist, t2 is dropped.
     assert.deepEqual(
       build({ sources: ['personal:newest', 'custom-import-top'] }, { topNPerArtist: 1, maxTracks: 4 }),
-      ['n1', 't1', 'n2', 'n3'],
+      ['t1', 'n3', 't3', 'n1'],
     );
   });
 
   it('ignores combined playlists and itself as sources', () => {
-    assert.deepEqual(build({ sources: ['personal:nested', 'personal:mix', 'personal:newest'] }), ['n1', 'n2', 'n3']);
+    assert.deepEqual(build({ sources: ['personal:nested', 'personal:mix', 'personal:newest'] }), ['n3', 'n1', 'n2']);
   });
 
   it('validates sources when saving and previews the result', async () => {
@@ -137,7 +136,7 @@ describe('combined playlists', () => {
 
     const preview = await request(app)
       .get('/api/music/playlists/personal/preview')
-      .query({ rules: JSON.stringify({ sortBy: 'source', combined: { sources: ['personal:newest', 'custom-import-top'] } }) })
+      .query({ rules: JSON.stringify({ combined: { sources: ['personal:newest', 'custom-import-top'] } }) })
       .expect(200);
     assert.equal(preview.body.trackCount, 6);
     assert.equal(preview.body.artistCount, 5);
@@ -146,14 +145,13 @@ describe('combined playlists', () => {
       .post('/api/music/playlists/personal')
       .send({
         name: 'Newest and top played',
-        sortBy: 'source',
         blendUsers: ['someone'],
-        combined: { sources: ['personal:newest', 'custom-import-top'], mode: 'append' },
+        combined: { sources: ['personal:newest', 'custom-import-top'] },
       })
       .expect(200);
     assert.equal(created.body.draft, false);
     const saved = listUserPersonalPlaylists(db, USER).find((entry) => entry.name === 'Newest and top played');
-    assert.deepEqual(saved.rules.combined, { sources: ['personal:newest', 'custom-import-top'], mode: 'append' });
+    assert.deepEqual(saved.rules.combined, { sources: ['personal:newest', 'custom-import-top'] });
     assert.deepEqual(saved.rules.blendUsers, [], 'combined playlists are never blended');
   });
 });

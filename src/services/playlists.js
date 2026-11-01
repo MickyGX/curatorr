@@ -2938,12 +2938,11 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
 
 // ─── Combined playlists ───────────────────────────────────────────────────────
 // A combined playlist is a personal playlist whose rules.combined lists other
-// Curatorr playlists as sources. Each source's current tracks are sorted with
-// the playlist's sort, then interleaved (default) or appended, deduplicated and
-// capped. A combined playlist can't use another combined playlist as a source,
-// so there is no nesting or cycles.
+// Curatorr playlists as sources. Their current tracks are pooled and
+// deduplicated, then sorted and capped with the playlist's output rules like
+// any other playlist. A combined playlist can't use another combined playlist
+// as a source, so there is no nesting or cycles.
 
-export const COMBINED_PLAYLIST_MODES = ['interleave', 'append'];
 export const COMBINED_PLAYLIST_MAX_SOURCES = 10;
 
 export function normalizeCombinedPlaylistRules(raw) {
@@ -2951,8 +2950,7 @@ export function normalizeCombinedPlaylistRules(raw) {
   const sources = [...new Set((Array.isArray(raw.sources) ? raw.sources : [])
     .map((key) => String(key || '').trim())
     .filter(Boolean))].slice(0, COMBINED_PLAYLIST_MAX_SOURCES);
-  const mode = COMBINED_PLAYLIST_MODES.includes(raw.mode) ? raw.mode : 'interleave';
-  return { sources, mode };
+  return { sources };
 }
 
 export function isCombinedPersonalPlaylistKey(db, userId, playlistKey) {
@@ -2968,24 +2966,10 @@ function buildCombinedPlaylistTracks(db, userId, playlistDef) {
   if (!combined) return { eligible: [], selected: [] };
   const selfKey = playlistDef?.id ? `personal:${playlistDef.id}` : '';
   const masterTracks = getMasterTracks(db);
-  const lists = combined.sources
+  const pooled = combined.sources
     .filter((key) => key !== selfKey && !isCombinedPersonalPlaylistKey(db, userId, key))
-    .map((key) => sortPlaylistTracksByMode(
-      db,
-      userId,
-      hydratePlaylistTracks(masterTracks, getPlaylistTracks(db, userId, key)),
-      rules.sortBy,
-    ));
-  const merged = [];
-  if (combined.mode === 'append') {
-    lists.forEach((list) => merged.push(...list));
-  } else {
-    const longest = Math.max(0, ...lists.map((list) => list.length));
-    for (let index = 0; index < longest; index += 1) {
-      lists.forEach((list) => { if (index < list.length) merged.push(list[index]); });
-    }
-  }
-  const eligible = dedupeByRatingKey(merged);
+    .flatMap((key) => hydratePlaylistTracks(masterTracks, getPlaylistTracks(db, userId, key)));
+  const eligible = sortPlaylistTracksByMode(db, userId, dedupeByRatingKey(pooled), rules.sortBy || 'ratingCount');
   const selected = selectLimitedPlaylistTracks(eligible, {
     sortBy: 'default',
     topNPerArtist: rules.topNPerArtist,
