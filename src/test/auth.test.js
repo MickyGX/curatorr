@@ -7375,6 +7375,118 @@ describe('security guards', () => {
     }
   });
 
+  it('registers the Tautulli webhook with the request host and replaces a stale localhost notifier', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      general: {
+        ...(originalConfig.general || {}),
+        localUrl: '',
+        remoteUrl: '',
+      },
+      tautulli: {
+        url: 'http://tautulli.local',
+        apiKey: 'tautulli-secret-key',
+      },
+    });
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const commands = [];
+    let savedParams = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (!target.startsWith('http://tautulli.local')) return originalFetch(url, options);
+      const params = new URLSearchParams(String(options.body || ''));
+      const cmd = params.get('cmd');
+      commands.push(cmd);
+      const reply = (response) => new Response(JSON.stringify({ response }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (cmd === 'get_notifiers') {
+        return reply({ result: 'success', data: [{ id: 7, agent_name: 'webhook', friendly_name: 'Curatorr' }] });
+      }
+      if (cmd === 'get_notifier_config') {
+        return reply({ result: 'success', data: { config: { hook: 'http://localhost:7676/webhook/tautulli?key=old' } } });
+      }
+      if (cmd === 'set_notifier_config') {
+        savedParams = params;
+        return reply({ result: 'success' });
+      }
+      throw new Error(`Unexpected Tautulli command: ${cmd}`);
+    };
+
+    try {
+      const page = await client.request('/settings');
+      const csrfToken = extractCsrfToken(page.text);
+      const webhookRes = await client.request('/api/wizard/configure-tautulli-webhook', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+          'X-Forwarded-Proto': 'https',
+          'X-Forwarded-Host': 'curatorr.example.com',
+        },
+        body: '{}',
+      });
+      assert.equal(webhookRes.status, 200);
+      assert.equal(webhookRes.json?.ok, true);
+      assert.equal(webhookRes.json?.created, false);
+      assert.ok(!commands.includes('add_notifier_config'), 'expected the stale notifier to be reused');
+      assert.equal(savedParams?.get('notifier_id'), '7');
+      const hook = new URL(savedParams?.get('webhook_hook') || '');
+      assert.equal(hook.origin, 'https://curatorr.example.com');
+      assert.ok(hook.pathname.endsWith('/webhook/tautulli'));
+      assert.equal(hook.searchParams.get('key'), webhookKey);
+    } finally {
+      global.fetch = originalFetch;
+      await writeConfig(originalConfig);
+    }
+  });
+
+  it('rejects loopback-only Curatorr URLs when configuring the Tautulli webhook', async () => {
+    const originalConfig = await readConfig();
+    await writeConfig({
+      ...originalConfig,
+      general: {
+        ...(originalConfig.general || {}),
+        localUrl: 'http://localhost:7676',
+        remoteUrl: '',
+      },
+      tautulli: {
+        url: 'http://tautulli.local',
+        apiKey: 'tautulli-secret-key',
+      },
+    });
+
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith('http://tautulli.local')) {
+        throw new Error(`Unexpected Tautulli fetch during loopback webhook validation: ${target}`);
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const webhookRes = await client.postJson('/api/wizard/configure-tautulli-webhook', {}, '/settings');
+      assert.equal(webhookRes.status, 400);
+      assert.equal(
+        webhookRes.json?.reason,
+        'Curatorr local or remote URL points to localhost/127.0.0.1. Set a reachable LAN or remote URL before registering the Tautulli webhook.',
+      );
+    } finally {
+      global.fetch = originalFetch;
+      await writeConfig(originalConfig);
+    }
+  });
+
   it('redirects the server wizard token fetch action into Plex auth', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);

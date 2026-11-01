@@ -419,11 +419,15 @@ const TAUTULLI_WEBHOOK_BODY = JSON.stringify({
   view_offset: '{view_offset}',
 }, null, 2);
 
-async function configureTautulliWebhook(tautulliUrl, apiKey, ctx) {
-  const { loadConfig, pushLog, buildConfiguredWebhookUrl } = ctx;
+async function configureTautulliWebhook(tautulliUrl, apiKey, ctx, { req = null } = {}) {
+  const { loadConfig, pushLog } = ctx;
   const config = loadConfig();
-  const webhookUrl = buildConfiguredWebhookUrl(config, 'webhook/tautulli');
-  if (!webhookUrl || !tautulliUrl || !apiKey) return { ok: false, reason: 'missing config' };
+  if (!tautulliUrl || !apiKey) return { ok: false, reason: 'missing config' };
+  // Same resolution Settings uses to display the URL, so a missing Curatorr URL
+  // falls back to the host the admin is browsing from rather than localhost.
+  const resolved = buildReachableWebhookUrl(ctx, config, req, 'webhook/tautulli', 'Tautulli');
+  if (!resolved.ok) return { ok: false, reason: resolved.reason };
+  const webhookUrl = resolved.url;
   const api = `${tautulliUrl.replace(/\/$/, '')}/api/v2`;
   const triggers = ['on_play', 'on_stop', 'on_pause', 'on_resume', 'on_watched'];
   const fetchTautulliJson = async (params) => {
@@ -444,6 +448,7 @@ async function configureTautulliWebhook(tautulliUrl, apiKey, ctx) {
   const listJson = await fetchTautulliJson({ cmd: 'get_notifiers' });
   const notifiers = listJson?.response?.data || [];
   let reusableNotifierId = null;
+  let staleNotifierId = null;
 
   for (const n of notifiers) {
     if (n.agent_name !== 'webhook') continue;
@@ -456,10 +461,14 @@ async function configureTautulliWebhook(tautulliUrl, apiKey, ctx) {
     const friendlyName = String(n.friendly_name || '').trim();
     if (hook === webhookUrl) {
       pushLog({ level: 'info', app: 'wizard', action: 'tautulli.webhook.exists', message: `Tautulli webhook already configured (notifier ${n.id})` });
-      return { ok: true, notifierId: n.id, created: false };
+      return { ok: true, notifierId: n.id, created: false, alreadyConfigured: true };
     }
+    // A notifier already pointing at a Curatorr Tautulli webhook (e.g. an old
+    // localhost URL) is updated in place instead of adding a duplicate.
+    if (hook && staleNotifierId == null && normalizeWebhookPathname(hook).endsWith('/webhook/tautulli')) staleNotifierId = n.id;
     if (!hook && reusableNotifierId == null && (!friendlyName || friendlyName === 'Curatorr')) reusableNotifierId = n.id;
   }
+  if (staleNotifierId != null) reusableNotifierId = staleNotifierId;
 
   let notifierId = reusableNotifierId;
   if (!notifierId) {
@@ -536,7 +545,7 @@ function isLoopbackBaseUrl(url) {
   return Boolean(parsed && isLoopbackHostname(parsed.hostname));
 }
 
-function buildReachableWebhookUrl(ctx, config, req, webhookPath) {
+function buildReachableWebhookUrl(ctx, config, req, webhookPath, serviceLabel = 'Plex') {
   const {
     buildAppApiUrl,
     buildConfiguredWebhookUrl,
@@ -562,8 +571,8 @@ function buildReachableWebhookUrl(ctx, config, req, webhookPath) {
     return {
       ok: false,
       reason: configuredBase
-        ? 'Curatorr local or remote URL points to localhost/127.0.0.1. Set a reachable LAN or remote URL before registering the Plex webhook.'
-        : 'Set a Curatorr local or remote URL, or open Curatorr via a reachable LAN address before registering the Plex webhook.',
+        ? `Curatorr local or remote URL points to localhost/127.0.0.1. Set a reachable LAN or remote URL before registering the ${serviceLabel} webhook.`
+        : `Set a Curatorr local or remote URL, or open Curatorr via a reachable LAN address before registering the ${serviceLabel} webhook.`,
     };
   }
   const url = buildAppApiUrl(requestBase, webhookPath);
@@ -946,7 +955,7 @@ export function registerWizard(app, ctx) {
     pushLog({ level: 'info', app: 'wizard', action: 'tautulli.connected', message: `Tautulli connected: ${url}` });
 
     // Auto-configure Tautulli webhook if curatorrUrl provided (non-blocking — failure is soft)
-    if (curatorrUrl) configureTautulliWebhook(url, apiKey, ctx).catch(() => {});
+    if (curatorrUrl) configureTautulliWebhook(url, apiKey, ctx, { req }).catch(() => {});
 
     return renderServerWizard(res, updated, 5, null);
   });
@@ -1209,7 +1218,8 @@ export function registerWizard(app, ctx) {
     const { url, apiKey } = config.tautulli || {};
     if (!url || !apiKey) return res.status(400).json({ error: 'Tautulli not configured.' });
     try {
-      const result = await configureTautulliWebhook(url, apiKey, ctx);
+      const result = await configureTautulliWebhook(url, apiKey, ctx, { req });
+      if (!result.ok) return res.status(400).json(result);
       return res.json(result);
     } catch (err) {
       return res.status(500).json({ error: safeMessage(err) });

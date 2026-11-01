@@ -4202,7 +4202,7 @@
           if (!res.ok || !res.data.ok) {
             status.textContent = res.data.error || res.data.reason || 'Registration failed — check URL and API key are saved.';
             status.style.color = 'var(--color-error, #f87171)';
-          } else if (res.data.created === false) {
+          } else if (res.data.alreadyConfigured) {
             status.textContent = 'Webhook already registered in Tautulli.';
             status.style.color = '';
           } else {
