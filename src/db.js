@@ -339,6 +339,9 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
 CREATE INDEX IF NOT EXISTS idx_playlist_tracks_user_playlist
   ON playlist_tracks(user_plex_id, playlist_key);
 
+CREATE INDEX IF NOT EXISTS idx_playlist_tracks_user_rating
+  ON playlist_tracks(user_plex_id, rating_key, playlist_key);
+
 CREATE TABLE IF NOT EXISTS imported_playlist_unmatched (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   playlist_key    TEXT NOT NULL,
@@ -650,6 +653,10 @@ export function initDb(dbPath) {
   const masterColsNow = db.prepare('PRAGMA table_info(master_tracks)').all().map((c) => c.name);
   if (masterColsNow.includes('recording_mbid'))
     db.exec(`CREATE INDEX IF NOT EXISTS idx_master_tracks_recording_mbid ON master_tracks(recording_mbid) WHERE recording_mbid != ''`);
+  // Expression indexes for the case-insensitive artist/album lookups (album reconciliation on Discover, popular-track
+  // ranks on Overview/History). Without them every lookup scans the whole library table.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_master_tracks_artist_album_norm
+    ON master_tracks(LOWER(TRIM(artist_name)), LOWER(TRIM(album_name)))`);
   if (!masterCols.includes('file_path'))
     db.exec("ALTER TABLE master_tracks ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
   if (!masterCols.includes('duration_ms'))
@@ -1594,24 +1601,36 @@ export function getAlbumPopularTrackRanks(db, ratingKeys = []) {
     .filter(Boolean))];
   if (!keys.length) return new Map();
   const placeholders = keys.map(() => '?').join(', ');
+  // Rank only the albums the requested tracks belong to (not the whole library): same result, ~100x faster on a
+  // large library, using idx_master_tracks_artist_album_norm.
   const rows = db.prepare(`
-    WITH ranked AS (
-      SELECT
-        rating_key,
-        rating_count,
-        ROW_NUMBER() OVER (
-          PARTITION BY LOWER(TRIM(artist_name)), LOWER(TRIM(album_name))
-          ORDER BY rating_count DESC, view_count DESC, LOWER(TRIM(track_title)) ASC, rating_key ASC
-        ) AS popularity_rank
+    WITH target AS (
+      SELECT DISTINCT LOWER(TRIM(artist_name)) AS artist_key, LOWER(TRIM(album_name)) AS album_key
       FROM master_tracks
-      WHERE TRIM(album_name) != ''
+      WHERE rating_key IN (${placeholders})
+        AND TRIM(album_name) != ''
         AND rating_count > 0
+    ),
+    ranked AS (
+      SELECT
+        m.rating_key,
+        m.rating_count,
+        ROW_NUMBER() OVER (
+          PARTITION BY LOWER(TRIM(m.artist_name)), LOWER(TRIM(m.album_name))
+          ORDER BY m.rating_count DESC, m.view_count DESC, LOWER(TRIM(m.track_title)) ASC, m.rating_key ASC
+        ) AS popularity_rank
+      FROM target t
+      JOIN master_tracks m
+        ON LOWER(TRIM(m.artist_name)) = t.artist_key
+       AND LOWER(TRIM(m.album_name)) = t.album_key
+      WHERE TRIM(m.album_name) != ''
+        AND m.rating_count > 0
     )
     SELECT rating_key, rating_count, popularity_rank
     FROM ranked
     WHERE popularity_rank <= 3
       AND rating_key IN (${placeholders})
-  `).all(...keys);
+  `).all(...keys, ...keys);
   return new Map(rows.map((row) => [
     String(row.rating_key || ''),
     {

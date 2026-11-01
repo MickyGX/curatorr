@@ -1645,7 +1645,9 @@ export function registerPages(app, ctx) {
           MAX(pe.started_at) AS last_played_at,
           MAX(CASE WHEN TRIM(COALESCE(pe.plex_rating_key, '')) != '' THEN pe.plex_rating_key ELSE '' END) AS sample_rating_key
         FROM play_events pe
-        INNER JOIN playlist_tracks pt
+        -- CROSS JOIN pins the join order (SQLite never reorders it): start from this user's plays and look up their
+        -- playlists via idx_playlist_tracks_user_rating, instead of walking every playlist track. Same rows.
+        CROSS JOIN playlist_tracks pt
           ON pt.user_plex_id = ?
          AND pt.rating_key = pe.plex_rating_key
         WHERE pe.user_plex_id = ?
