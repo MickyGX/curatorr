@@ -122,6 +122,13 @@
               <button class="btn btn-sm pl-toolbar-button" type="button" id="plSelectionEnableBtn" onclick="toggleSelectedPlaylists(true)">Enable Selected</button>
               <button class="btn btn-sm pl-toolbar-button" type="button" id="plSelectionDisableBtn" onclick="toggleSelectedPlaylists(false)">Disable Selected</button>
               <button class="btn btn-sm pl-toolbar-button" type="button" onclick="exportSelectedPlaylists()">Export Selected</button>
+              <select id="plSelectionSyncPeriod" class="pl-toolbar-select" aria-label="Set auto-refresh for the selected imported playlists" onchange="setSelectedImportedSyncPeriod(this)">
+                <option value="">Auto-refresh…</option>
+                <option value="disabled">Disabled</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
               <button class="btn btn-sm pl-toolbar-button pl-toolbar-button--danger" type="button" onclick="deleteSelectedPlaylists()">Delete Selected</button>
             </div>
             <div class="cur-panel-actions">
@@ -129,6 +136,11 @@
               <% if (_msType === 'plex' || spotifyConfigured || youtubeConfigured) { %>
               <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Import playlist" title="Import playlist" onclick="openImportPlaylistModal()">
                 <span class="pl-header-import" aria-hidden="true">⇣</span>
+              </button>
+              <% } %>
+              <% if (_playlistCards.some(function(p) { return p.playlistType === 'custom' && importedSourceTypes.includes(p.sourceType); })) { %>
+              <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" id="plRefreshAllImportedBtn" aria-label="Refresh all imported playlists" title="Refresh all imported playlists" onclick="refreshAllImportedPlaylists()">
+                <span class="pl-header-import" aria-hidden="true">↻</span>
               </button>
               <% } %>
               <button class="cur-nav-button cur-nav-button--compact pl-header-icon-button" type="button" aria-label="Back up and restore playlists" title="Back up and restore playlists" onclick="openPlaylistBackupModal()">
@@ -296,7 +308,7 @@
                         <div class="plex-name cur-discover-result-name cur-playlist-carousel-title"><%= p.playlistTitle || 'Playlist' %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= Number(p.trackCount || 0).toLocaleString() %> tracks<% if (Number(p.missingCount || 0) > 0) { %> • <%= Number(p.missingCount || 0).toLocaleString() %> missing<% } %></div>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta<%= p.active === false ? ' cur-playlist-carousel-meta--disabled' : '' %>"><%= p.active === false ? (p.backupOnly ? 'Backup only, not in ' + _msLabel : 'Disabled in Plex') : (p.playlistKind === 'draft' ? 'Draft saved in Curatorr' : 'Curatorr updated ' + fmtDate(p.curatorrUpdatedAt)) %></div>
-                        <% if (p.playlistType === 'custom' && importedSourceTypes.filter(function(t) { return t !== 'm3u-file' && t !== 'm3u-watch' && t !== 'curatorr-backup'; }).includes(p.sourceType)) { %>
+                        <% if (p.playlistType === 'custom' && importedSourceTypes.includes(p.sourceType)) { %>
                         <div class="plex-meta cur-discover-result-meta cur-playlist-carousel-meta"><%= (p.importedSyncPeriod || 'disabled') === 'daily' ? 'Auto-refresh every day' : ((p.importedSyncPeriod || 'disabled') === 'weekly' ? 'Auto-refresh every week' : ((p.importedSyncPeriod || 'disabled') === 'monthly' ? 'Auto-refresh every month' : 'Auto-refresh disabled')) %></div>
                         <% } %>
                       </div>
@@ -4171,6 +4183,71 @@
       }
       if (enableBtn) enableBtn.disabled = !inactiveSelected.length;
       if (disableBtn) disableBtn.disabled = !activeSelected.length;
+      var syncSelect = document.getElementById('plSelectionSyncPeriod');
+      if (syncSelect) {
+        var importedCount = selected.filter(isImportedPlaylistCard).length;
+        syncSelect.disabled = !importedCount;
+        syncSelect.title = importedCount ? '' : 'Select imported playlists to set auto-refresh.';
+      }
+    }
+
+    function isImportedPlaylistCard(card) {
+      return Boolean(card) && card.dataset.playlistType === 'custom' && isImportedCustomSource(card.dataset.playlistSourceType);
+    }
+
+    function setSelectedImportedSyncPeriod(select) {
+      var period = select.value;
+      if (!period) return;
+      var keys = Array.from(document.querySelectorAll('.pl-card-checkbox:checked'))
+        .map(function(cb) { return cb.closest('.cur-playlist-carousel-card'); })
+        .filter(isImportedPlaylistCard)
+        .map(function(card) { return card.dataset.plKey; })
+        .filter(Boolean);
+      select.value = '';
+      if (!keys.length) return;
+      var status = document.getElementById('syncStatus');
+      status.textContent = 'Updating auto-refresh…';
+      fetch('/api/music/playlists/imported-sync-period/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify({ playlistKeys: keys, importedSyncPeriod: period }),
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Unknown error');
+          window.location.reload();
+        })
+        .catch(function(err) {
+          status.textContent = 'Error: ' + (err.message || 'Unknown');
+        });
+    }
+
+    function refreshAllImportedPlaylists() {
+      var btn = document.getElementById('plRefreshAllImportedBtn');
+      var status = document.getElementById('syncStatus');
+      if (!confirm('Refresh all imported playlists from their sources? They are queued and refreshed in batches in the background.')) return;
+      if (btn) btn.disabled = true;
+      status.textContent = 'Queuing imported playlists…';
+      fetch('/api/music/playlists/imported/refresh-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: '{}',
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.ok) throw new Error(data.error || 'Unknown error');
+          var queued = Number(data.queued || 0);
+          var batch = Number(data.batchSize || 25);
+          status.textContent = !queued
+            ? 'No imported playlists to refresh.'
+            : (queued <= batch
+              ? 'Refreshing ' + queued + ' imported playlist' + (queued === 1 ? '' : 's') + ' in the background.'
+              : 'Queued ' + queued + ' imported playlists. The first ' + batch + ' are refreshing now; the rest follow with each Smart Playlist Sync run.');
+        })
+        .catch(function(err) {
+          status.textContent = 'Error: ' + (err.message || 'Unknown');
+        })
+        .finally(function() { if (btn) btn.disabled = false; });
     }
 
     function clearCardSelection() {

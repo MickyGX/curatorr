@@ -78,6 +78,8 @@ import {
   updateRuleTemplate,
   deleteRuleTemplate,
   classifyTier,
+  clearImportedPlaylistRefreshDue,
+  markImportedPlaylistsRefreshDue,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildSpotifyTrackLookups, isImportedPlaylistSourceType, normalizeImportMatchText, pickSpotifyTrackMatch } from '../services/import-matching.js';
@@ -142,6 +144,9 @@ const IMPORTED_SYNC_PERIOD_LABELS = {
   weekly: 'Weekly',
   monthly: 'Monthly',
 };
+// Most imported playlists one scheduled run refreshes per user. The rest wait for
+// the next run, so a large library of auto-refreshing imports is staggered.
+const IMPORTED_REFRESH_BATCH_LIMIT = 25;
 const IMPORTED_SYNC_PERIOD_MS = {
   disabled: 0,
   daily: DAY_MS,
@@ -2253,6 +2258,22 @@ export function registerApiMusic(app, ctx) {
     return isImportedPlaylistSourceType(sourceType);
   }
 
+  function isImportedCustomPlaylist(playlist) {
+    return String(playlist?.playlistType || '').trim().toLowerCase() === 'custom'
+      && isImportedCustomSourceType(playlist?.sourceType);
+  }
+
+  // Auto-refresh period for a newly imported playlist: the watch folder's own
+  // setting for watch-folder files, otherwise the global import default.
+  function resolveDefaultImportedSyncPeriod(sourceType, config = loadConfig()) {
+    const globalDefault = normalizeImportedSyncPeriod(config?.playlistImports?.defaultSyncPeriod);
+    if (sourceType === PLAYLIST_WATCH_SOURCE_TYPE) {
+      const watchPeriod = normalizePlaylistWatchConfig(config?.playlistWatchFolder).syncPeriod;
+      if (watchPeriod) return normalizeImportedSyncPeriod(watchPeriod);
+    }
+    return globalDefault;
+  }
+
   function getImportedPlaylistRefreshIntervalMs(period) {
     return Number(IMPORTED_SYNC_PERIOD_MS[normalizeImportedSyncPeriod(period)] || 0);
   }
@@ -2460,7 +2481,7 @@ export function registerApiMusic(app, ctx) {
       sourceOwner: String(sourceMeta?.sourceOwner || '').trim(),
       sourceContent: String(sourceMeta?.sourceContent || '').trim(),
       sourceFilename: String(sourceMeta?.sourceFilename || '').trim(),
-      importedSyncPeriod: 'disabled',
+      importedSyncPeriod: resolveDefaultImportedSyncPeriod(sourceType),
       active: false,
       trackCount: Array.isArray(trackRefs) ? trackRefs.length : 0,
       missingCount: unmatchedTracks.length,
@@ -2681,22 +2702,36 @@ export function registerApiMusic(app, ctx) {
 
   async function refreshScheduledImportedPlaylistsForUser(userPlexId, options = {}) {
     const now = Number(options?.now || Date.now());
+    const batchLimit = Math.max(1, Number(options?.limit) || IMPORTED_REFRESH_BATCH_LIMIT);
     const playlists = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
-      .filter((playlist) => String(playlist?.playlistType || '').trim().toLowerCase() === 'custom')
-      .filter((playlist) => isImportedCustomSourceType(playlist?.sourceType))
+      .filter(isImportedCustomPlaylist)
       // Backup-only playlists stay out of the media server but keep their copy current.
-      .filter((playlist) => playlist?.active !== false || playlist?.backupOnly)
-      .filter((playlist) => normalizeImportedSyncPeriod(playlist?.importedSyncPeriod) !== 'disabled');
-    let refreshed = 0;
+      .filter((playlist) => playlist?.active !== false || playlist?.backupOnly);
     let skipped = 0;
+    const due = [];
     for (const playlist of playlists) {
+      // A manual "refresh all" request is due from when it was made.
+      const requestedAt = Number(playlist?.importedRefreshRequestedAt || 0);
+      if (requestedAt > 0) {
+        due.push({ playlist, dueAt: requestedAt });
+        continue;
+      }
       const intervalMs = getImportedPlaylistRefreshIntervalMs(playlist.importedSyncPeriod);
+      if (!intervalMs) continue;
       const baseline = Number(playlist?.lastBuiltAt || playlist?.lastSyncedAt || playlist?.updatedAt || playlist?.createdAt || 0);
-      if (!intervalMs || (baseline > 0 && (now - baseline) < intervalMs)) {
+      if (baseline > 0 && (now - baseline) < intervalMs) {
         skipped += 1;
         continue;
       }
+      due.push({ playlist, dueAt: baseline + intervalMs });
+    }
+    due.sort((a, b) => a.dueAt - b.dueAt);
+    const batch = due.slice(0, batchLimit);
+    const deferred = due.length - batch.length;
+    let refreshed = 0;
+    for (const { playlist } of batch) {
       try {
+        if (Number(playlist?.importedRefreshRequestedAt || 0) > 0) clearImportedPlaylistRefreshDue(db, userPlexId, playlist.playlistKey);
         await refreshImportedCustomPlaylist(userPlexId, playlist);
         refreshed += 1;
       } catch (err) {
@@ -2708,10 +2743,34 @@ export function registerApiMusic(app, ctx) {
         });
       }
     }
-    return { refreshed, skipped };
+    if (deferred > 0) {
+      pushLog({
+        level: 'info',
+        app: 'playlist',
+        action: 'import.refresh.deferred',
+        message: `Refreshed ${refreshed} imported playlist(s) for ${userPlexId}; ${deferred} more will refresh on the next run`,
+      });
+    }
+    return { refreshed, skipped, deferred };
   }
 
   ctx.refreshScheduledImportedPlaylistsForUser = refreshScheduledImportedPlaylistsForUser;
+
+  // One background refresh per user at a time; later batches come from the
+  // scheduled Smart Playlist Sync job.
+  const importedRefreshInFlight = new Set();
+  function startImportedRefreshInBackground(userPlexId) {
+    if (importedRefreshInFlight.has(userPlexId)) return;
+    importedRefreshInFlight.add(userPlexId);
+    refreshScheduledImportedPlaylistsForUser(userPlexId)
+      .catch((err) => pushLog({
+        level: 'warn',
+        app: 'playlist',
+        action: 'import.refresh.error',
+        message: `Background import refresh failed for ${userPlexId}: ${safeMessage(err)}`,
+      }))
+      .finally(() => importedRefreshInFlight.delete(userPlexId));
+  }
 
   // Reads a watch-folder playlist by its relative path, or returns null when the
   // folder is unset, the path escapes it, or the file is gone.
@@ -5172,6 +5231,64 @@ export function registerApiMusic(app, ctx) {
       importedSyncPeriodLabel: IMPORTED_SYNC_PERIOD_LABELS[importedSyncPeriod] || importedSyncPeriod,
       active: updated?.active !== false,
     });
+  });
+
+  app.post('/api/music/playlists/imported-sync-period/bulk', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const playlistKeys = [...new Set((Array.isArray(req.body?.playlistKeys) ? req.body.playlistKeys : [])
+      .map((key) => String(key || '').trim())
+      .filter(Boolean))];
+    const rawPeriod = String(req.body?.importedSyncPeriod || '').trim().toLowerCase();
+    if (!playlistKeys.length) return res.status(400).json({ error: 'playlistKeys is required' });
+    if (!Object.prototype.hasOwnProperty.call(IMPORTED_SYNC_PERIOD_MS, rawPeriod)) {
+      return res.status(400).json({ error: 'importedSyncPeriod must be disabled, daily, weekly or monthly.' });
+    }
+    const importedSyncPeriod = normalizeImportedSyncPeriod(rawPeriod);
+    const wanted = new Set(playlistKeys);
+    const playlists = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .filter((entry) => wanted.has(entry.playlistKey));
+    const imported = playlists.filter(isImportedCustomPlaylist);
+    const now = Date.now();
+    for (const playlist of imported) {
+      if (normalizeImportedSyncPeriod(playlist.importedSyncPeriod) === importedSyncPeriod) continue;
+      saveUserGeneratedPlaylist(db, userPlexId, { ...playlist, importedSyncPeriod, updatedAt: now });
+    }
+    pushLog({
+      level: 'info',
+      app: 'playlist',
+      action: 'import.sync-period.bulk',
+      message: `Set imported sync period to ${IMPORTED_SYNC_PERIOD_LABELS[importedSyncPeriod]} for ${imported.length} playlist(s) for ${userPlexId}`,
+    });
+    return res.json({
+      ok: true,
+      importedSyncPeriod,
+      importedSyncPeriodLabel: IMPORTED_SYNC_PERIOD_LABELS[importedSyncPeriod],
+      updated: imported.map((entry) => entry.playlistKey),
+      skipped: playlistKeys.length - imported.length,
+    });
+  });
+
+  // Queues every imported playlist (or the given keys) for refresh and starts
+  // the first batch in the background instead of refreshing them inline.
+  app.post('/api/music/playlists/imported/refresh-all', requireUser, async (req, res) => {
+    const userPlexId = resolveCanonicalUserId(req);
+    const requestedKeys = Array.isArray(req.body?.playlistKeys)
+      ? new Set(req.body.playlistKeys.map((key) => String(key || '').trim()).filter(Boolean))
+      : null;
+    const keys = listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false })
+      .filter(isImportedCustomPlaylist)
+      .filter((playlist) => playlist?.active !== false || playlist?.backupOnly)
+      .filter((playlist) => !requestedKeys || requestedKeys.has(playlist.playlistKey))
+      .map((playlist) => playlist.playlistKey);
+    const queued = markImportedPlaylistsRefreshDue(db, userPlexId, keys);
+    if (keys.length) startImportedRefreshInBackground(userPlexId);
+    pushLog({
+      level: 'info',
+      app: 'playlist',
+      action: 'import.refresh.queued',
+      message: `Queued ${keys.length} imported playlist(s) for refresh for ${userPlexId}`,
+    });
+    return res.json({ ok: true, queued: keys.length, newlyQueued: queued, batchSize: IMPORTED_REFRESH_BATCH_LIMIT });
   });
 
   app.post('/api/music/playlists/imported-audience', requireUser, async (req, res) => {

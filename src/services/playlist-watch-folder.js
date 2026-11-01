@@ -34,6 +34,10 @@ export function normalizePlaylistWatchConfig(raw = {}) {
     ownerUserId: String(value.ownerUserId || '').trim(),
     audience: String(value.audience || '').trim().toLowerCase() === 'global' ? 'global' : 'personal',
     removeMissing: value.removeMissing === true,
+    // '' falls back to the global default for new imports (playlistImports).
+    syncPeriod: ['disabled', 'daily', 'weekly', 'monthly'].includes(String(value.syncPeriod || '').trim().toLowerCase())
+      ? String(value.syncPeriod).trim().toLowerCase()
+      : '',
   };
 }
 

@@ -1150,6 +1150,7 @@ export function registerSettings(app, ctx) {
       ownerUserId: req.body?.ownerUserId,
       audience: req.body?.audience === 'global' ? 'global' : 'personal',
       removeMissing: Boolean(req.body?.removeMissing),
+      syncPeriod: req.body?.syncPeriod,
     });
     if (next.enabled && (!next.path || !next.ownerUserId)) {
       return res.redirect('/settings?tab=smart-playlist&error=' + encodeURIComponent('Set a folder path and an owner before enabling the playlist watch folder.') + '#playlist-watch-folder');
@@ -1158,6 +1159,17 @@ export function registerSettings(app, ctx) {
     pushLog({ level: 'info', app: 'settings', action: 'playlist-watch-folder.save', message: `Playlist watch folder ${next.enabled ? `enabled for ${next.path}` : 'disabled'}` });
     if (next.enabled) jobService?.runJob('playlistWatchFolder').catch(() => {});
     return res.redirect('/settings?tab=smart-playlist&success=1#playlist-watch-folder');
+  });
+
+  // ── Imported playlist defaults ────────────────────────────────────────────
+
+  app.post('/settings/playlist-imports', requireAdmin, (req, res) => {
+    const config = loadConfig();
+    const raw = String(req.body?.defaultSyncPeriod || '').trim().toLowerCase();
+    const defaultSyncPeriod = ['disabled', 'daily', 'weekly', 'monthly'].includes(raw) ? raw : 'disabled';
+    saveConfig({ ...config, playlistImports: { ...(config.playlistImports || {}), defaultSyncPeriod } });
+    pushLog({ level: 'info', app: 'settings', action: 'playlist-imports.save', message: `Default auto-refresh for new imported playlists set to ${defaultSyncPeriod}` });
+    return res.redirect('/settings?tab=smart-playlist&success=1#playlist-imports');
   });
 
   // ── Crescive / Curative / rule settings ──────────────────────────────────

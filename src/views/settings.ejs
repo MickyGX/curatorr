@@ -1495,6 +1495,29 @@
             }
             </script>
 
+            <%# ── Imported playlist defaults ──────────────────────────────── %>
+            <% if (actualRole === 'admin') { %>
+            <% const _importDefault = String(config.playlistImports?.defaultSyncPeriod || 'disabled'); %>
+            <form method="post" action="/settings/playlist-imports" class="settings-form" id="playlist-imports">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <div class="settings-card">
+                <div class="settings-card-title">Imported Playlists</div>
+                <div class="settings-card-sub">Auto-refresh period given to newly imported playlists. Existing playlists keep their own setting; change several at once from the Playlists page by selecting them and choosing <strong>Auto-refresh</strong>. Refreshes run with the Smart Playlist Sync job, up to 25 playlists per user per run, oldest due first.</div>
+                <label class="field">
+                  <span>Default auto-refresh for new imports</span>
+                  <select name="defaultSyncPeriod">
+                    <% [['disabled', 'Disabled'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].forEach(function(opt) { %>
+                    <option value="<%= opt[0] %>" <%= _importDefault === opt[0] ? 'selected' : '' %>><%= opt[1] %></option>
+                    <% }) %>
+                  </select>
+                </label>
+              </div>
+              <div class="settings-card-actions settings-card-actions--full">
+                <button class="primary-button" type="submit">Save import defaults</button>
+              </div>
+            </form>
+            <% } %>
+
             <%# ── Playlist watch folder ───────────────────────────────────── %>
             <% if (actualRole === 'admin') { %>
             <% const _pw = playlistWatchFolder || {}; %>
@@ -1534,6 +1557,16 @@
                   <span class="settings-toggle-text">Delete playlists whose file is removed</span>
                 </label>
                 <div class="settings-card-sub" style="margin-top:2px">When this is off, a playlist whose file is removed is kept and marked as missing its source.</div>
+                <label class="field" style="margin-top:8px">
+                  <span>Auto-refresh for new watch-folder playlists</span>
+                  <select name="syncPeriod">
+                    <option value="" <%= !_pw.syncPeriod ? 'selected' : '' %>>Use import default</option>
+                    <% [['disabled', 'Disabled'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly']].forEach(function(opt) { %>
+                    <option value="<%= opt[0] %>" <%= _pw.syncPeriod === opt[0] ? 'selected' : '' %>><%= opt[1] %></option>
+                    <% }) %>
+                  </select>
+                </label>
+                <div class="settings-card-sub" style="margin-top:2px">Editing a file already refreshes its playlist. Auto-refresh also re-matches unchanged files against new library tracks.</div>
                 <% const _pwJob = playlistWatchJobStatus; %>
                 <% if (_pwJob && _pwJob.lastRunAt) { %>
                 <div class="settings-card-sub" style="margin-top:8px">Last scan <%= new Date(Number(_pwJob.lastRunAt)).toLocaleString() %>: <%= _pwJob.message || _pwJob.status %></div>

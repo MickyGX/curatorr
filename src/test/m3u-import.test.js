@@ -157,6 +157,7 @@ describe('M3U import parsing and matching', () => {
           userServerTokens: { [userId]: 'plex-user-token' },
         },
         smartPlaylist: {},
+        playlistImports: { defaultSyncPeriod: 'monthly' },
       };
       const logs = [];
       const ctx = {
@@ -265,6 +266,7 @@ describe('M3U import parsing and matching', () => {
         const stored = listUserGeneratedPlaylists(db, userId, { activeOnly: false })
           .find((playlist) => playlist.playlistKey === playlistKey);
         assert.equal(stored?.sourceType, 'm3u-file');
+        assert.equal(stored?.importedSyncPeriod, 'monthly', 'expected new imports to use the default auto-refresh');
         assert.equal(stored?.sourceContent, m3uContent);
         assert.equal(stored?.sourceFilename, `route-${now}.m3u8`);
         assert.equal(stored?.trackCount, 2);
@@ -278,7 +280,7 @@ describe('M3U import parsing and matching', () => {
           .expect(200);
         assert.equal(edited.body.importedSyncPeriod, refreshMode === 'manual' ? 'disabled' : refreshMode);
         assert.deepEqual(await ctx.refreshScheduledImportedPlaylistsForUser(userId), {
-          refreshed: 0, skipped: refreshMode === 'manual' ? 0 : 1,
+          refreshed: 0, skipped: refreshMode === 'manual' ? 0 : 1, deferred: 0,
         });
 
         refreshMasterTracks(db, [{
@@ -303,7 +305,7 @@ describe('M3U import parsing and matching', () => {
           const intervalDays = { daily: 1, weekly: 7, monthly: 30 }[refreshMode];
           assert.deepEqual(await ctx.refreshScheduledImportedPlaylistsForUser(userId, {
             now: Date.now() + intervalDays * 86400000 + 1000,
-          }), { refreshed: 1, skipped: 0 });
+          }), { refreshed: 1, skipped: 0, deferred: 0 });
         }
         assert.deepEqual(addBatches.at(-1), [firstKey, thirdKey, secondKey]);
         assert.deepEqual(

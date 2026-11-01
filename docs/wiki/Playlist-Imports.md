@@ -38,6 +38,14 @@ From v0.1.99, refreshing an older import can remove wrong-artist matches and inc
 
 Use **Refresh import** from the card menu to re-read/rematch the source. The imported playlist editor offers **Disabled**, **Daily**, **Weekly**, or **Monthly** auto-refresh.
 
+To manage many imports at once:
+
+- **Default for new imports.** An admin can set **Settings → Smart Playlists → Imported Playlists → Default auto-refresh for new imports**. Existing playlists keep their own setting. The watch folder has its own **Auto-refresh for new watch-folder playlists** option, which falls back to this default.
+- **Set auto-refresh for a selection.** On the Playlists page, select imported playlists and choose a period from **Auto-refresh…** in the selection bar. Selected playlists that are not imported are left unchanged.
+- **Refresh all imported.** The **↻** button in the Playlists header queues every imported playlist for a refresh. The first batch starts straight away and the rest follow with each **Smart Playlist Sync** run.
+
+Scheduled and queued refreshes run with the **Smart Playlist Sync** job, up to 25 imported playlists per user per run, oldest due first. Hundreds of weekly imports are therefore spread across several runs instead of all refreshing at once. Cards show the auto-refresh period for every imported source, including M3U files, watch-folder files and restored backups.
+
 M3U/M3U8 imports support those schedules from v0.1.98. Curatorr stores the uploaded source in its database and rematches that stored content; it does not reread a changed file from your computer. Older imports without stored source content may need a one-time re-import. Newly available tracks return to their source positions once matched.
 
 After adding music, refresh the master track cache before refreshing the import. Source refresh and playlist sync are separate from acquiring missing files through Lidarr.

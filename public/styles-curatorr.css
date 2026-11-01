@@ -3564,6 +3564,20 @@ html[data-carousel-free-scroll="1"] .cur-discover-result-card {
   filter: saturate(.5);
 }
 
+.pl-toolbar-select {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 6px;
+  background: rgba(0,0,0,.35);
+  color: inherit;
+  font-size: 12px;
+}
+
+.pl-toolbar-select:disabled {
+  opacity: .5;
+}
+
 .pl-toolbar-button--danger {
   border-color: rgba(127, 29, 29, .88);
   background: linear-gradient(180deg, rgba(239, 68, 68, .92), rgba(185, 28, 28, .94));

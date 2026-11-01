@@ -598,6 +598,8 @@ export function initDb(dbPath) {
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN imported_sync_period TEXT NOT NULL DEFAULT 'disabled'");
   if (!generatedCols.includes('missing_count'))
     db.exec('ALTER TABLE user_generated_playlists ADD COLUMN missing_count INTEGER NOT NULL DEFAULT 0');
+  if (!generatedCols.includes('imported_refresh_requested_at'))
+    db.exec('ALTER TABLE user_generated_playlists ADD COLUMN imported_refresh_requested_at INTEGER NOT NULL DEFAULT 0');
   if (!generatedCols.includes('audience'))
     db.exec("ALTER TABLE user_generated_playlists ADD COLUMN audience TEXT NOT NULL DEFAULT 'personal'");
 
@@ -3720,6 +3722,7 @@ export function listUserGeneratedPlaylists(db, userPlexId, { activeOnly = true }
     sourceContent: row.source_content,
     sourceFilename: row.source_filename,
     importedSyncPeriod: String(row.imported_sync_period || 'disabled').trim() || 'disabled',
+    importedRefreshRequestedAt: Number(row.imported_refresh_requested_at || 0),
     audience: String(row.audience || 'personal').trim() || 'personal',
     algorithmVersion: row.algorithm_version,
     lastBuiltAt: row.last_built_at,
@@ -3853,6 +3856,29 @@ export function setCustomPlaylistAudience(db, userPlexId, playlistKey, audience)
     : 'personal';
   db.prepare('UPDATE user_generated_playlists SET audience = ?, updated_at = ? WHERE user_plex_id = ? AND playlist_key = ?')
     .run(normalized, Date.now(), userPlexId, playlistKey);
+}
+
+// Queues imported playlists for the scheduled refresh without running them now.
+// saveUserGeneratedPlaylist leaves this column alone, so the request survives
+// until refreshScheduledImportedPlaylistsForUser clears it.
+export function markImportedPlaylistsRefreshDue(db, userPlexId, playlistKeys, requestedAt = Date.now()) {
+  const keys = [...new Set((Array.isArray(playlistKeys) ? playlistKeys : []).map((key) => String(key || '').trim()).filter(Boolean))];
+  if (!keys.length) return 0;
+  const stmt = db.prepare(`
+    UPDATE user_generated_playlists
+    SET imported_refresh_requested_at = ?
+    WHERE user_plex_id = ? AND playlist_key = ? AND imported_refresh_requested_at = 0
+  `);
+  let marked = 0;
+  db.transaction(() => {
+    for (const key of keys) marked += stmt.run(requestedAt, userPlexId, key).changes;
+  })();
+  return marked;
+}
+
+export function clearImportedPlaylistRefreshDue(db, userPlexId, playlistKey) {
+  db.prepare('UPDATE user_generated_playlists SET imported_refresh_requested_at = 0 WHERE user_plex_id = ? AND playlist_key = ?')
+    .run(userPlexId, String(playlistKey || '').trim());
 }
 
 // ─── Playlist watch folder ────────────────────────────────────────────────────
