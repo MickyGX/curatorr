@@ -2187,7 +2187,10 @@ export async function start() {
           }
           const generated = listUserGeneratedPlaylists(db, userId, { activeOnly: false });
           const generatedByKey = new Map(generated.map((entry) => [entry.playlistKey, entry]));
-          const personalPlaylists = listUserPersonalPlaylists(db, userId).filter((p) => p.enabled);
+          // Combined playlists go last so they draw on freshly rebuilt sources.
+          const personalPlaylists = listUserPersonalPlaylists(db, userId)
+            .filter((p) => p.enabled)
+            .sort((a, b) => Number(Boolean(a.rules?.combined)) - Number(Boolean(b.rules?.combined)));
           for (const pp of personalPlaylists) {
             const playlistKey = `personal:${pp.id}`;
             const existing = generatedByKey.get(playlistKey);
