@@ -845,6 +845,30 @@ function scoreSelectionTrack(track, extras = {}) {
   return score;
 }
 
+// Daily Mix rotation: candidates are fetched well beyond each source's share so
+// filters and the per-artist cap still leave enough to fill the mix, and a
+// per-user daily seed shuffles tracks with similar scores.
+const DAILY_MIX_CANDIDATE_MULTIPLIER = 5;
+const DAILY_MIX_MIN_CANDIDATES = 40;
+const DAILY_MIX_SCORE_JITTER = 10;
+
+function hashStringToUnit(value) {
+  // FNV-1a, 32-bit.
+  let hash = 0x811c9dc5;
+  const text = String(value || '');
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) / 0x100000000;
+}
+
+function buildLocalDateKey(now = Date.now()) {
+  const date = new Date(now);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function normalizeDailyMixOptions(rawOptions = {}) {
   return {
     sortBy: normalizePlaylistBaseSort(rawOptions.sortBy, 'default'),
@@ -897,18 +921,29 @@ function normalizeCuratorrOptions(rawOptions = {}) {
   };
 }
 
-function pickFavoriteTracks(db, userPlexId, limit = 12) {
+// perArtist caps how many rows a single artist can contribute to the candidate
+// list, so one heavily played artist cannot crowd out everyone else before the
+// playlist's own per-artist cap is applied.
+function pickFavoriteTracks(db, userPlexId, limit = 12, { perArtist = 0 } = {}) {
+  const artistCap = Math.max(0, Math.floor(Number(perArtist) || 0));
   return db.prepare(`
     SELECT plex_rating_key, track_title, artist_name, album_name, play_count, tier, tier_weight, last_played_at
-    FROM track_stats
-    WHERE user_plex_id = ?
-      AND manually_excluded = 0
-      AND excluded_from_smart = 0
-      AND play_count > 0
-      AND (tier IS NULL OR tier != 'skip')
+    FROM (
+      SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY lower(artist_name)
+        ORDER BY tier_weight DESC, play_count DESC, last_played_at DESC
+      ) AS artist_rank
+      FROM track_stats
+      WHERE user_plex_id = ?
+        AND manually_excluded = 0
+        AND excluded_from_smart = 0
+        AND play_count > 0
+        AND (tier IS NULL OR tier != 'skip')
+    )
+    WHERE (? = 0 OR artist_rank <= ?)
     ORDER BY tier_weight DESC, play_count DESC, last_played_at DESC
     LIMIT ?
-  `).all(userPlexId, limit).map((row) => ({
+  `).all(userPlexId, artistCap, artistCap, limit).map((row) => ({
     ratingKey: row.plex_rating_key,
     trackTitle: row.track_title,
     artistName: row.artist_name,
@@ -1322,22 +1357,43 @@ function pickSuggestedTracks(db, userPlexId, limit = 8) {
   }));
 }
 
-function pickFreshLibraryTracks(db, userPlexId, limit = 10) {
+// Without a seed this keeps the stable ranking/alphabetical order. With a seed
+// (Daily Mix), ties within the same artist ranking are broken by a seeded
+// permutation of rowid, so an unplayed library rotates instead of always
+// returning the alphabetically first artists. perArtist works as in
+// pickFavoriteTracks.
+function pickFreshLibraryTracks(db, userPlexId, limit = 10, { seed = null, perArtist = 0 } = {}) {
+  const artistCap = Math.max(0, Math.floor(Number(perArtist) || 0));
+  const seeded = Number.isInteger(seed) && seed > 0;
+  const tieBreak = seeded
+    ? '((m.rowid * 2654435761 + ?) % 2147483647) ASC'
+    : 'm.artist_name ASC, m.album_name ASC, m.track_title ASC';
+  const params = [];
+  if (seeded) params.push(seed);
+  params.push(userPlexId, userPlexId, artistCap, artistCap);
+  if (seeded) params.push(seed);
+  params.push(limit);
   return db.prepare(`
-    SELECT m.rating_key, m.track_title, m.artist_name, m.album_name
-    FROM master_tracks m
-    LEFT JOIN track_stats t
-      ON t.plex_rating_key = m.rating_key AND t.user_plex_id = ?
-    LEFT JOIN artist_stats a
-      ON a.artist_name = m.artist_name AND a.user_plex_id = ?
-    WHERE COALESCE(t.manually_excluded, 0) = 0
-      AND COALESCE(t.excluded_from_smart, 0) = 0
-      AND COALESCE(a.manually_excluded, 0) = 0
-      AND COALESCE(a.excluded_from_smart, 0) = 0
-      AND (t.plex_rating_key IS NULL OR COALESCE(t.play_count, 0) = 0)
-    ORDER BY COALESCE(a.ranking_score, 0) DESC, m.artist_name ASC, m.album_name ASC, m.track_title ASC
+    SELECT rating_key, track_title, artist_name, album_name
+    FROM (
+      SELECT m.rowid AS master_rowid, m.rating_key, m.track_title, m.artist_name, m.album_name,
+             COALESCE(a.ranking_score, 0) AS artist_score,
+             ROW_NUMBER() OVER (PARTITION BY lower(m.artist_name) ORDER BY ${tieBreak}) AS artist_rank
+      FROM master_tracks m
+      LEFT JOIN track_stats t
+        ON t.plex_rating_key = m.rating_key AND t.user_plex_id = ?
+      LEFT JOIN artist_stats a
+        ON a.artist_name = m.artist_name AND a.user_plex_id = ?
+      WHERE COALESCE(t.manually_excluded, 0) = 0
+        AND COALESCE(t.excluded_from_smart, 0) = 0
+        AND COALESCE(a.manually_excluded, 0) = 0
+        AND COALESCE(a.excluded_from_smart, 0) = 0
+        AND (t.plex_rating_key IS NULL OR COALESCE(t.play_count, 0) = 0)
+    ) m
+    WHERE (? = 0 OR artist_rank <= ?)
+    ORDER BY artist_score DESC, ${seeded ? '((m.master_rowid * 2654435761 + ?) % 2147483647) ASC' : 'm.artist_name ASC, m.album_name ASC, m.track_title ASC'}
     LIMIT ?
-  `).all(userPlexId, userPlexId, limit).map((row) => ({
+  `).all(...params).map((row) => ({
     ratingKey: row.rating_key,
     trackTitle: row.track_title,
     artistName: row.artist_name,
@@ -3574,26 +3630,71 @@ export function createPlaylistService(ctx) {
       })
       .sort((a, b) => b.score - a.score || (b.ratingCount || 0) - (a.ratingCount || 0));
 
-    const favorites = scorePool(pickFavoriteTracks(db, userPlexId, mixOptions.favoriteLimit), 30);
-    const suggestions = scorePool(pickSuggestedTracks(db, userPlexId, mixOptions.suggestedLimit), 22);
-    const fresh = scorePool(pickFreshLibraryTracks(db, userPlexId, mixOptions.freshLimit), 14);
-    const pools = [favorites, suggestions, fresh];
-    const combined = [];
-    const state = createSelectionState(mixOptions.maxTracksPerArtist);
+    const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
+    const daySeed = `${userPlexId}:${buildLocalDateKey(now)}`;
+    const sqlSeed = Math.floor(hashStringToUnit(daySeed) * 2147483646) + 1;
+    const candidateLimit = (share) => (share > 0
+      ? Math.max(Math.round(share) * DAILY_MIX_CANDIDATE_MULTIPLIER, DAILY_MIX_MIN_CANDIDATES, mixOptions.maxTracks)
+      : 0);
+    const perArtist = mixOptions.maxTracksPerArtist + 1;
+    const rankForToday = (pool) => pool
+      .map((track) => ({ track, rank: track.score + hashStringToUnit(`${daySeed}:${track.ratingKey}`) * DAILY_MIX_SCORE_JITTER }))
+      .sort((a, b) => b.rank - a.rank)
+      .map((entry) => entry.track);
 
-    let madeProgress = true;
-    while (combined.length < mixOptions.maxTracks && madeProgress) {
-      madeProgress = false;
-      for (const pool of pools) {
-        while (pool.length) {
-          const next = pool.shift();
-          if (!tryAddSelectionTrack(state, combined, next)) continue;
-          madeProgress = true;
-          break;
+    const sources = [
+      { key: 'favorites', share: mixOptions.favoriteLimit, sourceBonus: 30,
+        fetch: (limit) => pickFavoriteTracks(db, userPlexId, limit, { perArtist }) },
+      { key: 'suggestions', share: mixOptions.suggestedLimit, sourceBonus: 22,
+        fetch: (limit) => pickSuggestedTracks(db, userPlexId, limit) },
+      { key: 'fresh', share: mixOptions.freshLimit, sourceBonus: 14,
+        fetch: (limit) => pickFreshLibraryTracks(db, userPlexId, limit, { seed: sqlSeed, perArtist }) },
+    ].map((source) => {
+      const limit = candidateLimit(source.share);
+      const scored = limit > 0 ? scorePool(source.fetch(limit), source.sourceBonus) : [];
+      return { ...source, scored, ranked: rankForToday(scored), picked: [] };
+    });
+
+    // Selection order: each source up to its share, then any source to fill the
+    // mix. Yesterday's tracks are only used if nothing else can fill it.
+    const state = createSelectionState(mixOptions.maxTracksPerArtist);
+    const combined = [];
+    const take = (source, track) => {
+      if (!tryAddSelectionTrack(state, combined, track)) return false;
+      source.picked.push(track);
+      return true;
+    };
+    const runPass = ({ allowPrevious, respectShare }) => {
+      let madeProgress = true;
+      while (combined.length < mixOptions.maxTracks && madeProgress) {
+        madeProgress = false;
+        for (const source of sources) {
+          if (combined.length >= mixOptions.maxTracks) break;
+          if (respectShare && source.picked.length >= source.share) continue;
+          const next = source.ranked.find((track) => (allowPrevious || !previousKeys.has(track.ratingKey))
+            && !state.seenRatingKeys.has(track.ratingKey)
+            && take(source, track));
+          if (next) madeProgress = true;
         }
-        if (combined.length >= mixOptions.maxTracks) break;
+      }
+    };
+    runPass({ allowPrevious: false, respectShare: true });
+    runPass({ allowPrevious: false, respectShare: false });
+    runPass({ allowPrevious: true, respectShare: false });
+
+    // Present the chosen tracks interleaved by source, best score first, so
+    // the daily shuffle changes which tracks appear rather than the ordering.
+    const ordered = [];
+    const pickedBySource = sources.map((source) => [...source.picked].sort((a, b) => b.score - a.score
+      || (b.ratingCount || 0) - (a.ratingCount || 0)));
+    while (pickedBySource.some((list) => list.length)) {
+      for (const list of pickedBySource) {
+        if (list.length) ordered.push(list.shift());
       }
     }
+    combined.length = 0;
+    combined.push(...ordered);
+    const [favorites, suggestions, fresh] = sources.map((source) => source.scored);
 
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,

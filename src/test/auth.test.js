@@ -4614,6 +4614,81 @@ describe('security guards', () => {
     }
   });
 
+  function seedDailyMixLibrary(db, { artists, tracksPerArtist }) {
+    const now = Date.now();
+    const insertMaster = db.prepare(`
+      INSERT INTO master_tracks (
+        rating_key, artist_name, track_title, album_name, recording_mbid,
+        genres, library_key, rating_count, view_count, updated_at
+      ) VALUES (?, ?, ?, ?, '', '[]', '1', 0, 0, ?)
+    `);
+    db.transaction(() => {
+      for (let a = 0; a < artists; a += 1) {
+        const artist = `Artist ${String(a).padStart(3, '0')}`;
+        for (let t = 0; t < tracksPerArtist; t += 1) {
+          insertMaster.run(`dmx-${a}-${t}`, artist, `Track ${t}`, `${artist} Album`, now);
+        }
+      }
+    })();
+  }
+
+  it('fills Daily Mix to full size from an unplayed library with one track per artist', () => {
+    const db = initDb(join(process.env.DATA_DIR, `daily-mix-fresh-${Date.now()}.db`));
+    const userId = 'daily-mix-fresh-user';
+    seedDailyMixLibrary(db, { artists: 80, tracksPerArtist: 6 });
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({ mediaServer: { type: 'plex' }, smartPlaylist: {} }),
+    });
+
+    try {
+      const playlist = service.buildDailyMix(userId);
+      assert.equal(playlist.trackCount, 24);
+      const artists = new Set(playlist.tracks.map((track) => track.artistName));
+      assert.equal(artists.size, 24, 'expected one track per artist');
+      const alphabeticalFirst = Array.from({ length: 24 }, (_, i) => `Artist ${String(i).padStart(3, '0')}`);
+      assert.notDeepEqual([...artists].sort(), alphabeticalFirst, 'expected the fresh pool not to be alphabetical');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rotates Daily Mix tracks on consecutive days', () => {
+    const db = initDb(join(process.env.DATA_DIR, `daily-mix-rotate-${Date.now()}.db`));
+    const userId = 'daily-mix-rotate-user';
+    seedDailyMixLibrary(db, { artists: 120, tracksPerArtist: 3 });
+    const insertStat = db.prepare(`
+      INSERT INTO track_stats (
+        plex_rating_key, user_plex_id, track_title, artist_name, album_name,
+        play_count, skip_count, consecutive_skips, excluded_from_smart,
+        tier, tier_weight, last_played_at, updated_at
+      ) VALUES (?, ?, 'Track 0', ?, '', ?, 0, 0, 0, 'decent', 0.5, ?, ?)
+    `);
+    const longAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    for (let a = 0; a < 40; a += 1) {
+      insertStat.run(`dmx-${a}-0`, userId, `Artist ${String(a).padStart(3, '0')}`, 5 + (a % 3), longAgo, longAgo);
+    }
+    const service = createPlaylistService({
+      db,
+      loadConfig: () => ({ mediaServer: { type: 'plex' }, smartPlaylist: {} }),
+    });
+
+    try {
+      const dayOne = Date.UTC(2026, 10, 1, 12);
+      const first = service.buildDailyMix(userId, { now: dayOne });
+      assert.equal(first.trackCount, 24);
+      assert.deepEqual(service.buildDailyMix(userId, { now: dayOne }).trackKeys, first.trackKeys, 'expected the same mix within a day');
+
+      setPlaylistTracks(db, userId, 'daily-mix', first.tracks);
+      const second = service.buildDailyMix(userId, { now: dayOne + 24 * 60 * 60 * 1000 });
+      assert.equal(second.trackCount, 24);
+      const repeated = second.trackKeys.filter((key) => first.trackKeys.includes(key));
+      assert.equal(repeated.length, 0, `expected no repeats from yesterday, got ${repeated.join(', ')}`);
+    } finally {
+      db.close();
+    }
+  });
+
   it('syncs the Curatorr rotating playlist into Plex', async () => {
     const dbPath = join(process.env.DATA_DIR, 'curatorr.db');
     const db = initDb(dbPath);
