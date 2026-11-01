@@ -44,6 +44,8 @@
           const profileAvatarSrc = user?.avatar || profileAvatarFallback;
           const successMap = {
             'password-changed': 'Password changed successfully.',
+            'plex-password-set': 'Password sign-in saved. You can now sign in with your Plex username or email and this password.',
+            'plex-password-removed': 'Password sign-in removed.',
             'avatar-updated': 'Avatar updated.',
             'theme-updated': 'Theme saved.',
             'filters-updated': 'Artist filters updated.',
@@ -140,6 +142,46 @@
                 </label>
                 <button class="primary-button" type="submit">Save new password</button>
               </form>
+            </div>
+          <% } %>
+
+          <% if (typeof plexPasswordLogin !== 'undefined' && plexPasswordLogin) { %>
+            <div class="settings-card" id="plex-password-signin">
+              <div class="settings-card-title">Password sign-in</div>
+              <div class="settings-card-sub">
+                A fallback for networks that block Plex sign-in, such as a work VPN. Sign in on the Curatorr login page with
+                <strong><%= plexPasswordLogin.username %></strong><% if (plexPasswordLogin.email) { %> or <strong><%= plexPasswordLogin.email %></strong><% } %>
+                and this password. You get the same account, playlists and permissions as when you sign in with Plex.
+              </div>
+              <div class="settings-card-sub" style="margin-top:6px">
+                <% if (plexPasswordLogin.isSet) { %>
+                  Status: <strong>on</strong><% if (plexPasswordLogin.updatedAt) { %>, last set <%= new Date(plexPasswordLogin.updatedAt).toLocaleDateString() %><% } %>.
+                <% } else { %>
+                  Status: <strong>off</strong>.
+                <% } %>
+              </div>
+              <% if (plexPasswordLogin.signedInWithPassword) { %>
+                <div class="settings-card-sub" style="margin-top:6px">You signed in with this password. Sign in with Plex to change it.</div>
+              <% } else { %>
+                <form method="post" action="/user-settings/plex-password" class="settings-form">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <label class="field">
+                    <span><%= plexPasswordLogin.isSet ? 'New password' : 'Password' %></span>
+                    <input type="password" name="newPassword" required autocomplete="new-password" />
+                  </label>
+                  <label class="field">
+                    <span>Confirm password</span>
+                    <input type="password" name="confirmPassword" required autocomplete="new-password" />
+                  </label>
+                  <button class="primary-button" type="submit"><%= plexPasswordLogin.isSet ? 'Change password' : 'Turn on password sign-in' %></button>
+                </form>
+              <% } %>
+              <% if (plexPasswordLogin.isSet) { %>
+                <form method="post" action="/user-settings/plex-password/remove" class="settings-form" style="margin-top:8px" onsubmit="return confirm('Remove password sign-in? You will only be able to sign in with Plex.');">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button class="ghost-button" type="submit">Remove password sign-in</button>
+                </form>
+              <% } %>
             </div>
           <% } %>
 

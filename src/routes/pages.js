@@ -2831,6 +2831,19 @@ export function registerPages(app, ctx) {
       tidalConnected,
       tidalDisplayName: userPrefs?.tidalDisplayName || '',
       tidalCountryCode: userPrefs?.tidalCountryCode || '',
+      plexPasswordLogin: (() => {
+        const sessionUser = req.session?.user || {};
+        const plexId = String(sessionUser.plexId || '').trim();
+        if (String(sessionUser.source || '').toLowerCase() !== 'plex' || !plexId) return null;
+        const entry = ctx.resolvePlexPasswordLogins?.(loadConfig())?.[plexId] || null;
+        return {
+          isSet: Boolean(entry?.passwordHash),
+          updatedAt: Number(entry?.updatedAt || 0),
+          signedInWithPassword: sessionUser.authMethod === 'password',
+          username: String(sessionUser.username || ''),
+          email: String(sessionUser.email || ''),
+        };
+      })(),
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       extraCss: ['/styles-layout.css', '/styles-settings.css'],

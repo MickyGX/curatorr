@@ -508,6 +508,8 @@ export function registerAuth(app, ctx) {
     exchangePinWithRetry,
     exchangePin,
     completePlexLogin,
+    completePlexPasswordLogin,
+    findPlexPasswordLogin,
     fetchPlexHomeUsers,
     fetchPlexResources,
     fetchPlexMusicLibraries,
@@ -575,6 +577,26 @@ export function registerAuth(app, ctx) {
       const candidate = identifier.toLowerCase();
       return candidate && (candidate === username || candidate === email);
     });
+
+    // No local account with this name: try a password added to a Plex account.
+    // A local account always takes precedence, and the two can't share a name.
+    const plexMatch = !match ? findPlexPasswordLogin?.(config, identifier) : null;
+    if (plexMatch && verifyPassword(password, plexMatch.entry)) {
+      try {
+        completePlexPasswordLogin(req, plexMatch);
+      } catch (err) {
+        if (err?.code !== 'disabled') throw err;
+        return res.status(403).render('login', {
+          title: 'Curatorr',
+          product: PRODUCT,
+          allowLocalLogin: true,
+          error: 'This account is disabled.',
+          info: null,
+        });
+      }
+      clearLoginFailures(ip);
+      return res.redirect(consumePostLoginRedirect(req, '/overview'));
+    }
 
     if (!match || !verifyPassword(password, match)) {
       recordLoginFailure(ip);
