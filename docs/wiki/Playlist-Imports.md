@@ -40,7 +40,7 @@ Use **Refresh import** from the card menu to re-read/rematch the source. The imp
 
 To manage many imports at once:
 
-- **Default for new imports.** An admin can set **Settings → Smart Playlists → Imported Playlists → Default auto-refresh for new imports**. Existing playlists keep their own setting. The watch folder has its own **Auto-refresh for new watch-folder playlists** option, which falls back to this default.
+- **Default for new imports.** An admin can set **Settings → Playlists → Imported Playlists → Default auto-refresh for new imports**. Existing playlists keep their own setting. The watch folder has its own **Auto-refresh for new watch-folder playlists** option, which falls back to this default.
 - **Set auto-refresh for a selection.** On the Playlists page, select imported playlists and choose a period from **Auto-refresh…** in the selection bar. Selected playlists that are not imported are left unchanged.
 - **Refresh all imported.** The **↻** button in the Playlists header queues every imported playlist for a refresh. They refresh in the background in batches of 25, a few minutes apart.
 

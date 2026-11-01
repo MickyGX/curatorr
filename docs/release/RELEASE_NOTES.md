@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.1.107 (2026-11-01)
+
+- Added a list view to the Playlists page, with search, sorting by name, tracks, missing or updated, and 25, 50 or 100 playlists per page. The search box also filters the cards view.
+- Added bulk auto-refresh for imported playlists: a default period for new imports (with its own setting for the watch folder), **Auto-refresh** for selected playlists, and a **Refresh all imported** button. Refreshes run 25 at a time so large libraries are spread out.
+- Fixed the Daily Mix collapsing to a few tracks on new libraries and barely changing on established ones. It now fills to its full size, rotates daily, and avoids the previous day's tracks.
+- Fixed the Tautulli **Register** button registering `http://localhost:7676` when no Curatorr URL was saved. Registering again now replaces the old localhost notifier.
+- Fixed Tautulli gap-fill skipping every play when specific Plex libraries were selected, and added a manual **Backfill history** option (1 to 365 days) to recover longer gaps.
+- The app image now requires Node 24.22.1 or newer, which patches CVE-2026-111497.
+- Added regression coverage for the Daily Mix, Tautulli registration and backfill, and bulk imported playlist refreshes.
+
 ## v0.1.106 (2026-10-04)
 
 - Added a playlist watch folder. Admins set a folder in **Settings → Playlists → Playlist Watch Folder**, and Curatorr imports every `.m3u`/`.m3u8` file in it as a playlist, refreshes playlists whose file changes, and skips unchanged files.
