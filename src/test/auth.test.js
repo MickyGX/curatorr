@@ -1418,6 +1418,16 @@ describe('user settings integrations', () => {
         await writeFile(disabledPath, JSON.stringify({ disabledUsers: [] }));
       }
 
+      // Admins see the account in Settings → Users and can remove it.
+      const usersPage = await admin.client.request('/settings?tab=users');
+      assert.match(usersPage.text, /id="plex-password-logins"/);
+      assert.ok(usersPage.text.includes(`value="${plexAccount.id}"`));
+      const adminRemoved = await admin.client.postForm('/settings/plex-password/remove', { plexId: plexAccount.id }, '/settings?tab=users');
+      assert.match(adminRemoved.location, /success=plex-password-removed/);
+      assert.equal((await login(plexAccount.username, password)).response.status, 401);
+      const reset = await plexClient.postForm('/user-settings/plex-password', { newPassword: password, confirmPassword: password }, '/user-settings');
+      assert.equal(reset.location, '/user-settings?success=plex-password-set');
+
       const removed = await pwClient.postForm('/user-settings/plex-password/remove', {}, '/user-settings');
       assert.equal(removed.location, '/user-settings?success=plex-password-removed');
       assert.equal((await login(plexAccount.username, password)).response.status, 401);

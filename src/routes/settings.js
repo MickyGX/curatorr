@@ -682,6 +682,12 @@ export function registerSettings(app, ctx) {
       lidarrMetadataProfiles,
       lidarrMetadataProfilesError,
       logSettings,
+      plexPasswordLogins: Object.entries(ctx.resolvePlexPasswordLogins?.(config) || {}).map(([plexId, entry]) => ({
+        plexId,
+        username: String(entry?.username || ''),
+        email: String(entry?.email || ''),
+        updatedAt: Number(entry?.updatedAt || 0),
+      })),
       jobDefs: JOB_DEFS,
       jobStatus: jobService?.getStatus() || {},
       aboutCurrentVersion,
@@ -1430,6 +1436,18 @@ export function registerSettings(app, ctx) {
     saveConfig({ ...config, users: serializeLocalUsers([...users, newUser]) });
     pushLog({ level: 'info', app: 'settings', action: 'user.add', message: `Local user added: ${username}` });
     return res.redirect('/settings?tab=users&success=1');
+  });
+
+  // Admins can remove (not set) a Plex account's password sign-in.
+  app.post('/settings/plex-password/remove', requireAdmin, (req, res) => {
+    const plexId = String(req.body?.plexId || '').trim();
+    const config = loadConfig();
+    const logins = ctx.resolvePlexPasswordLogins?.(config) || {};
+    if (!plexId || !logins[plexId]) return res.redirect('/settings?tab=users&error=' + encodeURIComponent('That password sign-in no longer exists.') + '#plex-password-logins');
+    const { [plexId]: removed, ...rest } = logins;
+    saveConfig({ ...config, plexPasswordLogins: rest });
+    pushLog({ level: 'info', app: 'settings', action: 'plex-password.admin-remove', message: `Admin removed password sign-in for Plex account ${removed.username || plexId}` });
+    return res.redirect('/settings?tab=users&success=plex-password-removed#plex-password-logins');
   });
 
   app.post('/settings/local-users/role', requireAdmin, (req, res) => {

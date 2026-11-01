@@ -3075,6 +3075,43 @@
                   <div id="plexUsersBody"></div>
                 </div>
               </div>
+              <% if (_msTypeUsers === 'plex') { %>
+              <%
+                const _pwLogins = Array.isArray(plexPasswordLogins) ? plexPasswordLogins : [];
+                const _pwNote = usersQuerySuccess === 'plex-password-removed' ? 'Password sign-in removed.' : '';
+              %>
+              <div class="settings-card" id="plex-password-logins">
+                <div class="settings-card-title">Password sign-in for Plex accounts</div>
+                <div class="settings-card-sub">A Plex user can add a password in their User Profile as a fallback for networks that block Plex sign-in, such as a work VPN. It signs them in to the same account with the same role. You can remove it here, for example if a password may have leaked. Only the user can set it, after signing in with Plex.</div>
+                <% if (_pwNote) { %><div class="settings-users-actions"><span class="settings-users-note"><%= _pwNote %></span></div><% } %>
+                <% if (!_pwLogins.length) { %>
+                  <div class="settings-card-sub" style="margin-top:8px">No Plex accounts have password sign-in turned on.</div>
+                <% } else { %>
+                  <div class="settings-users-table" style="margin-top:8px">
+                    <div class="settings-users-row settings-users-head">
+                      <div class="settings-users-head-cell"><span>Plex account</span></div>
+                      <div class="settings-users-head-cell"><span>Email</span></div>
+                      <div class="settings-users-head-cell"><span>Password set</span></div>
+                      <div class="settings-users-head-cell"><span></span></div>
+                    </div>
+                    <% _pwLogins.forEach(function(entry) { %>
+                    <div class="settings-users-row">
+                      <div class="settings-users-name"><%= entry.username %></div>
+                      <div class="settings-users-login"><%= entry.email || '—' %></div>
+                      <div class="settings-users-login"><%= entry.updatedAt ? new Date(entry.updatedAt).toLocaleDateString() : '—' %></div>
+                      <div class="settings-users-role">
+                        <form method="post" action="/settings/plex-password/remove" onsubmit="return confirm('Remove password sign-in for this Plex account? They will only be able to sign in with Plex.');">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                          <input type="hidden" name="plexId" value="<%= entry.plexId %>" />
+                          <button class="ghost-button" type="submit">Remove</button>
+                        </form>
+                      </div>
+                    </div>
+                    <% }) %>
+                  </div>
+                <% } %>
+              </div>
+              <% } %>
             </div>
           </div>
         </div>

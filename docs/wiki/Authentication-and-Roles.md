@@ -29,6 +29,7 @@ Password sign-in opens the same account as a Plex sign-in: the same playlists, h
 
 - Setting or changing the password needs a Plex sign-in, so someone who only knows the password can't use it to lock you out. You can remove it from either kind of sign-in.
 - A local account can't share a username or email with a Plex account that uses password sign-in.
+- Admins can see which Plex accounts have password sign-in in **Settings → Users** and remove it there. Only the user can set it.
 - Password sign-in uses the Plex server token Curatorr saved at your last Plex sign-in. If Plex revokes that token, sign in with Plex once to refresh it.
 
 ### Local admin account
