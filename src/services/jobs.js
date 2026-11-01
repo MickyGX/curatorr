@@ -113,15 +113,17 @@ export function createJobService(ctx, jobFunctions) {
     }
   }
 
-  async function runJob(jobId) {
+  // options are passed through to the job function (e.g. a manual Tautulli
+  // backfill window). Returns false when the job is unknown or already running.
+  async function runJob(jobId, options = undefined) {
     const fn = jobFunctions[jobId];
-    if (!fn) return;
-    if (running.has(jobId)) return; // prevent overlapping runs
+    if (!fn) return false;
+    if (running.has(jobId)) return false; // prevent overlapping runs
     running.add(jobId);
     setSystemJobRun(db, jobId, { status: 'running', lastRunAt: Date.now(), message: '' });
     pushLog({ level: 'info', app: 'jobs', action: 'job.start', message: `Job started: ${jobId}` });
     try {
-      const result = await fn();
+      const result = await fn(options);
       const message = typeof result?.message === 'string' ? result.message : 'Completed successfully';
       setSystemJobRun(db, jobId, { status: 'success', lastRunAt: Date.now(), message });
       pushLog({ level: 'info', app: 'jobs', action: 'job.success', message: `Job completed: ${jobId}` });
@@ -132,6 +134,7 @@ export function createJobService(ctx, jobFunctions) {
     } finally {
       running.delete(jobId);
     }
+    return true;
   }
 
   function _scheduleOne(jobId, intervalMinutes) {

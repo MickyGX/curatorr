@@ -438,6 +438,13 @@
                   <button id="tautulli-register-webhook-btn" class="ghost-button" type="button">Register webhook in Tautulli</button>
                   <span id="tautulli-webhook-status" style="font-size:12px;opacity:0.7"></span>
                 </div>
+                <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <label for="tautulli-backfill-days" style="font-size:13px">Backfill history</label>
+                  <input id="tautulli-backfill-days" type="number" min="1" max="365" step="1" value="60" inputmode="numeric" aria-label="Days of Tautulli history to backfill" style="width:5.5em" />
+                  <span style="font-size:13px">days</span>
+                  <button id="tautulli-backfill-btn" class="ghost-button" type="button">Backfill now</button>
+                  <span id="tautulli-backfill-status" style="font-size:12px;opacity:0.7"></span>
+                </div>
               </div>
               <div class="settings-card-actions settings-card-actions--full">
                 <button class="primary-button" type="submit">Save Tautulli settings</button>
@@ -4215,6 +4222,55 @@
           status.style.color = 'var(--color-error, #f87171)';
         })
         .finally(function() { btn.disabled = false; });
+    });
+  })();
+
+  // ── Tautulli manual backfill ─────────────────────────────────────────────
+  (function() {
+    var btn = document.getElementById('tautulli-backfill-btn');
+    var input = document.getElementById('tautulli-backfill-days');
+    var status = document.getElementById('tautulli-backfill-status');
+    if (!btn || !input || !status) return;
+    var _csrf = '<%= csrfToken %>';
+    function setStatus(text, color) {
+      status.textContent = text;
+      status.style.color = color || '';
+    }
+    function pollUntilDone() {
+      fetch('/api/jobs/status').then(function(r) { return r.json(); }).then(function(data) {
+        var job = data && data.tautulliDailySync;
+        if (job && job.isRunning) { setTimeout(pollUntilDone, 2000); return; }
+        btn.disabled = false;
+        if (job && job.status === 'error') setStatus(job.message || 'Backfill failed.', 'var(--color-error, #f87171)');
+        else setStatus((job && job.message) || 'Backfill finished.', 'var(--color-success, #4ade80)');
+      }).catch(function() { setTimeout(pollUntilDone, 4000); });
+    }
+    btn.addEventListener('click', function() {
+      var days = Number(input.value);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        setStatus('Enter a whole number of days from 1 to 365.', 'var(--color-error, #f87171)');
+        return;
+      }
+      btn.disabled = true;
+      setStatus('Backfilling the last ' + days + ' days…');
+      fetch('/api/jobs/tautulliDailySync/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
+        body: JSON.stringify({ days: days }),
+      })
+        .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+        .then(function(res) {
+          if (!res.ok) {
+            btn.disabled = false;
+            setStatus(res.data.error || 'Backfill could not start.', 'var(--color-error, #f87171)');
+            return;
+          }
+          setTimeout(pollUntilDone, 1500);
+        })
+        .catch(function() {
+          btn.disabled = false;
+          setStatus('Request failed.', 'var(--color-error, #f87171)');
+        });
     });
   })();
 

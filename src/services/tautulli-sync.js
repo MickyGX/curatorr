@@ -444,10 +444,9 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
     throw err;
   }
 
-  pushLog({
-    level: 'info', app: 'tautulli-sync', action: 'sync.complete',
-    message: `Tautulli sync: ${inserted} new play${inserted !== 1 ? 's' : ''} backfilled, ${skipped} already recorded`
-      + (libraryFiltered ? `, ${libraryFiltered} outside selected libraries` : ''),
-  });
-  return { inserted, skipped, libraryFiltered };
+  const message = `Tautulli sync${lookbackHours > 26 ? ` (last ${Math.round(lookbackHours / 24)} days)` : ''}: `
+    + `${inserted} new play${inserted !== 1 ? 's' : ''} backfilled, ${skipped} already recorded`
+    + (libraryFiltered ? `, ${libraryFiltered} outside selected libraries` : '');
+  pushLog({ level: 'info', app: 'tautulli-sync', action: 'sync.complete', message });
+  return { inserted, skipped, libraryFiltered, message };
 }

@@ -2146,7 +2146,7 @@ export async function start() {
         }
         return { message: `Synced ${syncedPersonal} personal playlist${syncedPersonal === 1 ? '' : 's'}` };
       },
-      tautulliDailySync: () => runTautulliDailySync(_routeCtx),
+      tautulliDailySync: (options) => runTautulliDailySync(_routeCtx, options),
       lidarrReviewArtists: async () => {
         await _routeCtx.lidarrService?.markExistingLidarrArtists();
         await _routeCtx.lidarrService?.autoQueueSuggestedArtists({ perUserLimit: 1 });

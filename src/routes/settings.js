@@ -2071,7 +2071,19 @@ export function registerSettings(app, ctx) {
     const jobId = String(req.params.jobId || '');
     if (!JOB_DEFS[jobId]) return res.status(404).json({ error: 'Unknown job' });
     if (!jobService) return res.status(503).json({ error: 'Job service unavailable' });
-    jobService.runJob(jobId).catch(() => {});
+    let options;
+    // Manual Tautulli backfill: look back further than the daily ~26h window.
+    if (jobId === 'tautulliDailySync' && req.body?.days != null && req.body.days !== '') {
+      const days = Number(req.body.days);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        return res.status(400).json({ error: 'Backfill days must be a whole number from 1 to 365.' });
+      }
+      options = { lookbackHours: days * 24 };
+    }
+    if (jobService.getStatus()?.[jobId]?.isRunning) {
+      return res.status(409).json({ error: 'Job is already running.' });
+    }
+    jobService.runJob(jobId, options).catch(() => {});
     res.json({ ok: true, jobId, startedAt: Date.now() });
   });
 

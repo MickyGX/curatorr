@@ -1957,6 +1957,49 @@ describe('security guards', () => {
     }
   });
 
+  it('runs a manual Tautulli backfill over the requested number of days', async () => {
+    const { client, response } = await login('testadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+
+    for (const days of [0, 366, 2.5, 'abc']) {
+      const badRes = await client.postJson('/api/jobs/tautulliDailySync/run', { days }, '/settings');
+      assert.equal(badRes.status, 400, `expected days=${days} to be rejected`);
+    }
+
+    const afterDates = [];
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      const params = new URLSearchParams(String(options.body || ''));
+      if (params.get('cmd') !== 'get_history') throw new Error(`Unexpected fetch during backfill test: ${target}`);
+      afterDates.push(new URLSearchParams(String(options.body || '')).get('after'));
+      return new Response(JSON.stringify({ response: { data: { data: [] } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    try {
+      const runRes = await client.postJson('/api/jobs/tautulliDailySync/run', { days: 60 }, '/settings');
+      assert.equal(runRes.status, 200);
+      let job = null;
+      for (let i = 0; i < 50; i++) {
+        const statusRes = await client.request('/api/jobs/status');
+        job = statusRes.json?.tautulliDailySync;
+        if (job && !job.isRunning && job.status !== 'running') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(job?.status, 'success');
+      assert.match(job?.message || '', /last 60 days/);
+      const expected = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      assert.ok(afterDates.length > 0, 'expected the backfill to query Tautulli');
+      assert.ok(afterDates.every((value) => value === expected), `expected after=${expected}, got ${afterDates}`);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('removes stale Plex library data when a library is deselected in settings', async () => {
     const originalConfig = await readConfig();
     await writeConfig({
