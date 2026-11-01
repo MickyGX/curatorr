@@ -1365,6 +1365,23 @@ function pickSuggestedTracks(db, userPlexId, limit = 8) {
 function pickFreshLibraryTracks(db, userPlexId, limit = 10, { seed = null, perArtist = 0 } = {}) {
   const artistCap = Math.max(0, Math.floor(Number(perArtist) || 0));
   const seeded = Number.isInteger(seed) && seed > 0;
+  if (!seeded && !artistCap) {
+    return db.prepare(`
+      SELECT m.rating_key, m.track_title, m.artist_name, m.album_name
+      FROM master_tracks m
+      LEFT JOIN track_stats t
+        ON t.plex_rating_key = m.rating_key AND t.user_plex_id = ?
+      LEFT JOIN artist_stats a
+        ON a.artist_name = m.artist_name AND a.user_plex_id = ?
+      WHERE COALESCE(t.manually_excluded, 0) = 0
+        AND COALESCE(t.excluded_from_smart, 0) = 0
+        AND COALESCE(a.manually_excluded, 0) = 0
+        AND COALESCE(a.excluded_from_smart, 0) = 0
+        AND (t.plex_rating_key IS NULL OR COALESCE(t.play_count, 0) = 0)
+      ORDER BY COALESCE(a.ranking_score, 0) DESC, m.artist_name ASC, m.album_name ASC, m.track_title ASC
+      LIMIT ?
+    `).all(userPlexId, userPlexId, limit).map(mapFreshLibraryRow);
+  }
   const tieBreak = seeded
     ? '((m.rowid * 2654435761 + ?) % 2147483647) ASC'
     : 'm.artist_name ASC, m.album_name ASC, m.track_title ASC';
@@ -1393,13 +1410,17 @@ function pickFreshLibraryTracks(db, userPlexId, limit = 10, { seed = null, perAr
     WHERE (? = 0 OR artist_rank <= ?)
     ORDER BY artist_score DESC, ${seeded ? '((m.master_rowid * 2654435761 + ?) % 2147483647) ASC' : 'm.artist_name ASC, m.album_name ASC, m.track_title ASC'}
     LIMIT ?
-  `).all(...params).map((row) => ({
+  `).all(...params).map(mapFreshLibraryRow);
+}
+
+function mapFreshLibraryRow(row) {
+  return {
     ratingKey: row.rating_key,
     trackTitle: row.track_title,
     artistName: row.artist_name,
     albumName: row.album_name,
     source: 'fresh-library',
-  }));
+  };
 }
 
 function isDiscoveryLikeSource(source = '') {
@@ -3595,6 +3616,12 @@ export function createPlaylistService(ctx) {
     const masterTrackMap = new Map(masterTracks.map((track) => [String(track.ratingKey || '').trim(), track]));
     const trackStatMap = buildTrackStatMap(db, userPlexId);
     const previousKeys = new Set(getPlaylistTracks(db, userPlexId, DAILY_MIX_PLAYLIST_KEY).map((track) => String(track.ratingKey || '')));
+    const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
+    const todayKey = buildLocalDateKey(now);
+    // A rebuild later the same day keeps today's mix instead of rotating again;
+    // only a mix from an earlier day is avoided.
+    const previousBuiltAt = Number(getGeneratedByKey(userPlexId, DAILY_MIX_PLAYLIST_KEY)?.lastBuiltAt || 0);
+    const previousIsToday = previousKeys.size > 0 && previousBuiltAt > 0 && buildLocalDateKey(previousBuiltAt) === todayKey;
     const filteredMasterTracks = applyFeaturePresetFilters(
       mixOptions.trackFilters
         ? applyTrackFilters(masterTracks, mixOptions.trackFilters)
@@ -3624,14 +3651,13 @@ export function createPlaylistService(ctx) {
             sourceBonus,
             previousPenalty: 16,
             repeatCooldownDays: mixOptions.repeatCooldownDays,
-            inPreviousPlaylist: previousKeys.has(track.ratingKey),
+            inPreviousPlaylist: !previousIsToday && previousKeys.has(track.ratingKey),
           }),
         };
       })
       .sort((a, b) => b.score - a.score || (b.ratingCount || 0) - (a.ratingCount || 0));
 
-    const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
-    const daySeed = `${userPlexId}:${buildLocalDateKey(now)}`;
+    const daySeed = `${userPlexId}:${todayKey}`;
     const sqlSeed = Math.floor(hashStringToUnit(daySeed) * 2147483646) + 1;
     const candidateLimit = (share) => (share > 0
       ? Math.max(Math.round(share) * DAILY_MIX_CANDIDATE_MULTIPLIER, DAILY_MIX_MIN_CANDIDATES, mixOptions.maxTracks)
@@ -3664,22 +3690,30 @@ export function createPlaylistService(ctx) {
       source.picked.push(track);
       return true;
     };
-    const runPass = ({ allowPrevious, respectShare }) => {
+    const runPass = ({ allowPrevious, onlyPrevious = false, respectShare }) => {
       let madeProgress = true;
       while (combined.length < mixOptions.maxTracks && madeProgress) {
         madeProgress = false;
         for (const source of sources) {
           if (combined.length >= mixOptions.maxTracks) break;
           if (respectShare && source.picked.length >= source.share) continue;
-          const next = source.ranked.find((track) => (allowPrevious || !previousKeys.has(track.ratingKey))
+          const next = source.ranked.find((track) => (onlyPrevious
+            ? previousKeys.has(track.ratingKey)
+            : (allowPrevious || !previousKeys.has(track.ratingKey)))
             && !state.seenRatingKeys.has(track.ratingKey)
             && take(source, track));
           if (next) madeProgress = true;
         }
       }
     };
-    runPass({ allowPrevious: false, respectShare: true });
-    runPass({ allowPrevious: false, respectShare: false });
+    if (previousIsToday) {
+      runPass({ onlyPrevious: true, respectShare: true });
+      runPass({ onlyPrevious: true, respectShare: false });
+      runPass({ allowPrevious: true, respectShare: true });
+    } else {
+      runPass({ allowPrevious: false, respectShare: true });
+      runPass({ allowPrevious: false, respectShare: false });
+    }
     runPass({ allowPrevious: true, respectShare: false });
 
     // Present the chosen tracks interleaved by source, best score first, so
@@ -3694,7 +3728,7 @@ export function createPlaylistService(ctx) {
     }
     combined.length = 0;
     combined.push(...ordered);
-    const [favorites, suggestions, fresh] = sources.map((source) => source.scored);
+    const [favorites, suggestions, fresh] = sources.map((source) => source.picked);
 
     return {
       playlistKey: DAILY_MIX_PLAYLIST_KEY,

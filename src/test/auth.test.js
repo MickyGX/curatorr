@@ -4680,6 +4680,16 @@ describe('security guards', () => {
       assert.deepEqual(service.buildDailyMix(userId, { now: dayOne }).trackKeys, first.trackKeys, 'expected the same mix within a day');
 
       setPlaylistTracks(db, userId, 'daily-mix', first.tracks);
+      saveUserGeneratedPlaylist(db, userId, {
+        playlistKey: 'daily-mix',
+        playlistType: 'daily-mix',
+        playlistTitle: 'Daily Mix',
+        lastBuiltAt: dayOne,
+        updatedAt: dayOne,
+      });
+      const laterToday = service.buildDailyMix(userId, { now: dayOne + 60 * 60 * 1000 });
+      assert.deepEqual([...laterToday.trackKeys].sort(), [...first.trackKeys].sort(), 'expected a same-day rebuild to keep the mix');
+
       const second = service.buildDailyMix(userId, { now: dayOne + 24 * 60 * 60 * 1000 });
       assert.equal(second.trackCount, 24);
       const repeated = second.trackKeys.filter((key) => first.trackKeys.includes(key));
