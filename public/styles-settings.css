@@ -6381,6 +6381,14 @@ html[data-square-corners="1"] .widget-card-customize-panel {
 .settings-job-hide { font-size: 12px; }
 .settings-job-hide { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .settings-job-row-extra { flex-basis: 100%; }
+.settings-job-maint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border-top: 1px dashed rgba(127,127,127,.25);
+}
 @media (max-width: 640px) {
   .settings-job-row-controls { width: 100%; }
 }

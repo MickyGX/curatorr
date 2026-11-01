@@ -7462,6 +7462,17 @@ describe('security guards', () => {
       assert.equal(config.jobs.masterTrackRefresh.hidden, false);
       assert.equal(config.jobs.masterTrackRefresh.enabled, true);
 
+      const playlistsGroup = page.text.slice(page.text.indexOf('data-job-group="playlists"'));
+      assert.ok(playlistsGroup.indexOf('id="reassignPlaylistsBtn"') !== -1, 'expected Playlist Account Maintenance in the Playlists group');
+
+      const hide = await client.postJson('/api/jobs/smartPlaylistSync/visibility', { hidden: true }, '/settings');
+      assert.equal(hide.status, 200);
+      assert.equal((await readConfig()).jobs.smartPlaylistSync.hidden, true);
+      const show = await client.postJson('/api/jobs/smartPlaylistSync/visibility', { hidden: false }, '/settings');
+      assert.equal(show.status, 200);
+      assert.equal((await readConfig()).jobs.smartPlaylistSync.hidden, false);
+      assert.equal((await client.postJson('/api/jobs/not-a-job/visibility', { hidden: true }, '/settings')).status, 404);
+
       const unknown = await client.postJson('/api/jobs/run-sequence', { group: 'not-a-group' }, '/settings');
       assert.equal(unknown.status, 404);
       const sequence = await client.request('/api/jobs/sequence');

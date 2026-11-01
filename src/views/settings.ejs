@@ -3434,6 +3434,7 @@
                   <span class="settings-toggle-slider" aria-hidden="true"></span>
                   <span class="settings-toggle-text">Show hidden and unconfigured jobs</span>
                 </label>
+                <span class="settings-job-sequence-status" id="jobsHideStatus" aria-live="polite"></span>
                 <div class="settings-card-sub" style="margin:6px 0 0">Run all runs every enabled job shown below, one at a time, in this order. Manual-only batch jobs are skipped, and the Track Analysis Pipeline runs last because it can take a long time.</div>
               </div>
               <% for (const _group of _groups) { %>
@@ -3474,7 +3475,7 @@
                     <div class="settings-job-row-name">
                       <span class="settings-job-row-title"><%= _jdef.shortLabel || _jdef.label %></span>
                       <% if (_jUnavailable) { %><span class="settings-job-tag" title="<%= _jUnavailable %>">Not configured</span><% } %>
-                      <% if (_jHidden) { %><span class="settings-job-tag">Hidden</span><% } %>
+                      <span class="settings-job-tag" data-job-hidden-tag <%= _jHidden ? '' : 'hidden' %>>Hidden</span>
                       <% if (_jdef.manualOnly) { %><span class="settings-job-tag">Manual</span><% } %>
                     </div>
                     <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
@@ -3504,8 +3505,8 @@
                       <span class="settings-toggle-text">Enabled</span>
                     </label>
                     <% } %>
-                    <label class="settings-job-hide" title="Hide this job from the list and from Run all">
-                      <input type="checkbox" name="<%= _jid %>_hidden" value="1" <%= _jHidden ? 'checked' : '' %> />
+                    <label class="settings-job-hide" title="Hide this job from the list and from Run all. Saved straight away.">
+                      <input type="checkbox" name="<%= _jid %>_hidden" value="1" data-job-hide="<%= _jid %>" <%= _jHidden ? 'checked' : '' %> />
                       <span>Hide</span>
                     </label>
                     <button type="button" class="ghost-button settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
@@ -3522,6 +3523,18 @@
                   <% } %>
                 </div>
                 <% } %>
+                <% if (_group.key === 'playlists' && (mediaServerType === 'plex' || !mediaServerType)) { %>
+                <div class="settings-job-maint">
+                  <div class="settings-job-row-main">
+                    <div class="settings-job-row-name"><span class="settings-job-row-title">Playlist Account Maintenance</span><span class="settings-job-tag">Tool</span></div>
+                    <div class="settings-card-sub" style="margin:2px 0 0">If generated playlists (Curatorr, Crescive, Curative, Daily Mix) appear under the wrong Plex account in Plexamp, delete the misowned copies from Plex and re-register them, so the next sync recreates each playlist under the correct user's account.</div>
+                    <span id="reassignPlaylistsStatus" class="settings-sub-label"></span>
+                  </div>
+                  <div class="settings-job-row-controls">
+                    <button type="button" class="ghost-button" id="reassignPlaylistsBtn" onclick="reassignPlaylists()">Reassign All Playlists</button>
+                  </div>
+                </div>
+                <% } %>
               </details>
               <% } %>
               <div class="settings-card-actions settings-card-actions--full" style="margin-top:4px">
@@ -3529,21 +3542,6 @@
               </div>
             </form>
 
-            <%# ── Playlist maintenance (Plex only) ── %>
-            <% if (mediaServerType === 'plex' || !mediaServerType) { %>
-            <div class="settings-card" style="margin-top:20px">
-              <div class="settings-card-title">Playlist Account Maintenance</div>
-              <div class="settings-card-sub">
-                If generated playlists (Curatorr, Crescive, Curative, Daily Mix) appear under the wrong Plex account in Plexamp,
-                use this to delete the misowned copies from Plex and re-register them so the next sync recreates
-                each playlist under the correct user's account.
-              </div>
-              <div style="margin-top:14px; display:flex; align-items:center; gap:12px">
-                <button type="button" class="ghost-button" id="reassignPlaylistsBtn" onclick="reassignPlaylists()">Reassign All Playlists</button>
-                <span id="reassignPlaylistsStatus" class="settings-sub-label"></span>
-              </div>
-            </div>
-            <% } %>
           </div>
         </div>
         <% } %>
@@ -3669,6 +3667,48 @@
         }
       });
     }
+    // Hide applies and saves straight away, without "Save Job Settings".
+    document.querySelectorAll('[data-job-hide]').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        var jobId = cb.getAttribute('data-job-hide');
+        var row = cb.closest('.settings-job-row');
+        var hideStatus = document.getElementById('jobsHideStatus');
+        var applyHidden = function(hidden) {
+          cb.checked = hidden;
+          if (row) {
+            row.dataset.jobHidden = hidden ? '1' : '';
+            var tag = row.querySelector('[data-job-hidden-tag]');
+            if (tag) tag.hidden = !hidden;
+          }
+          refreshJobGroups();
+        };
+        var hidden = cb.checked;
+        applyHidden(hidden);
+        fetch('/api/jobs/' + encodeURIComponent(jobId) + '/visibility', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' },
+          body: JSON.stringify({ hidden: hidden }),
+        })
+          .then(function(r) { if (!r.ok) throw new Error('save failed'); })
+          .then(function() {
+            if (hideStatus) {
+              var showAll = document.getElementById('jobsShowAll');
+              hideStatus.textContent = hidden
+                ? jobLabelFor(jobId) + ' hidden.' + (showAll && showAll.checked ? '' : ' Turn on "Show hidden and unconfigured jobs" to bring it back.')
+                : jobLabelFor(jobId) + ' shown.';
+            }
+          })
+          .catch(function() {
+            applyHidden(!hidden);
+            if (hideStatus) hideStatus.textContent = 'Could not save. Try again.';
+          });
+      });
+    });
+    function jobLabelFor(jobId) {
+      var title = document.querySelector('.settings-job-row[data-job-id="' + jobId + '"] .settings-job-row-title');
+      return title ? title.textContent : jobId;
+    }
+
     var showAllToggle = document.getElementById('jobsShowAll');
     if (showAllToggle) {
       showAllToggle.checked = readShowAll();

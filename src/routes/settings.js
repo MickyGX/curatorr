@@ -2097,6 +2097,17 @@ export function registerSettings(app, ctx) {
     res.json({ ok: true, group, jobIds });
   });
 
+  // Hide or show one job in the Jobs list (and in Run all) straight away.
+  app.post('/api/jobs/:jobId/visibility', requireAdmin, (req, res) => {
+    const jobId = String(req.params.jobId || '');
+    if (!JOB_DEFS[jobId]) return res.status(404).json({ error: 'Unknown job' });
+    const hidden = req.body?.hidden === true;
+    const config = loadConfig();
+    const jobs = config.jobs || {};
+    saveConfig({ ...config, jobs: { ...jobs, [jobId]: { ...(jobs[jobId] || {}), hidden } } });
+    res.json({ ok: true, jobId, hidden });
+  });
+
   app.get('/api/jobs/sequence', requireAdmin, (req, res) => {
     res.json(jobService?.getSequenceStatus() || { running: false, jobIds: [], results: [] });
   });
