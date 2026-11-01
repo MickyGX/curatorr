@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.108 (2026-11-01)
+
+- Sped up the Overview, Discover, History and Report pages on large libraries. On a library of about 385,000 tracks, Discover went from about 6 seconds to under 0.1 seconds, and Overview from about 6 seconds to about 1 second. Results are unchanged.
+- Other requests no longer stall behind these pages while they load.
+- Added database indexes for case-insensitive artist and album lookups and for playlist track lookups. They are created automatically on the first start.
+- Thanks to @quinneydavid for the contribution (#183).
+
 ## v0.1.107 (2026-11-01)
 
 - Added a list view to the Playlists page, with search, sorting by name, tracks, missing or updated, and 25, 50 or 100 playlists per page. The search box also filters the cards view.
