@@ -2090,7 +2090,8 @@ export function registerSettings(app, ctx) {
       if (!Number.isInteger(days) || days < 1 || days > 365) {
         return res.status(400).json({ error: 'Backfill days must be a whole number from 1 to 365.' });
       }
-      options = { lookbackHours: days * 24 };
+      // Never look back less than the daily job's own window.
+      options = { lookbackHours: Math.max(days * 24, 26), backfillDays: days };
     }
     if (jobService.getStatus()?.[jobId]?.isRunning) {
       return res.status(409).json({ error: 'Job is already running.' });

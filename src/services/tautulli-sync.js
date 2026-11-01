@@ -160,7 +160,7 @@ function selectedSectionIds(config) {
   return keys.length ? [...new Set(keys)] : [''];
 }
 
-export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
+export async function runTautulliDailySync(ctx, { lookbackHours = 26, backfillDays = 0 } = {}) {
   const { db, loadConfig, pushLog, safeMessage } = ctx;
   const config = loadConfig();
   const tautulliUrl = config.tautulli?.url;
@@ -444,7 +444,7 @@ export async function runTautulliDailySync(ctx, { lookbackHours = 26 } = {}) {
     throw err;
   }
 
-  const message = `Tautulli sync${lookbackHours > 26 ? ` (last ${Math.round(lookbackHours / 24)} days)` : ''}: `
+  const message = `Tautulli sync${backfillDays > 0 ? ` (backfill, last ${backfillDays} day${backfillDays === 1 ? '' : 's'})` : ''}: `
     + `${inserted} new play${inserted !== 1 ? 's' : ''} backfilled, ${skipped} already recorded`
     + (libraryFiltered ? `, ${libraryFiltered} outside selected libraries` : '');
   pushLog({ level: 'info', app: 'tautulli-sync', action: 'sync.complete', message });
