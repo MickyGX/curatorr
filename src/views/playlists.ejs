@@ -214,6 +214,13 @@
           </div>
           <div class="cur-panel-body cur-panel-body--playlist-carousel">
             <% if (_playlistCards.length) { %>
+              <div class="pl-view-toolbar">
+                <input type="search" id="playlistSearchInput" class="pl-search-input" placeholder="Search playlists" aria-label="Search playlists" autocomplete="off" />
+                <div class="pl-view-toggle" role="group" aria-label="Playlist view">
+                  <button type="button" class="pl-view-toggle-btn is-active" data-playlist-view="cards" aria-pressed="true">Cards</button>
+                  <button type="button" class="pl-view-toggle-btn" data-playlist-view="list" aria-pressed="false">List</button>
+                </div>
+              </div>
               <div class="cur-playlist-carousel-viewport plex-carousel-viewport" id="playlistCarouselViewport">
                 <div class="cur-playlist-carousel-track plex-carousel-track" id="playlistCarouselTrack">
                   <% _playlistCards.forEach(function(p, idx) { %>
@@ -314,6 +321,35 @@
                       </div>
                     </div>
                   <% }) %>
+                </div>
+              </div>
+              <div id="playlistListView" class="pl-list-view" hidden>
+                <div class="pl-list-scroll">
+                  <table class="pl-list-table">
+                    <thead>
+                      <tr>
+                        <th class="pl-list-col-check" scope="col"><input type="checkbox" id="playlistListSelectPage" aria-label="Select all playlists on this page" /></th>
+                        <th class="pl-list-col-name" scope="col" data-playlist-list-col="name"><button type="button" class="pl-list-sort" data-playlist-list-sort="name">Name</button></th>
+                        <th class="pl-list-col-type" scope="col">Type</th>
+                        <th class="pl-list-col-num" scope="col" data-playlist-list-col="tracks"><button type="button" class="pl-list-sort" data-playlist-list-sort="tracks">Tracks</button></th>
+                        <th class="pl-list-col-num" scope="col" data-playlist-list-col="missing"><button type="button" class="pl-list-sort" data-playlist-list-sort="missing">Missing</button></th>
+                        <th class="pl-list-col-updated" scope="col" data-playlist-list-col="updated"><button type="button" class="pl-list-sort" data-playlist-list-sort="updated">Updated</button></th>
+                      </tr>
+                    </thead>
+                    <tbody id="playlistListBody"></tbody>
+                  </table>
+                </div>
+                <div class="pl-list-pager">
+                  <label class="pl-list-page-size">Per page
+                    <select id="playlistListPageSize">
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </label>
+                  <span id="playlistListRange" class="pl-list-range" aria-live="polite"></span>
+                  <button type="button" class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" id="playlistListPrev" aria-label="Previous page"><span class="cur-nav-chev cur-nav-chev--left" aria-hidden="true"></span></button>
+                  <button type="button" class="btn btn-sm btn-ghost cur-nav-button cur-nav-button--compact" id="playlistListNext" aria-label="Next page"><span class="cur-nav-chev cur-nav-chev--right" aria-hidden="true"></span></button>
                 </div>
               </div>
             <% } else { %>
@@ -1346,7 +1382,11 @@
     var _playlistCardFilterState = {
       type: 'all',
       status: 'all',
+      search: '',
     };
+    var PLAYLIST_VIEW_STORAGE_KEY = 'curatorr.playlists.view';
+    var PLAYLIST_LIST_PAGE_SIZES = [25, 50, 100];
+    var _playlistViewState = { view: 'cards', sort: 'name', asc: true, page: 0, pageSize: 25 };
     var _playlistCarouselCollapsed = false;
     var _playlistCarouselCollapseThreshold = 56;
     var _playlistCarouselExpandThreshold = 18;
@@ -1436,7 +1476,241 @@
       var statusMatch = _playlistCardFilterState.status === 'all'
         || (_playlistCardFilterState.status === 'enabled' && isActive)
         || (_playlistCardFilterState.status === 'disabled' && !isActive);
-      return typeMatch && statusMatch;
+      var query = _playlistCardFilterState.search;
+      var searchMatch = !query || String(card.dataset.plTitle || '').toLowerCase().indexOf(query) !== -1;
+      return typeMatch && statusMatch && searchMatch;
+    }
+
+    // ── Playlist list view ────────────────────────────────────────────────────
+    // The list is rendered from the carousel cards' data attributes, so filters,
+    // selection checkboxes and the track panel work the same in both views.
+
+    function readPlaylistViewPrefs() {
+      try {
+        var saved = JSON.parse(window.localStorage.getItem(PLAYLIST_VIEW_STORAGE_KEY) || '{}') || {};
+        if (saved.view === 'list' || saved.view === 'cards') _playlistViewState.view = saved.view;
+        if (['name', 'tracks', 'missing', 'updated'].indexOf(saved.sort) !== -1) _playlistViewState.sort = saved.sort;
+        if (typeof saved.asc === 'boolean') _playlistViewState.asc = saved.asc;
+        if (PLAYLIST_LIST_PAGE_SIZES.indexOf(Number(saved.pageSize)) !== -1) _playlistViewState.pageSize = Number(saved.pageSize);
+      } catch (_) { /* storage unavailable */ }
+    }
+
+    function savePlaylistViewPrefs() {
+      try {
+        window.localStorage.setItem(PLAYLIST_VIEW_STORAGE_KEY, JSON.stringify({
+          view: _playlistViewState.view,
+          sort: _playlistViewState.sort,
+          asc: _playlistViewState.asc,
+          pageSize: _playlistViewState.pageSize,
+        }));
+      } catch (_) { /* storage unavailable */ }
+    }
+
+    function playlistListTypeLabel(card) {
+      var audience = resolvePlaylistAudience({
+        playlistAudience: card.dataset.playlistAudience,
+        playlistType: card.dataset.playlistType,
+        playlistSourceType: card.dataset.playlistSourceType,
+      });
+      return ({ personal: 'Personal', imported: 'Imported', external: 'External', blend: 'Blended', global: 'Global', system: 'System' })[audience] || 'Personal';
+    }
+
+    function playlistListSortValue(card, field) {
+      if (field === 'tracks') return Number(card.dataset.playlistTrackCount || 0);
+      if (field === 'missing') return Number(card.dataset.playlistMissingCount || 0);
+      if (field === 'updated') return Number(card.dataset.playlistUpdatedAt || 0);
+      return String(card.dataset.plTitle || '');
+    }
+
+    function getSortedVisiblePlaylistCards() {
+      var field = _playlistViewState.sort;
+      var direction = _playlistViewState.asc ? 1 : -1;
+      return getPlaylistCardElements()
+        .filter(isPlaylistCardVisible)
+        .sort(function(a, b) {
+          var av = playlistListSortValue(a, field);
+          var bv = playlistListSortValue(b, field);
+          var cmp = field === 'name'
+            ? av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' })
+            : av - bv;
+          if (!cmp && field !== 'name') {
+            cmp = String(a.dataset.plTitle || '').localeCompare(String(b.dataset.plTitle || ''), undefined, { numeric: true, sensitivity: 'base' });
+            return cmp;
+          }
+          return cmp * direction;
+        });
+    }
+
+    function getPlaylistListPageCards() {
+      var cards = getSortedVisiblePlaylistCards();
+      var pageCount = Math.max(1, Math.ceil(cards.length / _playlistViewState.pageSize));
+      if (_playlistViewState.page > pageCount - 1) _playlistViewState.page = pageCount - 1;
+      if (_playlistViewState.page < 0) _playlistViewState.page = 0;
+      var start = _playlistViewState.page * _playlistViewState.pageSize;
+      return { all: cards, page: cards.slice(start, start + _playlistViewState.pageSize), start: start, pageCount: pageCount };
+    }
+
+    function renderPlaylistList() {
+      var listView = document.getElementById('playlistListView');
+      var body = document.getElementById('playlistListBody');
+      if (!listView || !body || _playlistViewState.view !== 'list') return;
+      var result = getPlaylistListPageCards();
+      body.innerHTML = '';
+      result.page.forEach(function(card) {
+        var checkbox = card.querySelector('.pl-card-checkbox');
+        var isActive = isPlaylistCardActive(card);
+        var row = document.createElement('tr');
+        row.className = 'pl-list-row'
+          + (card.classList.contains('is-active') ? ' is-active' : '')
+          + (isActive ? '' : ' is-disabled')
+          + (checkbox && checkbox.checked ? ' is-selected' : '');
+        row.dataset.plKey = card.dataset.plKey || '';
+        var missing = Number(card.dataset.playlistMissingCount || 0);
+        var updatedAt = Number(card.dataset.playlistUpdatedAt || 0);
+        row.innerHTML =
+          '<td class="pl-list-col-check">' + (checkbox
+            ? '<input type="checkbox" class="pl-list-checkbox" aria-label="Select ' + escHtml(card.dataset.plTitle || 'playlist') + '"' + (checkbox.checked ? ' checked' : '') + ' />'
+            : '') + '</td>' +
+          '<td class="pl-list-col-name"><button type="button" class="pl-list-name">' + escHtml(card.dataset.plTitle || 'Playlist') + '</button>' +
+            (isActive ? '' : '<span class="pl-list-status">Disabled</span>') + '</td>' +
+          '<td class="pl-list-col-type">' + escHtml(playlistListTypeLabel(card)) + '</td>' +
+          '<td class="pl-list-col-num">' + Number(card.dataset.playlistTrackCount || 0).toLocaleString() + '</td>' +
+          '<td class="pl-list-col-num' + (missing > 0 ? ' pl-list-missing' : '') + '">' + (missing > 0 ? missing.toLocaleString() : '—') + '</td>' +
+          '<td class="pl-list-col-updated">' + (updatedAt ? escHtml(fmtShortDate(updatedAt)) : '—') + '</td>';
+        row.querySelector('.pl-list-name').addEventListener('click', function() {
+          selectPlaylist(card);
+          syncPlaylistListActiveRow();
+        });
+        var rowCheckbox = row.querySelector('.pl-list-checkbox');
+        if (rowCheckbox && checkbox) {
+          rowCheckbox.addEventListener('change', function() {
+            checkbox.checked = rowCheckbox.checked;
+            onCardCheckChange(checkbox);
+          });
+        }
+        body.appendChild(row);
+      });
+
+      var total = result.all.length;
+      var range = document.getElementById('playlistListRange');
+      if (range) {
+        range.textContent = total
+          ? (result.start + 1) + '–' + (result.start + result.page.length) + ' of ' + total.toLocaleString()
+          : '0 playlists';
+      }
+      var prev = document.getElementById('playlistListPrev');
+      var next = document.getElementById('playlistListNext');
+      if (prev) prev.disabled = _playlistViewState.page <= 0;
+      if (next) next.disabled = _playlistViewState.page >= result.pageCount - 1;
+      var pageSize = document.getElementById('playlistListPageSize');
+      if (pageSize) pageSize.value = String(_playlistViewState.pageSize);
+      var selectPage = document.getElementById('playlistListSelectPage');
+      if (selectPage) {
+        var pageBoxes = result.page.map(function(card) { return card.querySelector('.pl-card-checkbox'); }).filter(Boolean);
+        var checkedCount = pageBoxes.filter(function(cb) { return cb.checked; }).length;
+        selectPage.checked = pageBoxes.length > 0 && checkedCount === pageBoxes.length;
+        selectPage.indeterminate = checkedCount > 0 && checkedCount < pageBoxes.length;
+        selectPage.disabled = !pageBoxes.length;
+      }
+      document.querySelectorAll('[data-playlist-list-col]').forEach(function(th) {
+        var col = th.getAttribute('data-playlist-list-col');
+        if (col === _playlistViewState.sort) th.setAttribute('aria-sort', _playlistViewState.asc ? 'ascending' : 'descending');
+        else th.removeAttribute('aria-sort');
+      });
+    }
+
+    function syncPlaylistListActiveRow() {
+      var activeCard = document.querySelector('#playlistCarouselTrack .cur-playlist-carousel-card.is-active');
+      var activeKey = activeCard ? String(activeCard.dataset.plKey || '') : '';
+      document.querySelectorAll('#playlistListBody .pl-list-row').forEach(function(row) {
+        row.classList.toggle('is-active', Boolean(activeKey) && row.dataset.plKey === activeKey);
+      });
+    }
+
+    function setPlaylistView(view) {
+      _playlistViewState.view = view === 'list' ? 'list' : 'cards';
+      var isList = _playlistViewState.view === 'list';
+      var panel = document.getElementById('playlistCarouselPanel');
+      if (panel) panel.classList.toggle('is-list-view', isList);
+      var listView = document.getElementById('playlistListView');
+      if (listView) listView.hidden = !isList;
+      var viewport = document.getElementById('playlistCarouselViewport');
+      if (viewport) viewport.hidden = isList;
+      ['playlistCarouselPrev', 'playlistCarouselNext'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = isList ? 'none' : '';
+      });
+      document.querySelectorAll('[data-playlist-view]').forEach(function(button) {
+        var active = button.getAttribute('data-playlist-view') === _playlistViewState.view;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      savePlaylistViewPrefs();
+      if (isList) renderPlaylistList();
+      else {
+        syncPlaylistCarouselViewportLayout();
+        if (typeof window.updatePlaylistCarouselNav === 'function') window.updatePlaylistCarouselNav();
+      }
+    }
+
+    function bindPlaylistListView() {
+      readPlaylistViewPrefs();
+      var search = document.getElementById('playlistSearchInput');
+      var searchTimer = null;
+      if (search) {
+        search.addEventListener('input', function() {
+          clearTimeout(searchTimer);
+          searchTimer = setTimeout(function() {
+            _playlistCardFilterState.search = String(search.value || '').trim().toLowerCase();
+            _playlistViewState.page = 0;
+            applyPlaylistCardFilters({ resetScroll: true });
+          }, 150);
+        });
+      }
+      document.querySelectorAll('[data-playlist-view]').forEach(function(button) {
+        button.addEventListener('click', function() { setPlaylistView(button.getAttribute('data-playlist-view')); });
+      });
+      document.querySelectorAll('[data-playlist-list-sort]').forEach(function(button) {
+        button.addEventListener('click', function() {
+          var field = button.getAttribute('data-playlist-list-sort');
+          if (_playlistViewState.sort === field) _playlistViewState.asc = !_playlistViewState.asc;
+          else {
+            _playlistViewState.sort = field;
+            _playlistViewState.asc = field === 'name';
+          }
+          _playlistViewState.page = 0;
+          savePlaylistViewPrefs();
+          renderPlaylistList();
+        });
+      });
+      var pageSize = document.getElementById('playlistListPageSize');
+      if (pageSize) {
+        pageSize.addEventListener('change', function() {
+          var size = Number(pageSize.value);
+          if (PLAYLIST_LIST_PAGE_SIZES.indexOf(size) === -1) return;
+          _playlistViewState.pageSize = size;
+          _playlistViewState.page = 0;
+          savePlaylistViewPrefs();
+          renderPlaylistList();
+        });
+      }
+      var prev = document.getElementById('playlistListPrev');
+      var next = document.getElementById('playlistListNext');
+      if (prev) prev.addEventListener('click', function() { _playlistViewState.page -= 1; renderPlaylistList(); });
+      if (next) next.addEventListener('click', function() { _playlistViewState.page += 1; renderPlaylistList(); });
+      var selectPage = document.getElementById('playlistListSelectPage');
+      if (selectPage) {
+        selectPage.addEventListener('change', function() {
+          getPlaylistListPageCards().page.forEach(function(card) {
+            var cb = card.querySelector('.pl-card-checkbox');
+            if (!cb) return;
+            cb.checked = selectPage.checked;
+            card.classList.toggle('is-selected', selectPage.checked);
+          });
+          updateSelectionBar();
+        });
+      }
+      setPlaylistView(_playlistViewState.view);
     }
 
     function updatePlaylistFilterButtons() {
@@ -1509,6 +1783,7 @@
       if (!visibleCards.length) {
         showPlaylistFilterEmptyState();
         syncPlaylistCarouselViewportLayout();
+        renderPlaylistList();
         if (typeof window.updatePlaylistCarouselNav === 'function') window.updatePlaylistCarouselNav();
         return;
       }
@@ -1521,6 +1796,7 @@
       } else if (!options.skipReload) {
         updateSelectionSummary(activeCard);
       }
+      renderPlaylistList();
       if (typeof window.updatePlaylistCarouselNav === 'function') window.updatePlaylistCarouselNav();
     }
 
@@ -4183,6 +4459,7 @@
       }
       if (enableBtn) enableBtn.disabled = !inactiveSelected.length;
       if (disableBtn) disableBtn.disabled = !activeSelected.length;
+      renderPlaylistList();
       var syncSelect = document.getElementById('plSelectionSyncPeriod');
       if (syncSelect) {
         var importedCount = selected.filter(isImportedPlaylistCard).length;
@@ -8270,6 +8547,7 @@
 
     bindPlaylistCarousel();
     bindPlaylistCarouselAutoCollapse();
+    bindPlaylistListView();
     document.querySelectorAll('[data-playlist-type-filter]').forEach(function(button) {
       button.addEventListener('click', function() {
         _playlistCardFilterState.type = String(button.getAttribute('data-playlist-type-filter') || 'all');
