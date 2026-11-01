@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.1.109 (2026-11-01)
+
+- Added combined playlists. Choose **Combined** in the playlist wizard to build one playlist from two or more of your existing playlists, for example your newest tracks and your most played. Their tracks are pooled without duplicates, then sorted and capped like any playlist.
+- Added password sign-in for Plex accounts. A Plex user can set a password in **User Profile** as a fallback for networks that block Plex sign-in, such as a work VPN. It opens the same account with the same role. Admins can see and remove it in **Settings → Users**.
+- Reorganised **Settings → Jobs** into groups (Library, Listening history, Track metadata and analysis, Discovery and Lidarr, Playlists) with compact rows. Added **Run all jobs** and **Run group**, which run jobs one at a time in a sensible order.
+- Jobs for integrations that are not set up are marked **Not configured** and skipped by Run all.
+- Added experimental TIDAL mix import. Paste a `tidal.com/mix/...` link into the URL tab of the import dialog.
+- Renamed the Rotating Playlist Sync job to Daily Mix and Curatorr Playlist Sync.
+- Added regression coverage for combined playlists, password sign-in, job groups and run sequences, and TIDAL mix links.
+
 ## v0.1.108 (2026-11-01)
 
 - Sped up the Overview, Discover, History and Report pages on large libraries. On a library of about 385,000 tracks, Discover went from about 6 seconds to under 0.1 seconds, and Overview from about 6 seconds to about 1 second. Results are unchanged.
