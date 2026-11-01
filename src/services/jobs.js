@@ -129,7 +129,7 @@ export const JOB_GROUPS = [
 ];
 
 // Why a job is not available with the current configuration, or '' when it is.
-// Jobs whose integration is missing are hidden from the Jobs list by default.
+// Such jobs are tagged "Not configured" and left out of Run all.
 export function resolveJobAvailability(config = {}) {
   const lidarr = config?.lidarr || {};
   const hasLidarr = Boolean(String(lidarr.url || lidarr.localUrl || '').trim() && String(lidarr.apiKey || '').trim());
@@ -151,7 +151,7 @@ export function resolveJobAvailability(config = {}) {
   return Object.fromEntries(Object.keys(JOB_DEFS).map((jobId) => [jobId, reasons[jobId] || '']));
 }
 
-// Jobs "Run all" (or "Run group") would run, in order: visible, enabled,
+// Jobs "Run all" (or "Run group") would run, in order: configured, enabled,
 // scheduled jobs; long-running jobs go last.
 export function buildJobRunSequence(config = {}, groupKey = '') {
   const groups = groupKey ? JOB_GROUPS.filter((group) => group.key === groupKey) : JOB_GROUPS;
@@ -160,7 +160,7 @@ export function buildJobRunSequence(config = {}, groupKey = '') {
   const ids = groups.flatMap((group) => group.jobs).filter((jobId) => {
     const def = JOB_DEFS[jobId];
     const cfg = jobsCfg[jobId] || {};
-    return def && !def.manualOnly && !availability[jobId] && cfg.hidden !== true && cfg.enabled !== false;
+    return def && !def.manualOnly && !availability[jobId] && cfg.enabled !== false;
   });
   return [...ids.filter((jobId) => !JOB_DEFS[jobId].longRunning), ...ids.filter((jobId) => JOB_DEFS[jobId].longRunning)];
 }

@@ -42,7 +42,7 @@ describe('job groups and availability', () => {
     assert.ok(Object.values(resolveJobAvailability(configured)).every((reason) => reason === ''));
   });
 
-  it('runs visible, enabled, scheduled jobs in group order with long-running jobs last', () => {
+  it('runs configured, enabled, scheduled jobs in group order with long-running jobs last', () => {
     const all = buildJobRunSequence(configured);
     assert.ok(!all.includes('lastfmHistoryBackfill'), 'manual-only jobs are skipped');
     assert.equal(all.at(-1), 'trackAnalysisPipeline');
@@ -51,9 +51,9 @@ describe('job groups and availability', () => {
 
     const trimmed = buildJobRunSequence({
       mediaServer: { type: 'plex' },
-      jobs: { smartPlaylistSync: { enabled: false }, trackEnrichmentSync: { hidden: true } },
+      jobs: { smartPlaylistSync: { enabled: false } },
     });
-    for (const jobId of ['smartPlaylistSync', 'trackEnrichmentSync', 'lidarrReviewArtists', 'tautulliDailySync', 'playlistWatchFolder']) {
+    for (const jobId of ['smartPlaylistSync', 'lidarrReviewArtists', 'tautulliDailySync', 'playlistWatchFolder']) {
       assert.ok(!trimmed.includes(jobId), `expected ${jobId} to be left out`);
     }
     assert.deepEqual(buildJobRunSequence(configured, 'playlists'), ['smartPlaylistSync', 'dailyMixSync']);

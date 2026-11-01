@@ -2050,15 +2050,11 @@ export function registerSettings(app, ctx) {
     const current = config.jobs || {};
     const updated = {};
     for (const jobId of Object.keys(JOB_DEFS)) {
-      const hidden = Boolean(req.body?.[`${jobId}_hidden`]);
-      if (JOB_DEFS[jobId].manualOnly) {
-        updated[jobId] = { ...current[jobId], hidden };
-        continue;
-      }
+      if (JOB_DEFS[jobId].manualOnly) continue;
       const maxIntervalMinutes = Math.max(JOB_INTERVAL_MAX_MINUTES, Number(JOB_DEFS[jobId].defaultIntervalMinutes || 0));
       const intervalMinutes = Math.max(1, Math.min(maxIntervalMinutes, Number(req.body?.[`${jobId}_interval`]) || JOB_DEFS[jobId].defaultIntervalMinutes));
       const enabled = Boolean(req.body?.[`${jobId}_enabled`]);
-      updated[jobId] = { ...current[jobId], intervalMinutes, enabled, hidden };
+      updated[jobId] = { ...current[jobId], intervalMinutes, enabled };
       jobService?.reschedule(jobId, intervalMinutes, enabled);
     }
     const enableHistoryRepair = Boolean(req.body?.tautulli_enableHistoryRepair);
@@ -2095,17 +2091,6 @@ export function registerSettings(app, ctx) {
     if (!jobIds.length) return res.status(400).json({ error: 'No enabled jobs to run.' });
     jobService.runSequence(jobIds, { group });
     res.json({ ok: true, group, jobIds });
-  });
-
-  // Hide or show one job in the Jobs list (and in Run all) straight away.
-  app.post('/api/jobs/:jobId/visibility', requireAdmin, (req, res) => {
-    const jobId = String(req.params.jobId || '');
-    if (!JOB_DEFS[jobId]) return res.status(404).json({ error: 'Unknown job' });
-    const hidden = req.body?.hidden === true;
-    const config = loadConfig();
-    const jobs = config.jobs || {};
-    saveConfig({ ...config, jobs: { ...jobs, [jobId]: { ...(jobs[jobId] || {}), hidden } } });
-    res.json({ ok: true, jobId, hidden });
   });
 
   app.get('/api/jobs/sequence', requireAdmin, (req, res) => {

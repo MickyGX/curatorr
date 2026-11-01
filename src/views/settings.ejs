@@ -3429,13 +3429,7 @@
                   <button type="button" class="primary-button" id="jobsRunAllBtn">Run all jobs</button>
                   <span class="settings-job-sequence-status" id="jobsSequenceStatus" aria-live="polite"></span>
                 </div>
-                <label class="settings-toggle settings-job-show-all">
-                  <input type="checkbox" id="jobsShowAll" />
-                  <span class="settings-toggle-slider" aria-hidden="true"></span>
-                  <span class="settings-toggle-text">Show hidden and unconfigured jobs</span>
-                </label>
-                <span class="settings-job-sequence-status" id="jobsHideStatus" aria-live="polite"></span>
-                <div class="settings-card-sub" style="margin:6px 0 0">Run all runs every enabled job shown below, one at a time, in this order. Manual-only batch jobs are skipped, and the Track Analysis Pipeline runs last because it can take a long time.</div>
+                <div class="settings-card-sub" style="margin:6px 0 0">Run all runs every enabled job below, one at a time, in this order. Jobs marked Not configured and manual-only batch jobs are skipped, and the Track Analysis Pipeline runs last because it can take a long time.</div>
               </div>
               <% for (const _group of _groups) { %>
               <%
@@ -3462,7 +3456,6 @@
                   const _jcfg = _jobsCfg[_jid] || {};
                   const _jstat = jobStatus[_jid] || {};
                   const _jEnabled = _jcfg.enabled !== false;
-                  const _jHidden = _jcfg.hidden === true;
                   const _jUnavailable = _jobAvail[_jid] || '';
                   const _jInterval = _jcfg.intervalMinutes || _jdef.defaultIntervalMinutes;
                   const _jMaxInterval = Math.max(10080, Number(_jdef.defaultIntervalMinutes || 0));
@@ -3470,12 +3463,11 @@
                   const _jLastRun = _jstat.lastRunAt;
                   const _jMsg = _jstat.message || '';
                 %>
-                <div class="settings-job-row<%= _jStatus === 'error' ? ' is-failed' : '' %>" data-job-id="<%= _jid %>" data-job-hidden="<%= _jHidden ? '1' : '' %>" data-job-unavailable="<%= _jUnavailable %>">
+                <div class="settings-job-row<%= _jStatus === 'error' ? ' is-failed' : '' %>" data-job-id="<%= _jid %>" data-job-unavailable="<%= _jUnavailable %>">
                   <div class="settings-job-row-main">
                     <div class="settings-job-row-name">
                       <span class="settings-job-row-title"><%= _jdef.shortLabel || _jdef.label %></span>
                       <% if (_jUnavailable) { %><span class="settings-job-tag" title="<%= _jUnavailable %>">Not configured</span><% } %>
-                      <span class="settings-job-tag" data-job-hidden-tag <%= _jHidden ? '' : 'hidden' %>>Hidden</span>
                       <% if (_jdef.manualOnly) { %><span class="settings-job-tag">Manual</span><% } %>
                     </div>
                     <div class="settings-job-last-run" data-job-last-run="<%= _jid %>">
@@ -3505,10 +3497,6 @@
                       <span class="settings-toggle-text">Enabled</span>
                     </label>
                     <% } %>
-                    <label class="settings-job-hide" title="Hide this job from the list and from Run all. Saved straight away.">
-                      <input type="checkbox" name="<%= _jid %>_hidden" value="1" data-job-hide="<%= _jid %>" <%= _jHidden ? 'checked' : '' %> />
-                      <span>Hide</span>
-                    </label>
                     <button type="button" class="ghost-button settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
                   </div>
                   <% if (_jid === 'tautulliDailySync') { %>
@@ -3643,78 +3631,16 @@
       refreshJobGroups();
     }
 
-    // Hidden and unconfigured jobs stay out of the list unless "Show all" is on.
-    var JOBS_SHOW_ALL_KEY = 'curatorr.jobs.showAll';
-    function readShowAll() {
-      try { return window.localStorage.getItem(JOBS_SHOW_ALL_KEY) === '1'; } catch (_) { return false; }
-    }
+    // Group headings show how many jobs they hold and how many failed.
     function refreshJobGroups() {
-      var toggle = document.getElementById('jobsShowAll');
-      var showAll = Boolean(toggle && toggle.checked);
       document.querySelectorAll('.settings-job-group').forEach(function(group) {
-        var rows = Array.from(group.querySelectorAll('.settings-job-row'));
-        var visible = rows.filter(function(row) {
-          var show = showAll || (!row.dataset.jobHidden && !row.dataset.jobUnavailable);
-          row.hidden = !show;
-          return show;
-        });
-        group.hidden = !visible.length;
+        var visible = Array.from(group.querySelectorAll('.settings-job-row'));
         var failed = visible.filter(function(row) { return row.classList.contains('is-failed'); }).length;
         var countEl = group.querySelector('[data-job-group-count]');
         if (countEl) {
           countEl.textContent = visible.length + ' job' + (visible.length === 1 ? '' : 's') + (failed ? ', ' + failed + ' failed' : '');
           countEl.classList.toggle('has-failed', failed > 0);
         }
-      });
-    }
-    // Hide applies and saves straight away, without "Save Job Settings".
-    document.querySelectorAll('[data-job-hide]').forEach(function(cb) {
-      cb.addEventListener('change', function() {
-        var jobId = cb.getAttribute('data-job-hide');
-        var row = cb.closest('.settings-job-row');
-        var hideStatus = document.getElementById('jobsHideStatus');
-        var applyHidden = function(hidden) {
-          cb.checked = hidden;
-          if (row) {
-            row.dataset.jobHidden = hidden ? '1' : '';
-            var tag = row.querySelector('[data-job-hidden-tag]');
-            if (tag) tag.hidden = !hidden;
-          }
-          refreshJobGroups();
-        };
-        var hidden = cb.checked;
-        applyHidden(hidden);
-        fetch('/api/jobs/' + encodeURIComponent(jobId) + '/visibility', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' },
-          body: JSON.stringify({ hidden: hidden }),
-        })
-          .then(function(r) { if (!r.ok) throw new Error('save failed'); })
-          .then(function() {
-            if (hideStatus) {
-              var showAll = document.getElementById('jobsShowAll');
-              hideStatus.textContent = hidden
-                ? jobLabelFor(jobId) + ' hidden.' + (showAll && showAll.checked ? '' : ' Turn on "Show hidden and unconfigured jobs" to bring it back.')
-                : jobLabelFor(jobId) + ' shown.';
-            }
-          })
-          .catch(function() {
-            applyHidden(!hidden);
-            if (hideStatus) hideStatus.textContent = 'Could not save. Try again.';
-          });
-      });
-    });
-    function jobLabelFor(jobId) {
-      var title = document.querySelector('.settings-job-row[data-job-id="' + jobId + '"] .settings-job-row-title');
-      return title ? title.textContent : jobId;
-    }
-
-    var showAllToggle = document.getElementById('jobsShowAll');
-    if (showAllToggle) {
-      showAllToggle.checked = readShowAll();
-      showAllToggle.addEventListener('change', function() {
-        try { window.localStorage.setItem(JOBS_SHOW_ALL_KEY, showAllToggle.checked ? '1' : '0'); } catch (_) {}
-        refreshJobGroups();
       });
     }
     refreshJobGroups();

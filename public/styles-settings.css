@@ -6347,8 +6347,6 @@ html[data-square-corners="1"] .widget-card-customize-panel {
   padding: 10px 14px;
   border-top: 1px solid rgba(127,127,127,.16);
 }
-.settings-job-row[hidden],
-.settings-job-group[hidden] { display: none; }
 .settings-job-row.is-failed { background: rgba(248,113,113,.06); }
 .settings-job-row.is-failed .settings-job-msg { color: #f87171; opacity: 1; }
 .settings-job-row-main { flex: 1 1 260px; min-width: 0; }
@@ -6377,9 +6375,7 @@ html[data-square-corners="1"] .widget-card-customize-panel {
 }
 .settings-job-interval { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .settings-job-interval input { width: 72px; }
-.settings-job-toggle .settings-toggle-text,
-.settings-job-hide { font-size: 12px; }
-.settings-job-hide { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.settings-job-toggle .settings-toggle-text { font-size: 12px; }
 .settings-job-row-extra { flex-basis: 100%; }
 .settings-job-maint {
   display: flex;

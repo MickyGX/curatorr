@@ -7434,7 +7434,7 @@ describe('security guards', () => {
     }
   });
 
-  it('groups jobs in settings, saves hidden jobs, and validates run-sequence requests', async () => {
+  it('groups jobs in settings, saves job settings, and validates run-sequence requests', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
     const originalConfig = await readConfig();
@@ -7449,29 +7449,20 @@ describe('security guards', () => {
       assert.match(page.text, /data-job-group="discovery"/);
       assert.match(page.text, /id="jobsRunAllBtn"/);
       // Lidarr is not configured in the test instance, so its jobs are flagged.
-      assert.match(page.text, /data-job-id="lidarrReviewArtists" data-job-hidden="" data-job-unavailable="Lidarr is not configured\."/);
+      assert.match(page.text, /data-job-id="lidarrReviewArtists" data-job-unavailable="Lidarr is not configured\."/);
+      assert.ok(!page.text.includes('jobsShowAll'), 'jobs are no longer hidden');
 
-      const fields = { trackEnrichmentSync_hidden: '1' };
+      const fields = {};
       for (const [jobId, def] of Object.entries(JOB_DEFS)) {
         if (!def.manualOnly) fields[`${jobId}_enabled`] = '1';
       }
       const saved = await client.postForm('/settings/jobs', fields, '/settings?tab=jobs');
       assert.equal(saved.status, 302);
       const config = await readConfig();
-      assert.equal(config.jobs.trackEnrichmentSync.hidden, true);
-      assert.equal(config.jobs.masterTrackRefresh.hidden, false);
       assert.equal(config.jobs.masterTrackRefresh.enabled, true);
 
       const playlistsGroup = page.text.slice(page.text.indexOf('data-job-group="playlists"'));
       assert.ok(playlistsGroup.indexOf('id="reassignPlaylistsBtn"') !== -1, 'expected Playlist Account Maintenance in the Playlists group');
-
-      const hide = await client.postJson('/api/jobs/smartPlaylistSync/visibility', { hidden: true }, '/settings');
-      assert.equal(hide.status, 200);
-      assert.equal((await readConfig()).jobs.smartPlaylistSync.hidden, true);
-      const show = await client.postJson('/api/jobs/smartPlaylistSync/visibility', { hidden: false }, '/settings');
-      assert.equal(show.status, 200);
-      assert.equal((await readConfig()).jobs.smartPlaylistSync.hidden, false);
-      assert.equal((await client.postJson('/api/jobs/not-a-job/visibility', { hidden: true }, '/settings')).status, 404);
 
       const unknown = await client.postJson('/api/jobs/run-sequence', { group: 'not-a-group' }, '/settings');
       assert.equal(unknown.status, 404);
