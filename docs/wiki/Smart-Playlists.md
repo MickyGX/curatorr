@@ -34,6 +34,16 @@ Select **Create smart playlist**. The wizard has four steps for regular users an
 
 Content filters also include **Last played** (played within / not played within N days, or never played) and **Play count** (at least / at most N plays, counted from the listener's Curatorr play history). Combined with a play count sort and a total track cap, these can recreate "rediscover old favourites" style playlists.
 
+## Combined playlists
+
+Choose **Combined** as the starting point to build one playlist from two or more of your existing playlists, for example your newest tracks and your most played. Combined playlists are personal only.
+
+- **Sources:** pick any of your synced Curatorr playlists: smart, system, imported or global. Drafts and other combined playlists can't be used, so combined playlists never nest.
+- **Interleave** (default) takes one track from each playlist in turn. **Append** adds each playlist in full, one after another.
+- Each source is sorted with the sort you choose on the output step first. **Keep each playlist's own order** leaves every source as it is.
+- Duplicates are removed, then the per-artist, per-album and total caps apply.
+- It rebuilds from the sources' current tracks on its schedule, after your other playlists have rebuilt. Content filters don't apply.
+
 The preview distinguishes the **Eligible pool** from the **Final playlist** after output limits and cleanup. If the result is unexpectedly small, check active filters, analysis coverage, caps, and deduplication rules.
 
 Personal playlists with no current matches can be saved as Curatorr drafts for later editing when that option is offered; an empty draft is not a populated media-server playlist. Global saves validate the rule set before creating it.

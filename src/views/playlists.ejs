@@ -235,6 +235,7 @@
                       data-playlist-audience="<%= p.playlistAudience || 'personal' %>"
                       data-playlist-active="<%= p.active === false ? 'false' : 'true' %>"
                       data-playlist-backup-only="<%= p.backupOnly ? 'true' : 'false' %>"
+                      data-playlist-combined="<%= p.combined ? 'true' : 'false' %>"
                       data-playlist-state="<%= p.state || 'pending' %>"
                       data-playlist-track-count="<%= Number(p.trackCount || 0) %>"
                       data-playlist-missing-count="<%= Number(p.missingCount || 0) %>"
@@ -5084,9 +5085,12 @@
       var trackFilters = wizardStarterTrackFilters(playlist && playlist.trackFilters);
       var target = playlistTarget || 'personal';
       if (target !== 'global' && Array.isArray(rules.blendUsers) && rules.blendUsers.length) target = 'blend';
+      var combinedRules = rules && rules.combined && typeof rules.combined === 'object' ? rules.combined : null;
       return {
-        templateId: 'blank',
-        startingPointId: 'blank',
+        templateId: combinedRules ? 'tmpl_combined' : 'blank',
+        startingPointId: combinedRules ? 'tmpl_combined' : 'blank',
+        combinedSources: combinedRules && Array.isArray(combinedRules.sources) ? combinedRules.sources.slice() : [],
+        combinedMode: combinedRules && combinedRules.mode === 'append' ? 'append' : 'interleave',
         name: String(playlist && playlist.name || '').trim(),
         nameManual: true,
         playlistTarget: target,
@@ -5642,6 +5646,7 @@
       { id: 'tmpl_discovery',   icon: '⊕', name: 'Discovery',   description: 'Unplayed tracks from unranked artists.', rules: { artistTiers: { include: ['unranked'], exclude: [] }, trackTiers: { include: ['unplayed'], exclude: [] } }, trackFilters: null },
       { id: 'tmpl_new_music_mix', icon: '♪', name: 'New Music Mix', description: 'Fresh library additions with album variety controls.', meta: 'Added 90 days · 1 per album · daily', rules: { libraryAddedMode: 'within', libraryAddedDays: 90, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'libraryAddedDesc', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
       { id: 'tmpl_random_library', icon: '⇄', name: 'Random Library Mix', description: '50 random library tracks with artist and album variety.', meta: '50 tracks · 1 per artist · 1 per album · daily', rules: { topNPerArtist: 1, maxTracksPerAlbum: 1, maxTracks: 50, sortBy: 'random', finalOrdering: 'none', rebuildSchedule: 'daily' }, trackFilters: null },
+      { id: 'tmpl_combined',    icon: '⧉', name: 'Combined', description: 'Mix the tracks of two or more of your playlists into one.', meta: 'Interleave or append · personal only', rules: { combinedMode: 'interleave', combinedSources: [], sortBy: 'source' }, trackFilters: null },
       { id: 'tmpl_seasonal',    icon: '❄', name: 'Seasonal',    description: 'Holiday genre plus festive title and album keywords.', rules: { seasonalGenres: ['Holiday'], seasonalKeywords: ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday'] }, trackFilters: null },
     ];
 
@@ -5945,11 +5950,71 @@
         deduplicateIgnoreLiveAlbums: false,
         preferArtistFolderOverCompilation: false,
         preferStudioRecordings: false,
+        combinedSources: [],
+        combinedMode: 'interleave',
         artworkMode: 'auto',
         customArtworkAsset: '',
         preservedArtworkAsset: '',
         customArtworkData: '',
       };
+    }
+
+    // ── Combined playlists ──────────────────────────────────────────────────
+    function wizardIsCombined(ws) {
+      return String((ws || _wizardState || {}).startingPointId || '') === 'tmpl_combined';
+    }
+
+    // Playlists that can feed a combined playlist: synced Curatorr playlists,
+    // not drafts, not other combined playlists, and not the one being edited.
+    function wizardCombinedSourceOptions() {
+      var selfKey = _wizardEditKind === 'personal' && _wizardEditId ? 'personal:' + _wizardEditId : '';
+      return getPlaylistCardElements()
+        .filter(function(card) {
+          var key = String(card.dataset.plKey || '');
+          return key
+            && key !== selfKey
+            && card.dataset.playlistKind !== 'draft'
+            && card.dataset.playlistCombined !== 'true';
+        })
+        .map(function(card) {
+          return {
+            key: String(card.dataset.plKey || ''),
+            title: String(card.dataset.plTitle || 'Playlist'),
+            trackCount: Number(card.dataset.playlistTrackCount || 0),
+            type: resolvePlaylistAudience({ playlistAudience: card.dataset.playlistAudience, playlistType: card.dataset.playlistType, playlistSourceType: card.dataset.playlistSourceType }),
+          };
+        })
+        .sort(function(a, b) { return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }); });
+    }
+
+    function wizardCombinedSection() {
+      var ws = _wizardState;
+      var selected = Array.isArray(ws.combinedSources) ? ws.combinedSources : [];
+      var options = wizardCombinedSourceOptions();
+      var html = '<div class="spm-wizard-subsection" id="wiz-combined-section">';
+      html += '<div class="spm-wizard-subsection-title">Playlists to combine</div>';
+      html += '<div class="spm-wizard-subsection-copy">Pick two or more playlists. Each one is sorted with the sort you choose on step 3, then their tracks are mixed. Duplicates are removed, and the playlist rebuilds from their current tracks on its schedule.</div>';
+      if (!options.length) {
+        html += '<div class="spm-wizard-field-hint">You need at least two synced playlists to combine.</div>';
+      } else {
+        html += '<div class="spm-combined-source-list">';
+        options.forEach(function(opt) {
+          var checked = selected.indexOf(opt.key) !== -1;
+          html += '<label class="spm-combined-source"><input type="checkbox" data-combined-source="' + escH(opt.key) + '"' + (checked ? ' checked' : '') + ' />' +
+            '<span class="spm-combined-source-name">' + escH(opt.title) + '</span>' +
+            '<span class="spm-combined-source-meta">' + escH(opt.type.charAt(0).toUpperCase() + opt.type.slice(1)) + ' · ' + Number(opt.trackCount || 0).toLocaleString() + ' tracks</span>' +
+            '</label>';
+        });
+        html += '</div>';
+      }
+      html += '<div class="spm-filter-label" style="margin-top:12px">How to mix them</div>';
+      html += '<div class="gp-blend-modes">' +
+        '<label class="gp-blend-mode-option"><input type="radio" name="wiz-combined-mode" value="interleave"' + (ws.combinedMode !== 'append' ? ' checked' : '') + ' /><span class="gp-blend-mode-name">Interleave</span></label>' +
+        '<label class="gp-blend-mode-option"><input type="radio" name="wiz-combined-mode" value="append"' + (ws.combinedMode === 'append' ? ' checked' : '') + ' /><span class="gp-blend-mode-name">Append</span></label>' +
+        '</div>';
+      html += '<div class="spm-wizard-field-hint">Interleave takes one track from each playlist in turn. Append adds each playlist in full, one after another, in the order listed above.</div>';
+      html += '</div>';
+      return html;
     }
 
     function wizardAssembleArtwork(ws) {
@@ -6035,6 +6100,10 @@
         albumPopularityMode: ws.albumPopularityMode || 'all',
         popularityMode: ws.popularityMode || 'all',
         popularityPercent: (ws.popularityMode || 'all') === 'custom' ? (ws.popularityPercent || null) : null,
+        combined: wizardIsCombined(ws) ? {
+          sources: Array.isArray(ws.combinedSources) ? ws.combinedSources.slice() : [],
+          mode: ws.combinedMode === 'append' ? 'append' : 'interleave',
+        } : null,
       };
     }
 
@@ -6631,6 +6700,10 @@
 
     function wizardStepContent(step) {
       if (step === 1) return wizardStep1();
+      if (step === 2 && wizardIsCombined()) {
+        return '<div class="spm-wizard-step-label">Step 2 of ' + WIZARD_TOTAL_STEPS + ' — Content filters</div>' +
+          '<div class="spm-wizard-step-intro">Content filters don&apos;t apply to combined playlists. Its tracks come from the playlists you picked on step 1. Set the sort, caps and schedule on the next steps.</div>';
+      }
       if (step === 2) return wizardStep2();
       if (step === 3) return wizardStep3();
       if (step === 4) return IS_ACTUAL_ADMIN ? wizardStep6() : wizardStep7();
@@ -6690,7 +6763,7 @@
 
     // Step 1 — Basics
     function wizardStep1() {
-      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_new_music_mix', 'tmpl_random_library', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
+      var STARTING_POINTS = ['blank', 'tmpl_favourites', 'tmpl_discovery', 'tmpl_new_music_mix', 'tmpl_random_library', 'tmpl_combined', 'tmpl_seasonal', 'tmpl_curatorr_settings', 'tmpl_crescive_settings', 'tmpl_curative_settings'];
       var AUDIO_PROFILES = [
         { preset: 'workout',  icon: '⚡' },
         { preset: 'chill',    icon: '◎' },
@@ -6763,7 +6836,11 @@
       html += '<div class="spm-wizard-subsection-title">Starting point</div>';
       html += '<div class="spm-wizard-subsection-copy">Choose the quickest route into the kind of playlist you want. Selecting a saved template can preselect one of these, but you can still change it here.</div>';
       html += '<div class="spm-wizard-template-grid" id="wiz-tmpl-grid">';
-      wizardAllBuiltinTemplates().filter(function(t) { return STARTING_POINTS.indexOf(t.id) !== -1; }).forEach(function(t) {
+      wizardAllBuiltinTemplates().filter(function(t) {
+        // Combined playlists are personal only.
+        if (t.id === 'tmpl_combined' && _wizardState.playlistTarget !== 'personal') return false;
+        return STARTING_POINTS.indexOf(t.id) !== -1;
+      }).forEach(function(t) {
         var sel = _wizardState.startingPointId === t.id ? ' is-selected' : '';
         html += '<button type="button" class="spm-wizard-template-card' + sel + '" data-starting-point-id="' + escH(t.id) + '">' +
           '<div class="spm-wizard-template-card__icon">' + t.icon + '</div>' +
@@ -6774,6 +6851,11 @@
       });
       html += '</div>';
       html += '</div>';
+      if (wizardIsCombined(ws)) {
+        html += wizardCombinedSection();
+        html += '</div>';
+        return html;
+      }
       html += '<div class="spm-wizard-subsection spm-wizard-subsection--audio">';
       html += '<div class="spm-wizard-subsection-title">Audio profile <span class="gp-filter-hint">(optional)</span></div>';
       html += '<div class="spm-wizard-subsection-copy">These cards set BPM, energy, danceability, Camelot defaults, and suggest matching content chips on the next step. You can apply those suggestions there if you want them.</div>';
@@ -7121,7 +7203,7 @@
         '<label class="field" style="flex:1"><span>Max tracks per album</span><input type="number" id="wiz-max-album-tracks" min="1" max="999" placeholder="All tracks" value="' + (_wizardState.maxTracksPerAlbum||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Max total tracks</span><input type="number" id="wiz-max-tracks" min="1" placeholder="No limit" value="' + (_wizardState.maxTracks||'') + '"/></label>' +
         '<label class="field" style="flex:1"><span>Sort tracks by</span><select id="wiz-sort-by">' +
-        [['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['libraryAddedDesc','Newest library additions'],['releaseDateDesc','Newest releases'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
+        (wizardIsCombined() ? [['source', 'Keep each playlist\'s own order']] : []).concat([['ratingCount','Global rating count'],['tierWeight','Tier weight'],['playCount','Play count'],['libraryAddedDesc','Newest library additions'],['releaseDateDesc','Newest releases'],['random','Random'],['bpmAsc','BPM low to high'],['bpmDesc','BPM high to low'],['energyAsc','Energy low to high'],['energyDesc','Energy high to low'],['danceabilityDesc','Danceability high to low'],['camelot','Camelot wheel'],['djFlow','DJ flow']]).map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.sortBy===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
         '</select></label>' +
         '<label class="field" style="flex:1"><span>Final ordering</span><select id="wiz-final-ordering">' +
         [['none','No final ordering'],['plexSonic','Plex sonic'],['loudness','Loudness smoothing'],['plexSonicLoudness','Plex sonic then loudness']].map(function(o){ return '<option value="' + o[0] + '"' + (_wizardState.finalOrdering===o[0]?' selected':'') + '>' + o[1] + '</option>'; }).join('') +
@@ -7514,6 +7596,12 @@
         _wizardState.templateId = selectedSavedTemplate
           ? (selectedSavedTemplate.dataset.userTemplateId || 'blank')
           : (_wizardState.startingPointId || 'blank');
+        if (document.getElementById('wiz-combined-section')) {
+          _wizardState.combinedSources = Array.from(document.querySelectorAll('#spm-wizard-body [data-combined-source]:checked'))
+            .map(function(cb) { return cb.dataset.combinedSource; });
+          var combinedModeEl = document.querySelector('#spm-wizard-body input[name="wiz-combined-mode"]:checked');
+          _wizardState.combinedMode = combinedModeEl && combinedModeEl.value === 'append' ? 'append' : 'interleave';
+        }
         var selPreset = document.querySelector('#spm-wizard-body [data-audio-preset].is-selected');
         _wizardState.featurePreset = selPreset ? (selPreset.dataset.audioPreset || 'none') : 'none';
         _wizardState.bpmMin          = document.getElementById('wiz-bpm-min') ? document.getElementById('wiz-bpm-min').value || null : null;
@@ -7970,6 +8058,10 @@
             if (msgEl) msgEl.textContent = 'Add at least one user to make this a blend playlist.';
             return;
           }
+          if (wizardIsCombined() && (_wizardState.combinedSources || []).length < 2) {
+            if (msgEl) msgEl.textContent = 'Pick at least two playlists to combine.';
+            return;
+          }
         }
         if (msgEl) msgEl.textContent = '';
         wizardRenderStep(step + 1);
@@ -8032,6 +8124,7 @@
           card.addEventListener('click', function() {
             wizardSaveStateFromStep(1);
             _wizardState.playlistTarget = card.dataset.target || 'personal';
+            if (_wizardState.playlistTarget !== 'personal' && wizardIsCombined()) wizardApplyTemplate('blank');
             wizardRenderStep(1);
           });
         });
@@ -8067,6 +8160,9 @@
           if (el.tagName === 'INPUT') el.addEventListener('input', handler);
         });
         if (_wizardState.playlistTarget === 'blend') wizardBindBlendPicker(1);
+        document.querySelectorAll('#spm-wizard-body [data-combined-source], #spm-wizard-body input[name="wiz-combined-mode"]').forEach(function(el) {
+          el.addEventListener('change', function() { wizardSaveStateFromStep(1); setTimeout(wizardRunPreview, 150); });
+        });
       }
 
       // Step 2: content

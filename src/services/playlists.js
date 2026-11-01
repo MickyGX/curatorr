@@ -2936,7 +2936,88 @@ function _applyFilterRules(db, masterTracks, artistMap, trackMap, rules, config)
   return ratingKeys;
 }
 
+// ─── Combined playlists ───────────────────────────────────────────────────────
+// A combined playlist is a personal playlist whose rules.combined lists other
+// Curatorr playlists as sources. Each source's current tracks are sorted with
+// the playlist's sort, then interleaved (default) or appended, deduplicated and
+// capped. A combined playlist can't use another combined playlist as a source,
+// so there is no nesting or cycles.
+
+export const COMBINED_PLAYLIST_MODES = ['interleave', 'append'];
+export const COMBINED_PLAYLIST_MAX_SOURCES = 10;
+
+export function normalizeCombinedPlaylistRules(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const sources = [...new Set((Array.isArray(raw.sources) ? raw.sources : [])
+    .map((key) => String(key || '').trim())
+    .filter(Boolean))].slice(0, COMBINED_PLAYLIST_MAX_SOURCES);
+  const mode = COMBINED_PLAYLIST_MODES.includes(raw.mode) ? raw.mode : 'interleave';
+  return { sources, mode };
+}
+
+export function isCombinedPersonalPlaylistKey(db, userId, playlistKey) {
+  const key = String(playlistKey || '');
+  if (!key.startsWith('personal:')) return false;
+  const playlist = getUserPersonalPlaylist(db, key.slice('personal:'.length), userId);
+  return Boolean(playlist?.rules?.combined);
+}
+
+function buildCombinedPlaylistTracks(db, userId, playlistDef) {
+  const rules = playlistDef?.rules || {};
+  const combined = normalizeCombinedPlaylistRules(rules.combined);
+  if (!combined) return { eligible: [], selected: [] };
+  const selfKey = playlistDef?.id ? `personal:${playlistDef.id}` : '';
+  const masterTracks = getMasterTracks(db);
+  const lists = combined.sources
+    .filter((key) => key !== selfKey && !isCombinedPersonalPlaylistKey(db, userId, key))
+    .map((key) => sortPlaylistTracksByMode(
+      db,
+      userId,
+      hydratePlaylistTracks(masterTracks, getPlaylistTracks(db, userId, key)),
+      rules.sortBy,
+    ));
+  const merged = [];
+  if (combined.mode === 'append') {
+    lists.forEach((list) => merged.push(...list));
+  } else {
+    const longest = Math.max(0, ...lists.map((list) => list.length));
+    for (let index = 0; index < longest; index += 1) {
+      lists.forEach((list) => { if (index < list.length) merged.push(list[index]); });
+    }
+  }
+  const eligible = dedupeByRatingKey(merged);
+  const selected = selectLimitedPlaylistTracks(eligible, {
+    sortBy: 'default',
+    topNPerArtist: rules.topNPerArtist,
+    maxTracksPerAlbum: rules.maxTracksPerAlbum,
+    maxTracks: rules.maxTracks,
+    preserveOrder: true,
+  });
+  return { eligible, selected };
+}
+
+function countDistinctArtists(tracks) {
+  return new Set(tracks.map((track) => String(track?.artistName || '').trim().toLowerCase()).filter(Boolean)).size;
+}
+
+export function buildCombinedPlaylistRatingKeys(db, userId, playlistDef) {
+  return buildCombinedPlaylistTracks(db, userId, playlistDef).selected.map((track) => track.ratingKey);
+}
+
+export function previewCombinedPlaylist(db, userId, playlistDef) {
+  const { eligible, selected } = buildCombinedPlaylistTracks(db, userId, playlistDef);
+  return {
+    trackCount: selected.length,
+    artistCount: countDistinctArtists(selected),
+    eligibleTrackCount: eligible.length,
+    eligibleArtistCount: countDistinctArtists(eligible),
+  };
+}
+
 function buildPlaylistRatingKeysFromRules(db, userId, playlistDef, config) {
+  if (playlistDef?.rules?.combined) {
+    return buildCombinedPlaylistTracks(db, userId, playlistDef).selected.map((track) => track.ratingKey);
+  }
   const masterTracks = applyTrackFilters(getMasterTracks(db), playlistDef.trackFilters);
   if (!masterTracks.length) return [];
 

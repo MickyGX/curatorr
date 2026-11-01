@@ -85,7 +85,7 @@ import { paginateRolledHistory } from '../history-rollup.js';
 import { buildSpotifyTrackLookups, isImportedPlaylistSourceType, normalizeImportMatchText, pickSpotifyTrackMatch } from '../services/import-matching.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { isTidalMixId } from '../services/tidal.js';
-import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
+import { applyFeaturePresetFilters, applyTrackFiltersWithReport, isCombinedPersonalPlaylistKey, normalizeCombinedPlaylistRules, previewCombinedPlaylist } from '../services/playlists.js';
 import {
   buildM3uPathLookups,
   parseM3uPlaylist,
@@ -312,6 +312,10 @@ function buildPlaylistFeatureRules(payload = {}) {
 }
 
 function buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings, options = {}) {
+  if (rules?.combined) {
+    const counts = previewCombinedPlaylist(db, userPlexId, { id: options.selfId || '', rules });
+    return { counts, featureTrackCount: counts.eligibleTrackCount, dedupeDuplicateCount: 0, dedupeDuplicateMatches: [] };
+  }
   const duplicateLimit = Math.max(0, Math.min(10000, Number(options.dedupeReportLimit || 0) || 0));
   const filterResult = trackFilters
     ? applyTrackFiltersWithReport(getMasterTracks(db), trackFilters, { duplicateLimit })
@@ -331,6 +335,20 @@ function buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smart
     dedupeDuplicateCount: filterResult.duplicateCount || 0,
     dedupeDuplicateMatches: filterResult.duplicateMatches || [],
   };
+}
+
+// Validates a combined playlist's sources: the user's own synced playlists,
+// never itself or another combined playlist, and at least two of them.
+function resolveCombinedRulesInput(db, userPlexId, value, selfId = '') {
+  const combined = normalizeCombinedPlaylistRules(value);
+  if (!combined) return { combined: null };
+  const selfKey = selfId ? `personal:${selfId}` : '';
+  const owned = new Set(listUserGeneratedPlaylists(db, userPlexId, { activeOnly: false }).map((entry) => entry.playlistKey));
+  const sources = combined.sources.filter((key) => key !== selfKey
+    && owned.has(key)
+    && !isCombinedPersonalPlaylistKey(db, userPlexId, key));
+  if (sources.length < 2) return { error: 'Choose at least two of your playlists to combine.' };
+  return { combined: { ...combined, sources } };
 }
 
 function sanitizeImportedSourceInput(value) {
@@ -7278,8 +7296,11 @@ export function registerApiMusic(app, ctx) {
     }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
     const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
-    const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
-    const trackFilters = normaliseTrackFiltersInput(req.body?.trackFilters);
+    const combinedInput = resolveCombinedRulesInput(db, userPlexId, req.body?.combined);
+    if (combinedInput.error) return res.status(400).json({ error: combinedInput.error });
+    // Combined playlists are personal only, so they are never blended.
+    const blendUsers = !combinedInput.combined && Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
+    const trackFilters = combinedInput.combined ? null : normaliseTrackFiltersInput(req.body?.trackFilters);
     let artwork;
     try {
       artwork = parsePlaylistArtworkInput(req.body?.artwork, { mode: 'auto', customArtworkAsset: '', preservedArtworkAsset: '' });
@@ -7313,6 +7334,7 @@ export function registerApiMusic(app, ctx) {
     if (importedSource) rules.importSource = importedSource;
     if (importedSuggestedContent) rules.importSuggestedContent = importedSuggestedContent;
     if (importedDetectedContent) rules.importDetectedContent = importedDetectedContent;
+    if (combinedInput.combined) rules.combined = combinedInput.combined;
     rules.artwork = artwork;
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
@@ -7377,8 +7399,12 @@ export function registerApiMusic(app, ctx) {
     }
     const BLEND_MODES = ['average', 'intersection', 'union', 'veto'];
     const REBUILD_SCHEDULES = ['daily', 'weekly', 'manual'];
-    const blendUsers = Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
-    const trackFilters = req.body?.trackFilters !== undefined ? normaliseTrackFiltersInput(req.body.trackFilters) : (existing.trackFilters || null);
+    const combinedInput = resolveCombinedRulesInput(db, userPlexId, req.body?.combined, id);
+    if (combinedInput.error) return res.status(400).json({ error: combinedInput.error });
+    const blendUsers = !combinedInput.combined && Array.isArray(req.body?.blendUsers) ? req.body.blendUsers.filter(Boolean) : [];
+    const trackFilters = combinedInput.combined
+      ? null
+      : (req.body?.trackFilters !== undefined ? normaliseTrackFiltersInput(req.body.trackFilters) : (existing.trackFilters || null));
     let artwork;
     try {
       artwork = parsePlaylistArtworkInput(
@@ -7421,11 +7447,12 @@ export function registerApiMusic(app, ctx) {
     if (importedSource) rules.importSource = importedSource;
     if (importedSuggestedContent) rules.importSuggestedContent = importedSuggestedContent;
     if (importedDetectedContent) rules.importDetectedContent = importedDetectedContent;
+    if (combinedInput.combined) rules.combined = combinedInput.combined;
     rules.artwork = artwork;
     const updated = { ...existing, name, rules, trackFilters };
     const config = loadConfig();
     const smartSettings = config.smartPlaylist || {};
-    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings);
+    const preview = buildPlaylistPreviewSnapshot(db, userPlexId, rules, trackFilters, smartSettings, { selfId: id });
     const allowEmptyDraft = Boolean(req.body?.allowEmptyDraft);
     if (Number(preview.counts.trackCount || 0) <= 0 && !allowEmptyDraft) {
       return res.status(422).json({
