@@ -12,6 +12,23 @@ const TIDAL_TRACK_BATCH_SIZE = 20;
 const TIDAL_MAX_PAGES = 200;
 const TIDAL_MAX_RATE_LIMIT_RETRIES = 3;
 const TIDAL_PLAYLIST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// TIDAL's v2 API models mixes (tidal.com/mix/...) as playlists, so a mix id is
+// read with the same playlist endpoints. Mix ids are only accepted from a
+// /mix/ link, since a bare id would be ambiguous with other providers.
+const TIDAL_MIX_ID_RE = /^[0-9a-z]{16,64}$/i;
+
+export function isTidalMixId(id) {
+  const value = String(id || '').trim();
+  return !TIDAL_PLAYLIST_ID_RE.test(value) && TIDAL_MIX_ID_RE.test(value);
+}
+
+export function buildTidalPlaylistUrl(id) {
+  const value = String(id || '').trim();
+  if (!value) return '';
+  return isTidalMixId(value)
+    ? `https://tidal.com/mix/${encodeURIComponent(value)}`
+    : `https://tidal.com/playlist/${encodeURIComponent(value)}`;
+}
 
 function parsePositiveNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -57,7 +74,10 @@ export function parseTidalPlaylistReference(value) {
     const parsed = new URL(raw);
     const host = String(parsed.hostname || '').toLowerCase();
     if (host !== 'tidal.com' && !host.endsWith('.tidal.com')) return null;
-    const match = String(parsed.pathname || '').match(/\/playlist\/([0-9a-f-]{36})(?:\/|$)/i);
+    const pathname = String(parsed.pathname || '');
+    const mixMatch = pathname.match(/\/mix\/([0-9a-z]+)(?:\/|$)/i);
+    if (mixMatch && TIDAL_MIX_ID_RE.test(mixMatch[1])) return { id: mixMatch[1], kind: 'url', type: 'mix', raw };
+    const match = pathname.match(/\/playlist\/([0-9a-f-]{36})(?:\/|$)/i);
     if (!match || !TIDAL_PLAYLIST_ID_RE.test(match[1])) return null;
     return { id: match[1].toLowerCase(), kind: 'url', raw };
   } catch (_err) {
@@ -96,7 +116,7 @@ export function mapTidalPlaylist(resource, { ownerName = '' } = {}) {
     trackCount: Number(attrs.numberOfTrackItems ?? attrs.numberOfItems ?? 0),
     snapshotId: String(attrs.lastModifiedAt || '').trim(),
     imageUrl: '',
-    externalUrl: id ? `https://tidal.com/playlist/${id}` : '',
+    externalUrl: buildTidalPlaylistUrl(id),
   };
 }
 

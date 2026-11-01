@@ -11,7 +11,7 @@ Import existing selections from **Playlists → Import playlist**. Curatorr matc
 | Plex | Browse existing playlists and music collections on Plex installs |
 | Spotify | Connect your account in User Profile; the connected-account tab browses owned playlists |
 | TIDAL | Connect your account in User Profile; the TIDAL tab browses playlists owned by that account |
-| URL | Preview supported Spotify, public TIDAL, or public YouTube playlist URLs; YouTube requires the container's `YOUTUBE_API_KEY` |
+| URL | Preview supported Spotify, public TIDAL, or public YouTube playlist URLs, and TIDAL mix links (experimental); YouTube requires the container's `YOUTUBE_API_KEY` |
 | M3U | Upload an `.m3u` or `.m3u8` file; matches paths first, then available artist/title metadata |
 | Watch folder | An admin-configured folder; Curatorr imports and refreshes every `.m3u`/`.m3u8` file in it automatically. See [Watch folder](#watch-folder) |
 | Last.fm | Set your username in User Profile, then choose Recommended, Mix, Library, Neighbours, Loved, or a Top Tracks period |
@@ -105,5 +105,7 @@ Owned playlists imported from the connected **Spotify** tab are the most reliabl
 The **TIDAL** tab lists playlists owned by the connected TIDAL account, including private ones. Public TIDAL playlist links (`https://tidal.com/playlist/...`) can be pasted into the **URL** tab by any user, whether or not they have connected TIDAL. A private playlist owned by another account can't be read; import it from the owner's Curatorr account instead.
 
 Only tracks are imported. Videos in a TIDAL playlist are skipped and do not count as missing. TIDAL import requires `TIDAL_CLIENT_ID` and `TIDAL_CLIENT_SECRET` on the container; see [Integrations](Integrations.md#tidal).
+
+**TIDAL mixes (experimental).** TIDAL mix links (`https://tidal.com/mix/...`) can also be pasted into the **URL** tab. TIDAL's developer API treats mixes as playlists, so a mix imports, refreshes and matches like a TIDAL playlist. Not every mix may be available to Curatorr. Personal mixes such as My Mix may be refused, in which case the preview says TIDAL did not return the mix.
 
 See [Smart Playlists](Smart-Playlists.md) for artwork, filters, and general playlist management.

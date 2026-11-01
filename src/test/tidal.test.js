@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
+  buildTidalPlaylistUrl,
   createTidalPkcePair,
   createTidalService,
+  isTidalMixId,
   parseTidalDurationMs,
   parseTidalPlaylistReference,
 } from '../services/tidal.js';
@@ -37,6 +39,29 @@ describe('TIDAL playlist reference parsing', () => {
     assert.equal(parseTidalPlaylistReference(`https://example.com/playlist/${PLAYLIST_ID}`), null);
     assert.equal(parseTidalPlaylistReference(`https://nottidal.com/playlist/${PLAYLIST_ID}`), null);
     assert.equal(parseTidalPlaylistReference('37i9dQZF1DXaVgr4Tx5kRF'), null);
+  });
+
+  it('accepts TIDAL mix links as experimental playlist references', () => {
+    const mixId = '002f0345b43329398cda7bc2258986';
+    assert.deepEqual(parseTidalPlaylistReference(`https://tidal.com/mix/${mixId}`), {
+      id: mixId,
+      kind: 'url',
+      type: 'mix',
+      raw: `https://tidal.com/mix/${mixId}`,
+    });
+    assert.equal(parseTidalPlaylistReference(`https://listen.tidal.com/mix/${mixId}?u`)?.id, mixId);
+    assert.equal(parseTidalPlaylistReference(`https://tidal.com/browse/mix/${mixId}`)?.id, mixId);
+    // A bare mix id is ambiguous with other providers' ids, so only links are accepted.
+    assert.equal(parseTidalPlaylistReference(mixId), null);
+    assert.equal(parseTidalPlaylistReference('https://tidal.com/mix/short'), null);
+    assert.equal(parseTidalPlaylistReference(`https://example.com/mix/${mixId}`), null);
+  });
+
+  it('builds playlist and mix links from ids', () => {
+    assert.equal(isTidalMixId('002f0345b43329398cda7bc2258986'), true);
+    assert.equal(isTidalMixId(PLAYLIST_ID), false);
+    assert.equal(buildTidalPlaylistUrl(PLAYLIST_ID), `https://tidal.com/playlist/${PLAYLIST_ID}`);
+    assert.equal(buildTidalPlaylistUrl('002f0345b43329398cda7bc2258986'), 'https://tidal.com/mix/002f0345b43329398cda7bc2258986');
   });
 });
 

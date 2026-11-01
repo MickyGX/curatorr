@@ -84,6 +84,7 @@ import {
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildSpotifyTrackLookups, isImportedPlaylistSourceType, normalizeImportMatchText, pickSpotifyTrackMatch } from '../services/import-matching.js';
 import { promoteCompletedRequestsFromLidarr, resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
+import { isTidalMixId } from '../services/tidal.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import {
   buildM3uPathLookups,
@@ -2022,7 +2023,7 @@ export function registerApiMusic(app, ctx) {
   function resolveTidalPlaylistId(value) {
     const parsed = tidalService?.parsePlaylistReference?.(value) || null;
     if (!parsed?.id) {
-      const err = new Error('Enter a valid TIDAL playlist URL or playlist id.');
+      const err = new Error('Enter a valid TIDAL playlist or mix URL, or a playlist id.');
       err.status = 400;
       throw err;
     }
@@ -2065,9 +2066,11 @@ export function registerApiMusic(app, ctx) {
       } catch (err) {
         const status = Number(err?.status || 0);
         if (status === 403 || status === 404) {
-          const notFound = new Error(auth
-            ? 'TIDAL playlist not found, or it is private to another account.'
-            : 'TIDAL playlist not found. Private playlists need TIDAL connected in User Settings.');
+          const notFound = new Error(isTidalMixId(playlistId)
+            ? 'TIDAL did not return this mix. Mix import is experimental, and some mixes (such as personal mixes) may not be available to Curatorr yet.'
+            : (auth
+              ? 'TIDAL playlist not found, or it is private to another account.'
+              : 'TIDAL playlist not found. Private playlists need TIDAL connected in User Settings.'));
           notFound.status = 404;
           throw notFound;
         }
@@ -6083,7 +6086,8 @@ export function registerApiMusic(app, ctx) {
       const source = await fetchTidalImportSource(userPlexId, playlistId);
       const { trackRefs, unmatched } = source.matchResult;
       if (!trackRefs.length) return res.status(404).json({ error: 'No TIDAL tracks matched your local library.' });
-      const title = normaliseImportedPlaylistTitle(req.body?.title, source.playlistMeta?.name || 'Imported TIDAL Playlist');
+      const title = normaliseImportedPlaylistTitle(req.body?.title, source.playlistMeta?.name
+        || (isTidalMixId(playlistId) ? 'Imported TIDAL Mix' : 'Imported TIDAL Playlist'));
       const playlist = await createImportedCustomPlaylist(userPlexId, title, trackRefs, {
         sourceType: 'tidal-playlist',
         sourceRef: playlistId,

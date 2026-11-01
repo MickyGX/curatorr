@@ -442,7 +442,7 @@
                     <div class="import-url-providers" aria-label="URL import providers">
                       <span class="import-url-provider is-active" id="importUrlProviderBadge">Auto-detecting</span>
                     </div>
-                    <div class="cur-panel-meta import-url-note" id="importUrlSupportNote">Supported URLs: <%= [spotifyConfigured ? 'Spotify playlist links, URIs, playlist ids' : '', tidalConfigured ? 'TIDAL playlist links' : '', youtubeConfigured ? 'YouTube playlist links' : ''].filter(Boolean).join('; ') %>.</div>
+                    <div class="cur-panel-meta import-url-note" id="importUrlSupportNote">Supported URLs: <%= [spotifyConfigured ? 'Spotify playlist links, URIs, playlist ids' : '', tidalConfigured ? 'TIDAL playlist links, TIDAL mix links (experimental)' : '', youtubeConfigured ? 'YouTube playlist links' : ''].filter(Boolean).join('; ') %>.</div>
                     <label class="field import-pl-field">
                       <span>Paste a playlist URL or id</span>
                       <input id="importUrlInput" class="cur-input" type="text" placeholder="https://open.spotify.com/playlist/..." autocomplete="off" oninput="onImportUrlInput()" />
@@ -2562,7 +2562,7 @@
     function getImportUrlSupportSummary() {
       var supported = [];
       if (SPOTIFY_CONFIGURED) supported.push('Spotify playlist links, URIs, and playlist ids');
-      if (TIDAL_CONFIGURED) supported.push('TIDAL playlist links and playlist ids');
+      if (TIDAL_CONFIGURED) supported.push('TIDAL playlist links, mix links (experimental) and playlist ids');
       if (YOUTUBE_CONFIGURED) supported.push('YouTube playlist links and playlist ids');
       return supported.length ? supported.join('; ') : 'No URL providers are configured.';
     }
@@ -2865,6 +2865,9 @@
         var parsed = new URL(raw);
         var host = String(parsed.hostname || '').toLowerCase();
         if (!(host === 'tidal.com' || host.endsWith('.tidal.com'))) return '';
+        // Experimental: TIDAL mixes are read through the playlist endpoints.
+        var mixMatch = String(parsed.pathname || '').match(/\/mix\/([0-9a-z]{16,64})(?:\/|$)/i);
+        if (mixMatch) return mixMatch[1];
         var match = String(parsed.pathname || '').match(/\/playlist\/([0-9a-f-]{36})(?:\/|$)/i);
         return match && uuidRe.test(match[1]) ? match[1].toLowerCase() : '';
       } catch (_err) {
@@ -2970,7 +2973,7 @@
           if (statusEl) statusEl.textContent = providerInfo.provider === 'youtube'
             ? 'Enter a valid YouTube playlist URL or playlist id.'
             : (providerInfo.provider === 'tidal'
-              ? 'Enter a valid TIDAL playlist URL or playlist id.'
+              ? 'Enter a valid TIDAL playlist or mix URL, or a playlist id.'
               : 'Enter a valid Spotify playlist URL, URI, or playlist id.');
           return;
         }
@@ -4133,7 +4136,10 @@
       var ref = String(sourceRef || '').trim();
       if (!ref) return '';
       if (type === 'spotify-playlist') return 'https://open.spotify.com/playlist/' + encodeURIComponent(ref);
-      if (type === 'tidal-playlist') return 'https://tidal.com/playlist/' + encodeURIComponent(ref);
+      if (type === 'tidal-playlist') {
+        var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+        return 'https://tidal.com/' + (isUuid ? 'playlist/' : 'mix/') + encodeURIComponent(ref);
+      }
       if (type === 'youtube-playlist') return 'https://www.youtube.com/playlist?list=' + encodeURIComponent(ref);
       return '';
     }

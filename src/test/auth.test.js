@@ -1198,6 +1198,59 @@ describe('user settings integrations', () => {
     }
   });
 
+  it('previews a TIDAL mix link through the playlist endpoints and explains when a mix is unavailable', async () => {
+    const { client, response } = await login('coadmin', 'TestPassword1!');
+    assert.equal(response.status, 302);
+    const mixId = '0165bf6d29598dd01be3e6838d2875';
+    const missingMixId = '011506c18ccae86f1bfebd9e6eba3f';
+
+    const originalFetch = globalThis.fetch;
+    const requestedPaths = [];
+    globalThis.fetch = async (url, options) => {
+      const target = new URL(String(url || ''));
+      if (target.href === 'https://auth.tidal.com/v1/oauth2/token') {
+        return new Response(JSON.stringify({ access_token: 'tidal-app-token', expires_in: 3600 }), { status: 200 });
+      }
+      if (target.hostname === 'openapi.tidal.com') {
+        requestedPaths.push(target.pathname);
+        if (target.pathname.startsWith(`/v2/playlists/${missingMixId}`)) {
+          return new Response(JSON.stringify({ errors: [{ status: '404', detail: 'Not found' }] }), { status: 404 });
+        }
+        if (target.pathname === `/v2/playlists/${mixId}`) {
+          return new Response(JSON.stringify({
+            data: { id: mixId, type: 'playlists', attributes: { name: 'Artist Radio', numberOfTrackItems: 1 } },
+          }), { status: 200 });
+        }
+        if (target.pathname === `/v2/playlists/${mixId}/relationships/items`) {
+          return new Response(JSON.stringify({ data: [{ id: '601', type: 'tracks' }], links: { self: '' } }), { status: 200 });
+        }
+        if (target.pathname === '/v2/tracks') {
+          return new Response(JSON.stringify({
+            data: [{ id: '601', type: 'tracks', attributes: { title: 'Mix Only Song', duration: 'PT3M' }, relationships: { artists: { data: [{ id: 'm1', type: 'artists' }] } } }],
+            included: [{ id: 'm1', type: 'artists', attributes: { name: 'Nobody In This Library' } }],
+          }), { status: 200 });
+        }
+      }
+      return originalFetch(url, options);
+    };
+
+    try {
+      const preview = await client.request(`/api/music/import/tidal/preview?playlistId=${encodeURIComponent(`https://tidal.com/mix/${mixId}`)}`);
+      assert.equal(preview.status, 200);
+      const data = JSON.parse(preview.text);
+      assert.equal(data.playlist.name, 'Artist Radio');
+      assert.equal(data.playlist.externalUrl, `https://tidal.com/mix/${mixId}`);
+      assert.equal(data.totalSourceTracks, 1);
+      assert.ok(requestedPaths.includes(`/v2/playlists/${mixId}/relationships/items`));
+
+      const missing = await client.request(`/api/music/import/tidal/preview?playlistId=${encodeURIComponent(`https://tidal.com/mix/${missingMixId}`)}`);
+      assert.equal(missing.status, 404);
+      assert.match(JSON.parse(missing.text).error, /did not return this mix/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('saves ListenBrainz account settings and clears legacy playlist toggles', async () => {
     const { client, response } = await login('testadmin', 'TestPassword1!');
     assert.equal(response.status, 302);
