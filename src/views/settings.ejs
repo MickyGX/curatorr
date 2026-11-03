@@ -3534,6 +3534,14 @@
                       <span class="settings-toggle-text">Enabled</span>
                     </label>
                     <% } %>
+                    <% if (_jid === 'plexHistorySync') { %>
+                    <label class="settings-job-interval">
+                      <span>Backfill</span>
+                      <input type="number" data-job-backfill-days="<%= _jid %>" value="30" min="1" max="365" step="1" inputmode="numeric" aria-label="Days of Plex history to backfill" />
+                      <span>days</span>
+                    </label>
+                    <button type="button" class="ghost-button settings-job-backfill-btn" data-job-id="<%= _jid %>">Backfill</button>
+                    <% } %>
                     <button type="button" class="ghost-button settings-job-run-btn" data-job-id="<%= _jid %>"><%= _jdef.manualOnly ? 'Run Batch' : 'Run Now' %></button>
                   </div>
                   <% if (_jid === 'tautulliDailySync') { %>
@@ -3709,6 +3717,38 @@
         fetch('/api/jobs/' + jobId + '/run', { method: 'POST', headers: { 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' } })
           .then(function() { startPolling(); })
           .catch(function() {});
+      });
+    });
+
+    // Backfill buttons: the same job run over a longer window.
+    document.querySelectorAll('.settings-job-backfill-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var jobId = btn.dataset.jobId;
+        var input = document.querySelector('[data-job-backfill-days="' + jobId + '"]');
+        var lastRunEl = document.querySelector('[data-job-last-run="' + jobId + '"]');
+        var days = Number(input && input.value);
+        if (!Number.isInteger(days) || days < 1 || days > 365) {
+          if (lastRunEl) lastRunEl.textContent = 'Enter a whole number of days from 1 to 365.';
+          return;
+        }
+        var badge = document.querySelector('[data-job-status="' + jobId + '"]');
+        if (badge) { badge.textContent = 'running'; badge.className = 'settings-job-status-badge settings-job-status-badge--running'; }
+        if (lastRunEl) lastRunEl.textContent = 'Backfilling the last ' + days + ' days…';
+        fetch('/api/jobs/' + jobId + '/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('[name=_csrf]')?.value || '' },
+          body: JSON.stringify({ days: days }),
+        })
+          .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+          .then(function(res) {
+            if (!res.ok) {
+              if (badge) { badge.textContent = 'idle'; badge.className = 'settings-job-status-badge settings-job-status-badge--idle'; }
+              if (lastRunEl) lastRunEl.textContent = (res.data && res.data.error) || 'Backfill could not start.';
+              return;
+            }
+            startPolling();
+          })
+          .catch(function() { startPolling(); });
       });
     });
 

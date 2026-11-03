@@ -2198,6 +2198,14 @@ export function registerSettings(app, ctx) {
       // Never look back less than the daily job's own window.
       options = { lookbackHours: Math.max(days * 24, 26), backfillDays: days };
     }
+    // Manual Plex history backfill: look back further than the default 7 days.
+    if (jobId === 'plexHistorySync' && req.body?.days != null && req.body.days !== '') {
+      const days = Number(req.body.days);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        return res.status(400).json({ error: 'Backfill days must be a whole number from 1 to 365.' });
+      }
+      options = { backfillDays: days };
+    }
     if (jobService.getStatus()?.[jobId]?.isRunning) {
       return res.status(409).json({ error: 'Job is already running.' });
     }

@@ -31,6 +31,7 @@ import { createPlaylistService } from './services/playlists.js';
 import { createJobService } from './services/jobs.js';
 import { rebuildSmartPlaylist } from './routes/api-music.js';
 import { runTautulliDailySync } from './services/tautulli-sync.js';
+import { runPlexHistorySync } from './services/plex-history-sync.js';
 import { runLastfmHistorySync } from './services/lastfm-sync.js';
 import { runLastfmHistoryBackfill } from './services/lastfm-backfill.js';
 import { startMusicAssistant, stopMusicAssistant } from './services/music-assistant/index.js';
@@ -670,6 +671,7 @@ const DEFAULT_JOBS_CONFIG = {
   trackFeatureImportSync: { intervalMinutes: 360, enabled: false },
   trackAnalysisPipeline: { intervalMinutes: 1440, enabled: false },
   tautulliDailySync:   { intervalMinutes: 1440,  enabled: true },
+  plexHistorySync:     { intervalMinutes: 360,   enabled: true },
   lidarrRetryFailed:   { intervalMinutes: 1440,  enabled: true },
   lastfmTagSync:       { intervalMinutes: 10080, enabled: true },
   lastfmHistorySync:   { intervalMinutes: 60,    enabled: false },
@@ -2223,6 +2225,7 @@ export async function start() {
         return { message: `Synced ${syncedPersonal} personal playlist${syncedPersonal === 1 ? '' : 's'}` };
       },
       tautulliDailySync: (options) => runTautulliDailySync(_routeCtx, options),
+      plexHistorySync: (options) => runPlexHistorySync(_routeCtx, options),
       lidarrReviewArtists: async () => {
         await _routeCtx.lidarrService?.markExistingLidarrArtists();
         await _routeCtx.lidarrService?.autoQueueSuggestedArtists({ perUserLimit: 1 });
