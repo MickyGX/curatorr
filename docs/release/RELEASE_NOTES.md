@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.110 (2026-11-03)
+
+- Added **Plex History Sync**, which picks up plays Curatorr missed, including tracks played offline in Plexamp. Plexamp reports offline plays to Plex when it reconnects, but no webhook fires and Tautulli never sees them, so they were not counted before.
+- The job reads Plex's own play history every 6 hours and adds plays Curatorr doesn't already have. Plays it already has are never added twice, and entries Plex logs twice are counted once.
+- A **Backfill** control on the job row looks further back, up to 365 days, to recover older offline plays.
+- Plex history has no listen time, so these plays count as full listens, like Last.fm scrobbles. Plex only; Jellyfin and Emby have no per-play history.
+- Added regression coverage for Plex history matching, duplicates, back-to-back repeats and plays still in progress.
+
 ## v0.1.109 (2026-11-01)
 
 - Added combined playlists. Choose **Combined** in the playlist wizard to build one playlist from two or more of your existing playlists, for example your newest tracks and your most played. Their tracks are pooled without duplicates, then sorted and capped like any playlist.

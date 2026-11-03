@@ -31,6 +31,15 @@ Curatorr can register the Plex webhook automatically from the wizard or Settings
 
 Plex is the recommended live playback source for most installs.
 
+### Plex history sync
+
+Webhooks only see live playback. Tracks played offline in Plexamp, from downloads, never reach Curatorr as they play. Plexamp reports them to Plex when it reconnects, and the **Plex History Sync** job reads Plex's play history and adds any plays Curatorr doesn't already have. It also catches plays a webhook missed while Curatorr was down.
+
+- Runs every 6 hours by default and checks the last 7 days. Use **Backfill** on the job row to look back up to 365 days.
+- Plays already recorded by a webhook, Tautulli, Last.fm or an earlier run are matched and skipped, so running it again is safe.
+- Plex history has no listen time, so imported plays count as full listens. Start times are estimated from when Plex marked the track played.
+- Only plays in the selected music libraries are imported. Plex only; Jellyfin and Emby keep no per-play history.
+
 ## Jellyfin
 
 Jellyfin is supported as a primary Curatorr media server.

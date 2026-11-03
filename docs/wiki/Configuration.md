@@ -156,6 +156,8 @@ Jobs are grouped by purpose, in the order they usually need to run: **Library**,
 
 Jobs for integrations that are not set up, such as Lidarr, Tautulli, Last.fm or the watch folder, are marked **Not configured** and are skipped by **Run all jobs** and **Run group**.
 
+**Plex History Sync** adds plays from Plex's own play history that Curatorr missed, such as offline Plexamp plays. It checks the last 7 days on its schedule; its **Backfill** control looks back up to 365 days. See [Plex history sync](Integrations.md#plex-history-sync).
+
 **Playlist Watch Folder** scans the configured folder for new and changed playlist files. It does nothing until the watch folder is turned on in the Playlists tab.
 
 Use **Artist Pipeline Rebuild** to refresh recommendations, **Master Track Cache Refresh** after library changes, and **Track Analysis Pipeline** for audio enrichment. These jobs have different purposes; playlist rebuild/refresh depends on the library cache already being current.
