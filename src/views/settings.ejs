@@ -3546,6 +3546,16 @@
                     <small class="settings-smart-helper">Off: Tautulli only fills missing plays. On: Tautulli may upgrade an existing Plex play when the timestamps match closely and Tautulli shows a longer, plausible completed listen.</small>
                   </div>
                   <% } %>
+                  <% if (_jid === 'plexHistorySync') { %>
+                  <div class="settings-job-row-extra" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <label for="plex-history-backfill-days" style="font-size:13px">Backfill history</label>
+                    <input id="plex-history-backfill-days" type="number" min="1" max="365" step="1" value="30" inputmode="numeric" aria-label="Days of Plex history to backfill" style="width:5.5em" />
+                    <span style="font-size:13px">days</span>
+                    <button id="plex-history-backfill-btn" class="ghost-button" type="button">Backfill now</button>
+                    <span id="plex-history-backfill-status" style="font-size:12px;opacity:0.7"></span>
+                    <small class="settings-smart-helper" style="flex-basis:100%">Scheduled runs check the last 7 days. Use backfill to pick up older offline plays. Plays Curatorr already has are not added again.</small>
+                  </div>
+                  <% } %>
                 </div>
                 <% } %>
                 <% if (_group.key === 'playlists' && (mediaServerType === 'plex' || !mediaServerType)) { %>
@@ -4425,11 +4435,14 @@
     });
   })();
 
-  // ── Tautulli manual backfill ─────────────────────────────────────────────
-  (function() {
-    var btn = document.getElementById('tautulli-backfill-btn');
-    var input = document.getElementById('tautulli-backfill-days');
-    var status = document.getElementById('tautulli-backfill-status');
+  // ── Tautulli and Plex history manual backfill ───────────────────────────
+  [
+    { jobId: 'tautulliDailySync', prefix: 'tautulli-backfill' },
+    { jobId: 'plexHistorySync', prefix: 'plex-history-backfill' },
+  ].forEach(function(backfill) {
+    var btn = document.getElementById(backfill.prefix + '-btn');
+    var input = document.getElementById(backfill.prefix + '-days');
+    var status = document.getElementById(backfill.prefix + '-status');
     if (!btn || !input || !status) return;
     var _csrf = '<%= csrfToken %>';
     function setStatus(text, color) {
@@ -4438,7 +4451,7 @@
     }
     function pollUntilDone() {
       fetch('/api/jobs/status').then(function(r) { return r.json(); }).then(function(data) {
-        var job = data && data.tautulliDailySync;
+        var job = data && data[backfill.jobId];
         if (job && job.isRunning) { setTimeout(pollUntilDone, 2000); return; }
         btn.disabled = false;
         if (job && job.status === 'error') setStatus(job.message || 'Backfill failed.', 'var(--color-error, #f87171)');
@@ -4453,7 +4466,7 @@
       }
       btn.disabled = true;
       setStatus('Backfilling the last ' + days + ' days…');
-      fetch('/api/jobs/tautulliDailySync/run', {
+      fetch('/api/jobs/' + backfill.jobId + '/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrf },
         body: JSON.stringify({ days: days }),
@@ -4472,7 +4485,7 @@
           setStatus('Request failed.', 'var(--color-error, #f87171)');
         });
     });
-  })();
+  });
 
   // ── Music Assistant ─────────────────────────────────────────────────────
   (function() {

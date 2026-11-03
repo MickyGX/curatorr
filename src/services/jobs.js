@@ -57,6 +57,11 @@ export const JOB_DEFS = {
     description: 'Optional backup job that fetches recent Tautulli history, fills in plays missed by webhooks, and can optionally perform guarded repairs on shorter Plex-recorded listens.',
     defaultIntervalMinutes: 1440,
   },
+  plexHistorySync: {
+    label: 'Plex History Sync',
+    description: 'Reads Plex\'s own play history and adds plays Curatorr never saw, such as tracks played offline in Plexamp and reported to Plex when it reconnects. Plex history has no listen time, so these count as full plays.',
+    defaultIntervalMinutes: 360,
+  },
   lastfmTagSync: {
     label: 'Last.fm Tag Sync',
     description: 'Fetches genre/mood tags from Last.fm for every artist in your library and stores them for use in global playlist filters.',
@@ -105,8 +110,8 @@ export const JOB_GROUPS = [
   {
     key: 'history',
     label: 'Listening history',
-    description: 'Fills in plays from Tautulli and Last.fm that webhooks missed.',
-    jobs: ['tautulliDailySync', 'lastfmHistorySync', 'lastfmHistoryBackfill'],
+    description: 'Fills in plays that webhooks missed, from Tautulli, Plex history (including offline plays) and Last.fm.',
+    jobs: ['tautulliDailySync', 'plexHistorySync', 'lastfmHistorySync', 'lastfmHistoryBackfill'],
   },
   {
     key: 'metadata',
@@ -146,6 +151,7 @@ export function resolveJobAvailability(config = {}) {
     lastfmHistorySync: hasLastfm ? '' : 'No Last.fm API key is set.',
     lastfmHistoryBackfill: hasLastfm ? '' : 'No Last.fm API key is set.',
     trackPlexLoudnessSync: isPlex ? '' : 'Only available with Plex.',
+    plexHistorySync: isPlex ? '' : 'Only available with Plex.',
     playlistWatchFolder: hasWatchFolder ? '' : 'The playlist watch folder is turned off.',
   };
   return Object.fromEntries(Object.keys(JOB_DEFS).map((jobId) => [jobId, reasons[jobId] || '']));

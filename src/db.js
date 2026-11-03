@@ -1202,8 +1202,9 @@ function _eventTime(event) {
 
 function _classifyReplayedEvent(event, smartConfig) {
   const eventSource = String(event?.event_source || '').trim().toLowerCase();
-  const isLastfmScrobble = eventSource === 'lastfm_sync' || eventSource === 'lastfm_backfill';
-  if (isLastfmScrobble && Number(event?.is_skip || 0) === 0) {
+  // Scrobble-only sources carry no listen time: each row means the track was played through.
+  const isScrobbleOnly = eventSource === 'lastfm_sync' || eventSource === 'lastfm_backfill' || eventSource === 'plex_history';
+  if (isScrobbleOnly && Number(event?.is_skip || 0) === 0) {
     const trackDurationMs = Number(event?.track_duration_ms || 0);
     return trackDurationMs > 0
       ? classifyTier(trackDurationMs, trackDurationMs, smartConfig)
