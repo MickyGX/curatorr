@@ -59,7 +59,7 @@ export const JOB_DEFS = {
   },
   plexHistorySync: {
     label: 'Plex History Sync',
-    description: 'Reads Plex\'s own play history and adds plays Curatorr never saw, such as tracks played offline in Plexamp and reported to Plex when it reconnects. Plex history has no listen time, so these count as full plays.',
+    description: 'Reads Plex\'s own play history and adds plays Curatorr never saw, such as tracks played offline in Plexamp and reported to Plex when it reconnects. Plex history has no listen time, so these count as full plays. Scheduled runs check the last 7 days; use Backfill to look further back. Plays Curatorr already has are never added twice.',
     defaultIntervalMinutes: 360,
   },
   lastfmTagSync: {
