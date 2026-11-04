@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= locals.pageTitle || 'Curatorr' %></title>
-  <% const uiAssetVersion = String(assetVersion || 'dev') + '-ui-launcharr-63'; %>
+  <% const uiAssetVersion = String(assetVersion || 'dev') + '-ui-launcharr-64'; %>
   <%- include('./theme-init') %>
   <link rel="stylesheet" href="/styles.css?v=<%= uiAssetVersion %>" />
   <% (locals.extraCss || []).forEach(function(href) { %>
@@ -12,6 +12,8 @@
   <% }); %>
   <script defer src="/panel-controls.js?v=<%= uiAssetVersion %>"></script>
   <script defer src="/filter-popovers.js?v=<%= uiAssetVersion %>"></script>
+  <%# Not deferred: page scripts can call CuratorrUI before deferred scripts run. %>
+  <script src="/ui-feedback.js?v=<%= uiAssetVersion %>"></script>
   <script defer src="/starfield-3d.js?v=<%= uiAssetVersion %>"></script>
   <link rel="icon" type="image/png" href="/icons/curatorr-icon.png" />
   <meta name="theme-color" content="#8b5cf6" />
