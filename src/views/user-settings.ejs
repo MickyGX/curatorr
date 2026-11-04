@@ -635,7 +635,7 @@
       var profileThemeHideScrollbarsValueInput = document.getElementById('profileThemeHideScrollbarsValue');
       var allowedBrandThemes = new Set(['custom', 'curatorr', 'launcharr', 'rocketship', 'pulsarr', 'plex', 'radarr', 'sonarr', 'lidarr', 'readarr']);
       var customColorStorageKey = 'curatorr-custom-color';
-      var serverThemeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
+      var serverThemeDefaults = <%- jsonForScript(themeDefaults || {}) %>;
       var themeOptionStorageKeys = {
         sidebarInvert: 'curatorr-sidebar-invert',
         squareCorners: 'curatorr-square-corners',
@@ -914,7 +914,7 @@
       var root = document.querySelector('[data-filter-manager]');
       if (!root) return;
 
-      var artistCatalog = <%- JSON.stringify(_filterArtists || []) %>;
+      var artistCatalog = <%- jsonForScript(_filterArtists || []) %>;
       var artistMap = new Map(artistCatalog.map(function (artist) {
         return [String(artist.name || ''), artist];
       }));

@@ -1338,10 +1338,10 @@
       closeRecentAlbumMenus();
     });
     // ── Discovery carousels ────────────────────────────────────────────────
-    var DISCOVERY_CONFIG = <%- JSON.stringify(_disc) %>;
+    var DISCOVERY_CONFIG = <%- jsonForScript(_disc) %>;
     var PRELOADED_DISCOVERY_ALBUMS = {
-      recentAdded: <%- JSON.stringify(_recentAddedAlbums) %>,
-      recentRequested: <%- JSON.stringify(_recentRequestedAlbums) %>
+      recentAdded: <%- jsonForScript(_recentAddedAlbums) %>,
+      recentRequested: <%- jsonForScript(_recentRequestedAlbums) %>
     };
     var DISCOVERY_STATE = Object.create(null);
 

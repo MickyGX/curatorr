@@ -1,6 +1,7 @@
 export function registerApiUtil(app, ctx) {
   const {
     requireUser,
+    requireSettingsAdmin,
     loadConfig,
     pushLog,
     LOG_BUFFER,
@@ -25,7 +26,7 @@ export function registerApiUtil(app, ctx) {
     res.json({ status: 'ok', app: 'curatorr', version: APP_VERSION });
   });
 
-  app.get('/api/logs', requireUser, (req, res) => {
+  app.get('/api/logs', requireSettingsAdmin, (req, res) => {
     const appId = String(req.query?.appId || '').trim().toLowerCase();
     const level = String(req.query?.level || '').trim().toLowerCase();
     const limitValue = Number(req.query?.limit || 120);

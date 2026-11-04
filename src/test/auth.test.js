@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { deriveHistoryTier, resolveUserFilter, summarizeAdminLidarrCounts, summarizeAdminPlaylistCounts } from '../routes/pages.js';
 
 const testDir = join(tmpdir(), `curatorr-test-${process.pid}`);
@@ -21,7 +21,7 @@ process.env.TIDAL_CLIENT_SECRET = 'test-tidal-client-secret';
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
-const { start, stop, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds } = await import('../index.js');
+const { start, stop, jsonForScript, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds } = await import('../index.js');
 const {
   countTracksMissingEnrichment,
   countTracksMissingPlexLoudness,
@@ -1490,6 +1490,87 @@ describe('security guards', () => {
     });
     assert.equal(res.status, 200);
     assert.equal(res.json?.ok, true);
+  });
+
+  it('requires a session for the artwork proxy routes', async () => {
+    const client = createClient();
+    for (const path of [
+      '/api/music/thumb/track/123',
+      '/api/music/thumb/artist/Some%20Artist',
+      '/api/music/thumb/album?artist=A&album=B',
+      '/api/music/cover/release-group/00000000-0000-0000-0000-000000000000',
+      '/api/discovery/artist-art/Some%20Artist',
+    ]) {
+      const res = await client.request(path);
+      assert.equal(res.status, 401, `${path} should require a session`);
+    }
+  });
+
+  it('limits the system log API to admins and co-admins', async () => {
+    const originalConfig = await readConfig();
+    const admin = originalConfig.users.find((user) => user.username === 'testadmin');
+    try {
+      await writeConfig({
+        ...originalConfig,
+        users: [...originalConfig.users, {
+          ...admin,
+          username: 'plainuser',
+          email: 'plainuser@curatorr.test',
+          role: 'user',
+          setupAccount: false,
+          systemCreated: false,
+        }],
+      });
+      const { client: userClient } = await login('plainuser', 'TestPassword1!');
+      const userRes = await userClient.request('/api/logs');
+      assert.equal(userRes.status, 403);
+
+      const { client: coadminClient } = await login('coadmin', 'TestPassword1!');
+      const coadminRes = await coadminClient.request('/api/logs');
+      assert.equal(coadminRes.status, 200);
+    } finally {
+      await writeConfig(originalConfig);
+    }
+  });
+
+  it('escapes values embedded in inline scripts', () => {
+    const value = { name: '</script><script>alert(1)</script>', note: 'a & b > c', line: 'x\u2028y' };
+    const out = jsonForScript(value);
+    assert.ok(!out.includes('<'), 'no raw <');
+    assert.ok(!out.includes('>'), 'no raw >');
+    assert.ok(!out.includes('&'), 'no raw &');
+    assert.deepEqual(JSON.parse(out), value);
+    assert.equal(jsonForScript(undefined), 'null');
+  });
+
+  it('keeps running on the last good config and backs up an unreadable config.json before saving', async () => {
+    const originalText = await readFile(process.env.CONFIG_PATH, 'utf8');
+    const configDir = dirname(process.env.CONFIG_PATH);
+    const backupsBefore = new Set((await readdir(configDir)).filter((name) => name.includes('.unreadable-')));
+    try {
+      // Prime the last good config, then break the file.
+      assert.equal((await createClient().request('/login')).status, 200);
+      await writeFile(process.env.CONFIG_PATH, originalText.slice(0, Math.floor(originalText.length / 2)));
+
+      const loginPage = await createClient().request('/login');
+      assert.equal(loginPage.status, 200, 'login still works from the last good config');
+
+      const { response } = await login('testadmin', 'TestPassword1!');
+      assert.equal(response.status, 302);
+      assert.ok(response.location.includes('/overview'));
+
+      const backups = (await readdir(configDir)).filter((name) => name.includes('.unreadable-') && !backupsBefore.has(name));
+      assert.equal(backups.length, 1, 'the unreadable file was copied aside before saving');
+      const backupText = await readFile(join(configDir, backups[0]), 'utf8');
+      assert.equal(backupText, originalText.slice(0, Math.floor(originalText.length / 2)));
+
+      const saved = JSON.parse(await readFile(process.env.CONFIG_PATH, 'utf8'));
+      assert.ok(saved.users.some((user) => user.username === 'testadmin'), 'saved config kept the real users, not defaults');
+      assert.equal((await stat(process.env.CONFIG_PATH)).mode & 0o777, 0o600);
+      for (const name of backups) await rm(join(configDir, name), { force: true });
+    } finally {
+      await writeFile(process.env.CONFIG_PATH, originalText);
+    }
   });
 
   it('accepts Jellyfin and Emby webhooks without a browser CSRF token', async () => {

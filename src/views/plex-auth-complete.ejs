@@ -42,7 +42,7 @@
     </div>
     <script>
       (function() {
-        var redirectTarget = <%- JSON.stringify(redirectTarget) %>;
+        var redirectTarget = <%- jsonForScript(redirectTarget) %>;
         try {
           if (window.opener && !window.opener.closed) {
             window.opener.postMessage({

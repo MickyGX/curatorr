@@ -719,25 +719,93 @@ const DEFAULT_CONFIG = {
   playlistWatchFolder: { enabled: false, path: '', ownerUserId: '', audience: 'personal', removeMissing: false },
 };
 
+// config.json is read on nearly every request, so the raw text is cached and
+// only re-read when the file changes (saveConfig renames a new file into
+// place, so the inode changes on every save). Each call still parses a fresh
+// object, because callers modify what they get back before saving it.
+let configTextCache = { key: '', text: '' };
+// The last config that parsed. If config.json becomes unreadable (a bad hand
+// edit, a damaged disk), Curatorr keeps running on this instead of silently
+// falling back to defaults, which the next save would then write to disk.
+let lastGoodConfigText = '';
+let lastConfigErrorKey = '';
+
+function configFileKey(stat) {
+  return `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
+}
+
+function readConfigTextCached() {
+  const stat = fs.statSync(CONFIG_PATH);
+  const key = configFileKey(stat);
+  if (configTextCache.key !== key) {
+    configTextCache = { key, text: fs.readFileSync(CONFIG_PATH, 'utf8') };
+  }
+  return configTextCache;
+}
+
 function loadConfig() {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    const dir = path.dirname(CONFIG_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    return { ...DEFAULT_CONFIG };
+  }
+  let cached = null;
   try {
-    if (!fs.existsSync(CONFIG_PATH)) {
-      const dir = path.dirname(CONFIG_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
-      return { ...DEFAULT_CONFIG };
-    }
-    const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    cached = readConfigTextCached();
+    const parsed = JSON.parse(cached.text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('config is not a JSON object');
+    lastGoodConfigText = cached.text;
     return { ...DEFAULT_CONFIG, ...parsed };
-  } catch (err) { return { ...DEFAULT_CONFIG }; }
+  } catch (err) {
+    const errorKey = cached?.key || String(err?.message || err);
+    if (lastConfigErrorKey !== errorKey) {
+      lastConfigErrorKey = errorKey;
+      console.error(`[config] Could not read ${CONFIG_PATH}: ${err?.message || err}. ${lastGoodConfigText
+        ? 'Using the last configuration that loaded successfully.'
+        : 'Using default settings until it is fixed.'} The file will be backed up before Curatorr next saves settings.`);
+    }
+    if (lastGoodConfigText) return { ...DEFAULT_CONFIG, ...JSON.parse(lastGoodConfigText) };
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
+// If the file on disk does not parse, keep a copy before replacing it so a
+// broken hand edit can be recovered rather than overwritten.
+function backupUnreadableConfig() {
+  let text = '';
+  try {
+    text = fs.readFileSync(CONFIG_PATH, 'utf8');
+  } catch {
+    return;
+  }
+  try {
+    JSON.parse(text);
+    return;
+  } catch {
+    const backupPath = `${CONFIG_PATH}.unreadable-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    try {
+      fs.copyFileSync(CONFIG_PATH, backupPath);
+      fs.chmodSync(backupPath, 0o600);
+      console.error(`[config] ${CONFIG_PATH} could not be parsed. Saved a copy to ${backupPath} before writing new settings.`);
+    } catch (copyErr) {
+      console.error(`[config] Could not back up unreadable config before saving: ${copyErr?.message || copyErr}`);
+    }
+  }
 }
 
 function saveConfig(config) {
   const dir = path.dirname(CONFIG_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (fs.existsSync(CONFIG_PATH)) backupUnreadableConfig();
   const tmpPath = CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2));
+  const text = JSON.stringify(config, null, 2);
+  // config.json holds server tokens, API keys and password hashes.
+  fs.writeFileSync(tmpPath, text, { mode: 0o600 });
   fs.renameSync(tmpPath, CONFIG_PATH);
+  configTextCache = { key: '', text: '' };
+  lastGoodConfigText = text;
+  lastConfigErrorKey = '';
 }
 
 function ensureWebhookSharedSecret() {
@@ -1857,6 +1925,21 @@ async function fetchPlexPlaylistsForToken(plexUrl, token) {
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
+// Serialise a value for embedding inside an inline <script>. Plain
+// JSON.stringify would let a string containing "</script>" (for example an
+// artist name or tag from media server or Last.fm metadata) end the script
+// block early, so <, > and & are escaped. The result is still valid JSON/JS.
+export function jsonForScript(value) {
+  const json = JSON.stringify(value === undefined ? null : value);
+  return String(json)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+app.locals.jsonForScript = jsonForScript;
 app.set('trust proxy', TRUST_PROXY_SETTING);
 
 app.use(httpAccessLogMiddleware);

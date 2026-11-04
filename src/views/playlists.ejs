@@ -1346,22 +1346,22 @@
     var PLEX_MACHINE_ID = '<%= _plexMachineId %>';
     var MS_LABEL = '<%= _msLabel %>';
     var _msType = '<%= _msType %>';
-    var CURRENT_USER_ID = <%- JSON.stringify(currentUserId || '') %>;
-    var IS_ACTUAL_ADMIN = <%- JSON.stringify(actualRole === 'admin') %>;
-    var CAN_EDIT_GLOBAL_PLAYLISTS = <%- JSON.stringify(_isAdmin) %>;
-    var ALL_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
-    var SPOTIFY_USER_ID = <%- JSON.stringify(spotifyUserId || '') %>;
-    var LASTFM_USERNAME = <%- JSON.stringify(lastfmUsername || '') %>;
-    var LISTENBRAINZ_USERNAME = <%- JSON.stringify(listenbrainzUsername || '') %>;
-    var SPOTIFY_CONNECTED = <%- JSON.stringify(Boolean(spotifyConnected)) %>;
-    var SPOTIFY_CONFIGURED = <%- JSON.stringify(Boolean(spotifyConfigured)) %>;
-    var YOUTUBE_CONFIGURED = <%- JSON.stringify(Boolean(youtubeConfigured)) %>;
-    var TIDAL_CONFIGURED = <%- JSON.stringify(Boolean(tidalConfigured)) %>;
-    var TIDAL_CONNECTED = <%- JSON.stringify(Boolean(tidalConnected)) %>;
-    var IMPORTED_SOURCE_TYPES = <%- JSON.stringify(importedSourceTypes || []) %>;
-    var LIDARR_AUTOMATION_ELIGIBLE = <%- JSON.stringify(Boolean(lidarrAutomationEligible)) %>;
-    var LIDARR_CONFIGURED = <%- JSON.stringify(Boolean(lidarrConfigured)) %>;
-    var IMPORT_HAS_PLEX = <%- JSON.stringify(_msType === 'plex') %>;
+    var CURRENT_USER_ID = <%- jsonForScript(currentUserId || '') %>;
+    var IS_ACTUAL_ADMIN = <%- jsonForScript(actualRole === 'admin') %>;
+    var CAN_EDIT_GLOBAL_PLAYLISTS = <%- jsonForScript(_isAdmin) %>;
+    var ALL_PATH_SEGMENTS = <%- jsonForScript(allPathSegments || []) %>;
+    var SPOTIFY_USER_ID = <%- jsonForScript(spotifyUserId || '') %>;
+    var LASTFM_USERNAME = <%- jsonForScript(lastfmUsername || '') %>;
+    var LISTENBRAINZ_USERNAME = <%- jsonForScript(listenbrainzUsername || '') %>;
+    var SPOTIFY_CONNECTED = <%- jsonForScript(Boolean(spotifyConnected)) %>;
+    var SPOTIFY_CONFIGURED = <%- jsonForScript(Boolean(spotifyConfigured)) %>;
+    var YOUTUBE_CONFIGURED = <%- jsonForScript(Boolean(youtubeConfigured)) %>;
+    var TIDAL_CONFIGURED = <%- jsonForScript(Boolean(tidalConfigured)) %>;
+    var TIDAL_CONNECTED = <%- jsonForScript(Boolean(tidalConnected)) %>;
+    var IMPORTED_SOURCE_TYPES = <%- jsonForScript(importedSourceTypes || []) %>;
+    var LIDARR_AUTOMATION_ELIGIBLE = <%- jsonForScript(Boolean(lidarrAutomationEligible)) %>;
+    var LIDARR_CONFIGURED = <%- jsonForScript(Boolean(lidarrConfigured)) %>;
+    var IMPORT_HAS_PLEX = <%- jsonForScript(_msType === 'plex') %>;
     var _importPlexSources = [];
     var _importPlexSelection = null;
     var _importPlexTitleTouched = false;
@@ -5303,7 +5303,7 @@
 
     // Blend picker initialisation
     (function() {
-      var SPM_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatarUrl || u.avatar || '' }; })) %>;
+      var SPM_BLEND_USERS = <%- jsonForScript((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatarUrl || u.avatar || '' }; })) %>;
       var slotsEl = document.getElementById('spm-blend-picker-rows');
       var addBtn = document.getElementById('spm-blend-add-btn');
       if (!slotsEl || !addBtn) return;
@@ -5734,7 +5734,7 @@
       { id: 'tmpl_seasonal',    icon: '❄', name: 'Seasonal',    description: 'Holiday genre plus festive title and album keywords.', rules: { seasonalGenres: ['Holiday'], seasonalKeywords: ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday'] }, trackFilters: null },
     ];
 
-    var WIZARD_PRESET_COVERAGE = <%- JSON.stringify((playlistFeatureCoverage && playlistFeatureCoverage.presets) || {}) %>;
+    var WIZARD_PRESET_COVERAGE = <%- jsonForScript((playlistFeatureCoverage && playlistFeatureCoverage.presets) || {}) %>;
     var WIZARD_FEATURE_PRESETS = {
       club:      { bpmMin:'126', bpmMax:'', energyMin:'0.78', energyMax:'', danceabilityMin:'0.70', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
       driving:   { bpmMin:'110', bpmMax:'135', energyMin:'0.55', energyMax:'', danceabilityMin:'', danceabilityMax:'', camelotFocus:'', camelotMode:'exact' },
@@ -5767,11 +5767,11 @@
     };
     var WIZARD_SEASONAL_GENRES = ['Holiday', 'Christmas', 'Winter', 'Religious'];
     var WIZARD_SEASONAL_KEYWORDS = ['christmas', 'xmas', 'santa', 'noel', 'mistletoe', 'jingle bell', 'silent night', 'winter wonderland', 'happy holiday', 'snow', 'winter'];
-    var WIZARD_TRACK_DECADES = <%- JSON.stringify(allTrackDecades || []) %>;
-    var WIZARD_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u){return{id:u.id,avatar:u.avatarUrl||u.avatar||''};})) %>;
-    var WIZARD_SMART_SETTINGS = <%- JSON.stringify((config && config.smartPlaylist) || {}) %>;
-    var WIZARD_LIBRARY_TRACK_COUNT = <%- JSON.stringify((playlistFeatureCoverage && playlistFeatureCoverage.totalTracks) || 0) %>;
-    var WIZARD_GENERATED_PLAYLIST_COUNTS = <%- JSON.stringify((playlistCards || []).reduce(function(map, card) {
+    var WIZARD_TRACK_DECADES = <%- jsonForScript(allTrackDecades || []) %>;
+    var WIZARD_BLEND_USERS = <%- jsonForScript((blendableUsers || []).map(function(u){return{id:u.id,avatar:u.avatarUrl||u.avatar||''};})) %>;
+    var WIZARD_SMART_SETTINGS = <%- jsonForScript((config && config.smartPlaylist) || {}) %>;
+    var WIZARD_LIBRARY_TRACK_COUNT = <%- jsonForScript((playlistFeatureCoverage && playlistFeatureCoverage.totalTracks) || 0) %>;
+    var WIZARD_GENERATED_PLAYLIST_COUNTS = <%- jsonForScript((playlistCards || []).reduce(function(map, card) {
       var type = String(card && card.playlistType || '').trim();
       var count = Number(card && card.trackCount || 0);
       if (type && count > 0 && !map[type]) map[type] = count;
@@ -6968,13 +6968,13 @@
 
     // Step 2 — Content
     function wizardStep2() {
-      var ALLGENRES = <%- JSON.stringify(allGenres || []) %>;
-      var ALLMOODS  = <%- JSON.stringify(allMoods  || []) %>;
-      var ALLARTISTCOUNTRIES = <%- JSON.stringify(allArtistCountries || []) %>;
-      var ALLALBUMGENRES = <%- JSON.stringify(allAlbumGenres || []) %>;
-      var ALLALBUMSTYLES = <%- JSON.stringify(allAlbumStyles || []) %>;
-      var ALLALBUMMOODS = <%- JSON.stringify(allAlbumMoods || []) %>;
-      var ALLTAGS   = <%- JSON.stringify(allLastfmTags || []) %>;
+      var ALLGENRES = <%- jsonForScript(allGenres || []) %>;
+      var ALLMOODS  = <%- jsonForScript(allMoods  || []) %>;
+      var ALLARTISTCOUNTRIES = <%- jsonForScript(allArtistCountries || []) %>;
+      var ALLALBUMGENRES = <%- jsonForScript(allAlbumGenres || []) %>;
+      var ALLALBUMSTYLES = <%- jsonForScript(allAlbumStyles || []) %>;
+      var ALLALBUMMOODS = <%- jsonForScript(allAlbumMoods || []) %>;
+      var ALLTAGS   = <%- jsonForScript(allLastfmTags || []) %>;
       var ALLDECADES = WIZARD_TRACK_DECADES || [];
       var mediaServerLabel = wizardMediaServerLabel();
       var hasImportedDetectedContent = wizardHasImportedDetectedContent(_wizardState);

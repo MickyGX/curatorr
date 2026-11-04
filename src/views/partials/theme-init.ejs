@@ -3,7 +3,7 @@
       try {
         var stored = localStorage.getItem("curatorr-theme");
         var prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
-        var themeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
+        var themeDefaults = <%- jsonForScript(themeDefaults || {}) %>;
         var modeFromDefaults = (themeDefaults && (themeDefaults.mode === "day" || themeDefaults.mode === "night")) ? themeDefaults.mode : "";
         var launcharrThemeMode = "";
         var launcharrSquareCorners = "";

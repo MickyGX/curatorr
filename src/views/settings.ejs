@@ -643,7 +643,7 @@
                 <button class="primary-button" type="submit">Save Music Assistant settings</button>
               </div>
             </form>
-            <script type="application/json" id="ma-settings-data"><%- JSON.stringify({ userMap: _ma.userMap || {}, listeners: maListenerOptions || [], providerInstance: _ma.providerInstance || '', serverType: mediaServerType || 'plex' }).replace(/</g, '\\u003c') %></script>
+            <script type="application/json" id="ma-settings-data"><%- jsonForScript({ userMap: _ma.userMap || {}, listeners: maListenerOptions || [], providerInstance: _ma.providerInstance || '', serverType: mediaServerType || 'plex' }).replace(/</g, '\\u003c') %></script>
           </div>
         </div>
         <% } %>
@@ -1416,7 +1416,7 @@
               { value: 'lte', label: 'is at most' },
               { value: 'between', label: 'is between' },
             ];
-            var _TF_PATH_SEGMENTS = <%- JSON.stringify(allPathSegments || []) %>;
+            var _TF_PATH_SEGMENTS = <%- jsonForScript(allPathSegments || []) %>;
             function tfOpsForField(field) {
               return ['ratingCount', 'trackYear', 'originalReleaseDate', 'bpm', 'energy', 'danceability'].includes(field) ? _TF_TYPED_OPS : _TF_TEXT_OPS;
             }
@@ -2069,7 +2069,7 @@
               var _csrf = '<%= csrfToken %>';
               var previewTimer = null;
               var _editingGpId = null;
-              var GP_DATA = <%- JSON.stringify(globalPlaylists || []) %>;
+              var GP_DATA = <%- jsonForScript(globalPlaylists || []) %>;
               var GP_FEATURE_PRESETS = {
                 none: { bpmMin: '', bpmMax: '', energyMin: '', energyMax: '', danceabilityMin: '', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
                 club: { bpmMin: '118', bpmMax: '132', energyMin: '0.70', energyMax: '', danceabilityMin: '0.55', danceabilityMax: '', camelotFocus: '', camelotMode: 'exact' },
@@ -2572,7 +2572,7 @@
 
               // Blend picker initialisation (if blend section exists)
               (function() {
-                var GP_BLEND_USERS = <%- JSON.stringify((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatarUrl || u.avatar || '' }; })) %>;
+                var GP_BLEND_USERS = <%- jsonForScript((blendableUsers || []).map(function(u) { return { id: u.id, avatar: u.avatarUrl || u.avatar || '' }; })) %>;
                 var slotsEl = document.getElementById('gp-blend-picker-rows');
                 var addBtn = document.getElementById('gp-blend-add-btn');
                 if (!slotsEl || !addBtn) return;
@@ -3655,7 +3655,7 @@
       var id = String(location.hash || '').replace(/^#/, '');
       if (hasTab(id)) activateTab(id, { updateHash: false });
     });
-    var serverTab = <%- JSON.stringify(String(locals.requestedTab || '')).replace(/</g, '\\u003c') %>;
+    var serverTab = <%- jsonForScript(String(locals.requestedTab || '')).replace(/</g, '\\u003c') %>;
     var hashTab = String(location.hash || '').replace(/^#/, '');
     var savedTab = '';
     try { savedTab = localStorage.getItem('curatorr-settings-tab') || ''; } catch(e) {}
@@ -4206,7 +4206,7 @@
     var themeDefaultHideScrollbarsInput = document.getElementById('themeDefaultHideScrollbars');
     var allowedBrandThemes = new Set(['custom', 'curatorr', 'launcharr', 'rocketship', 'pulsarr', 'plex', 'radarr', 'sonarr', 'lidarr', 'readarr']);
     var customColorStorageKey = 'curatorr-custom-color';
-    var serverThemeDefaults = <%- JSON.stringify(themeDefaults || {}) %>;
+    var serverThemeDefaults = <%- jsonForScript(themeDefaults || {}) %>;
     var themeOptionStorageKeys = {
       sidebarInvert: 'curatorr-sidebar-invert',
       squareCorners: 'curatorr-square-corners',
