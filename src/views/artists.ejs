@@ -126,7 +126,7 @@
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script>
-    const ARTISTS_DATA = <%- JSON.stringify(_artists.map(function(a, index) {
+    const ARTISTS_DATA = <%- jsonForScript(_artists.map(function(a, index) {
       return {
         index,
         artist_name: a.artist_name || '',

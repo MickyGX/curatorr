@@ -6638,7 +6638,7 @@ export function registerApiMusic(app, ctx) {
   // ── Image proxies (avoid exposing Plex token to browser) ─────────────────
 
   // Album art for a track by its Plex rating key (uses parentThumb from metadata)
-  app.get('/api/music/thumb/track/:key', async (req, res) => {
+  app.get('/api/music/thumb/track/:key', requireUser, async (req, res) => {
     const config = loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     if (msType === 'jellyfin' || msType === 'emby') {
@@ -6662,6 +6662,7 @@ export function registerApiMusic(app, ctx) {
     const base = url.replace(/\/$/, '');
     try {
       const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(key)}`, {
+        signal: AbortSignal.timeout(8000),
         headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
       });
       if (!mr.ok) return res.status(404).end();
@@ -6671,6 +6672,7 @@ export function registerApiMusic(app, ctx) {
       if (!thumb) return res.status(404).end();
 
       const ir = await fetch(`${base}${thumb}`, {
+        signal: AbortSignal.timeout(8000),
         headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
       });
       if (!ir.ok) return res.status(404).end();
@@ -6684,7 +6686,7 @@ export function registerApiMusic(app, ctx) {
   });
 
   // Artist art — prefer real Plex artist metadata, fall back to a named artist lookup
-  app.get('/api/music/thumb/artist/:name', async (req, res) => {
+  app.get('/api/music/thumb/artist/:name', requireUser, async (req, res) => {
     const config = loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const artistName = decodeURIComponent(req.params.name);
@@ -6734,14 +6736,14 @@ export function registerApiMusic(app, ctx) {
       try {
         const deezerUrl = new URL('https://api.deezer.com/search/artist');
         deezerUrl.searchParams.set('q', artistName);
-        const deezerRes = await fetch(deezerUrl.toString(), { headers: { Accept: 'application/json', 'User-Agent': 'Curatorr/1.0' } });
+        const deezerRes = await fetch(deezerUrl.toString(), { headers: { Accept: 'application/json', 'User-Agent': 'Curatorr/1.0' }, signal: AbortSignal.timeout(8000) });
         if (deezerRes.ok) {
           const deezerJson = await deezerRes.json();
           const candidates = Array.isArray(deezerJson?.data) ? deezerJson.data : [];
           const picked = candidates.find((item) => artistNamesMatch(item?.name, artistName)) || candidates[0];
           const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
           if (remoteThumb) {
-            const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' } });
+            const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' }, signal: AbortSignal.timeout(8000) });
             if (ir.ok) {
               const buf = await ir.arrayBuffer();
               return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
@@ -6785,6 +6787,7 @@ export function registerApiMusic(app, ctx) {
         const deezerUrl = new URL('https://api.deezer.com/search/artist');
         deezerUrl.searchParams.set('q', artistName);
         const deezerRes = await fetch(deezerUrl.toString(), {
+          signal: AbortSignal.timeout(8000),
           headers: { Accept: 'application/json', 'User-Agent': 'Curatorr/1.0' },
         });
         if (deezerRes.ok) {
@@ -6795,7 +6798,7 @@ export function registerApiMusic(app, ctx) {
             || candidates[0];
           const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
           if (remoteThumb) {
-            const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' } });
+            const ir = await fetch(remoteThumb, { headers: { Accept: 'image/*', 'User-Agent': 'Curatorr/1.0' }, signal: AbortSignal.timeout(8000) });
             if (ir.ok) {
               const buf = await ir.arrayBuffer();
               return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
@@ -6815,6 +6818,7 @@ export function registerApiMusic(app, ctx) {
           searchUrl.searchParams.set('type', '8');
           searchUrl.searchParams.set('title', searchTerm);
           const searchRes = await fetch(searchUrl.toString(), {
+            signal: AbortSignal.timeout(8000),
             headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
           });
           if (!searchRes.ok) continue;
@@ -6825,6 +6829,7 @@ export function registerApiMusic(app, ctx) {
           const artistThumb = artistMeta?.thumb || artistMeta?.art;
           if (!artistThumb) continue;
           const ir = await fetch(`${base}${artistThumb}`, {
+            signal: AbortSignal.timeout(8000),
             headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
           });
           if (!ir.ok) continue;
@@ -6836,6 +6841,7 @@ export function registerApiMusic(app, ctx) {
       for (const trackRow of trackRows) {
         const metaUrl = `${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}`;
         const mr = await fetch(metaUrl, {
+          signal: AbortSignal.timeout(8000),
           headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
         });
         if (!mr.ok) continue;
@@ -6848,6 +6854,7 @@ export function registerApiMusic(app, ctx) {
 
         if (artistKey) {
           const artistMetaRes = await fetch(`${base}/library/metadata/${encodeURIComponent(artistKey)}`, {
+            signal: AbortSignal.timeout(8000),
             headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
           });
           if (artistMetaRes.ok) {
@@ -6856,6 +6863,7 @@ export function registerApiMusic(app, ctx) {
             const artistThumb = artistMeta?.thumb || artistMeta?.art;
             if (artistThumb && (!artistMeta?.title || artistNamesMatch(artistMeta?.title, artistName))) {
               const ir = await fetch(`${base}${artistThumb}`, {
+                signal: AbortSignal.timeout(8000),
                 headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
               });
               if (!ir.ok) continue;
@@ -6868,6 +6876,7 @@ export function registerApiMusic(app, ctx) {
         const fallbackThumb = trackMeta?.grandparentThumb;
         if (fallbackThumb && artistNamesMatch(trackMeta?.grandparentTitle, artistName)) {
           const ir = await fetch(`${base}${fallbackThumb}`, {
+            signal: AbortSignal.timeout(8000),
             headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
           });
           if (!ir.ok) continue;
@@ -6882,6 +6891,7 @@ export function registerApiMusic(app, ctx) {
         const deezerUrl = new URL('https://api.deezer.com/search/artist');
         deezerUrl.searchParams.set('q', artistName);
         const deezerRes = await fetch(deezerUrl.toString(), {
+          signal: AbortSignal.timeout(8000),
           headers: {
             Accept: 'application/json',
             'User-Agent': 'Curatorr/1.0',
@@ -6896,6 +6906,7 @@ export function registerApiMusic(app, ctx) {
           const remoteThumb = picked?.picture_big || picked?.picture_medium || picked?.picture;
           if (remoteThumb) {
             const ir = await fetch(remoteThumb, {
+              signal: AbortSignal.timeout(8000),
               headers: {
                 Accept: 'image/*',
                 'User-Agent': 'Curatorr/1.0',
@@ -6917,7 +6928,7 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
-  app.get('/api/music/thumb/album', async (req, res) => {
+  app.get('/api/music/thumb/album', requireUser, async (req, res) => {
     const config = loadConfig();
     const msType = String(config?.mediaServer?.type || 'plex').toLowerCase();
     const artistName = String(req.query?.artist || '').trim();
@@ -6981,7 +6992,7 @@ export function registerApiMusic(app, ctx) {
         const images = JSON.parse(matched.Images || '[]');
         const coverUrl = (images.find((i) => i?.coverType === 'cover') || images[0])?.url || '';
         if (!coverUrl) return fallbackArtistThumb();
-        const ir = await fetch(coverUrl, { headers: { Accept: 'image/*,*/*' } });
+        const ir = await fetch(coverUrl, { headers: { Accept: 'image/*,*/*' }, signal: AbortSignal.timeout(8000) });
         if (!ir.ok) return fallbackArtistThumb();
         const buf = await ir.arrayBuffer();
         return sendThumbImage(res, cacheKey, ir.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf));
@@ -6999,6 +7010,7 @@ export function registerApiMusic(app, ctx) {
 
     try {
       const mr = await fetch(`${base}/library/metadata/${encodeURIComponent(trackRow.rating_key)}`, {
+        signal: AbortSignal.timeout(8000),
         headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
       });
       if (!mr.ok) return fallbackArtistThumb();
@@ -7008,6 +7020,7 @@ export function registerApiMusic(app, ctx) {
       if (!thumb) return fallbackArtistThumb();
 
       const ir = await fetch(`${base}${thumb}`, {
+        signal: AbortSignal.timeout(8000),
         headers: buildPlexAuthHeaders(token, { Accept: 'image/*,*/*' }),
       });
       if (!ir.ok) return fallbackArtistThumb();
@@ -7025,6 +7038,7 @@ export function registerApiMusic(app, ctx) {
     if (!baseUrl || !isAllowedLidarrImagePath(path)) return res.status(404).end();
     try {
       const upstream = await fetch(`${baseUrl}${path}`, {
+        signal: AbortSignal.timeout(8000),
         headers: {
           'X-Api-Key': String(config?.lidarr?.apiKey || '').trim(),
           Accept: 'image/*,*/*',
@@ -7064,7 +7078,7 @@ export function registerApiMusic(app, ctx) {
 
       const directUrl = String(album?.imageUrl || '').trim();
       if (directUrl) {
-        const upstream = await fetch(directUrl, { headers: { Accept: 'image/*,*/*' } });
+        const upstream = await fetch(directUrl, { headers: { Accept: 'image/*,*/*' }, signal: AbortSignal.timeout(8000) });
         if (upstream.ok) {
           const buf = await upstream.arrayBuffer();
           return sendThumbImage(res, cacheKey, upstream.headers.get('Content-Type') || 'image/jpeg', Buffer.from(buf), 'public, max-age=3600');
@@ -7082,11 +7096,12 @@ export function registerApiMusic(app, ctx) {
     }
   });
 
-  app.get('/api/music/cover/release-group/:id', async (req, res) => {
+  app.get('/api/music/cover/release-group/:id', requireUser, async (req, res) => {
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(404).end();
     try {
       const upstream = await fetch(`https://coverartarchive.org/release-group/${encodeURIComponent(id)}/front-250`, {
+        signal: AbortSignal.timeout(8000),
         headers: {
           Accept: 'image/*,*/*',
           'User-Agent': 'Curatorr/phase2 (+https://github.com/MickyGX/curatorr)',
@@ -7104,7 +7119,7 @@ export function registerApiMusic(app, ctx) {
 
   // ── Discovery carousels (Last.fm proxy) ───────────────────────────────────
 
-  app.get('/api/discovery/artist-art/:name', async (req, res) => {
+  app.get('/api/discovery/artist-art/:name', requireUser, async (req, res) => {
     const config = loadConfig();
     const disc = config.discovery || {};
     const artistName = decodeURIComponent(req.params.name || '').trim();

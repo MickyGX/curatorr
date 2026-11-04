@@ -191,9 +191,9 @@
 
   <script>
   (function() {
-    var CURRENT_USER_ID = <%- JSON.stringify(_currentUserId) %>;
-    var CURRENT_USER_NAME = <%- JSON.stringify(_currentUserName) %>;
-    var BLEND_USERS = <%- JSON.stringify(_blendCards.map(function(card) {
+    var CURRENT_USER_ID = <%- jsonForScript(_currentUserId) %>;
+    var CURRENT_USER_NAME = <%- jsonForScript(_currentUserName) %>;
+    var BLEND_USERS = <%- jsonForScript(_blendCards.map(function(card) {
       return {
         id: card.id,
         name: card.name || card.id,

@@ -39,7 +39,7 @@
       (async () => {
         const callbackBase = "<%= callbackUrl %>";
         const plexState = "<%= plexState %>";
-        const client = <%- JSON.stringify(client) %>;
+        const client = <%- jsonForScript(client) %>;
         const headers = {
           Accept: "application/json",
           "X-Plex-Client-Identifier": client.id,

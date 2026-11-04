@@ -127,7 +127,7 @@
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script>
-    const HISTORY_DATA = <%- JSON.stringify(_history.map(function(h, index) {
+    const HISTORY_DATA = <%- jsonForScript(_history.map(function(h, index) {
       return {
         index,
         plex_rating_key: String(h.plex_rating_key || ''),

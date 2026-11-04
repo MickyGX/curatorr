@@ -204,7 +204,7 @@
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
   <script>
-    const TRACKS_DATA = <%- JSON.stringify(_tracks.map(function(t, index) {
+    const TRACKS_DATA = <%- jsonForScript(_tracks.map(function(t, index) {
       return {
         index,
         rating_key: String(t.rating_key || ''),

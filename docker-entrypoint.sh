@@ -41,7 +41,8 @@ else
 fi
 
 chown "${APP_USER}:${APP_GROUP}" /app/config/config.json 2>/dev/null || true
-chmod 644 /app/config/config.json 2>/dev/null || true
+# config.json holds server tokens, API keys and password hashes: owner only.
+chmod 600 /app/config/config.json 2>/dev/null || true
 
 if command -v gosu >/dev/null 2>&1; then
   exec gosu "${APP_USER}:${APP_GROUP}" "$@"
