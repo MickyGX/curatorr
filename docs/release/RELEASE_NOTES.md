@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.1.112 (2026-11-04)
+
+- **Security:** Fixed the setup wizard staying open after setup. Anyone who could reach Curatorr could create an admin account or send the saved Plex token to another server. Wizard steps now close once setup is complete, and need the admin's login before then. Upgrade promptly if Curatorr is reachable from outside your home network.
+- Fixed Jellyfin and Emby webhooks being rejected with a 403 before their key was checked. Playback tracking fell back to polling.
+- Artwork images and the system log now need a login, and the log is limited to admins and co-admins. Page data is now escaped so metadata can't break page scripts.
+- A damaged `config.json` is no longer replaced with default settings. Curatorr keeps using the last settings that loaded and saves a copy of the damaged file. `config.json` is now readable by its owner only.
+- Playlist dialogs close with Escape and keep keyboard focus inside. The smart playlist builder asks before discarding unsaved changes.
+- Browser pop-ups are replaced with themed confirm dialogs and notifications. Bulk delete now reports playlists it could not delete.
+- Fixed unstyled buttons in Settings. Logs and About moved to the end of the tab bar, tabs work with the arrow keys, and each tab has its own link.
+- Added regression coverage for the wizard, webhook, artwork, log and config fixes.
+
 ## v0.1.111 (2026-11-04)
 
 - Fixed the built-in analyzer skipping every `.m4a` (AAC/ALAC) track as unreadable. Newer analyzer images ship librosa 1.0, which can no longer open these files, so the analyzer now decodes them with ffmpeg instead. Skipped tracks are picked up on the next analyzer run. Requires the updated analyzer image.
