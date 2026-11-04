@@ -645,7 +645,16 @@ function createRequestBodySizeGuard(maxBytes) {
 // ─── CSRF ─────────────────────────────────────────────────────────────────────
 
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const CSRF_EXEMPT_PATHS = new Set(['/webhook/tautulli', '/webhook/plex', '/healthz', '/api/plex/pin']);
+// Webhooks come from media servers, not browsers, and each one checks the
+// shared webhook key itself, so they are exempt from the session CSRF check.
+const CSRF_EXEMPT_PATHS = new Set([
+  '/webhook/tautulli',
+  '/webhook/plex',
+  '/webhook/jellyfin',
+  '/webhook/emby',
+  '/healthz',
+  '/api/plex/pin',
+]);
 
 function csrfProtectionMiddleware(req, res, next) {
   if (CSRF_SAFE_METHODS.has(req.method)) return next();

@@ -1492,6 +1492,132 @@ describe('security guards', () => {
     assert.equal(res.json?.ok, true);
   });
 
+  it('accepts Jellyfin and Emby webhooks without a browser CSRF token', async () => {
+    const client = createClient();
+    for (const server of ['jellyfin', 'emby']) {
+      const res = await client.request(`/webhook/${server}?key=${encodeURIComponent(webhookKey)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ NotificationType: 'PlaybackStart', ItemType: 'Movie' }),
+      });
+      assert.equal(res.status, 200, `${server} webhook should reach its handler`);
+      assert.equal(res.json?.ok, true);
+
+      const badKeyRes = await client.request(`/webhook/${server}?key=wrong-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ NotificationType: 'PlaybackStart' }),
+      });
+      assert.equal(badKeyRes.status, 401, `${server} webhook should still check the shared key`);
+    }
+  });
+
+  it('blocks anonymous server wizard steps once an account exists', async () => {
+    const originalConfig = await readConfig();
+    const originalFetch = global.fetch;
+    const outbound = [];
+    global.fetch = async (url, options = {}) => {
+      const target = String(url || '');
+      if (target.startsWith(baseUrl)) return originalFetch(url, options);
+      outbound.push(target);
+      throw new Error('Unexpected outbound fetch: ' + target);
+    };
+    try {
+      await writeConfig({ ...originalConfig, wizard: { completed: false } });
+      const client = createClient();
+
+      const pageRes = await client.request('/wizard');
+      assert.equal(pageRes.status, 303);
+      assert.ok(pageRes.location.startsWith('/login'));
+
+      const accountRes = await client.postForm('/wizard/account', {
+        username: 'intruder',
+        email: 'intruder@example.test',
+        password: 'IntruderPassword1!',
+        confirmPassword: 'IntruderPassword1!',
+      }, '/login');
+      assert.equal(accountRes.status, 303);
+      assert.ok(accountRes.location.startsWith('/login'));
+
+      const serverRes = await client.postForm('/wizard/media-server', {
+        mediaServerType: 'plex',
+        plexUrl: 'http://attacker.example',
+      }, '/login');
+      assert.equal(serverRes.status, 303);
+      assert.ok(serverRes.location.startsWith('/login'));
+
+      const nextConfig = await readConfig();
+      assert.ok(!nextConfig.users.some((user) => user.username === 'intruder'));
+      assert.equal(nextConfig.plex?.url, originalConfig.plex?.url);
+      assert.deepEqual(outbound, []);
+    } finally {
+      global.fetch = originalFetch;
+      await writeConfig(originalConfig);
+    }
+  });
+
+  it('blocks non-admin users from server wizard steps', async () => {
+    const originalConfig = await readConfig();
+    try {
+      await writeConfig({ ...originalConfig, wizard: { completed: false } });
+      const { client, response } = await login('coadmin', 'TestPassword1!');
+      assert.equal(response.status, 302);
+      const res = await client.postForm('/wizard/lidarr', { skip: '1' }, '/settings');
+      assert.equal(res.status, 403);
+      const nextConfig = await readConfig();
+      assert.notEqual(nextConfig.wizard?.completed, true);
+    } finally {
+      await writeConfig(originalConfig);
+    }
+  });
+
+  it('closes every server wizard step after setup is complete', async () => {
+    const originalConfig = await readConfig();
+    try {
+      await writeConfig({ ...originalConfig, wizard: { completed: true, completedAt: new Date().toISOString() } });
+
+      const anon = createClient();
+      const anonRes = await anon.postForm('/wizard/account', {
+        username: 'intruder',
+        email: 'intruder@example.test',
+        password: 'IntruderPassword1!',
+        confirmPassword: 'IntruderPassword1!',
+      }, '/login');
+      assert.equal(anonRes.status, 303);
+      assert.equal(anonRes.location, '/overview');
+
+      const { client } = await login('testadmin', 'TestPassword1!');
+      for (const step of ['/wizard/account', '/wizard/media-server', '/wizard/libraries', '/wizard/tautulli', '/wizard/lidarr', '/wizard/back', '/wizard/plex/fetch-token']) {
+        const res = await client.postForm(step, { skip: '1', plexUrl: 'http://attacker.example' }, '/settings');
+        assert.equal(res.status, 303, `${step} should be closed after setup`);
+        assert.equal(res.location, '/overview');
+      }
+
+      const nextConfig = await readConfig();
+      assert.ok(!nextConfig.users.some((user) => user.username === 'intruder'));
+      assert.equal(nextConfig.plex?.url, originalConfig.plex?.url);
+    } finally {
+      await writeConfig(originalConfig);
+    }
+  });
+
+  it('ignores the wizard Plex token purpose once setup is complete', async () => {
+    const originalConfig = await readConfig();
+    try {
+      await writeConfig({ ...originalConfig, wizard: { completed: true, completedAt: new Date().toISOString() } });
+      const client = createClient();
+      const res = await client.request('/auth/plex?purpose=wizard-server-token');
+      assert.ok(res.status < 500);
+      const sessionValue = (client.cookieHeader().match(/(?:^|; )curatorr_session=([^;]+)/) || [])[1] || '';
+      assert.ok(sessionValue, 'expected the Plex login start to write a session');
+      const decoded = JSON.parse(Buffer.from(decodeURIComponent(sessionValue), 'base64').toString('utf8'));
+      assert.ok(decoded.plexState, 'expected the Plex login flow to have started');
+      assert.notEqual(decoded.plexAuthPurpose, 'wizard-server-token');
+    } finally {
+      await writeConfig(originalConfig);
+    }
+  });
+
   it('ignores Tautulli webhooks from Plex libraries that are not selected', async () => {
     const originalConfig = await readConfig();
     await writeConfig({
