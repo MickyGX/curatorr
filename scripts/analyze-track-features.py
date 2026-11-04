@@ -4,11 +4,15 @@ import argparse
 import json
 import math
 import os
+import subprocess
 import sys
 import time
 
 
 DEFAULT_ANALYSIS_DURATION_SECONDS = 180
+ANALYSIS_SAMPLE_RATE = 22050
+# ffmpeg decodes far faster than realtime, so this only trips on a decoder that hangs.
+FFMPEG_DECODE_TIMEOUT_SECONDS = 300
 
 # DSD formats (DSF, DFF) are not reliably supported by librosa/audioread and can exhaust
 # memory during ffmpeg conversion on low-spec hardware, crashing the entire analysis chunk.
@@ -139,6 +143,47 @@ def coerce_duration_seconds(value, fallback=DEFAULT_ANALYSIS_DURATION_SECONDS):
     return duration
 
 
+def decode_with_ffmpeg(file_path, sr, max_duration_seconds):
+    import numpy as np
+
+    command = ['ffmpeg', '-nostdin', '-v', 'error', '-i', file_path]
+    if max_duration_seconds:
+        command += ['-t', str(max_duration_seconds)]
+    # Decode to stereo and average the channels here: ffmpeg's own mono downmix
+    # is louder than librosa's channel mean, which would skew energy upward.
+    command += ['-vn', '-ac', '2', '-ar', str(sr), '-f', 'f32le', '-']
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=FFMPEG_DECODE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not result.stdout:
+        return None
+    samples = np.frombuffer(result.stdout, dtype=np.float32)
+    return samples[:samples.size - samples.size % 2].reshape(-1, 2).mean(axis=1)
+
+
+def load_audio(file_path, sr, max_duration_seconds):
+    import librosa
+
+    load_options = {'sr': sr, 'mono': True}
+    if max_duration_seconds:
+        load_options['duration'] = max_duration_seconds
+    try:
+        return librosa.load(file_path, **load_options)
+    except Exception:
+        # librosa 1.0 dropped its audioread fallback, so formats libsndfile cannot
+        # open (AAC/ALAC .m4a) fail here. Decode those with ffmpeg instead.
+        y = decode_with_ffmpeg(file_path, sr, max_duration_seconds)
+        if y is None:
+            raise
+        return y, sr
+
+
 def analyze_track(track, max_duration_seconds=DEFAULT_ANALYSIS_DURATION_SECONDS):
     import librosa
     import numpy as np
@@ -151,10 +196,7 @@ def analyze_track(track, max_duration_seconds=DEFAULT_ANALYSIS_DURATION_SECONDS)
         print(f'[curatorr-analyzer] skipping unsupported format: {file_path} ({ext})', file=sys.stderr, flush=True)
         return None
     try:
-        load_options = {'sr': 22050, 'mono': True}
-        if max_duration_seconds:
-            load_options['duration'] = max_duration_seconds
-        y, sr = librosa.load(file_path, **load_options)
+        y, sr = load_audio(file_path, ANALYSIS_SAMPLE_RATE, max_duration_seconds)
         if y.size == 0:
             return None
 
