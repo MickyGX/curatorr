@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.111 (2026-11-04)
+
+- Fixed the built-in analyzer skipping every `.m4a` (AAC/ALAC) track as unreadable. Newer analyzer images ship librosa 1.0, which can no longer open these files, so the analyzer now decodes them with ffmpeg instead. Skipped tracks are picked up on the next analyzer run. Requires the updated analyzer image.
+- Fixed TIDAL mix import failing at preview with "Enter a valid TIDAL playlist or mix URL, or a playlist id." for every `tidal.com/mix/...` link.
+- Added regression coverage for the ffmpeg fallback and for TIDAL mix links pasted into the import dialog.
+- Thanks to @JesusMacabee (#193) and @Tubeman-cell (#180) for the reports and investigation.
+
 ## v0.1.110 (2026-11-03)
 
 - Added **Plex History Sync**, which picks up plays Curatorr missed, including tracks played offline in Plexamp. Plexamp reports offline plays to Plex when it reconnects, but no webhook fires and Tautulli never sees them, so they were not counted before.
