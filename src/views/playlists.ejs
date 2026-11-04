@@ -1031,11 +1031,11 @@
     </div>
   </div>
 
-  <div id="smartPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)closeSmartPlaylistModal()">
+  <div id="smartPlModal" class="spm-overlay" style="display:none" onclick="if(event.target===this)requestCloseSmartPlaylistModal()">
     <div class="spm-dialog" role="dialog" aria-modal="true" aria-label="Create Smart Playlist">
       <div class="spm-header">
         <span class="spm-title" id="spm-modal-title">Create Smart Playlist</span>
-        <button class="spm-close" type="button" onclick="closeSmartPlaylistModal()" aria-label="Close">✕</button>
+        <button class="spm-close" type="button" onclick="requestCloseSmartPlaylistModal()" aria-label="Close">✕</button>
       </div>
       <div class="spm-body">
         <div id="spm-wizard-body" style="display:none"></div>
@@ -1303,7 +1303,7 @@
 
       <div class="spm-footer">
         <div id="spm-flat-footer" style="display:flex;align-items:center;gap:10px;width:100%">
-          <button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>
+          <button class="btn btn-ghost" type="button" onclick="requestCloseSmartPlaylistModal()">Cancel</button>
           <button class="btn btn-primary" type="button" id="spm-create-btn" onclick="spmSubmit()">Create Playlist</button>
           <span id="spm-msg" style="font-size:13px;margin-left:8px"></span>
         </div>
@@ -1317,6 +1317,7 @@
   <script src="/version-badge.js?v=<%= assetVersion %>"></script>
   <script src="/brand-menu.js?v=<%= assetVersion %>"></script>
   <script src="/curatorr-overview.js?v=<%= assetVersion %>"></script>
+  <script src="/modal-a11y.js?v=<%= assetVersion %>"></script>
   <script>
     var _offset = 0;
     var _total = 0;
@@ -2111,7 +2112,7 @@
         .catch(function(err) {
           btn.disabled = false;
           btn.textContent = '✕';
-          alert('Could not remove track: ' + (err.message || 'Unknown error'));
+          CuratorrUI.toast('Could not remove track: ' + (err.message || 'Unknown error'), { type: 'error' });
         });
     }
 
@@ -2138,7 +2139,7 @@
         .catch(function(err) {
           btn.disabled = false;
           btn.textContent = '＋';
-          alert('Could not add artist tracks: ' + (err.message || 'Unknown error'));
+          CuratorrUI.toast('Could not add artist tracks: ' + (err.message || 'Unknown error'), { type: 'error' });
         });
     }
 
@@ -4418,17 +4419,23 @@
       var promptLabel = isPersonalDraft
         ? ('Delete "' + playlistTitle + '" from Curatorr? This draft has not been synced to ' + MS_LABEL + '.')
         : ('Delete "' + playlistTitle + '" from Curatorr and ' + MS_LABEL + '? This cannot be undone.');
-      if (!confirm(promptLabel)) return;
-      fetch(isPersonalDraft ? ('/api/music/playlists/personal/' + encodeURIComponent(personalId)) : ('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(playlistKey)), {
-        method: 'DELETE',
-        headers: { 'X-CSRF-Token': CSRF },
-      })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.ok) { window.location.reload(); }
-          else { alert('Could not delete: ' + (data.error || 'Unknown error')); }
+      CuratorrUI.confirm(promptLabel, { title: 'Delete playlist', confirmLabel: 'Delete', danger: true }).then(function(ok) {
+        if (!ok) return;
+        fetch(isPersonalDraft ? ('/api/music/playlists/personal/' + encodeURIComponent(personalId)) : ('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(playlistKey)), {
+          method: 'DELETE',
+          headers: { 'X-CSRF-Token': CSRF },
         })
-        .catch(function() { alert('Network error deleting playlist.'); });
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              CuratorrUI.flash('Deleted "' + playlistTitle + '".');
+              window.location.reload();
+            } else {
+              CuratorrUI.toast('Could not delete: ' + (data.error || 'Unknown error'), { type: 'error' });
+            }
+          })
+          .catch(function() { CuratorrUI.toast('Network error deleting playlist.', { type: 'error' }); });
+      });
     }
 
     function toggleCardMenu(btn) {
@@ -4511,7 +4518,12 @@
     function refreshAllImportedPlaylists() {
       var btn = document.getElementById('plRefreshAllImportedBtn');
       var status = document.getElementById('syncStatus');
-      if (!confirm('Refresh all imported playlists from their sources? They are queued and refreshed in batches of 25 in the background.')) return;
+      CuratorrUI.confirm('Refresh all imported playlists from their sources?\n\nThey are queued and refreshed in batches of 25 in the background.', { title: 'Refresh imported playlists', confirmLabel: 'Refresh' }).then(function(ok) {
+        if (ok) runRefreshAllImportedPlaylists(btn, status);
+      });
+    }
+
+    function runRefreshAllImportedPlaylists(btn, status) {
       if (btn) btn.disabled = true;
       status.textContent = 'Queuing imported playlists…';
       fetch('/api/music/playlists/imported/refresh-all', {
@@ -4553,13 +4565,34 @@
         });
       if (!cards.length) return;
       var titles = cards.map(function(c) { return '"' + (c.dataset.plTitle || 'Playlist') + '"'; }).join(', ');
-      if (!confirm('Delete ' + titles + ' from Curatorr and ' + MS_LABEL + '? This cannot be undone.')) return;
-      var keys = cards.map(function(c) { return c.dataset.plKey; });
-      Promise.all(keys.map(function(key) {
-        return fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(key), {
-          method: 'DELETE', headers: { 'X-CSRF-Token': CSRF },
-        }).then(function(r) { return r.json(); });
-      })).then(function() { window.location.reload(); }).catch(function() { alert('Error deleting playlists.'); });
+      var countLabel = cards.length === 1 ? '1 playlist' : (cards.length + ' playlists');
+      CuratorrUI.confirm('Delete ' + titles + ' from Curatorr and ' + MS_LABEL + '?\n\nThis cannot be undone.', {
+        title: 'Delete ' + countLabel,
+        confirmLabel: 'Delete',
+        danger: true,
+      }).then(function(ok) {
+        if (!ok) return;
+        var keys = cards.map(function(c) { return c.dataset.plKey; });
+        Promise.all(keys.map(function(key) {
+          return fetch('/api/music/playlists/generated?playlistKey=' + encodeURIComponent(key), {
+            method: 'DELETE', headers: { 'X-CSRF-Token': CSRF },
+          }).then(function(r) { return r.json(); })
+            .then(function(data) { return Boolean(data && data.ok); })
+            .catch(function() { return false; });
+        })).then(function(results) {
+          var deleted = results.filter(Boolean).length;
+          var failed = results.length - deleted;
+          if (!deleted) {
+            CuratorrUI.toast('Could not delete the selected playlists.', { type: 'error' });
+            return;
+          }
+          CuratorrUI.flash(failed
+            ? ('Deleted ' + deleted + ' of ' + results.length + ' playlists. ' + failed + ' could not be deleted.')
+            : ('Deleted ' + (deleted === 1 ? '1 playlist' : (deleted + ' playlists')) + '.'),
+            { type: failed ? 'error' : 'success' });
+          window.location.reload();
+        });
+      });
     }
 
     function toggleSelectedPlaylists(shouldEnable) {
@@ -5072,6 +5105,8 @@
       document.getElementById('spm-modal-title').textContent = wizardModalTitle();
       var modal = ensureModalAtRoot('smartPlModal');
       if (!modal) return;
+      _spmDirtyBaseline = null;
+      _spmUserEdited = false;
       modal.style.display = '';
       wizardInit();
     }
@@ -5178,13 +5213,13 @@
       fetch(endpoint)
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          if (!data.ok || !data.playlist) { alert('Could not load playlist data.'); return; }
+          if (!data.ok || !data.playlist) { CuratorrUI.toast('Could not load playlist data.', { type: 'error' }); return; }
           openSmartPlaylistWizard(
             wizardPrefillFromPlaylist(data.playlist, kind === 'global' ? 'global' : 'personal'),
             { editKind: kind, editId: id }
           );
         })
-        .catch(function() { alert('Network error loading playlist.'); });
+        .catch(function() { CuratorrUI.toast('Network error loading playlist.', { type: 'error' }); });
     }
 
     function openEditPlaylistModal(card) {
@@ -5211,13 +5246,13 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (!data.ok || !data.prefill) {
-            alert((data && data.error) || 'Could not infer a smart playlist from this import.');
+            CuratorrUI.toast((data && data.error) || 'Could not infer a smart playlist from this import.', { type: 'error' });
             return;
           }
           openSmartPlaylistWizard(data.prefill);
         })
         .catch(function() {
-          alert('Network error loading imported playlist conversion.');
+          CuratorrUI.toast('Network error loading imported playlist conversion.', { type: 'error' });
         });
     }
 
@@ -5408,6 +5443,52 @@
       if (rebSched && rules.rebuildSchedule) rebSched.value = rules.rebuildSchedule;
     }
 
+    // Unsaved-changes tracking for the smart playlist builder. The baseline is
+    // the wizard state when step 1 first renders; on top of that, any real
+    // input or change event inside the dialog counts as an edit, because some
+    // fields are only copied into _wizardState when moving between steps.
+    var _spmDirtyBaseline = null;
+    var _spmUserEdited = false;
+
+    function spmWizardSnapshot() {
+      try {
+        var copy = Object.assign({}, _wizardState);
+        delete copy.step;
+        return JSON.stringify(copy);
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function spmHasUnsavedChanges() {
+      if (_spmUserEdited) return true;
+      return _spmDirtyBaseline !== null && spmWizardSnapshot() !== _spmDirtyBaseline;
+    }
+
+    (function() {
+      var modal = document.getElementById('smartPlModal');
+      if (!modal) return;
+      function markEdited(event) {
+        if (event.isTrusted) _spmUserEdited = true;
+      }
+      modal.addEventListener('input', markEdited);
+      modal.addEventListener('change', markEdited);
+    })();
+
+    // Used by the close button, backdrop, Cancel and Escape. Saving calls
+    // closeSmartPlaylistModal() directly, so it never prompts.
+    function requestCloseSmartPlaylistModal() {
+      if (spmHasUnsavedChanges()) {
+        var message = _wizardEditId || _spmEditId
+          ? 'Discard your changes to this playlist? They have not been saved.'
+          : 'Discard this playlist? It has not been saved.';
+        CuratorrUI.confirm(message, { title: 'Unsaved changes', confirmLabel: 'Discard', cancelLabel: 'Keep editing', danger: true })
+          .then(function(ok) { if (ok) closeSmartPlaylistModal(); });
+        return;
+      }
+      closeSmartPlaylistModal();
+    }
+
     function closeSmartPlaylistModal() {
       var modal = document.getElementById('smartPlModal');
       if (modal) modal.style.display = 'none';
@@ -5423,6 +5504,8 @@
       _wizardEditKind = null;
       _wizardEditId = '';
       _wizardPendingPrefill = null;
+      _spmDirtyBaseline = null;
+      _spmUserEdited = false;
     }
 
     function spmSubmit() {
@@ -6591,6 +6674,7 @@
 
     function wizardRenderStep(step) {
       _wizardState.step = step;
+      if (_spmDirtyBaseline === null) _spmDirtyBaseline = spmWizardSnapshot();
       document.getElementById('spm-modal-title').textContent = wizardModalTitle();
       var body = document.getElementById('spm-wizard-body');
       var footer = document.getElementById('spm-wizard-footer');
@@ -6705,7 +6789,7 @@
     }
 
     function wizardStepFooter(step) {
-      var back = step > 1 ? '<button class="btn btn-ghost" type="button" id="wiz-back-btn">← Back</button>' : '<button class="btn btn-ghost" type="button" onclick="closeSmartPlaylistModal()">Cancel</button>';
+      var back = step > 1 ? '<button class="btn btn-ghost" type="button" id="wiz-back-btn">← Back</button>' : '<button class="btn btn-ghost" type="button" onclick="requestCloseSmartPlaylistModal()">Cancel</button>';
       var fwd = step < WIZARD_TOTAL_STEPS
         ? '<button class="btn btn-primary" type="button" id="wiz-next-btn">Next →</button>'
         : '<button class="btn btn-ghost" type="button" id="wiz-save-draft-btn" style="display:none">Save as Draft</button><button class="btn btn-primary" type="button" id="wiz-create-btn">' + wizardSubmitLabel() + '</button>';
@@ -8565,22 +8649,24 @@
             if (msgEl) msgEl.textContent = 'Select a saved template first.';
             return;
           }
-          if (!window.confirm('Delete template "' + selectedTemplate.name + '"?')) return;
-          deleteTmplBtn.disabled = true;
-          fetch('/api/music/playlist-templates/' + encodeURIComponent(selectedTemplate.id), {
-            method: 'DELETE', headers: {'X-CSRF-Token':CSRF},
-          }).then(function(r) {
-            if (!r.ok) throw new Error('delete_failed');
-            _wizardState.templateId = 'blank';
-            if (!_wizardState.nameManual) wizardSyncSuggestedName(_wizardState, false);
-            return wizardRefreshTemplates({ keepTemplateId: 'blank' });
-          }).then(function() {
-            wizardRenderStep(WIZARD_TOTAL_STEPS);
-            var nextMsgEl = document.getElementById('wiz-msg');
-            if (nextMsgEl) nextMsgEl.textContent = 'Template deleted.';
-          }).catch(function() {
-            if (msgEl) msgEl.textContent = 'Unable to delete template.';
-            deleteTmplBtn.disabled = false;
+          CuratorrUI.confirm('Delete template "' + selectedTemplate.name + '"?', { title: 'Delete template', confirmLabel: 'Delete', danger: true }).then(function(ok) {
+            if (!ok) return;
+            deleteTmplBtn.disabled = true;
+            fetch('/api/music/playlist-templates/' + encodeURIComponent(selectedTemplate.id), {
+              method: 'DELETE', headers: {'X-CSRF-Token':CSRF},
+            }).then(function(r) {
+              if (!r.ok) throw new Error('delete_failed');
+              _wizardState.templateId = 'blank';
+              if (!_wizardState.nameManual) wizardSyncSuggestedName(_wizardState, false);
+              return wizardRefreshTemplates({ keepTemplateId: 'blank' });
+            }).then(function() {
+              wizardRenderStep(WIZARD_TOTAL_STEPS);
+              var nextMsgEl = document.getElementById('wiz-msg');
+              if (nextMsgEl) nextMsgEl.textContent = 'Template deleted.';
+            }).catch(function() {
+              if (msgEl) msgEl.textContent = 'Unable to delete template.';
+              deleteTmplBtn.disabled = false;
+            });
           });
         });
       }

@@ -540,13 +540,19 @@
 
     async function curatorrPickSuggestedArtist(encodedName) {
       var artistName = decodeURIComponent(encodedName);
-      if (!confirm('Let Curatorr pick the best album for ' + artistName + '?\n\nIt will select the highest-ranked starter album and send it to Lidarr automatically.')) return;
+      var confirmed = await CuratorrUI.confirm('Let Curatorr pick the best album for ' + artistName + '?\n\nIt will select the highest-ranked starter album and send it to Lidarr automatically.', {
+        title: 'Curatorr pick',
+        confirmLabel: 'Send to Lidarr',
+      });
+      if (!confirmed) return;
       currentArtistSelection = { artistName: artistName, foreignArtistId: '' };
       var status = document.getElementById('artistSuggestionStatus');
       if (status) status.textContent = 'Finding best album for ' + artistName + '\u2026';
       try {
         var result = await submitManualRequest(true, '', { silent: true });
-        if (status) status.textContent = (result && result.queued ? 'Queued for Lidarr.' : 'Added to Lidarr.');
+        var doneMessage = (result && result.queued ? 'Queued for Lidarr.' : 'Added to Lidarr.');
+        if (status) status.textContent = doneMessage;
+        CuratorrUI.flash(artistName + ': ' + doneMessage);
         location.reload();
       } catch (err) {
         if (status) status.textContent = err.message || 'Curatorr pick failed.';
@@ -555,7 +561,15 @@
 
     function dismissSuggestedArtist(encodedName) {
       var name = decodeURIComponent(encodedName);
-      if (!confirm('Dismiss ' + name + '?\n\nThey will be removed from your pipeline. You can re-add them later via the manual search.')) return;
+      CuratorrUI.confirm('Dismiss ' + name + '?\n\nThey will be removed from your pipeline. You can re-add them later via the manual search.', {
+        title: 'Dismiss artist',
+        confirmLabel: 'Dismiss',
+      }).then(function(ok) {
+        if (ok) runDismissSuggestedArtist(encodedName, name);
+      });
+    }
+
+    function runDismissSuggestedArtist(encodedName, name) {
       var status = document.getElementById('artistSuggestionStatus');
       if (status) status.textContent = 'Dismissing artist…';
       fetch('/api/music/suggestions/artists/' + encodedName + '/dismiss', {
@@ -565,6 +579,7 @@
         .then(function(result) {
           if (!result.ok || !result.data.ok) throw new Error(result.data.error || 'Failed to dismiss artist.');
           if (status) status.textContent = 'Artist dismissed.';
+          CuratorrUI.flash('Dismissed ' + name + '.');
           location.reload();
         })
         .catch(function(err) {
@@ -586,7 +601,7 @@
           if (btn) btn.disabled = false;
           var msg = err.message || 'Retry failed.';
           var status = document.getElementById('artistSuggestionStatus');
-          if (status) { status.textContent = msg; } else { alert(msg); }
+          if (status) { status.textContent = msg; } else { CuratorrUI.toast(msg, { type: 'error' }); }
         });
     }
 

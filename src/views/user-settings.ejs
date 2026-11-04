@@ -177,7 +177,7 @@
                 </form>
               <% } %>
               <% if (plexPasswordLogin.isSet) { %>
-                <form method="post" action="/user-settings/plex-password/remove" class="settings-form" style="margin-top:8px" onsubmit="return confirm('Remove password sign-in? You will only be able to sign in with Plex.');">
+                <form method="post" action="/user-settings/plex-password/remove" class="settings-form" style="margin-top:8px" data-confirm="Remove password sign-in? You will only be able to sign in with Plex." data-confirm-label="Remove" data-confirm-danger>
                   <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                   <button class="ghost-button" type="submit">Remove password sign-in</button>
                 </form>

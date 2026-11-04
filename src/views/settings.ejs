@@ -2747,9 +2747,23 @@
                   window.location.href = '/playlists?editGlobal=' + encodeURIComponent(id);
                 });
                 card.querySelector('.gp-delete-btn').addEventListener('click', function() {
-                  if (!confirm('Delete this global playlist? It will no longer be synced to <%= mediaServerType === 'jellyfin' ? 'Jellyfin' : mediaServerType === 'emby' ? 'Emby' : 'Plex' %>.')) return;
-                  fetch('/api/playlists/global/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': _csrf } })
-                    .then(function(r) { return r.json(); }).then(function(d) { if (d.ok) card.remove(); });
+                  CuratorrUI.confirm('Delete this global playlist? It will no longer be synced to <%= mediaServerType === 'jellyfin' ? 'Jellyfin' : mediaServerType === 'emby' ? 'Emby' : 'Plex' %>.', {
+                    title: 'Delete global playlist',
+                    confirmLabel: 'Delete',
+                    danger: true,
+                  }).then(function(ok) {
+                    if (!ok) return;
+                    fetch('/api/playlists/global/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': _csrf } })
+                      .then(function(r) { return r.json(); })
+                      .then(function(d) {
+                        if (!d.ok) throw new Error(d.error || 'Unknown error');
+                        card.remove();
+                        CuratorrUI.toast('Global playlist deleted.', { type: 'success' });
+                      })
+                      .catch(function(err) {
+                        CuratorrUI.toast('Could not delete the global playlist: ' + (err.message || 'Unknown error'), { type: 'error' });
+                      });
+                  });
                 });
                 card.querySelector('.gp-toggle').addEventListener('change', function() {
                   var t = card.querySelector('.gp-toggle'); var lbl = card.querySelector('.gp-toggle-label');
@@ -3012,7 +3026,7 @@
                             method="post"
                             action="/settings/local-users/remove"
                             class="local-user-delete-form"
-                            onsubmit="return confirm('Delete this Curatorr user? This cannot be undone.');"
+                            data-confirm="Delete this Curatorr user? This cannot be undone." data-confirm-label="Delete user" data-confirm-danger
                           >
                             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                             <input type="hidden" name="username" value="<%= localUser.username %>" />
@@ -3100,7 +3114,7 @@
                       <div class="settings-users-login"><%= entry.email || '—' %></div>
                       <div class="settings-users-login"><%= entry.updatedAt ? new Date(entry.updatedAt).toLocaleDateString() : '—' %></div>
                       <div class="settings-users-role">
-                        <form method="post" action="/settings/plex-password/remove" onsubmit="return confirm('Remove password sign-in for this Plex account? They will only be able to sign in with Plex.');">
+                        <form method="post" action="/settings/plex-password/remove" data-confirm="Remove password sign-in for this Plex account? They will only be able to sign in with Plex." data-confirm-label="Remove" data-confirm-danger>
                           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                           <input type="hidden" name="plexId" value="<%= entry.plexId %>" />
                           <button class="ghost-button" type="submit">Remove</button>
