@@ -1963,76 +1963,6 @@ body.cur-modal-open {
   color: var(--text-muted, rgba(255,255,255,.55));
 }
 
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: none;
-  border-radius: var(--radius-sm, 6px);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 7px 14px;
-  cursor: pointer;
-  text-decoration: none;
-  transition: opacity .15s, background .15s;
-  white-space: nowrap;
-  box-sizing: border-box;
-  max-width: 100%;
-}
-
-.btn:disabled {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: var(--teal, #8b5cf6);
-  color: var(--on-brand, #fff);
-}
-
-.btn-primary:hover:not(:disabled) {
-  opacity: .88;
-}
-
-.btn-secondary {
-  background: rgba(255,255,255,.08);
-  color: var(--text, #e8eef7);
-  border: 1px solid rgba(255,255,255,.1);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: rgba(255,255,255,.12);
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text-muted, rgba(255,255,255,.6));
-  border: 1px solid rgba(255,255,255,.12);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: rgba(255,255,255,.07);
-  color: var(--text, #e8eef7);
-}
-
-.btn-ghost-danger {
-  background: transparent;
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, .25);
-}
-
-.btn-ghost-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, .1);
-}
-
-.btn-sm {
-  font-size: 11px;
-  padding: 4px 9px;
-}
-
 .cur-nav-button {
   min-width: 32px;
   min-height: 32px;
@@ -9534,4 +9464,17 @@ html[data-square-corners="1"] .blend-compat-score-wrap {
   .spm-wizard-template-grid { grid-template-columns: repeat(2, 1fr); }
   .spm-wizard-regex-row { grid-template-columns: 1fr; }
   .spm-wizard-review-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
+/* ── Keyboard focus ─────────────────────────────────────────────────────────
+   These controls clear the outline on :focus-visible and change little or
+   nothing else, which leaves keyboard users without a focus indicator.
+   Kept last so it wins over the earlier rules of equal specificity. */
+.cur-filter-button:focus-visible,
+.cur-panel-toggle:focus-visible,
+.cur-overview-trigger:focus-visible,
+.local-admin-preview__option:focus-visible,
+.cur-toggle:focus-visible {
+  outline: 2px solid rgba(var(--brand-rgb), .8);
+  outline-offset: 2px;
 }

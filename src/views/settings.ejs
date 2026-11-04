@@ -166,14 +166,6 @@
             <img class="settings-tab-icon" src="/icons/user-profile.svg" alt="" />
             <span class="settings-tab-text">Users</span>
           </button>
-          <button class="settings-tab-btn<%= _tab === 'logs' ? ' is-active' : '' %>" type="button" data-tab="logs">
-            <img class="settings-tab-icon" src="/icons/activity-queue.svg" alt="" />
-            <span class="settings-tab-text">Logs</span>
-          </button>
-          <button class="settings-tab-btn<%= _tab === 'about' ? ' is-active' : '' %>" type="button" data-tab="about">
-            <img class="settings-tab-icon" src="/icons/about.svg" alt="" />
-            <span class="settings-tab-text">About</span>
-          </button>
           <% if (actualRole === 'admin') { %>
             <button class="settings-tab-btn<%= _tab === 'jobs' ? ' is-active' : '' %>" type="button" data-tab="jobs">
               <img class="settings-tab-icon" src="/icons/activity-queue.svg" alt="" />
@@ -183,6 +175,14 @@
           <button class="settings-tab-btn<%= _tab === 'appearance' ? ' is-active' : '' %>" type="button" data-tab="appearance">
             <img class="settings-tab-icon" src="/icons/sun.svg" alt="" />
             <span class="settings-tab-text">Themes</span>
+          </button>
+          <button class="settings-tab-btn<%= _tab === 'logs' ? ' is-active' : '' %>" type="button" data-tab="logs">
+            <img class="settings-tab-icon" src="/icons/activity-queue.svg" alt="" />
+            <span class="settings-tab-text">Logs</span>
+          </button>
+          <button class="settings-tab-btn<%= _tab === 'about' ? ' is-active' : '' %>" type="button" data-tab="about">
+            <img class="settings-tab-icon" src="/icons/about.svg" alt="" />
+            <span class="settings-tab-text">About</span>
           </button>
         </div>
 
@@ -2747,7 +2747,7 @@
                   window.location.href = '/playlists?editGlobal=' + encodeURIComponent(id);
                 });
                 card.querySelector('.gp-delete-btn').addEventListener('click', function() {
-                  if (!confirm('Delete this global playlist? It will no longer be synced to Plex.')) return;
+                  if (!confirm('Delete this global playlist? It will no longer be synced to <%= mediaServerType === 'jellyfin' ? 'Jellyfin' : mediaServerType === 'emby' ? 'Emby' : 'Plex' %>.')) return;
                   fetch('/api/playlists/global/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': _csrf } })
                     .then(function(r) { return r.json(); }).then(function(d) { if (d.ok) card.remove(); });
                 });
@@ -3592,20 +3592,63 @@
   (function() {
     var tabBtns = Array.from(document.querySelectorAll('.settings-tab-btn'));
     var tabPanels = Array.from(document.querySelectorAll('.settings-tab-panel'));
-    function activateTab(id) {
-      tabBtns.forEach(function(b) { b.classList.toggle('is-active', b.dataset.tab === id); });
+    function hasTab(id) { return tabBtns.some(function(btn) { return btn.dataset.tab === id; }); }
+    // Wire up tab semantics so screen readers announce the tab bar properly.
+    tabBtns.forEach(function(btn) {
+      var id = btn.dataset.tab;
+      btn.setAttribute('role', 'tab');
+      btn.id = btn.id || ('settings-tab-' + id);
+      btn.setAttribute('aria-controls', 'settings-panel-' + id);
+    });
+    tabPanels.forEach(function(panel) {
+      var id = panel.dataset.tab;
+      panel.setAttribute('role', 'tabpanel');
+      panel.id = panel.id || ('settings-panel-' + id);
+      panel.setAttribute('aria-labelledby', 'settings-tab-' + id);
+    });
+    function activateTab(id, opts) {
+      opts = opts || {};
+      tabBtns.forEach(function(b) {
+        var active = b.dataset.tab === id;
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+        b.tabIndex = active ? 0 : -1;
+      });
       tabPanels.forEach(function(p) { p.classList.toggle('is-active', p.dataset.tab === id); });
       try { localStorage.setItem('curatorr-settings-tab', id); } catch(e) {}
+      if (opts.updateHash !== false) {
+        try { history.replaceState(null, '', '#' + id); } catch(e) {}
+      }
+      if (opts.focus) {
+        var btn = tabBtns.find(function(b) { return b.dataset.tab === id; });
+        if (btn) btn.focus();
+      }
     }
-    tabBtns.forEach(function(btn) {
+    tabBtns.forEach(function(btn, index) {
       btn.addEventListener('click', function() { activateTab(btn.dataset.tab); });
+      btn.addEventListener('keydown', function(event) {
+        var next = null;
+        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = tabBtns[(index + 1) % tabBtns.length];
+        else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = tabBtns[(index - 1 + tabBtns.length) % tabBtns.length];
+        else if (event.key === 'Home') next = tabBtns[0];
+        else if (event.key === 'End') next = tabBtns[tabBtns.length - 1];
+        if (!next) return;
+        event.preventDefault();
+        activateTab(next.dataset.tab, { focus: true });
+      });
     });
-    var serverTab = '<%= _tab %>';
+    window.addEventListener('hashchange', function() {
+      var id = String(location.hash || '').replace(/^#/, '');
+      if (hasTab(id)) activateTab(id, { updateHash: false });
+    });
+    var serverTab = <%- JSON.stringify(String(locals.requestedTab || '')).replace(/</g, '\\u003c') %>;
+    var hashTab = String(location.hash || '').replace(/^#/, '');
     var savedTab = '';
     try { savedTab = localStorage.getItem('curatorr-settings-tab') || ''; } catch(e) {}
-    var initialTab = serverTab || savedTab || 'general';
-    if (!tabBtns.some(function(btn) { return btn.dataset.tab === initialTab; })) initialTab = 'general';
-    activateTab(initialTab);
+    var initialTab = serverTab || (hasTab(hashTab) ? hashTab : '') || savedTab || 'general';
+    if (!hasTab(initialTab)) initialTab = 'general';
+    // Leave the URL alone on load so in-page anchors (e.g. #playlist-watch-folder) keep working.
+    activateTab(initialTab, { updateHash: false });
   })();
 
   // ── Analyzer mode form visibility ────────────────────────────────────────

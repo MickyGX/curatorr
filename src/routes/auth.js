@@ -526,6 +526,11 @@ export function registerAuth(app, ctx) {
     db,
   } = ctx;
 
+  function canUseWizardTokenFetch(req) {
+    if (loadConfig()?.wizard?.completed) return false;
+    return String(req.session?.user?.role || '').trim().toLowerCase() === 'admin';
+  }
+
   app.get('/', (req, res) => {
     const user = req.session?.user || null;
     if (!user) return res.redirect('/login');
@@ -747,7 +752,12 @@ export function registerAuth(app, ctx) {
   app.get('/auth/plex', async (req, res) => {
     try {
       const popupRequested = String(req.query?.popup || '').trim() === '1';
-      const authPurpose = String(req.query?.purpose || '').trim().toLowerCase();
+      const requestedPurpose = String(req.query?.purpose || '').trim().toLowerCase();
+      // The wizard token fetch overwrites the server's Plex token, so it is only
+      // honoured for the admin while the server wizard is still in progress.
+      const authPurpose = requestedPurpose === 'wizard-server-token' && !canUseWizardTokenFetch(req)
+        ? ''
+        : requestedPurpose;
       if (req.query?.next) setPostLoginRedirect(req, req.query.next);
       // Always use the request's actual Host header for the callback URL so the
       // forwardUrl matches the origin the browser is accessing from.  This keeps
@@ -860,7 +870,7 @@ export function registerAuth(app, ctx) {
       }
 
       const authPurpose = String(req.session?.plexAuthPurpose || '').trim().toLowerCase();
-      if (authPurpose === 'wizard-server-token') {
+      if (authPurpose === 'wizard-server-token' && canUseWizardTokenFetch(req)) {
         const result = await completePlexWizardTokenFetch({
           loadConfig,
           saveConfig,

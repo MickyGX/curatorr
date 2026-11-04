@@ -726,6 +726,7 @@ export function registerSettings(app, ctx) {
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,
       tab: req.query?.tab || 'general',
+      requestedTab: String(req.query?.tab || '').trim(),
       extraCss: ['/styles-layout.css', '/styles-settings.css'],
     });
   });

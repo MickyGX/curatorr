@@ -684,6 +684,7 @@ export function registerWizard(app, ctx) {
     resolveLocalUsers, serializeLocalUsers,
     hashPassword, validateLocalPasswordStrength, setSessionUser,
     isSetupAdminUser,
+    getActualRole,
     resolveUserPlexServerToken,
     fetchPlexMusicLibraries,
     buildAppApiUrl,
@@ -703,6 +704,46 @@ export function registerWizard(app, ctx) {
     const source = String(req.session?.user?.source || '').trim().toLowerCase();
     return source === 'local' && typeof isSetupAdminUser === 'function' && isSetupAdminUser(loadConfig(), req.session?.user);
   }
+
+  // ── Server wizard access guard ────────────────────────────────────────────
+  // The server wizard steps write admin accounts, media server credentials and
+  // integration keys. Once setup is finished they are closed entirely; before
+  // that, only the first step (creating the admin account) is open, and only
+  // while no local account exists. Every later step needs the admin's session.
+  // The personal wizard (/wizard/user*) does its own checks.
+
+  app.use('/wizard', (req, res, next) => {
+    if (req.path === '/user' || req.path.startsWith('/user/')) return next();
+    const config = loadConfig();
+    const isGet = req.method === 'GET' || req.method === 'HEAD';
+    const isApiLike = !isGet && String(req.headers?.accept || '').includes('application/json')
+      && !String(req.headers?.accept || '').includes('text/html');
+
+    if (config.wizard?.completed) {
+      if (isGet) return next(); // GET /wizard redirects to /overview itself
+      if (isApiLike) return res.status(403).json({ error: 'Setup is already complete.' });
+      return res.redirect(303, '/overview');
+    }
+
+    const hasLocalAccount = resolveLocalUsers(config).length > 0;
+    if (!hasLocalAccount) {
+      if (isGet || req.path === '/account') return next();
+      return res.redirect(303, '/wizard');
+    }
+
+    if (!req.session?.user) {
+      return res.redirect(303, `/login?next=${encodeURIComponent('/wizard')}`);
+    }
+    const role = typeof getActualRole === 'function'
+      ? getActualRole(req)
+      : String(req.session.user.role || '').trim().toLowerCase();
+    if (role !== 'admin') {
+      if (isApiLike) return res.status(403).json({ error: 'Admin access required.' });
+      return res.status(403).send('Admin access required.');
+    }
+    if (req.path === '/account') return res.redirect(303, '/wizard');
+    return next();
+  });
 
   // ── Server wizard entry ───────────────────────────────────────────────────
 
