@@ -2867,8 +2867,10 @@
         var host = String(parsed.hostname || '').toLowerCase();
         if (!(host === 'tidal.com' || host.endsWith('.tidal.com'))) return '';
         // Experimental: TIDAL mixes are read through the playlist endpoints.
+        // Keep mixes as links: the server only accepts a bare id when it is a
+        // playlist UUID, because a bare mix id looks like other providers' ids.
         var mixMatch = String(parsed.pathname || '').match(/\/mix\/([0-9a-z]{16,64})(?:\/|$)/i);
-        if (mixMatch) return mixMatch[1];
+        if (mixMatch) return 'https://tidal.com/mix/' + mixMatch[1];
         var match = String(parsed.pathname || '').match(/\/playlist\/([0-9a-f-]{36})(?:\/|$)/i);
         return match && uuidRe.test(match[1]) ? match[1].toLowerCase() : '';
       } catch (_err) {

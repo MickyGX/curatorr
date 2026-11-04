@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import {
   buildTidalPlaylistUrl,
   createTidalPkcePair,
@@ -55,6 +57,29 @@ describe('TIDAL playlist reference parsing', () => {
     assert.equal(parseTidalPlaylistReference(mixId), null);
     assert.equal(parseTidalPlaylistReference('https://tidal.com/mix/short'), null);
     assert.equal(parseTidalPlaylistReference(`https://example.com/mix/${mixId}`), null);
+  });
+
+  it('sends the server a reference it accepts for every link the import dialog accepts', () => {
+    // The import dialog parses the pasted link in the browser, then the server parses
+    // what it sends. A bare mix id was rejected by the server (#180), so check both together.
+    const source = readFileSync(new URL('../views/playlists.ejs', import.meta.url), 'utf8');
+    const start = source.indexOf('    function parseTidalPlaylistIdFromInput(');
+    const end = source.indexOf('\n    }', start) + '\n    }'.length;
+    const context = vm.createContext({ URL });
+    vm.runInContext(source.slice(start, end), context);
+    const mixId = '0165bf6d29598dd01be3e6838d2875';
+    const cases = [
+      [`https://tidal.com/mix/${mixId}`, mixId],
+      [`https://listen.tidal.com/mix/${mixId}?u`, mixId],
+      [`https://tidal.com/browse/mix/${mixId}`, mixId],
+      [`https://tidal.com/playlist/${PLAYLIST_ID}`, PLAYLIST_ID],
+      [PLAYLIST_ID.toUpperCase(), PLAYLIST_ID],
+    ];
+    for (const [input, expectedId] of cases) {
+      const sent = context.parseTidalPlaylistIdFromInput(input);
+      assert.ok(sent, `dialog rejected ${input}`);
+      assert.equal(parseTidalPlaylistReference(sent)?.id, expectedId, `server rejected ${sent} from ${input}`);
+    }
   });
 
   it('builds playlist and mix links from ids', () => {
