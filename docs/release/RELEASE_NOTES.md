@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.113 (2026-11-06)
+
+- Fixed the Playlists page taking over a minute to load on very large libraries. The genre, mood, tag, decade and folder lists in the playlist builder were rebuilt from the whole library on every visit. They are now built in the background and reused until the library changes. Settings → Global Playlists uses the same lists and also loads faster.
+- On most libraries the lists are still up to date on every visit. On very large libraries the page shows the previous lists while new ones are built. Straight after a restart, it shows a notice asking you to reload in a few minutes.
+- The Plex playlist artwork lookup now gives up after 8 seconds, so a slow Plex server no longer holds up the Playlists page or the dashboard.
+- Added regression coverage for the cached lists, background rebuilds and refreshes after library changes.
+- Thanks to @gbedard-creator (#196) for the report, profiling and a patch to start from.
+
 ## v0.1.112 (2026-11-04)
 
 - **Security:** Fixed the setup wizard staying open after setup. Anyone who could reach Curatorr could create an admin account or send the saved Plex token to another server. Wizard steps now close once setup is complete, and need the admin's login before then. Upgrade promptly if Curatorr is reachable from outside your home network.
