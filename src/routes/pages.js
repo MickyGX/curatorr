@@ -17,32 +17,23 @@ import {
   dedupeMasterArtistNames,
   getResolvedUserArtistFilters,
   getUserPreferences,
-  getGenresFromMaster,
-  getMoodsFromMaster,
-  getArtistCountriesFromMaster,
-  getAlbumGenresFromMaster,
-  getAlbumStylesFromMaster,
-  getAlbumMoodsFromMaster,
-  getAllLastfmTags,
-  getAllTrackDecadeTags,
   listUserPersonalPlaylists,
   listUserGeneratedPlaylists,
   getPlaylistTracks,
   getMasterTracks,
   getMasterTrackCount,
   getMasterArtistCount,
-  getFeaturePresetAvailabilityFromDb,
   getAlbumPopularTrackRanks,
   getExcludedTrackKeys,
   getSkipTierArtists,
   getAllUserIds,
-  getDistinctPathSegments,
   classifyTier,
   listSuggestedAlbums,
   getArtistTagMap,
 } from '../db.js';
 import { paginateRolledHistory } from '../history-rollup.js';
 import { buildStoredPlaylistArtworkUrl } from '../services/playlist-artwork.js';
+import { getPlaylistBuilderOptions } from '../services/playlist-builder-options.js';
 import { resolveLibraryAlbumMatch } from '../services/album-reconciliation.js';
 import { IMPORTED_PLAYLIST_SOURCE_TYPES, isImportedPlaylistSourceType } from '../services/import-matching.js';
 import * as jellyfinAdapter from '../services/media-servers/jellyfin.js';
@@ -2684,7 +2675,12 @@ export function registerPages(app, ctx) {
     playlistCards.push(...draftCards);
     playlistCards.sort(comparePlaylistCards);
     const userPlexToken = ctx.resolveUserPlexServerToken(config, userPlexId);
-    await attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken, userPlexToken);
+    // Option lists come from a cache rebuilt off the request path (issue #196); fetch them
+    // alongside the artwork lookup rather than after it.
+    const [builderOptions] = await Promise.all([
+      getPlaylistBuilderOptions(db),
+      attachPlaylistArtwork(playlistCards, config, fetchPlexPlaylistsForToken, userPlexToken),
+    ]);
 
     res.render('playlists', {
       title: 'Playlists — Curatorr',
@@ -2696,17 +2692,8 @@ export function registerPages(app, ctx) {
       lastSync,
       playlistCards,
       plexMachineId: String(config.plex?.machineId || ''),
-      allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
-      allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
-      allArtistCountries: (() => { try { return getArtistCountriesFromMaster(db); } catch { return []; } })(),
-      allAlbumGenres: (() => { try { return getAlbumGenresFromMaster(db); } catch { return []; } })(),
-      allAlbumStyles: (() => { try { return getAlbumStylesFromMaster(db); } catch { return []; } })(),
-      allAlbumMoods: (() => { try { return getAlbumMoodsFromMaster(db); } catch { return []; } })(),
-      allLastfmTags: (() => { try { return getAllLastfmTags(db);    } catch { return []; } })(),
-      allTrackDecades: (() => { try { return getAllTrackDecadeTags(db); } catch { return []; } })(),
+      ...builderOptions,
       allUserIds:    (() => { try { return getAllUserIds(db);        } catch { return []; } })(),
-      allPathSegments: (() => { try { return getDistinctPathSegments(db, { limit: 50000 }); } catch { return []; } })(),
-      playlistFeatureCoverage: (() => { try { return getFeaturePresetAvailabilityFromDb(db); } catch { return { totalTracks: 0, presets: {} }; } })(),
       currentUserId: userPlexId,
       lastfmUsername: String(userPrefs?.lastfmUsername || ''),
       listenbrainzUsername: String(userPrefs?.listenbrainzUsername || ''),

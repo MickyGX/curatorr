@@ -2,6 +2,7 @@ import {
   rebuildTrackStatsFromEvents,
   rebuildArtistStatsFromEvents,
   resolveUserSmartConfig,
+  invalidateMasterTracksCache,
 } from '../db.js';
 
 function uniqueStrings(values) {
@@ -45,6 +46,7 @@ export async function pruneDeselectedPlexLibraries(ctx, { removedLibraryKeys = [
     const removedOpenSessions = db.prepare(`DELETE FROM open_sessions WHERE library_key IN (${placeholders})`).run(...libraryKeys).changes;
     const removedPlayEvents = db.prepare(`DELETE FROM play_events WHERE library_key IN (${placeholders})`).run(...libraryKeys).changes;
     const removedMasterTracks = db.prepare(`DELETE FROM master_tracks WHERE library_key IN (${placeholders})`).run(...libraryKeys).changes;
+    if (removedMasterTracks) invalidateMasterTracksCache(db);
 
     for (const row of affectedTracks) {
       const userPlexId = String(row.user_plex_id || '').trim();

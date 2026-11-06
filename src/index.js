@@ -28,6 +28,7 @@ import {
   normalizeLidarrQualityProfileId,
 } from './services/lidarr.js';
 import { createPlaylistService } from './services/playlists.js';
+import { warmPlaylistBuilderOptions } from './services/playlist-builder-options.js';
 import { createJobService } from './services/jobs.js';
 import { rebuildSmartPlaylist } from './routes/api-music.js';
 import { runTautulliDailySync } from './services/tautulli-sync.js';
@@ -1906,6 +1907,8 @@ async function fetchPlexPlaylistsForToken(plexUrl, token) {
   const url = buildAppApiUrl(plexUrl, 'playlists?playlistType=audio');
   const res = await fetch(url.toString(), {
     headers: buildPlexAuthHeaders(token, { Accept: 'application/json' }),
+    // Only used for page artwork/listing lookups; a slow Plex must not hold the page (issue #196).
+    signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) return [];
   const json = await res.json();
@@ -2190,6 +2193,8 @@ export async function start() {
     const db = initDb(DB_PATH);
     const setupAdminCleanup = cleanupSetupAdminMusicState(db);
     _routeCtx.db = db;
+    // Build the playlist builder option lists off-thread so the first page view doesn't scan the library.
+    warmPlaylistBuilderOptions(db);
     _routeCtx.recommendationService = createRecommendationService(_routeCtx);
     _routeCtx.lidarrService = createLidarrService(_routeCtx);
     _routeCtx.playlistService = createPlaylistService(_routeCtx);

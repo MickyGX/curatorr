@@ -2195,7 +2195,7 @@ export function refreshMasterTracks(db, tracks) {
     }
   });
   run(tracks);
-  masterTracksCache.delete(db);
+  invalidateMasterTracksCache(db);
 }
 
 export function pruneStaleMasterTracks(db, libraryKeys = [], refreshedSince = 0, { onPlaylistRemap = null } = {}) {
@@ -2225,7 +2225,7 @@ export function pruneStaleMasterTracks(db, libraryKeys = [], refreshedSince = 0,
     db.prepare(`DELETE FROM master_tracks WHERE rating_key IN (${stalePlaceholders})`).run(...staleKeys);
   });
   run();
-  masterTracksCache.delete(db);
+  invalidateMasterTracksCache(db);
   const remap = remapPlaylistTracks(db, { goneKeys: staleKeys });
   if (typeof onPlaylistRemap === 'function') onPlaylistRemap(remap);
   return staleKeys.length;
@@ -2259,15 +2259,29 @@ export function updateMasterTrackTagMetadata(db, tracks) {
     }
   });
   run(tracks);
-  masterTracksCache.delete(db);
+  invalidateMasterTracksCache(db);
 }
 
 // Per-db in-memory cache for getMasterTracks. Invalidated whenever master_tracks
 // or track_enrichment data changes (refreshMasterTracks, updateMasterTrackTagMetadata).
 const masterTracksCache = new WeakMap();
 
+// Per-db counter bumped whenever library-derived data changes (master_tracks,
+// track_enrichment, artist_tags). Caches built from that data (for example the
+// playlist builder option lists) compare generations to know they are stale.
+const libraryDataGeneration = new WeakMap();
+
+export function getLibraryDataGeneration(db) {
+  return libraryDataGeneration.get(db) || 0;
+}
+
+export function bumpLibraryDataGeneration(db) {
+  libraryDataGeneration.set(db, getLibraryDataGeneration(db) + 1);
+}
+
 export function invalidateMasterTracksCache(db) {
   masterTracksCache.delete(db);
+  bumpLibraryDataGeneration(db);
 }
 
 export function hasMasterTrack(db, ratingKey) {
@@ -2561,7 +2575,7 @@ export function upsertTrackEnrichment(db, entries) {
     }
   });
   run(items);
-  masterTracksCache.delete(db);
+  invalidateMasterTracksCache(db);
 }
 
 export function getTrackEnrichmentByRatingKeys(db, ratingKeys) {
@@ -3133,6 +3147,42 @@ export function getAlbumMoodsFromMaster(db) {
   return collectDistinctMasterJsonValues(db, 'album_moods');
 }
 
+export function emptyPlaylistBuilderOptions() {
+  return {
+    allGenres: [],
+    allMoods: [],
+    allArtistCountries: [],
+    allAlbumGenres: [],
+    allAlbumStyles: [],
+    allAlbumMoods: [],
+    allLastfmTags: [],
+    allTrackDecades: [],
+    allPathSegments: [],
+    playlistFeatureCoverage: { totalTracks: 0, presets: {} },
+  };
+}
+
+// Library-wide option lists used by the playlist builder and the global playlist
+// editor. Every query here scans master_tracks (or artist_tags / track_enrichment),
+// so on very large libraries this takes minutes; call it through the cached
+// services/playlist-builder-options.js rather than from a request handler.
+export function computePlaylistBuilderOptions(db) {
+  const fallback = emptyPlaylistBuilderOptions();
+  const safe = (key, fn) => { try { return fn(); } catch { return fallback[key]; } };
+  return {
+    allGenres: safe('allGenres', () => getGenresFromMaster(db)),
+    allMoods: safe('allMoods', () => getMoodsFromMaster(db)),
+    allArtistCountries: safe('allArtistCountries', () => getArtistCountriesFromMaster(db)),
+    allAlbumGenres: safe('allAlbumGenres', () => getAlbumGenresFromMaster(db)),
+    allAlbumStyles: safe('allAlbumStyles', () => getAlbumStylesFromMaster(db)),
+    allAlbumMoods: safe('allAlbumMoods', () => getAlbumMoodsFromMaster(db)),
+    allLastfmTags: safe('allLastfmTags', () => getAllLastfmTags(db)),
+    allTrackDecades: safe('allTrackDecades', () => getAllTrackDecadeTags(db)),
+    allPathSegments: safe('allPathSegments', () => getDistinctPathSegments(db, { limit: 50000 })),
+    playlistFeatureCoverage: safe('playlistFeatureCoverage', () => getFeaturePresetAvailabilityFromDb(db)),
+  };
+}
+
 // ─── Artist tags (Last.fm) ────────────────────────────────────────────────────
 
 export function saveArtistTags(db, artistName, tags) {
@@ -3141,6 +3191,8 @@ export function saveArtistTags(db, artistName, tags) {
     VALUES (?, ?, ?)
     ON CONFLICT(artist_name) DO UPDATE SET tags = excluded.tags, updated_at = excluded.updated_at
   `).run(artistName, JSON.stringify(tags || []), Date.now());
+  // Tags only feed derived option lists, not getMasterTracks, so leave that cache alone.
+  bumpLibraryDataGeneration(db);
 }
 
 export function getArtistTagMap(db) {

@@ -1629,6 +1629,11 @@
             <div class="settings-card gp-builder-card" style="display:none">
               <div class="settings-card-title">Create Global Playlist</div>
               <div class="settings-card-sub">Filters are applied per user using their play/skip history. Preview shows live counts before saving.</div>
+              <% if (locals.builderOptionsPending) { %>
+                <div class="local-admin-banner" role="status">
+                  <span class="local-admin-banner__text">Genre, mood, tag and folder lists are still being built from your library. Reload this page in a few minutes before using those filters.</span>
+                </div>
+              <% } %>
 
               <div class="field">
                 <span>Playlist name</span>
