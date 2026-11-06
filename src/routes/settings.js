@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, listPlaylistWatchFiles, getGenresFromMaster, getMoodsFromMaster, getArtistCountriesFromMaster, getAllLastfmTags, getAllTrackDecadeTags, getMasterTracks, getDistinctLibraryKeys, getDistinctPathSegments, getFeaturePresetAvailabilityFromDb } from '../db.js';
+import { dedupeMasterArtistNames, getUserPreferences, saveUserPreferences, updateLastfmBackfillCursor, PRESET_VALUES, previewGlobalPlaylist, getAllUserIds, listPlaylistWatchFiles, getMasterTracks, getDistinctLibraryKeys } from '../db.js';
+import { getPlaylistBuilderOptions } from '../services/playlist-builder-options.js';
 import { applyFeaturePresetFilters, applyTrackFiltersWithReport } from '../services/playlists.js';
 import { JOB_DEFS, JOB_GROUPS, buildJobRunSequence, resolveJobAvailability } from '../services/jobs.js';
 import { normalizePlaylistWatchConfig } from '../services/playlist-watch-folder.js';
@@ -650,9 +651,8 @@ export function registerSettings(app, ctx) {
         .sort((a, b) => a.name.localeCompare(b.name));
     })();
     const playlistWatchFiles = (() => { try { return listPlaylistWatchFiles(db); } catch { return []; } })();
-    const playlistFeatureCoverage = (() => {
-      try { return getFeaturePresetAvailabilityFromDb(db); } catch { return { totalTracks: 0, presets: {} }; }
-    })();
+    // Cached; building these scans the whole library (issue #196).
+    const builderOptions = await getPlaylistBuilderOptions(db);
 
     const maListenerOptions = canViewServiceSecrets ? listMaListenerOptions(config) : [];
     res.render('settings', {
@@ -707,12 +707,13 @@ export function registerSettings(app, ctx) {
       playlistWatchJobStatus: jobService?.getStatus()?.playlistWatchFolder || null,
       allUserIds: (() => { try { return db.prepare('SELECT DISTINCT user_plex_id FROM artist_stats').all().map((r) => r.user_plex_id); } catch { return []; } })(),
       blendableUsers,
-      playlistFeatureCoverage,
-      allGenres:     (() => { try { return getGenresFromMaster(db); } catch { return []; } })(),
-      allMoods:      (() => { try { return getMoodsFromMaster(db);  } catch { return []; } })(),
-      allArtistCountries: (() => { try { return getArtistCountriesFromMaster(db); } catch { return []; } })(),
-      allLastfmTags:    (() => { try { return getAllLastfmTags(db);         } catch { return []; } })(),
-      allTrackDecades:  (() => { try { return getAllTrackDecadeTags(db);    } catch { return []; } })(),
+      playlistFeatureCoverage: builderOptions.playlistFeatureCoverage,
+      builderOptionsPending: builderOptions.builderOptionsPending,
+      allGenres: builderOptions.allGenres,
+      allMoods: builderOptions.allMoods,
+      allArtistCountries: builderOptions.allArtistCountries,
+      allLastfmTags: builderOptions.allLastfmTags,
+      allTrackDecades: builderOptions.allTrackDecades,
       allLibraryKeys:   (() => {
         try {
           const keys = getDistinctLibraryKeys(db);
@@ -721,7 +722,7 @@ export function registerSettings(app, ctx) {
           return keys.map((k) => ({ key: k.key, title: nameMap.get(k.key) || k.key }));
         } catch { return []; }
       })(),
-      allPathSegments:  (() => { try { return getDistinctPathSegments(db, { limit: 50000 }); } catch { return []; } })(),
+      allPathSegments: builderOptions.allPathSegments,
       localAuthMinPassword: LOCAL_AUTH_MIN_PASSWORD,
       error: String(req.query?.error || '').trim() || null,
       success: String(req.query?.success || '').trim() || null,

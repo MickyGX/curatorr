@@ -113,6 +113,11 @@
 
       <div class="dash-content dash-content--playlists">
         <%- include('partials/plex-banner') %>
+        <% if (locals.builderOptionsPending) { %>
+          <div class="local-admin-banner" role="status">
+            <span class="local-admin-banner__text">Genre, mood, tag and folder lists are still being built from your library. Reload this page in a few minutes before creating a playlist with those filters.</span>
+          </div>
+        <% } %>
         <div class="cur-panel cur-panel--playlist-carousel cur-panel--playlists-page-carousel" id="playlistCarouselPanel">
           <div class="cur-panel-header cur-panel-header--playlist-carousel">
             <h3 class="cur-panel-title">Playlists</h3>
