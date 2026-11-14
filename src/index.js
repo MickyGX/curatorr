@@ -1359,13 +1359,16 @@ function resolveUserPlexServerToken(config, userOrId, fallbackToken = '') {
   return String(fallbackToken || source.token || '').trim();
 }
 
-function shouldSkipScheduledPlaylistUser(config, userId) {
+// A setup admin whose username/email collides with a Plex identity that has signed
+// in (and so holds its own Plex server token) is a real listener: background jobs
+// must treat that music user ID as a normal user, not as the local setup account.
+function isSetupAdminOnlyIdentity(config, userId) {
   if (!isSetupAdminUser(config, userId)) return false;
   return !userHasOwnPlexToken(config, userId);
 }
 
 function getScheduledPlaylistUserIds(db, config) {
-  return getAllUserIds(db).filter((userId) => !shouldSkipScheduledPlaylistUser(config, userId));
+  return getAllUserIds(db).filter((userId) => !isSetupAdminOnlyIdentity(config, userId));
 }
 
 function canUserAccessLidarrAutomation(config, user) {
@@ -1384,7 +1387,7 @@ function canUserAccessLidarrAutomation(config, user) {
   return resolveUserIdentifiers(user).some((entry) => enabled.has(entry));
 }
 
-export { canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds, isSetupAdminUser };
+export { canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds, isSetupAdminOnlyIdentity, isSetupAdminUser };
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
@@ -2090,6 +2093,7 @@ const _routeCtx = {
   normalizeLidarrQualityProfileId,
   resolveLidarrAutomationSettings,
   isSetupAdminUser,
+  isSetupAdminOnlyIdentity,
   cleanupSetupAdminMusicState,
   canUserAccessLidarrAutomation,
   userHasOwnPlexToken,
@@ -2311,7 +2315,7 @@ export async function start() {
         const blendGlobal = (loadConfig().globalPlaylists || []).filter((p) => p.enabled && p.rules?.blendUsers?.length);
         for (const gp of blendGlobal) {
           for (const blendUserId of gp.rules.blendUsers) {
-            if (isSetupAdminUser(loadConfig(), blendUserId)) continue;
+            if (isSetupAdminOnlyIdentity(loadConfig(), blendUserId)) continue;
             await _routeCtx.playlistService.syncGlobalPlaylist(blendUserId, gp).catch(() => {});
             await yieldToLoop();
           }
@@ -2335,7 +2339,7 @@ export async function start() {
         const STUCK_PROCESSING_MS = 60 * 60 * 1000; // 1 hour
         const now = Date.now();
         const currentConfig = loadConfig();
-        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
+        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminOnlyIdentity(currentConfig, userId));
         let requeued = 0;
         let unstuck = 0;
         let collapsed = 0;
@@ -2434,7 +2438,7 @@ export async function start() {
       lastfmHistoryBackfill: () => runLastfmHistoryBackfill(_routeCtx),
       suggestionRebuild: async () => {
         const currentConfig = loadConfig();
-        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminUser(currentConfig, userId));
+        const userIds = getAllUserIds(db).filter((userId) => !isSetupAdminOnlyIdentity(currentConfig, userId));
         let rebuilt = 0;
         for (const userId of userIds) {
           const prefs = getUserPreferences(db, userId);
