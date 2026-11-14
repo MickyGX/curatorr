@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.115 (2026-11-14)
+
+- Fixed the Daily Mix bringing back the same favourite songs every other day. The mix only remembered yesterday's tracks, so your most-played favourites returned as soon as they had sat out one day. Curatorr now keeps a history of each day's mix and leaves a favourite out for 7 days after it appears, so far more of your favourites get a turn.
+- Added two Daily Mix settings in **Settings → Daily Mix**: **Don't repeat favourites within (days)** (default 7) and **Don't repeat other tracks within (days)** (default 3, for suggested and fresh tracks). Set both to 0 for the old behaviour. If there aren't enough tracks to fill the mix, the ones that appeared longest ago are reused first.
+- Play counts now count for less when picking favourites, so the daily shuffle can change which favourites make the mix.
+- Renamed the **Repeat cooldown** setting for the Daily Mix and Curatorr playlist to **Recently played cooldown**. It still makes tracks you've just listened to less likely to be picked.
+- Added regression coverage for the repeat windows, filling the mix on small libraries and the mix history.
+
 ## v0.1.114 (2026-11-14)
 
 - Fixed Lidarr auto-add never requesting artists for the setup admin when their Curatorr username matches their Plex username. Background jobs mistook the Plex account for the local setup account and skipped it without logging anything. Suggestions were still generated and manual adds still worked. Failed-request retries, suggestion rebuilds and Blend playlist syncs skipped the same account and now include it again.
