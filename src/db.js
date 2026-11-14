@@ -388,6 +388,18 @@ CREATE TABLE IF NOT EXISTS playlist_artist_state (
   PRIMARY KEY (playlist_key, user_plex_id, artist_name)
 );
 
+-- Daily Mix appearance history: one row per track per local mix date, so the
+-- mix can avoid repeating tracks within a window, not just yesterday's mix.
+CREATE TABLE IF NOT EXISTS daily_mix_history (
+  user_plex_id  TEXT NOT NULL,
+  rating_key    TEXT NOT NULL,
+  mix_date      TEXT NOT NULL,   -- local YYYY-MM-DD the mix was built for
+  PRIMARY KEY (user_plex_id, rating_key, mix_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_mix_history_user_date
+  ON daily_mix_history(user_plex_id, mix_date);
+
 CREATE TABLE IF NOT EXISTS lidarr_artist_progress (
   id                      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_plex_id            TEXT NOT NULL,
@@ -1731,6 +1743,7 @@ export function purgeUserScopedMusicData(db, userIds = []) {
     playlist_tracks: deleteWhereUser('playlist_tracks'),
     imported_playlist_unmatched: deleteWhereUser('imported_playlist_unmatched'),
     playlist_artist_state: deleteWhereUser('playlist_artist_state'),
+    daily_mix_history: deleteWhereUser('daily_mix_history'),
     lidarr_artist_progress: deleteWhereUser('lidarr_artist_progress'),
     lidarr_usage: deleteWhereUser('lidarr_usage'),
     lidarr_requests: deleteWhereUser('lidarr_requests'),
@@ -2722,6 +2735,51 @@ export function getAllSystemJobRuns(db) {
 }
 
 // ─── Playlist tracks (crescive / curative local state) ────────────────────────
+
+const DAILY_MIX_HISTORY_RETENTION_DAYS = 90;
+
+function shiftDateKey(dateKey, days) {
+  const [y, m, d] = String(dateKey || '').split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Records the tracks in a user's Daily Mix for a local mix date (YYYY-MM-DD).
+ * Rebuilding the same day replaces that day's rows; rows past the retention
+ * window are pruned.
+ */
+export function recordDailyMixAppearances(db, userId, mixDate, ratingKeys) {
+  const user = String(userId || '').trim();
+  const date = String(mixDate || '').trim();
+  if (!user || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return 0;
+  const keys = [...new Set((Array.isArray(ratingKeys) ? ratingKeys : []).map((k) => String(k || '').trim()).filter(Boolean))];
+  const cutoff = shiftDateKey(date, -DAILY_MIX_HISTORY_RETENTION_DAYS);
+  const del = db.prepare('DELETE FROM daily_mix_history WHERE user_plex_id = ? AND mix_date = ?');
+  const prune = db.prepare('DELETE FROM daily_mix_history WHERE user_plex_id = ? AND mix_date < ?');
+  const ins = db.prepare('INSERT OR IGNORE INTO daily_mix_history (user_plex_id, rating_key, mix_date) VALUES (?, ?, ?)');
+  db.transaction(() => {
+    del.run(user, date);
+    if (cutoff) prune.run(user, cutoff);
+    for (const key of keys) ins.run(user, key, date);
+  })();
+  return keys.length;
+}
+
+/**
+ * Returns Map<ratingKey, latest mix date> for mixes built on or after
+ * `sinceDate` and strictly before `beforeDate` (both YYYY-MM-DD).
+ */
+export function getDailyMixLastAppearances(db, userId, { sinceDate = '', beforeDate = '' } = {}) {
+  const rows = db.prepare(`
+    SELECT rating_key, MAX(mix_date) AS last_date
+    FROM daily_mix_history
+    WHERE user_plex_id = ? AND mix_date >= ? AND (? = '' OR mix_date < ?)
+    GROUP BY rating_key
+  `).all(String(userId || '').trim(), String(sinceDate || ''), String(beforeDate || ''), String(beforeDate || ''));
+  return new Map(rows.map((row) => [String(row.rating_key), String(row.last_date)]));
+}
 
 export function getPlaylistTracks(db, userId, playlistKey) {
   return db.prepare('SELECT rating_key, artist_name FROM playlist_tracks WHERE user_plex_id = ? AND playlist_key = ? ORDER BY source_position ASC, added_at ASC, rowid ASC')

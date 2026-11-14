@@ -1268,6 +1268,8 @@ export function registerSettings(app, ctx) {
       maxTracks: int('dm_maxTracks', 1, 200, 24),
       maxTracksPerArtist: int('dm_maxTracksPerArtist', 1, 5, 1),
       repeatCooldownDays: int('dm_repeatCooldownDays', 0, 60, 5),
+      favoriteRepeatDays: int('dm_favoriteRepeatDays', 0, 60, 7),
+      otherRepeatDays: int('dm_otherRepeatDays', 0, 30, 3),
       featureProfile: oneOf('dm_featureProfile', FEATURE_PROFILES, 'none'),
       camelotFocus: String(req.body?.dm_camelotFocus || '').trim().toUpperCase(),
       camelotMode: oneOf('dm_camelotMode', CAMELOT_MODES, 'exact'),
