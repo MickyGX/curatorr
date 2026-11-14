@@ -21,7 +21,7 @@ process.env.TIDAL_CLIENT_SECRET = 'test-tidal-client-secret';
 
 const baseUrl = `http://127.0.0.1:${process.env.PORT}`;
 
-const { start, stop, jsonForScript, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds } = await import('../index.js');
+const { start, stop, jsonForScript, canUserAccessLidarrAutomation, cleanupSetupAdminMusicState, completePlexLogin, getScheduledPlaylistUserIds, isSetupAdminOnlyIdentity } = await import('../index.js');
 const {
   countTracksMissingEnrichment,
   countTracksMissingPlexLoudness,
@@ -3623,6 +3623,40 @@ describe('security guards', () => {
     });
 
     assert.equal(lidarrService.resolveAutomationRoleForUserId('testadmin'), 'disabled');
+  });
+
+  it('keeps Lidarr automation for a Plex user who shares the setup admin username', () => {
+    const config = {
+      users: [{ username: 'drchino', role: 'admin', passwordHash: 'hash', salt: 'salt', createdBy: 'setup', setupAccount: true }],
+      plex: { userServerTokens: { drchino: 'plex-token', otheralias: 'plex-token' } },
+    };
+    const setupIds = new Set(['drchino']);
+    const isSetupAdminUser = (_config, id) => setupIds.has(String(id || '').toLowerCase());
+    const lidarrService = createLidarrService({
+      db: null,
+      loadConfig: () => config,
+      safeMessage: (err) => String(err?.message || err || ''),
+      slugifyId: (value) => String(value || ''),
+      pushLog: () => {},
+      resolveRole: ({ username }) => (String(username || '').toLowerCase() === 'drchino' ? 'admin' : 'user'),
+      resolveLocalUsers: (cfg) => cfg.users.map((user) => ({ ...user, isSetupAdmin: true })),
+      isSetupAdminUser,
+      isSetupAdminOnlyIdentity: (cfg, id) => isSetupAdminUser(cfg, id)
+        && !(cfg.plex.userServerTokens[String(id || '').toLowerCase()]),
+    });
+
+    assert.equal(lidarrService.resolveAutomationRoleForUserId('drchino'), 'admin');
+    // A different alias that only reaches the setup admin through a shared token stays excluded.
+    assert.equal(lidarrService.resolveAutomationRoleForUserId('otheralias'), 'disabled');
+  });
+
+  it('only treats a setup admin identity as setup-only when it has no Plex token', () => {
+    const base = {
+      users: [{ username: 'drchino', role: 'admin', passwordHash: 'hash', salt: 'salt', createdBy: 'setup', setupAccount: true }],
+    };
+    assert.equal(isSetupAdminOnlyIdentity(base, 'drchino'), true);
+    assert.equal(isSetupAdminOnlyIdentity({ ...base, plex: { userServerTokens: { drchino: 'tok' } } }, 'drchino'), false);
+    assert.equal(isSetupAdminOnlyIdentity(base, 'someoneelse'), false);
   });
 
   it('wraps Lidarr artist-list abort errors without mutating read-only error codes', async () => {

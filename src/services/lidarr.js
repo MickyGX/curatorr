@@ -220,6 +220,7 @@ export function createLidarrService(ctx) {
     resolveRole,
     resolveLocalUsers,
     isSetupAdminUser,
+    isSetupAdminOnlyIdentity,
   } = ctx;
 
   function logEvent(level, action, message, meta = null) {
@@ -451,7 +452,12 @@ export function createLidarrService(ctx) {
     const value = String(userPlexId || '').trim();
     if (!value) return 'user';
     const config = loadConfig();
-    if (typeof isSetupAdminUser === 'function' && isSetupAdminUser(config, value)) return 'disabled';
+    // The setup admin is excluded from background automation, unless the same name
+    // also belongs to a Plex user who has signed in: that ID is a real listener.
+    const setupAdminOnly = typeof isSetupAdminOnlyIdentity === 'function'
+      ? (id) => isSetupAdminOnlyIdentity(config, id)
+      : (id) => typeof isSetupAdminUser === 'function' && isSetupAdminUser(config, id);
+    if (setupAdminOnly(value)) return 'disabled';
     const localUsers = typeof resolveLocalUsers === 'function' ? resolveLocalUsers(config) : [];
     const identities = resolveRelatedUserIdentifiers(value);
     const keys = new Set(identities.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean));
@@ -459,8 +465,14 @@ export function createLidarrService(ctx) {
       const ids = [user?.username, user?.email].map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean);
       return ids.some((id) => keys.has(id));
     });
-    if (localMatch?.isSetupAdmin) return 'disabled';
-    if (localMatch?.role) return normalizeRole(localMatch.role);
+    if (localMatch?.isSetupAdmin) {
+      // Reaching here with a setup-admin name means the ID is Plex-backed (setupAdminOnly
+      // was false): use its Plex role, resolved below. Other aliases stay disabled.
+      const plexBackedSetupName = typeof isSetupAdminUser === 'function' && isSetupAdminUser(config, value);
+      if (!plexBackedSetupName) return 'disabled';
+    } else if (localMatch?.role) {
+      return normalizeRole(localMatch.role);
+    }
     if (typeof resolveRole === 'function') {
       for (const identity of identities) {
         const resolved = normalizeRole(resolveRole({
