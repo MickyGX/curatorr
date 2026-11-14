@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.114 (2026-11-14)
+
+- Fixed Lidarr auto-add never requesting artists for the setup admin when their Curatorr username matches their Plex username. Background jobs mistook the Plex account for the local setup account and skipped it without logging anything. Suggestions were still generated and manual adds still worked. Failed-request retries, suggestion rebuilds and Blend playlist syncs skipped the same account and now include it again.
+- Fixed the "What's new" pop-up splitting nested release-note bullets into separate highlights. Each highlight now reads as one complete item.
+- Added regression coverage for the setup admin and Plex username overlap and for the release highlights parser.
+- Thanks to @drchino (#199) for the report and diagnosis.
+
 ## v0.1.113 (2026-11-06)
 
 - Fixed the Playlists page taking over a minute to load on very large libraries. The genre, mood, tag, decade and folder lists in the playlist builder were rebuilt from the whole library on every visit. They are now built in the background and reused until the library changes. Settings → Global Playlists uses the same lists and also loads faster.

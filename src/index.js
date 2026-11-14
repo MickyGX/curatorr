@@ -40,6 +40,7 @@ import { createTrackEnrichmentService } from './services/track-enrichment.js';
 import { createSpotifyService } from './services/spotify.js';
 import { createYouTubeService } from './services/youtube.js';
 import { createTidalService } from './services/tidal.js';
+import { parseReleaseHighlights } from './release-highlights.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -389,53 +390,16 @@ function buildReleaseNotesUrl(version) {
   return tag ? `${RELEASE_NOTES_BASE_URL}${encodeURIComponent(tag)}` : '';
 }
 
-function stripMarkdownInline(value) {
-  let text = String(value || '').trim();
-  if (!text) return '';
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-  text = text.replace(/`([^`]+)`/g, '$1');
-  text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
-  text = text.replace(/\*([^*]+)\*/g, '$1');
-  text = text.replace(/~~([^~]+)~~/g, '$1');
-  return text.replace(/\s+/g, ' ').trim();
-}
-
 function loadReleaseHighlights(versionTag, options = {}) {
   const normalized = normalizeVersionTag(versionTag);
   if (!normalized) return [];
   const maxItemsRaw = Number(options.maxItems);
   const maxItems = Number.isFinite(maxItemsRaw) ? Math.max(1, Math.min(20, maxItemsRaw)) : RELEASE_HIGHLIGHT_LIMIT;
-  const sectionSet = new Set(RELEASE_HIGHLIGHT_SECTIONS.map((section) => section.toLowerCase()));
   const releaseFilePath = path.join(RELEASE_NOTES_DIR, `${normalized}.md`);
   if (!fs.existsSync(releaseFilePath)) return [];
   try {
     const raw = fs.readFileSync(releaseFilePath, 'utf8');
-    const lines = raw.split(/\r?\n/);
-    let activeSection = '';
-    const highlights = [];
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = String(lines[index] || '');
-      const sectionMatch = line.match(/^#{2,3}\s+(.+?)\s*$/);
-      if (sectionMatch) {
-        const heading = String(sectionMatch[1] || '').trim();
-        const key = heading.toLowerCase();
-        activeSection = sectionSet.has(key) ? heading : '';
-        continue;
-      }
-      if (/^#{1,6}\s+/.test(line)) {
-        activeSection = '';
-        continue;
-      }
-      if (!activeSection) continue;
-      const bulletMatch = line.match(/^\s*-\s+(.+?)\s*$/);
-      if (!bulletMatch) continue;
-      const bulletText = stripMarkdownInline(bulletMatch[1]);
-      if (!bulletText) continue;
-      highlights.push(`${activeSection}: ${bulletText}`);
-      if (highlights.length >= maxItems) break;
-    }
-    return highlights;
+    return parseReleaseHighlights(raw, { sections: RELEASE_HIGHLIGHT_SECTIONS, maxItems });
   } catch (err) {
     return [];
   }

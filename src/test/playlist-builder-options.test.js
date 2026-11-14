@@ -73,20 +73,22 @@ describe('playlist builder options cache', () => {
     let job = deferred();
     let runs = 0;
     const runWorker = () => { runs++; return job.promise; };
+    // Frozen clock: rebuilds take 0ms, so the post-rebuild cooldown never blocks the next one.
+    const now = () => 0;
 
     job.resolve({ allGenres: ['Rock'] });
-    await getPlaylistBuilderOptions(db, { runWorker });
+    await getPlaylistBuilderOptions(db, { runWorker, now });
 
     job = deferred();
     bumpLibraryDataGeneration(db);
-    const stale = await getPlaylistBuilderOptions(db, { runWorker, waitMs: 5 });
+    const stale = await getPlaylistBuilderOptions(db, { runWorker, waitMs: 5, now });
     assert.deepEqual(stale.allGenres, ['Rock']);
     assert.equal(stale.builderOptionsPending, false);
     assert.equal(runs, 2);
 
     job.resolve({ allGenres: ['Rock', 'Soul'] });
     await flush();
-    const fresh = await getPlaylistBuilderOptions(db, { runWorker, waitMs: 5 });
+    const fresh = await getPlaylistBuilderOptions(db, { runWorker, waitMs: 5, now });
     assert.deepEqual(fresh.allGenres, ['Rock', 'Soul']);
     assert.equal(runs, 2);
   });
