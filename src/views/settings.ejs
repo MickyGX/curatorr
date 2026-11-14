@@ -1193,14 +1193,16 @@
                     <span class="settings-toggle-text">Enabled</span>
                   </label>
                 </div>
-                <div class="settings-card-sub">Build a compact rotating mix from favourites, suggestions, and fresh library tracks. The three track counts are each source&#39;s share; when a source runs short, the others fill the mix up to Max tracks. The selection rotates daily and skips the previous mix&#39;s tracks when there are enough alternatives. These settings are used for the scheduled Daily Mix sync and manual rebuilds.</div>
+                <div class="settings-card-sub">Build a compact rotating mix from favourites, suggestions, and fresh library tracks. The three track counts are each source&#39;s share; when a source runs short, the others fill the mix up to Max tracks. The selection rotates daily. A favourite isn&#39;t repeated within its repeat window, and suggested and fresh tracks within theirs, unless there aren&#39;t enough other tracks to fill the mix. The recently played cooldown separately lowers the chance of tracks you&#39;ve just listened to. These settings are used for the scheduled Daily Mix sync and manual rebuilds.</div>
                 <div class="settings-type-grid">
                   <label class="field"><span>Favourite tracks</span><input type="number" name="dm_favoriteLimit" value="<%= Number(_dm.favoriteLimit ?? 12) %>" min="1" max="100" /></label>
                   <label class="field"><span>Suggested tracks</span><input type="number" name="dm_suggestedLimit" value="<%= Number(_dm.suggestedLimit ?? 8) %>" min="0" max="100" /></label>
                   <label class="field"><span>Fresh tracks</span><input type="number" name="dm_freshLimit" value="<%= Number(_dm.freshLimit ?? 10) %>" min="0" max="100" /></label>
                   <label class="field"><span>Max tracks</span><input type="number" name="dm_maxTracks" value="<%= Number(_dm.maxTracks ?? 24) %>" min="1" max="200" /></label>
                   <label class="field"><span>Max tracks per artist</span><input type="number" name="dm_maxTracksPerArtist" value="<%= Number(_dm.maxTracksPerArtist ?? 1) %>" min="1" max="5" /></label>
-                  <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="dm_repeatCooldownDays" value="<%= Number(_dm.repeatCooldownDays ?? 5) %>" min="0" max="60" /></label>
+                  <label class="field"><span>Don&#39;t repeat favourites within (days)</span><input type="number" name="dm_favoriteRepeatDays" value="<%= Number(_dm.favoriteRepeatDays ?? 7) %>" min="0" max="60" title="Minimum days between a favourite&#39;s appearances in the mix. 0 only avoids yesterday&#39;s mix." /></label>
+                  <label class="field"><span>Don&#39;t repeat other tracks within (days)</span><input type="number" name="dm_otherRepeatDays" value="<%= Number(_dm.otherRepeatDays ?? 3) %>" min="0" max="30" title="Minimum days between appearances for suggested and fresh tracks. 0 only avoids yesterday&#39;s mix." /></label>
+                  <label class="field"><span>Recently played cooldown (days)</span><input type="number" name="dm_repeatCooldownDays" value="<%= Number(_dm.repeatCooldownDays ?? 5) %>" min="0" max="60" title="Tracks you played within this many days are less likely to be picked." /></label>
                 </div>
                 <div class="settings-type-grid" style="margin-top:14px">
                   <label class="field"><span>Base sort</span><select name="dm_sortBy"><%- _renderPlaylistSortOptions(_dm.sortBy || 'default', false) %></select></label>
@@ -1236,7 +1238,7 @@
                   <label class="field"><span>Target tracks</span><input type="number" name="ct_targetTracks" value="<%= Number(_ct.targetTracks ?? 48) %>" min="1" max="200" /></label>
                   <label class="field"><span>Discovery share</span><div class="settings-pct-row"><input type="number" name="ct_discoveryRatio" value="<%= _capPct(_ct.discoveryRatio, 0.35) %>" min="0" max="80" /><span class="settings-pct-sym">%</span></div></label>
                   <label class="field"><span>Max tracks per artist</span><input type="number" name="ct_maxTracksPerArtist" value="<%= Number(_ct.maxTracksPerArtist ?? 2) %>" min="1" max="5" /></label>
-                  <label class="field"><span>Repeat cooldown (days)</span><input type="number" name="ct_repeatCooldownDays" value="<%= Number(_ct.repeatCooldownDays ?? 14) %>" min="0" max="90" /></label>
+                  <label class="field"><span>Recently played cooldown (days)</span><input type="number" name="ct_repeatCooldownDays" value="<%= Number(_ct.repeatCooldownDays ?? 14) %>" min="0" max="90" /></label>
                 </div>
                 <div class="settings-type-grid" style="margin-top:14px">
                   <label class="field"><span>Base sort</span><select name="ct_sortBy"><%- _renderPlaylistSortOptions(_ct.sortBy || 'default', false) %></select></label>

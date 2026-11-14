@@ -14,6 +14,8 @@ import {
   getMasterTracks,
   setPlaylistTracks,
   getPlaylistTracks,
+  recordDailyMixAppearances,
+  getDailyMixLastAppearances,
   remapPlaylistTracks,
   hasMasterTrack,
   listImportedPlaylistUnmatched,
@@ -818,10 +820,10 @@ function matchesReleaseRules(track, rules = {}, now = Date.now()) {
   return true;
 }
 
-function buildRecentPenalty(lastPlayedAt, cooldownDays = 0) {
+function buildRecentPenalty(lastPlayedAt, cooldownDays = 0, now = Date.now()) {
   const cooldownMs = Math.max(0, Number(cooldownDays || 0)) * 24 * 60 * 60 * 1000;
   if (!cooldownMs || !lastPlayedAt) return 0;
-  const age = Date.now() - Number(lastPlayedAt || 0);
+  const age = Number(now) - Number(lastPlayedAt || 0);
   if (!Number.isFinite(age) || age >= cooldownMs) return 0;
   return (1 - (age / cooldownMs)) * 40;
 }
@@ -841,7 +843,7 @@ function scoreSelectionTrack(track, extras = {}) {
   if (extras.inLikedArtist) score += Number(extras.likedArtistBonus || 0);
   if (extras.inLikedGenre) score += Number(extras.likedGenreBonus || 0);
   if (extras.inPreviousPlaylist) score -= Number(extras.previousPenalty || 0);
-  score -= buildRecentPenalty(stat.lastPlayedAt, extras.repeatCooldownDays);
+  score -= buildRecentPenalty(stat.lastPlayedAt, extras.repeatCooldownDays, Number.isFinite(Number(extras.now)) ? Number(extras.now) : Date.now());
   return score;
 }
 
@@ -851,6 +853,11 @@ function scoreSelectionTrack(track, extras = {}) {
 const DAILY_MIX_CANDIDATE_MULTIPLIER = 5;
 const DAILY_MIX_MIN_CANDIDATES = 40;
 const DAILY_MIX_SCORE_JITTER = 10;
+const DAILY_MIX_MAX_CANDIDATES = 500;
+// Favourites are weighted less by play count than other sources so the most-played
+// handful can't outscore the daily shuffle every day.
+const DAILY_MIX_FAVORITE_PLAY_WEIGHT = 0.3;
+const DAILY_MIX_PLAY_WEIGHT = 0.75;
 
 function hashStringToUnit(value) {
   // FNV-1a, 32-bit.
@@ -869,6 +876,23 @@ function buildLocalDateKey(now = Date.now()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+function dateKeyToUtcMs(dateKey) {
+  const [y, m, d] = String(dateKey || '').split('-').map(Number);
+  return (y && m && d) ? Date.UTC(y, m - 1, d) : NaN;
+}
+
+function shiftLocalDateKey(dateKey, days) {
+  const ms = dateKeyToUtcMs(dateKey);
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms + days * 86400000).toISOString().slice(0, 10);
+}
+
+// Whole calendar days from `fromKey` to `toKey` (both YYYY-MM-DD).
+function daysBetweenDateKeys(fromKey, toKey) {
+  const diff = dateKeyToUtcMs(toKey) - dateKeyToUtcMs(fromKey);
+  return Number.isFinite(diff) ? Math.round(diff / 86400000) : Infinity;
+}
+
 function normalizeDailyMixOptions(rawOptions = {}) {
   return {
     sortBy: normalizePlaylistBaseSort(rawOptions.sortBy, 'default'),
@@ -878,6 +902,9 @@ function normalizeDailyMixOptions(rawOptions = {}) {
     maxTracks: clampNumber(rawOptions.maxTracks, 1, 200, 24),
     maxTracksPerArtist: clampNumber(rawOptions.maxTracksPerArtist, 1, 5, 1),
     repeatCooldownDays: clampNumber(rawOptions.repeatCooldownDays, 0, 60, 5),
+    // Minimum days between appearances in the mix (0 = only avoid yesterday's mix).
+    favoriteRepeatDays: clampNumber(rawOptions.favoriteRepeatDays, 0, 60, 7),
+    otherRepeatDays: clampNumber(rawOptions.otherRepeatDays, 0, 30, 3),
     featureProfile: normalizeFeaturePreset(rawOptions.featurePreset || rawOptions.featureProfile),
     camelotFocus: normalizeCamelotFocusInput(rawOptions.camelotFocus || ''),
     camelotMode: ['exact', 'adjacent', 'relative', 'harmonic'].includes(rawOptions.camelotMode) ? rawOptions.camelotMode : 'exact',
@@ -3687,6 +3714,22 @@ export function createPlaylistService(ctx) {
     // only a mix from an earlier day is avoided.
     const previousBuiltAt = Number(getGeneratedByKey(userPlexId, DAILY_MIX_PLAYLIST_KEY)?.lastBuiltAt || 0);
     const previousIsToday = previousKeys.size > 0 && previousBuiltAt > 0 && buildLocalDateKey(previousBuiltAt) === todayKey;
+    // When each track last appeared in an earlier day's mix, within the repeat windows.
+    const maxRepeatDays = Math.max(mixOptions.favoriteRepeatDays, mixOptions.otherRepeatDays);
+    const lastAppeared = maxRepeatDays > 0
+      ? getDailyMixLastAppearances(db, userPlexId, { sinceDate: shiftLocalDateKey(todayKey, -maxRepeatDays), beforeDate: todayKey })
+      : new Map();
+    if (!previousIsToday && previousBuiltAt > 0) {
+      // Covers mixes built before history was recorded.
+      const previousDate = buildLocalDateKey(previousBuiltAt);
+      for (const key of previousKeys) {
+        if (previousDate < todayKey && !(lastAppeared.get(key) >= previousDate)) lastAppeared.set(key, previousDate);
+      }
+    }
+    const daysSinceAppeared = (ratingKey) => {
+      const date = lastAppeared.get(String(ratingKey || ''));
+      return date ? daysBetweenDateKeys(date, todayKey) : Infinity;
+    };
     const filteredMasterTracks = applyFeaturePresetFilters(
       mixOptions.trackFilters
         ? applyTrackFilters(masterTracks, mixOptions.trackFilters)
@@ -3696,7 +3739,7 @@ export function createPlaylistService(ctx) {
     const shouldRestrictToMasterTrackKeys = masterTracks.length > 0;
     const allowedTrackKeys = new Set(filteredMasterTracks.map((track) => track.ratingKey));
 
-    const scorePool = (tracks, sourceBonus) => dedupeByRatingKey(tracks)
+    const scorePool = (tracks, sourceBonus, playWeight = DAILY_MIX_PLAY_WEIGHT) => dedupeByRatingKey(tracks)
       .map((track) => ({
         ...(masterTrackMap.get(String(track?.ratingKey || '').trim()) || {}),
         ...track,
@@ -3711,11 +3754,12 @@ export function createPlaylistService(ctx) {
           score: scoreSelectionTrack(track, {
             stat,
             tierWeight: 8,
-            playWeight: 0.75,
+            playWeight,
             ratingWeight: 0.03,
             sourceBonus,
             previousPenalty: 16,
             repeatCooldownDays: mixOptions.repeatCooldownDays,
+            now,
             inPreviousPlaylist: !previousIsToday && previousKeys.has(track.ratingKey),
           }),
         };
@@ -3724,8 +3768,13 @@ export function createPlaylistService(ctx) {
 
     const daySeed = `${userPlexId}:${todayKey}`;
     const sqlSeed = Math.floor(hashStringToUnit(daySeed) * 2147483646) + 1;
-    const candidateLimit = (share) => (share > 0
-      ? Math.max(Math.round(share) * DAILY_MIX_CANDIDATE_MULTIPLIER, DAILY_MIX_MIN_CANDIDATES, mixOptions.maxTracks)
+    // The pool must hold enough distinct tracks to cover the repeat window.
+    const candidateLimit = (share, repeatDays = 0) => (share > 0
+      ? Math.min(DAILY_MIX_MAX_CANDIDATES, Math.max(
+        Math.round(share) * Math.max(DAILY_MIX_CANDIDATE_MULTIPLIER, repeatDays + 1),
+        DAILY_MIX_MIN_CANDIDATES,
+        mixOptions.maxTracks,
+      ))
       : 0);
     const perArtist = mixOptions.maxTracksPerArtist + 1;
     const rankForToday = (pool) => pool
@@ -3735,36 +3784,55 @@ export function createPlaylistService(ctx) {
 
     const sources = [
       { key: 'favorites', share: mixOptions.favoriteLimit, sourceBonus: 30,
+        playWeight: DAILY_MIX_FAVORITE_PLAY_WEIGHT, repeatDays: mixOptions.favoriteRepeatDays,
         fetch: (limit) => pickFavoriteTracks(db, userPlexId, limit, { perArtist }) },
       { key: 'suggestions', share: mixOptions.suggestedLimit, sourceBonus: 22,
+        playWeight: DAILY_MIX_PLAY_WEIGHT, repeatDays: mixOptions.otherRepeatDays,
         fetch: (limit) => pickSuggestedTracks(db, userPlexId, limit) },
       { key: 'fresh', share: mixOptions.freshLimit, sourceBonus: 14,
+        playWeight: DAILY_MIX_PLAY_WEIGHT, repeatDays: mixOptions.otherRepeatDays,
         fetch: (limit) => pickFreshLibraryTracks(db, userPlexId, limit, { seed: sqlSeed, perArtist }) },
     ].map((source) => {
-      const limit = candidateLimit(source.share);
-      const scored = limit > 0 ? scorePool(source.fetch(limit), source.sourceBonus) : [];
-      return { ...source, scored, ranked: rankForToday(scored), picked: [] };
+      const limit = candidateLimit(source.share, source.repeatDays);
+      const scored = limit > 0 ? scorePool(source.fetch(limit), source.sourceBonus, source.playWeight) : [];
+      const ranked = rankForToday(scored);
+      // Relaxation order: tracks that appeared longest ago first (stable, so rank breaks ties).
+      const byOldestAppearance = [...ranked].sort((a, b) => daysSinceAppeared(b.ratingKey) - daysSinceAppeared(a.ratingKey));
+      return { ...source, scored, ranked, byOldestAppearance, picked: [] };
     });
 
     // Selection order: each source up to its share, then any source to fill the
-    // mix. Yesterday's tracks are only used if nothing else can fill it.
+    // mix. Tracks inside their source's repeat window are only used if the mix
+    // can't be filled otherwise (longest-ago first), and yesterday's mix last.
     const state = createSelectionState(mixOptions.maxTracksPerArtist);
     const combined = [];
+    const windowRepeats = new Set();
+    const avoidPrevious = (track) => !previousIsToday && previousKeys.has(track.ratingKey);
+    // A favourite keeps the favourites window even if another source offers it.
+    const favoriteKeys = new Set(sources[0].scored.map((track) => track.ratingKey));
+    const repeatDaysFor = (track, source) => (favoriteKeys.has(track.ratingKey)
+      ? Math.max(source.repeatDays, mixOptions.favoriteRepeatDays)
+      : source.repeatDays);
+    const inRepeatWindow = (track, source) => {
+      const days = repeatDaysFor(track, source);
+      return days > 0 && daysSinceAppeared(track.ratingKey) < days;
+    };
     const take = (source, track) => {
       if (!tryAddSelectionTrack(state, combined, track)) return false;
       source.picked.push(track);
+      if (avoidPrevious(track) || (inRepeatWindow(track, source) && !(previousIsToday && previousKeys.has(track.ratingKey)))) {
+        windowRepeats.add(track.ratingKey);
+      }
       return true;
     };
-    const runPass = ({ allowPrevious, onlyPrevious = false, respectShare }) => {
+    const runPass = ({ accept, respectShare, order = 'ranked' }) => {
       let madeProgress = true;
       while (combined.length < mixOptions.maxTracks && madeProgress) {
         madeProgress = false;
         for (const source of sources) {
           if (combined.length >= mixOptions.maxTracks) break;
           if (respectShare && source.picked.length >= source.share) continue;
-          const next = source.ranked.find((track) => (onlyPrevious
-            ? previousKeys.has(track.ratingKey)
-            : (allowPrevious || !previousKeys.has(track.ratingKey)))
+          const next = source[order].find((track) => accept(track, source)
             && !state.seenRatingKeys.has(track.ratingKey)
             && take(source, track));
           if (next) madeProgress = true;
@@ -3772,14 +3840,18 @@ export function createPlaylistService(ctx) {
       }
     };
     if (previousIsToday) {
-      runPass({ onlyPrevious: true, respectShare: true });
-      runPass({ onlyPrevious: true, respectShare: false });
-      runPass({ allowPrevious: true, respectShare: true });
-    } else {
-      runPass({ allowPrevious: false, respectShare: true });
-      runPass({ allowPrevious: false, respectShare: false });
+      // A same-day rebuild keeps today's tracks first.
+      const isToday = (track) => previousKeys.has(track.ratingKey);
+      runPass({ accept: isToday, respectShare: true });
+      runPass({ accept: isToday, respectShare: false });
     }
-    runPass({ allowPrevious: true, respectShare: false });
+    const outsideWindow = (track, source) => !avoidPrevious(track) && !inRepeatWindow(track, source);
+    runPass({ accept: outsideWindow, respectShare: true });
+    runPass({ accept: outsideWindow, respectShare: false });
+    const notPrevious = (track) => !avoidPrevious(track);
+    runPass({ accept: notPrevious, respectShare: true, order: 'byOldestAppearance' });
+    runPass({ accept: notPrevious, respectShare: false, order: 'byOldestAppearance' });
+    runPass({ accept: () => true, respectShare: false });
 
     // Present the chosen tracks interleaved by source, best score first, so
     // the daily shuffle changes which tracks appear rather than the ordering.
@@ -3814,6 +3886,9 @@ export function createPlaylistService(ctx) {
         suggestions: suggestions.length,
         fresh: fresh.length,
       },
+      // Tracks that had to repeat inside their repeat window (or from yesterday) to fill the mix.
+      repeatWindowFills: windowRepeats.size,
+      mixDate: todayKey,
       options: mixOptions,
       builtAt: Date.now(),
     };
@@ -4341,7 +4416,14 @@ export function createPlaylistService(ctx) {
     if (shouldSkipGeneratedPlaylistSync(db, userPlexId, DAILY_MIX_PLAYLIST_KEY, options)) {
       return getGeneratedByKey(userPlexId, DAILY_MIX_PLAYLIST_KEY);
     }
-    return syncBuiltSelectionPlaylist(userPlexId, buildDailyMix(userPlexId, options), options);
+    const built = buildDailyMix(userPlexId, options);
+    const synced = await syncBuiltSelectionPlaylist(userPlexId, built, options);
+    try {
+      recordDailyMixAppearances(db, userPlexId, built.mixDate, synced?.trackKeys || built.trackKeys);
+    } catch (err) {
+      ctx.pushLog?.({ level: 'warn', app: 'playlist', action: 'daily-mix.history-error', message: `Daily Mix history not recorded for ${userPlexId}: ${err?.message || err}` });
+    }
+    return synced;
   }
 
   async function syncCuratorr(userPlexId, options = {}) {
